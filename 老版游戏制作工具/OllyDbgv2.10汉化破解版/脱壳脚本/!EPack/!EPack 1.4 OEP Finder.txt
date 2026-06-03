@@ -1,8 +1,0 @@
-
-find eip,#61B8#
-go $RESULT
-sto
-sto
-sto
-ret
-
