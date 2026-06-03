@@ -15,12 +15,18 @@ public sealed class ResourceReplaceService
 
     public ResourceReplacePreviewResult PreviewReplacement(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
     {
-        return BuildPreviewData(project, targetPath, replacementPath, requireSameExtension).ToPreviewResult();
+        return BuildPreviewData(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: true).ToPreviewResult();
     }
 
     public ResourceReplaceResult ReplaceInTestCopy(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
+        => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: true);
+
+    public ResourceReplaceResult Replace(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
+        => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: false);
+
+    private ResourceReplaceResult ReplaceCore(CczProject project, string targetPath, string replacementPath, bool requireSameExtension, bool requireTestCopy)
     {
-        var preview = BuildPreviewData(project, targetPath, replacementPath, requireSameExtension);
+        var preview = BuildPreviewData(project, targetPath, replacementPath, requireSameExtension, requireTestCopy);
         var backupPath = CreateBeforeSaveBackup(project, preview.TargetPath);
         var tempPath = preview.TargetPath + ".CCZModStudio.tmp";
         File.WriteAllBytes(tempPath, preview.NewBytes);
@@ -70,7 +76,9 @@ public sealed class ResourceReplaceService
             AfterSha256 = preview.NewHash,
             ChangedBytes = preview.ChangedBytes,
             Summary = $"整文件写入资源“{targetRelative}”，来源 {preview.ReplacementPath}，大小变化 {sizeDelta:+#;-#;0} 字节，估算改动 {preview.ChangedBytes:N0} 字节。",
-            SafetyNotes = "该报告由测试副本资源整文件替换/还原流程自动生成。原始目录禁止写入；当前不会解析或重封包 EEX/E5/SV 等未知内部结构。",
+            SafetyNotes = project.IsTestCopy
+                ? "该报告由测试副本资源整文件替换/还原流程自动生成。原始目录禁止写入；当前不会解析或重封包 EEX/E5/SV 等未知内部结构。"
+                : "该报告由 MCP 正式项目资源整文件替换流程自动生成。保存前已备份目标文件；当前不会解析或重封包 EEX/E5/SV 等未知内部结构。",
             FormatCheckSummary = preview.FormatCheck.Summary,
             RiskSummary = preview.RiskSummary,
             Changes =
@@ -102,9 +110,9 @@ public sealed class ResourceReplaceService
         return _reportService.WriteJsonReport(report, backupPath);
     }
 
-    private static ReplacementPreviewData BuildPreviewData(CczProject project, string targetPath, string replacementPath, bool requireSameExtension)
+    private static ReplacementPreviewData BuildPreviewData(CczProject project, string targetPath, string replacementPath, bool requireSameExtension, bool requireTestCopy)
     {
-        if (!project.IsTestCopy)
+        if (requireTestCopy && !project.IsTestCopy)
         {
             throw new InvalidOperationException("安全限制：当前项目不是测试副本，禁止替换资源。请先创建并打开 CCZModStudio 测试副本。");
         }
