@@ -19,6 +19,12 @@ public sealed class MaterialLibraryIndexer
         return IndexRoot(root);
     }
 
+    public IReadOnlyList<MaterialAsset> IndexExplicitRoot(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return Array.Empty<MaterialAsset>();
+        return IndexRoot(Path.GetFullPath(root));
+    }
+
     public static string? ResolveMaterialLibraryRoot(string workspaceRoot)
     {
         return ProjectDetector.FindPortableDirectory(
@@ -49,7 +55,7 @@ public sealed class MaterialLibraryIndexer
 
     private static IReadOnlyList<MaterialAsset> IndexRoot(string? root)
     {
-        if (root == null) return Array.Empty<MaterialAsset>();
+        if (root == null || !Directory.Exists(root)) return Array.Empty<MaterialAsset>();
 
         var result = new List<MaterialAsset>();
         foreach (var categoryDir in Directory.GetDirectories(root).OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase))

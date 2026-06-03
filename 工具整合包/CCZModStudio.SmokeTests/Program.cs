@@ -2888,6 +2888,7 @@ static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition
     RunBattlefieldTextWriteSmoke(project, testProject, tables, scenarioFileName);
     RunMapImageWriteSmoke(testProject);
     RunHexzmapWriteSmoke(project, testProject);
+    RunMapWorkbenchSmoke(project, testProject);
     Console.WriteLine($"RS_WRITE_SMOKE OK root={smokeRoot}");
 }
 
@@ -3384,6 +3385,128 @@ static void RunHexzmapWriteSmoke(CczProject sourceProject, CczProject testProjec
     }
 
     Console.WriteLine($"HEXZMAP_WRITE_SMOKE_OK {block.MapId} cell0=0x{original0:X2}->0x{changed0:X2} cell1=0x{original1:X2}->0x{changed1:X2} changed={save.ChangedCells} backup={Path.GetFileName(save.BackupPath)}");
+}
+
+static void RunMapWorkbenchSmoke(CczProject sourceProject, CczProject testProject)
+{
+    var materialRoot = MaterialLibraryIndexer.ResolveMaterialLibraryRoot(sourceProject)
+        ?? throw new DirectoryNotFoundException("Map workbench smoke requires a material library.");
+    var materials = new MaterialLibraryIndexer().IndexExplicitRoot(materialRoot);
+    var material = materials.FirstOrDefault()
+        ?? throw new InvalidOperationException("Map workbench smoke could not find any material image.");
+
+    var resources = new GameResourceIndexer().Index(testProject);
+    var mapItem = resources
+        .Where(x => x.Category == "地图图片" && x.GridWidth > 0 && x.GridHeight > 0)
+        .OrderBy(x => x.Id)
+        .FirstOrDefault()
+        ?? throw new InvalidOperationException("Map workbench smoke could not find a grid-aligned map image.");
+
+    var terrainLookup = HexzmapProbeReader.BuildTerrainNameLookup(materials);
+    var hexReader = new HexzmapProbeReader();
+    var probe = hexReader.Read(testProject, terrainLookup);
+    var mapId = Path.GetFileNameWithoutExtension(mapItem.Name);
+    if (mapId.Length > 1 && (mapId[0] == 'M' || mapId[0] == 'm') &&
+        int.TryParse(mapId[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var mapNumber))
+    {
+        mapId = $"M{mapNumber:D3}";
+    }
+
+    var block = probe.Blocks.FirstOrDefault(x =>
+        x.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase) &&
+        x.Width == mapItem.GridWidth &&
+        x.Height == mapItem.GridHeight &&
+        x.SegmentLength == mapItem.GridCellCount + HexzmapProbeReader.TerrainHeaderSize)
+        ?? throw new InvalidOperationException($"Map workbench smoke could not find a matching Hexzmap block for {mapItem.Name}.");
+
+    var draftService = new MapDraftService();
+    var composePublishService = new MapCanvasPublishService();
+    var draft = draftService.CreateDraftFromMap(testProject, mapItem, materialRoot);
+    draft.TerrainCells = hexReader.GetBlockCells(probe, block);
+    draft.MapCellOverrides.Add(new MapCellOverride
+    {
+        Index = 0,
+        MaterialRelativePath = MapDraftService.GetMaterialRelativePath(materialRoot, material.FilePath),
+        MaterialCategory = material.Category,
+        DisplayName = material.FileName
+    });
+    if (draft.TerrainCells.Length < 2)
+    {
+        throw new InvalidOperationException("Map workbench smoke requires at least two terrain cells.");
+    }
+
+    var terrain0 = draft.TerrainCells[0];
+    var terrain1 = draft.TerrainCells[1];
+    draft.TerrainCells[0] = terrain0 == 7 ? (byte)8 : (byte)7;
+    draft.TerrainCells[1] = terrain1 == 9 ? (byte)10 : (byte)9;
+
+    draftService.SaveDraft(testProject, draft);
+    var reloaded = draftService.LoadDraft(testProject, draft.DraftId);
+    if (reloaded.GridWidth != draft.GridWidth ||
+        reloaded.GridHeight != draft.GridHeight ||
+        reloaded.MapCellOverrides.Count != 1 ||
+        !reloaded.TerrainCells.SequenceEqual(draft.TerrainCells))
+    {
+        throw new InvalidOperationException("Map workbench draft save/reload smoke failed.");
+    }
+
+    var settings = new MapWorkbenchSettings
+    {
+        LastDraftId = draft.DraftId,
+        LastBoundMapId = draft.BoundMapId,
+        LastMaterialRoot = materialRoot
+    };
+    draftService.SaveSettings(testProject, settings);
+    var reloadedSettings = draftService.LoadSettings(testProject);
+    if (reloadedSettings.LastDraftId != draft.DraftId ||
+        !reloadedSettings.LastMaterialRoot.Equals(materialRoot, StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Map workbench settings save/reload smoke failed.");
+    }
+
+    var exportPath = Path.Combine(testProject.WorkspaceRoot, "CCZModStudio_Exports", "MapWorkbenchSmoke", $"{Path.GetFileNameWithoutExtension(mapItem.Name)}_workbench.jpg");
+    composePublishService.ExportJpeg(reloaded, exportPath);
+    using (var exported = System.Drawing.Image.FromFile(exportPath))
+    {
+        var expectedWidth = draft.GridWidth * ResourceIndexItem.MapTilePixelSize;
+        var expectedHeight = draft.GridHeight * ResourceIndexItem.MapTilePixelSize;
+        if (exported.Width != expectedWidth || exported.Height != expectedHeight)
+        {
+            throw new InvalidOperationException($"Map workbench export dimensions failed: {exported.Width}x{exported.Height}, expected {expectedWidth}x{expectedHeight}.");
+        }
+    }
+
+    var mapPublish = composePublishService.PublishToMapImage(testProject, reloaded, mapItem);
+    if (string.IsNullOrWhiteSpace(mapPublish.BackupPath) ||
+        !File.Exists(mapPublish.BackupPath) ||
+        string.IsNullOrWhiteSpace(mapPublish.ReportJsonPath) ||
+        !File.Exists(mapPublish.ReportJsonPath) ||
+        !File.ReadAllText(mapPublish.ReportJsonPath).Contains("地图工作台底图发布", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("Map workbench map publish backup/report smoke failed.");
+    }
+    using (var mapVerify = System.Drawing.Image.FromFile(mapItem.Path))
+    {
+        if (mapVerify.Width != reloaded.PixelWidth || mapVerify.Height != reloaded.PixelHeight)
+        {
+            throw new InvalidOperationException("Map workbench map publish reread dimension smoke failed.");
+        }
+    }
+
+    var terrainSave = new HexzmapEditorService().SaveBlock(testProject, probe, block, reloaded.TerrainCells, terrainLookup);
+    var verifyProbe = hexReader.Read(testProject, terrainLookup);
+    var verifyBlock = verifyProbe.Blocks.First(x => x.Index == block.Index);
+    var verifyCells = hexReader.GetBlockCells(verifyProbe, verifyBlock);
+    if (!verifyCells.SequenceEqual(reloaded.TerrainCells) ||
+        string.IsNullOrWhiteSpace(terrainSave.BackupPath) ||
+        !File.Exists(terrainSave.BackupPath) ||
+        string.IsNullOrWhiteSpace(terrainSave.ReportJsonPath) ||
+        !File.Exists(terrainSave.ReportJsonPath))
+    {
+        throw new InvalidOperationException("Map workbench terrain publish reread, backup, or report smoke failed.");
+    }
+
+    Console.WriteLine($"MAP_WORKBENCH_SMOKE_OK map={mapItem.Name} grid={draft.GridWidth}x{draft.GridHeight} material={material.Category}/{material.FileName} export={Path.GetFileName(exportPath)} mapBackup={Path.GetFileName(mapPublish.BackupPath)} terrainChanged={terrainSave.ChangedCells}");
 }
 
 static string BuildBattlefieldCommandSignature(BattlefieldEditorDocument document)
