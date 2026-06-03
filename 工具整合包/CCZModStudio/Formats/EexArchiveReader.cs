@@ -10,8 +10,8 @@ public sealed partial class EexArchiveReader
     public IReadOnlyList<EexArchiveInfo> ReadAll(CczProject project)
     {
         var result = new List<EexArchiveInfo>();
-        AddDirectory(project.ResolveGameFile("RS"), "R形象", "R_*.eex", result);
-        AddDirectory(project.ResolveGameFile("RS"), "S形象", "S_*.eex", result);
+        AddDirectory(project.ResolveGameFile("RS"), "R剧本EEX", "R_*.eex", result);
+        AddDirectory(project.ResolveGameFile("RS"), "S剧本EEX", "S_*.eex", result);
         AddDirectory(project.ResolveGameFile("Map"), "地图EEX", "*.eex", result);
         return result;
     }
@@ -55,8 +55,8 @@ public sealed partial class EexArchiveReader
 
         var role = category switch
         {
-            "R\u5f62\u8c61" => "R \u5f62\u8c61\u8d44\u6e90\u5305\uff1a\u901a\u5e38\u5bf9\u5e94\u4eba\u7269 R\u5f62\u8c61\u7f16\u53f7\uff0c\u7528\u4e8e\u6218\u573a\u89d2\u8272\u5f62\u8c61/\u52a8\u4f5c\u76f8\u5173\u8d44\u6e90\u3002",
-            "S\u5f62\u8c61" => "S \u5f62\u8c61\u8d44\u6e90\u5305\uff1a\u901a\u5e38\u5bf9\u5e94\u4eba\u7269 S\u5f62\u8c61\u7f16\u53f7\uff0c\u7528\u4e8e\u6218\u573a\u5c0f\u4eba/\u52a8\u4f5c\u76f8\u5173\u8d44\u6e90\u3002",
+            "R剧本EEX" => "R 剧本/场景 EEX：用于 R 场景脚本、文本和命令结构研究；不是人物 R 形象图像封包，人物 R 图像本体按当前口径定位到 Pmapobj.e5。",
+            "S剧本EEX" => "S 剧本/战场 EEX：用于 S 战场脚本、文本和命令结构研究；不是人物 S 形象图像封包，人物 S 图像本体按当前口径定位到 Unit_atk/mov/spc.e5。",
             "\u5730\u56feEEX" => "\u5730\u56fe EEX \u8d44\u6e90\u5305\uff1a\u901a\u5e38\u4e0e\u5730\u56fe\u663e\u793a\u3001\u5730\u56fe\u9644\u52a0\u8d44\u6e90\u6216\u573a\u666f\u7d20\u6750\u76f8\u5173\u3002",
             _ => "EEX \u8d44\u6e90\u5305\uff1a\u66f9\u64cd\u4f20 MOD \u5e38\u89c1\u5c01\u88c5\u8d44\u6e90\uff0c\u5f53\u524d\u4ec5\u505a\u53ea\u8bfb\u8bc6\u522b\u3002"
         };

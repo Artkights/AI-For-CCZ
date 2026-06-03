@@ -149,8 +149,8 @@ public sealed class ProjectAuditService
     {
         AddCount(items, project, "Map", "*.jpg", "地图 JPG");
         AddCount(items, project, "Map", "*.JPG", "地图 JPG");
-        AddCount(items, project, "RS", "R_*.eex", "R 形象");
-        AddCount(items, project, "RS", "S_*.eex", "S 形象");
+        AddCount(items, project, "RS", "R_*.eex", "R 剧本 EEX");
+        AddCount(items, project, "RS", "S_*.eex", "S 剧本 EEX");
         AddCount(items, project, "SV", "*.E5S", "E5S 存档信息文件");
         AddCount(items, project, "WAV", "*.wav", "WAV 音效");
         AddCount(items, project, "SoundTrk", "*.mp3", "MP3 音轨");

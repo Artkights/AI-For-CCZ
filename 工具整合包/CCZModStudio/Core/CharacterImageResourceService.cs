@@ -8,6 +8,7 @@ public sealed class CharacterImageResourceService
     // Tou.dll true-color face resource id = Face.e5 small-face number + 300 (lang=2052)
     public const int FaceTrueColorResourceBase = 300;
     public const int TrueColorLanguageId = 2052;
+    public const int FirstEmbeddedSImageId = 241;
 
     public CharacterFaceMapping MapFaceId(int dataFaceId)
     {
@@ -44,7 +45,7 @@ public sealed class CharacterImageResourceService
                 exists ? "已定位" : "未定位",
                 "Pmapobj.e5 (默认/普通形象)",
                 path,
-                "R=0 表示使用普通形象（与兵种/初始设定相关），不是错误；若需强制指定 R 剧本形象，请改为非 0 编号。");
+                "R=0 表示使用普通形象（与兵种/初始设定相关），不是错误；当前工具只定位编号和 Pmapobj.e5，不显示未经 Ls12 解包验证的候选图。");
         }
         return new CharacterImageResourceStatus(
             "R",
@@ -52,7 +53,7 @@ public sealed class CharacterImageResourceService
             exists ? "已定位" : "未定位",
             $"Pmapobj.e5 图{front}/{back}",
             path,
-            $"R 形象 {rImageId} 对应 Pmapobj.e5 第 {front} 张正面、第 {back} 张反面（教程口径）。注意：Pmapobj.e5 可能包含地图对象等其它资源，且封包条目边界/顺序未完全确认，当前预览仅用于粗定位。");
+            $"R 形象 {rImageId} 对应 Pmapobj.e5 第 {front} 张正面、第 {back} 张反面（教程口径）。注意：Pmapobj.e5 是 Ls 封包，必须解析真实目录/解压后才能确认图像；当前工具不再显示裸扫 JPEG 候选图。");
     }
 
     public CharacterImageResourceStatus BuildSStatus(CczProject project, int sImageId)
@@ -68,7 +69,7 @@ public sealed class CharacterImageResourceService
                 status,
                 "Unit_* (默认/普通形象)",
                 string.Join(";", unitFiles),
-                "S=0 表示使用普通形象（与兵种/初始设定相关），不是错误；若需强制指定 S 形象，请改为非 0 编号。资源候选：Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。");
+                "S=0 表示使用普通形象（与兵种/初始设定相关），不是错误；普通 S 仍需解析 Unit_* 的 Ls12 条目后才能显示。");
         }
         var mapping = BuildSMappingText(sImageId);
         return new CharacterImageResourceStatus(
@@ -77,7 +78,7 @@ public sealed class CharacterImageResourceService
             status,
             mapping.ShortText,
             string.Join(";", unitFiles),
-            mapping.Detail + " 资源候选：Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。注意：S 形象最终显示通常与兵种/动作帧选择相关，当前预览仅为候选切片，不保证与实机一致。");
+            mapping.Detail + " 资源候选：Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。注意：S 形象最终显示通常与兵种、动作、朝向和帧选择相关；当前只对 S>=241 且三套 Unit 文件中存在明文 BMP 扩展条目的编号显示首帧预览。");
     }
 
     public string BuildFaceHint(CczProject project, int dataFaceId)
@@ -133,21 +134,15 @@ public sealed class CharacterImageResourceService
 
     private static SImageMappingText BuildSMappingText(int sImageId)
     {
-        // Special groups (old tutorials): 140-156.
-        if (sImageId is >= 140 and <= 142) return new("特殊S01 图140-142", "S 形象值落在特殊形象 01：Unit_* 第 140-142 号图，通常用于三转形象。");
-        if (sImageId is >= 143 and <= 145) return new("特殊S02 图143-145", "S 形象值落在特殊形象 02：Unit_* 第 143-145 号图，通常用于三转形象。");
-        if (sImageId is >= 146 and <= 148) return new("特殊S03 图146-148", "S 形象值落在特殊形象 03：Unit_* 第 146-148 号图，通常用于三转形象。");
-        if (sImageId is >= 149 and <= 151) return new("特殊S04 图149-151", "S 形象值落在特殊形象 04：Unit_* 第 149-151 号图，通常用于三转形象。");
-        if (sImageId is >= 152 and <= 154) return new("特殊S05 图152-154", "S 形象值落在特殊形象 05：Unit_* 第 152-154 号图，通常用于三转形象。");
-        if (sImageId == 155) return new("特殊S06 图155", "S 形象值落在特殊形象 06：Unit_* 第 155 号图。");
-        if (sImageId == 156) return new("特殊S07 图156", "S 形象值落在特殊形象 07：Unit_* 第 156 号图。");
-
-        if (sImageId is >= 0 and <= 139)
+        if (sImageId is > 0 and < FirstEmbeddedSImageId)
         {
-            return new($"普通S{sImageId}", "S 形象值在 0-139 普通范围内；最终战场帧还要结合人物职业/兵种与 Unit_* 资源读取。");
+            return new($"基础S{sImageId}", "本地 6.4 形象对应表显示基础 S 形象覆盖 1-240；这些条目仍需按 Ls12 目录/解压和动作帧选择读取，不能按明文 BMP 出现顺序预览。");
         }
 
-        return new($"扩展/待确认S{sImageId}", "S 形象值超出已记录的普通 0-139 与特殊 140-156 范围；需对照 6.5 形象指定器与实机确认。");
+        var entryIndex = checked(sImageId - FirstEmbeddedSImageId);
+        return new(
+            $"扩展S{sImageId} Unit明文#{entryIndex + 1}",
+            $"本地 6.4 形象对应表显示 S=241 起进入特殊/扩展区；当前项目 Unit_*.e5 内存在一批明文 BMP 扩展条目，可按 S-{FirstEmbeddedSImageId} 作为零基条目下标做只读首帧预览。");
     }
 
     private sealed record SImageMappingText(string ShortText, string Detail);

@@ -40,7 +40,6 @@ public sealed class MainForm : Form
     private readonly ScenarioScriptSearchService _scenarioScriptSearchService = new();
     private readonly ResourceReplaceService _resourceReplaceService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
-    private readonly ImageResourceReplaceService _imageResourceReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
     private readonly FieldAnnotationService _fieldAnnotationService = new();
     private readonly ProPatchParser _patchParser = new();
@@ -122,6 +121,7 @@ public sealed class MainForm : Form
     private ScenarioStructureRow? _selectedScriptCommandRow;
     private ScenarioTextEntry? _selectedScriptTextEntry;
     private ScenarioCommandClipboardItem? _scriptCommandClipboardItem;
+    private int _nextLegacyScriptSyntheticOffset = -1;
     private readonly Dictionary<string, LegacyScenarioCommandNode> _legacyScriptCommandByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ScenarioStructureRow> _legacyScriptRowByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, (LegacyScenarioCommandNode Command, LegacyScenarioCommandParameter Parameter)> _legacyScriptTextByOffset = new();
@@ -507,6 +507,12 @@ public sealed class MainForm : Form
     private readonly Button _locateScriptCommandButton = new();
     private readonly Button _copyScriptCommandButton = new();
     private readonly Button _previewPasteScriptCommandButton = new();
+    private readonly ComboBox _scriptNewCommandCombo = new();
+    private readonly Button _appendScriptCommandToSectionButton = new();
+    private readonly Button _insertScriptCommandBeforeButton = new();
+    private readonly Button _insertScriptCommandAfterButton = new();
+    private readonly Button _appendScriptCommandToChildBlockButton = new();
+    private readonly Button _deleteScriptCommandButton = new();
     private readonly Button _saveScriptTextButton = new();
     private readonly Button _saveScriptStructureButton = new();
     private readonly Button _createScriptNoteButton = new();
@@ -1296,7 +1302,7 @@ public sealed class MainForm : Form
         imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
         imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        // 右侧预览区只保留图片：头像预览 + R预览 + S预览（R/S 并排竖长条）。
+        // 右侧预览区显示头像；S>=241 可显示已验证的 Unit 明文扩展首帧，R 和基础 S 仍需 Ls12 解码。
         _imageAssignmentFacePreviewBox.Dock = DockStyle.Fill;
         _imageAssignmentFacePreviewBox.BackColor = Color.FromArgb(32, 32, 36);
         _imageAssignmentFacePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
@@ -2733,6 +2739,7 @@ public sealed class MainForm : Form
         _mapMakerMaterialGrid.AllowUserToDeleteRows = false;
         _mapMakerMaterialGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _mapMakerMaterialGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _mapMakerMaterialGrid.DataBindingComplete += (_, _) => HideMapMakerMaterialTechnicalColumns();
         _mapMakerMaterialPreview.Dock = DockStyle.Fill;
         _mapMakerMaterialPreview.BackColor = Color.Black;
         _mapMakerMaterialPreview.SizeMode = PictureBoxSizeMode.Zoom;
@@ -3500,6 +3507,24 @@ public sealed class MainForm : Form
         _previewPasteScriptCommandButton.Text = "粘贴预览";
         _previewPasteScriptCommandButton.AutoSize = true;
         _previewPasteScriptCommandButton.Enabled = false;
+        _scriptNewCommandCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _scriptNewCommandCombo.Width = 220;
+        _scriptNewCommandCombo.Enabled = false;
+        _appendScriptCommandToSectionButton.Text = "添加到正文末尾";
+        _appendScriptCommandToSectionButton.AutoSize = true;
+        _appendScriptCommandToSectionButton.Enabled = false;
+        _insertScriptCommandBeforeButton.Text = "前插";
+        _insertScriptCommandBeforeButton.AutoSize = true;
+        _insertScriptCommandBeforeButton.Enabled = false;
+        _insertScriptCommandAfterButton.Text = "后插";
+        _insertScriptCommandAfterButton.AutoSize = true;
+        _insertScriptCommandAfterButton.Enabled = false;
+        _appendScriptCommandToChildBlockButton.Text = "追加到子块";
+        _appendScriptCommandToChildBlockButton.AutoSize = true;
+        _appendScriptCommandToChildBlockButton.Enabled = false;
+        _deleteScriptCommandButton.Text = "删除命令";
+        _deleteScriptCommandButton.AutoSize = true;
+        _deleteScriptCommandButton.Enabled = false;
         _saveScriptTextButton.Text = "保存当前文本";
         _saveScriptTextButton.AutoSize = true;
         _saveScriptTextButton.Enabled = false;
@@ -3555,10 +3580,11 @@ public sealed class MainForm : Form
         var treePanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 3,
             ColumnCount = 1,
             Padding = new Padding(0)
         };
+        treePanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         treePanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         treePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         treePanel.Controls.Add(new Label
@@ -3568,7 +3594,26 @@ public sealed class MainForm : Form
             Padding = new Padding(0, 0, 0, 6),
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
         }, 0, 0);
-        treePanel.Controls.Add(_scriptTree, 0, 1);
+        var structureToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Padding = new Padding(0, 0, 0, 6)
+        };
+        structureToolbar.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "新增：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            _scriptNewCommandCombo,
+            _appendScriptCommandToSectionButton,
+            _insertScriptCommandBeforeButton,
+            _insertScriptCommandAfterButton,
+            _appendScriptCommandToChildBlockButton,
+            _deleteScriptCommandButton
+        });
+        treePanel.Controls.Add(structureToolbar, 0, 1);
+        treePanel.Controls.Add(_scriptTree, 0, 2);
         mainSplit.Panel1.Controls.Add(treePanel);
 
         var workspaceSplit = new SplitContainer
@@ -3761,7 +3806,8 @@ public sealed class MainForm : Form
         _scriptHintPanel.Controls.Add(hint);
         detailLayout.Controls.Add(_scriptToggleHintButton, 0, 7);
         detailLayout.Controls.Add(_scriptHintPanel, 0, 8);
-        mainSplit.Panel2.Controls.Add(detailLayout);
+        workspaceSplit.Panel2.Controls.Add(detailLayout);
+        mainSplit.Panel2.Controls.Add(workspaceSplit);
         layout.Controls.Add(mainSplit, 0, 2);
 
         return page;
@@ -3807,17 +3853,18 @@ public sealed class MainForm : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 4,
+            RowCount = 3,
             ColumnCount = 3,
             Padding = new Padding(0, 8, 0, 0)
         };
+        var moduleCellPercent = 100F / 3F;
         for (var i = 0; i < 3; i++)
         {
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333F));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, moduleCellPercent));
         }
-        for (var i = 0; i < 4; i++)
+        for (var i = 0; i < 3; i++)
         {
-            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25F));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, moduleCellPercent));
         }
 
         grid.Controls.Add(BuildCoreModuleCard(
@@ -3832,11 +3879,15 @@ public sealed class MainForm : Form
             ("详细兵种", () => OpenCoreTable("6.5-4 详细兵种")),
             ("兵种特效", () => OpenCoreTable("6.5-7 兵种特效"))), 1, 0);
         grid.Controls.Add(BuildCoreModuleCard(
+            "宝物设定",
+            "编辑物品/宝物名称、价格、图标、能力、特效、图鉴和说明。",
+            ("宝物编辑器", OpenItemEditor)), 2, 0);
+        grid.Controls.Add(BuildCoreModuleCard(
             "地图制作",
             "底图、地形层、网格坐标与画笔编辑集中到同一画布。",
             ("地图制作", () => SelectTabPageByText("地图制作")),
             ("地形索引", () => SelectTabPageByText("Hexzmap地形探针")),
-            ("地图联动", () => SelectTabPageByText("关卡地图联动"))), 2, 0);
+            ("地图联动", () => SelectTabPageByText("关卡地图联动"))), 0, 1);
         grid.Controls.Add(BuildCoreModuleCard(
             "战场制作",
             "围绕关卡、地图、出场单位、坐标、阵营和 AI 组织战场数据。",
@@ -3853,19 +3904,15 @@ public sealed class MainForm : Form
             ("人物R/S", OpenCoreImageAssignments),
             ("资源索引", () => SelectTabPageByText("游戏资源索引"))), 0, 2);
         grid.Controls.Add(BuildCoreModuleCard(
-            "宝物设定",
-            "编辑物品/宝物名称、价格、图标、能力、特效、图鉴和说明。",
-            ("宝物编辑器", OpenItemEditor)), 1, 2);
-        grid.Controls.Add(BuildCoreModuleCard(
             "通用表格",
             "打开所有已确认 HexTable 表，适合熟练作者直接改字段。",
             ("数据表编辑", () => SelectTabPageByText("数据表编辑")),
-            ("字段注释", () => SelectTabPageByText("数据表编辑"))), 2, 2);
+            ("字段注释", () => SelectTabPageByText("数据表编辑"))), 1, 2);
         grid.Controls.Add(BuildCoreModuleCard(
             "高级工具",
             "诊断、报告、补丁、资源探针和发布辅助集中放在这里。",
             ("打开高级区", () => SelectTabPageByText("高级工具")),
-            ("创作者备注", () => SelectTabPageByText("创作者备注"))), 0, 3);
+            ("创作者备注", () => SelectTabPageByText("创作者备注"))), 2, 2);
 
         layout.Controls.Add(grid, 0, 2);
         return page;
@@ -4508,6 +4555,12 @@ public sealed class MainForm : Form
         _locateScriptCommandButton.Click += (_, _) => LocateSelectedScriptCommandInTree();
         _copyScriptCommandButton.Click += (_, _) => CopySelectedScriptCommandSummary();
         _previewPasteScriptCommandButton.Click += (_, _) => PreviewPasteScriptCommandCandidate();
+        _scriptNewCommandCombo.SelectedIndexChanged += (_, _) => UpdateScriptStructureEditButtons();
+        _appendScriptCommandToSectionButton.Click += (_, _) => AppendLegacyScriptCommandToSection();
+        _insertScriptCommandBeforeButton.Click += (_, _) => InsertLegacyScriptCommandNearSelected(beforeSelected: true);
+        _insertScriptCommandAfterButton.Click += (_, _) => InsertLegacyScriptCommandNearSelected(beforeSelected: false);
+        _appendScriptCommandToChildBlockButton.Click += (_, _) => AppendLegacyScriptCommandToChildBlock();
+        _deleteScriptCommandButton.Click += (_, _) => DeleteSelectedLegacyScriptCommand();
         _saveScriptTextButton.Click += async (_, _) => await SaveSelectedScriptTextAsync();
         _saveScriptStructureButton.Click += async (_, _) => await SaveCurrentLegacyScriptStructureAsync();
         _createScriptNoteButton.Click += (_, _) => CreateScriptNote();
@@ -4881,9 +4934,12 @@ public sealed class MainForm : Form
         _selectedScriptCommandRow = null;
         _selectedScriptTextEntry = null;
         _legacyScriptCommandByKey.Clear();
+        _legacyScriptRowByKey.Clear();
         _legacyScriptTextByOffset.Clear();
         _legacyScriptTextEntryByOffset.Clear();
         _scriptScenarioCombo.DataSource = null;
+        _scriptNewCommandCombo.DataSource = null;
+        _scriptNewCommandCombo.Enabled = false;
         _scriptTree.Nodes.Clear();
         _scriptCommandGrid.DataSource = null;
         _scriptParameterGrid.DataSource = null;
@@ -4897,6 +4953,7 @@ public sealed class MainForm : Form
         _saveScriptStructureButton.Enabled = false;
         _createScriptNoteButton.Enabled = false;
         _jumpScriptBattlefieldButton.Enabled = false;
+        UpdateScriptStructureEditButtons();
         _probeScenarioCommandsButton.Enabled = false;
         _buildScenarioStructureButton.Enabled = false;
         _exportScenarioStructureXmlButton.Enabled = false;
@@ -8123,7 +8180,7 @@ public sealed class MainForm : Form
         if (columnName == "职业名称") return "根据人物表“职业”编号自动引用 `6.5-4 详细兵种` 的名称，便于确认角色当前兵种。";
         if (columnName == "头像说明") return "根据人物表“头像”编号生成的头像映射说明：Data 头像号 -> Face.e5 小头像号（0 号使用 1-8 候选）以及 Tou.dll 真彩资源号（=小头像号+300，语言2052）。";
         if (columnName is "R形象编号") return "人物 R 形象编号：对应 Pmapobj.e5 的正/反两张图（正=2n+1，反=2n+2，按 1-based 图号解释）。";
-        if (columnName is "S形象编号") return "人物 S 形象编号：普通范围 0-139；特殊范围通常为 140-156（按教程的特殊形象分段）。资源候选在 Unit_atk/Unit_mov/Unit_spc.e5。";
+        if (columnName is "S形象编号") return "人物 S 形象编号：本地形象对应表显示基础区为 1-240，241 起为特殊/扩展区。S>=241 且 Unit 明文 BMP 条目存在时可预览首帧；基础 S 的最终帧仍需 Ls12 解码和实机/形象指定器确认。";
         if (columnName is "R资源状态" or "S资源状态") return "状态列用于提示相关资源文件是否已定位（例如 Pmapobj.e5、Unit_*.e5）。";
 
         var personTable = _tables.FirstOrDefault(t => t.TableName == "6.5-0 人物");
@@ -11238,16 +11295,16 @@ public sealed class MainForm : Form
                 if (column.DataPropertyName is "R资源状态" or "S资源状态")
                 {
                     column.Width = 150;
-                    column.ToolTipText = "R：根据 Pmapobj.e5（正/反两张图）解释编号；S：根据 Unit_atk/Unit_mov/Unit_spc.e5 的普通/特殊形象范围解释编号。";
+                    column.ToolTipText = "R：根据 Pmapobj.e5 正/反图号解释编号；S：根据 Unit_atk/mov/spc.e5 和扩展编号口径解释。S>=241 且 Unit 明文 BMP 条目存在时可显示首帧预览；普通 S 和 R 仍需 Ls12 解码。";
                 }
             }
             ColorImageAssignmentResourceRows();
-            var missingR = _currentImageAssignments.AsEnumerable().Count(row => Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture)?.StartsWith("缺失", StringComparison.Ordinal) == true);
-            var missingS = _currentImageAssignments.AsEnumerable().Count(row => Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture)?.StartsWith("缺失", StringComparison.Ordinal) == true);
+            var missingR = _currentImageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
+            var missingS = _currentImageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
             _imageAssignmentSummaryText =
                 $"已读取人物 R/S 形象联动表：{_currentImageAssignments.Rows.Count} 行。\r\n" +
                 $"资源解释检查：R 未定位 {missingR} 项，S 未/部分定位 {missingS} 项。\r\n" +
-                "右侧预览会先显示人物表头像（E5\\Face.e5 内 PNG），再显示 R/S 编号对应的资源解释；当前项目可直接编辑 R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
+                "右侧显示人物表头像预览；S>=241 且 Unit 明文 BMP 扩展条目存在时显示移动/攻击/特技首帧。R 形象和 S=1..240 基础形象仍需 Ls12 封包目录/解压和帧选择，当前不显示裸扫候选图。当前项目可直接编辑 R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
             _imageAssignmentInfoBox.Text = _imageAssignmentSummaryText;
             ShowSelectedImageAssignmentDetail();
             Log("已读取人物 R/S 形象联动表。");
@@ -11426,6 +11483,7 @@ public sealed class MainForm : Form
             $"头像={faceId?.ToString(CultureInfo.InvariantCulture) ?? "未读取"}  来源：人物表“头像”字段，预览来自 E5\\Face.e5\r\n" +
             $"R={rId:00}  {rStatus}  \u8def\u5f84\uff1a{rPath}\r\n" +
             $"S={sId:00}  {sStatus}  \u8def\u5f84\uff1a{sPath}\r\n" +
+            "R/S 实图预览：S>=241 且 Unit 明文 BMP 扩展条目存在时显示首帧；R 和基础 S 仍需 Ls12 解码，裸扫图片不会再显示。\r\n" +
             "\u63d0\u793a\uff1a\u5f53\u524d\u5355\u5143\u683c\u5728 S \u5217\u65f6\uff0c\u201c\u5b9a\u4f4d\u9009\u4e2d\u8d44\u6e90\u201d\u4f1a\u5b9a\u4f4d S\uff1b\u5176\u4ed6\u5217\u9ed8\u8ba4\u5b9a\u4f4d R\u3002";
 
         _imageAssignmentInfoBox.Text = string.IsNullOrWhiteSpace(_imageAssignmentSummaryText)
@@ -11444,7 +11502,7 @@ public sealed class MainForm : Form
 
         try
         {
-            // 右侧预览区只显示图片：头像 + R + S（不在图片内绘制文字）。
+            // R remains blocked on Pmapobj Ls12 mapping; S>=241 can use verified Unit BMP extension strips.
             SetPictureBoxImage(_imageAssignmentFacePreviewBox,
                 faceId.HasValue ? _imageAssignmentPreviewService.TryRenderFaceImage(_project, faceId.Value) : null);
             SetPictureBoxImage(_imageAssignmentRPreviewBox, _imageAssignmentPreviewService.TryRenderCharacterResourceImage(_project, "R", rId));
@@ -11532,17 +11590,6 @@ public sealed class MainForm : Form
         // 且 E5 封包写回格式尚未验证，因此暂不开放写入。
     }
 
-    private static string BuildImageResourceReplaceConfirmText(string prefix, int id, ResourceReplacePreviewResult preview, bool restoreMode)
-    {
-        var warnings = preview.FormatWarnings.Count == 0 ? "无" : string.Join("；", preview.FormatWarnings);
-        return
-            $"{(restoreMode ? "即将用备份还原" : "即将导入/替换")} R/S 形象资源：{prefix}_{id:00}.eex\r\n\r\n" +
-            $"目标：{preview.TargetPath}\r\n来源：{preview.ReplacementPath}\r\n" +
-            $"大小：{preview.OldSizeBytes:N0} -> {preview.NewSizeBytes:N0} 字节，改动估算 {preview.ChangedBytesEstimate:N0} 字节\r\n" +
-            $"格式检查：{preview.FormatCheckSummary}\r\n警告：{warnings}\r\n风险提示：{preview.RiskSummary}\r\n\r\n" +
-            "保存前会自动备份目标文件，保存后会复读校验 SHA256 和 EEX 魔数。是否继续？";
-    }
-
     private void ExportMissingImageResourceReport()
     {
         if (_currentImageAssignments == null)
@@ -11575,10 +11622,10 @@ public sealed class MainForm : Form
             {
                 ["ID"] = "\u4eba\u7269\u884c\u53f7/\u7f16\u53f7\uff0c\u7528\u4e8e\u56de\u67e5\u4eba\u7269\u8868\u3002",
                 ["\u540d\u79f0"] = "\u4eba\u7269\u540d\u79f0\u3002",
-                ["R\u5f62\u8c61\u7f16\u53f7"] = "R \u5f62\u8c61\u8d44\u6e90\u7f16\u53f7\uff0c\u5bf9\u5e94 RS\\R_XX.eex\u3002",
-                ["S\u5f62\u8c61\u7f16\u53f7"] = "S \u5f62\u8c61\u8d44\u6e90\u7f16\u53f7\uff0c\u5bf9\u5e94 RS\\S_XX.eex\u3002",
-                ["R\u8d44\u6e90\u72b6\u6001"] = "R \u6587\u4ef6\u5b58\u5728\u6027\u5b9e\u8bc1\u68c0\u67e5\u7ed3\u679c\u3002",
-                ["S\u8d44\u6e90\u72b6\u6001"] = "S \u6587\u4ef6\u5b58\u5728\u6027\u5b9e\u8bc1\u68c0\u67e5\u7ed3\u679c\u3002"
+                ["R\u5f62\u8c61\u7f16\u53f7"] = "R \u5f62\u8c61\u7f16\u53f7\uff1a\u4eba\u7269\u6307\u5b9a\u8868\u4e2d\u7684\u7f16\u53f7 n\uff0c\u6309\u6559\u7a0b\u53e3\u5f84\u5b9a\u4f4d Pmapobj.e5 \u56fe 2n+1/2n+2\u3002",
+                ["S\u5f62\u8c61\u7f16\u53f7"] = "S 形象编号：本地形象对应表显示基础区为 1-240，241 起为特殊/扩展区；S>=241 且 Unit 明文 BMP 条目存在时可预览首帧，基础 S 仍需 Ls12 解码和实机/形象指定器确认。资源候选为 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。",
+                ["R\u8d44\u6e90\u72b6\u6001"] = "R \u8d44\u6e90\u5b9a\u4f4d\u68c0\u67e5\u7ed3\u679c\uff1a\u4e0d\u518d\u6309 RS\\R_XX.eex \u5224\u65ad\u4eba\u7269\u56fe\u50cf\u3002",
+                ["S\u8d44\u6e90\u72b6\u6001"] = "S \u8d44\u6e90\u5b9a\u4f4d\u68c0\u67e5\u7ed3\u679c\uff1a\u4e0d\u518d\u6309 RS\\S_XX.eex \u5224\u65ad\u4eba\u7269\u56fe\u50cf\u3002"
             };
             CsvService.ExportColumnsRowsWithAnnotationRow(_currentImageAssignments, dialog.FileName, columns, notes, missingRows);
             Log($"\u5df2\u5bfc\u51fa R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\uff1a{dialog.FileName}\uff0c\u884c\u6570 {missingRows.Count}");
@@ -11978,6 +12025,7 @@ public sealed class MainForm : Form
                 $"来源：{_currentSceneStringDocument.SourcePath}\r\n" +
                 $"命令字典：{_currentSceneStringDocument.Commands.Count} 项    附加字符串组：{_currentSceneStringDocument.Groups.Count} 组\r\n" +
                 "当前阶段用于剧本模块的命令 ID->名称映射和参数候选表预览，尚未开放 Scene 二进制结构写入。";
+            PopulateScriptNewCommandCombo(_currentSceneStringDocument);
             _probeScenarioCommandsButton.Enabled = _currentScenarioFiles.Count > 0;
             _buildScenarioStructureButton.Enabled = _currentScenarioFiles.Count > 0;
             if (showMessages)
@@ -15459,6 +15507,7 @@ public sealed class MainForm : Form
                 MessageBox.Show(this, $"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}\r\n\r\n无法按传统命令名生成剧本树。跨设备迁移时，请把旧版 a新剧本编辑器v0.23 目录随工具包一起复制。", "缺少剧本字典", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+            PopulateScriptNewCommandCombo(dictionary);
 
             var project = _project;
             var tables = _tables;
@@ -15536,6 +15585,7 @@ public sealed class MainForm : Form
                 _locateScriptCommandButton.Enabled = true;
                 _copyScriptCommandButton.Enabled = true;
                 _previewPasteScriptCommandButton.Enabled = _scriptCommandClipboardItem != null;
+                UpdateScriptStructureEditButtons();
                 if (SelectDefaultScriptTreeNode())
                 {
                     refreshDefaultSelectionAfterLoad = true;
@@ -15632,6 +15682,7 @@ public sealed class MainForm : Form
                 MessageBox.Show(this, $"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}\r\n\r\n无法按传统命令名生成剧本树。跨设备迁移时，请把旧版 a新剧本编辑器v0.23 目录随工具包一起复制。", "缺少剧本字典", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
+            PopulateScriptNewCommandCombo(dictionary);
 
             _currentScriptScenario = scenario;
             _selectedScriptCommandRow = null;
@@ -15675,6 +15726,7 @@ public sealed class MainForm : Form
             _locateScriptCommandButton.Enabled = true;
             _copyScriptCommandButton.Enabled = true;
             _previewPasteScriptCommandButton.Enabled = _scriptCommandClipboardItem != null;
+            UpdateScriptStructureEditButtons();
             _scriptDetailBox.Text = BuildScriptOverview(_currentScriptStructure, _currentScriptTextEntries);
             SetStatus($"剧本制作：{scenario.FileName}");
         }
@@ -15720,11 +15772,502 @@ public sealed class MainForm : Form
             _locateScriptCommandButton.Enabled = false;
             _copyScriptCommandButton.Enabled = false;
             _previewPasteScriptCommandButton.Enabled = _scriptCommandClipboardItem != null;
+            UpdateScriptStructureEditButtons();
         }
         finally
         {
             _bindingScriptDocument = false;
         }
+    }
+
+    private void PopulateScriptNewCommandCombo(SceneStringDocument dictionary)
+    {
+        var table = ScenarioStructureProbeReader.LegacyCommandInstructionTable;
+        var previousId = (_scriptNewCommandCombo.SelectedItem as ScriptCommandComboItem)?.Id;
+        var items = dictionary.Commands
+            .Where(command => command.Id >= 0 && command.Id < table.Count)
+            .Where(command => !IsBlockedNewLegacyCommandId(command.Id))
+            .OrderBy(command => command.Id)
+            .Select(command => new ScriptCommandComboItem(command.Id, command.Name))
+            .ToList();
+
+        _scriptNewCommandCombo.DataSource = new BindingList<ScriptCommandComboItem>(items);
+        if (previousId.HasValue)
+        {
+            for (var i = 0; i < _scriptNewCommandCombo.Items.Count; i++)
+            {
+                if (_scriptNewCommandCombo.Items[i] is ScriptCommandComboItem item && item.Id == previousId.Value)
+                {
+                    _scriptNewCommandCombo.SelectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (_scriptNewCommandCombo.SelectedIndex < 0 && _scriptNewCommandCombo.Items.Count > 0)
+        {
+            _scriptNewCommandCombo.SelectedIndex = 0;
+        }
+
+        UpdateScriptStructureEditButtons();
+    }
+
+    private void UpdateScriptStructureEditButtons()
+    {
+        var hasLegacyDocument = _currentLegacyScriptDocument != null;
+        var hasCommandTemplate = _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem;
+        var selectedCommand = TryGetSelectedLegacyScriptCommand(out var command);
+        var selectedSection = TryGetSelectedLegacyScriptSection(out _);
+
+        _scriptNewCommandCombo.Enabled = hasLegacyDocument && _scriptNewCommandCombo.Items.Count > 0;
+        _appendScriptCommandToSectionButton.Enabled = hasLegacyDocument && hasCommandTemplate && selectedSection;
+        _insertScriptCommandBeforeButton.Enabled = hasLegacyDocument && hasCommandTemplate && selectedCommand &&
+                                                   CanInsertNearLegacyScriptCommand(command, out _) &&
+                                                   TryFindLegacyCommandList(_currentLegacyScriptDocument!, command, out _, out _);
+        _insertScriptCommandAfterButton.Enabled = _insertScriptCommandBeforeButton.Enabled;
+        _appendScriptCommandToChildBlockButton.Enabled = hasLegacyDocument && hasCommandTemplate && selectedCommand && command.ChildBlock != null;
+        _deleteScriptCommandButton.Enabled = hasLegacyDocument && selectedCommand && CanDeleteLegacyScriptCommand(command, out _);
+    }
+
+    private void AppendLegacyScriptCommandToSection()
+    {
+        if (_currentLegacyScriptDocument == null || !TryGetSelectedLegacyScriptSection(out var section)) return;
+        var command = CreateLegacyScriptCommand(section.SceneIndex, section.SectionIndex);
+        if (command == null) return;
+
+        var bodyRoot = section.Commands.FirstOrDefault(candidate => candidate.StartsBodyBlock && candidate.ChildBlock != null);
+        var targetList = bodyRoot?.ChildBlock?.Commands ?? section.Commands;
+        var targetName = bodyRoot == null
+            ? $"Scene {section.SceneIndex} / Section {section.SectionIndex} 顶层末尾"
+            : $"Scene {section.SceneIndex} / Section {section.SectionIndex} 事件正文末尾";
+
+        ApplyLegacyScriptStructureEdit(
+            () => targetList.Add(command),
+            command,
+            $"已添加命令到 {targetName}。");
+    }
+
+    private void InsertLegacyScriptCommandNearSelected(bool beforeSelected)
+    {
+        if (_currentLegacyScriptDocument == null || !TryGetSelectedLegacyScriptCommand(out var selected)) return;
+        if (!CanInsertNearLegacyScriptCommand(selected, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法在该命令旁插入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out var index)) return;
+
+        var command = CreateLegacyScriptCommand(selected.SceneIndex, selected.SectionIndex);
+        if (command == null) return;
+
+        ApplyLegacyScriptStructureEdit(
+            () => list.Insert(beforeSelected ? index : index + 1, command),
+            command,
+            $"已{(beforeSelected ? "前插" : "后插")}命令：{command.CommandIdHex} {command.CommandName}。");
+    }
+
+    private void AppendLegacyScriptCommandToChildBlock()
+    {
+        if (!TryGetSelectedLegacyScriptCommand(out var selected) || selected.ChildBlock == null) return;
+        var command = CreateLegacyScriptCommand(selected.SceneIndex, selected.SectionIndex);
+        if (command == null) return;
+
+        ApplyLegacyScriptStructureEdit(
+            () => selected.ChildBlock.Commands.Add(command),
+            command,
+            $"已追加命令到 {selected.CommandIdHex} {selected.CommandName} 的子块。");
+    }
+
+    private void DeleteSelectedLegacyScriptCommand()
+    {
+        if (_currentLegacyScriptDocument == null || !TryGetSelectedLegacyScriptCommand(out var selected)) return;
+        if (!CanDeleteLegacyScriptCommand(selected, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法删除该命令", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out var index)) return;
+        if (MessageBox.Show(this,
+                $"即将从 Scene {selected.SceneIndex} / Section {selected.SectionIndex} 删除命令：\r\n{selected.CommandIndex:000} {selected.CommandIdHex} {selected.CommandName}\r\n\r\n删除后需点击“完整保存剧本”写入文件。是否继续？",
+                "确认删除剧本命令",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        var nextSelection = index + 1 < list.Count
+            ? list[index + 1]
+            : index > 0
+                ? list[index - 1]
+                : null;
+
+        ApplyLegacyScriptStructureEdit(
+            () => list.RemoveAt(index),
+            nextSelection,
+            $"已删除命令：{selected.CommandIdHex} {selected.CommandName}。");
+    }
+
+    private void ApplyLegacyScriptStructureEdit(Action edit, LegacyScenarioCommandNode? preferredSelection, string statusText)
+    {
+        if (_currentLegacyScriptDocument == null) return;
+
+        var jumpTargets = CaptureLegacyJumpTargets(_currentLegacyScriptDocument);
+        edit();
+        ReindexLegacyScriptDocument(_currentLegacyScriptDocument);
+        RestoreLegacyJumpTargets(_currentLegacyScriptDocument, jumpTargets);
+        RefreshLegacyScriptView(preferredSelection);
+        _saveScriptStructureButton.Enabled = true;
+        SetStatus("剧本制作：" + statusText);
+    }
+
+    private void RefreshLegacyScriptView(LegacyScenarioCommandNode? preferredSelection)
+    {
+        if (_currentLegacyScriptDocument == null) return;
+
+        _bindingScriptDocument = true;
+        _scriptTree.SuspendLayout();
+        _scriptCommandGrid.SuspendLayout();
+        _scriptParameterGrid.SuspendLayout();
+        _scriptTextGrid.SuspendLayout();
+        _scriptSearchResultGrid.SuspendLayout();
+        try
+        {
+            _currentScriptStructure = BuildLegacyScriptStructureResult(_currentLegacyScriptDocument);
+            _currentScriptTextEntries = BuildLegacyScriptTextEntries(_currentLegacyScriptDocument);
+            _currentScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
+            BuildScriptTree(_currentScriptStructure, _currentScriptTextEntries);
+            BindScriptCommandRows(Array.Empty<ScenarioStructureRow>());
+            BindScriptParameterRows(Array.Empty<ScenarioCommandParameterRow>());
+            BindScriptTextRows(_currentScriptTextEntries);
+            BindScriptSearchResultRows(_currentScriptSearchResults);
+            _scriptTextEditorBox.Clear();
+            UpdateScriptTextCapacityLabel();
+            _scriptHeaderLabel.Text =
+                $"字典：已加载    剧本：{_currentLegacyScriptDocument.FileName}    模式：旧版完整树    命令：{_currentLegacyScriptDocument.CommandCount}    文本：{_currentScriptTextEntries.Count}";
+        }
+        finally
+        {
+            _scriptSearchResultGrid.ResumeLayout();
+            _scriptTextGrid.ResumeLayout();
+            _scriptParameterGrid.ResumeLayout();
+            _scriptCommandGrid.ResumeLayout();
+            _scriptTree.ResumeLayout();
+            _bindingScriptDocument = false;
+        }
+
+        if (preferredSelection != null && TrySelectLegacyScriptCommand(preferredSelection))
+        {
+            ShowSelectedScriptTreeNode();
+        }
+        else if (SelectDefaultScriptTreeNode())
+        {
+            ShowSelectedScriptTreeNode();
+        }
+        else
+        {
+            _scriptDetailBox.Text = BuildScriptOverview(_currentScriptStructure, _currentScriptTextEntries);
+        }
+
+        UpdateScriptStructureEditButtons();
+    }
+
+    private bool TrySelectLegacyScriptCommand(LegacyScenarioCommandNode command)
+    {
+        if (_currentScriptStructure == null) return false;
+        var key = BuildLegacyCommandKey(command);
+        if (!_legacyScriptRowByKey.TryGetValue(key, out var row)) return false;
+        return SelectScriptTreeNode(row, suppressEvents: true);
+    }
+
+    private LegacyScenarioCommandNode? CreateLegacyScriptCommand(int sceneIndex, int sectionIndex)
+    {
+        if (_scriptNewCommandCombo.SelectedItem is not ScriptCommandComboItem item)
+        {
+            MessageBox.Show(this, "请先选择要新增的命令。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return null;
+        }
+
+        if (IsBlockedNewLegacyCommandId(item.Id))
+        {
+            MessageBox.Show(this, "该命令属于结构/跳转控制命令，当前界面不直接新建；请复制旧命令或在旧工具中核对后再处理。", "暂不支持新增", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return null;
+        }
+
+        var command = new LegacyScenarioCommandNode
+        {
+            SceneIndex = sceneIndex,
+            SectionIndex = sectionIndex,
+            CommandId = item.Id,
+            CommandName = item.Name,
+            FileOffset = 0,
+            ConsumedBytes = 0
+        };
+
+        foreach (var parameter in CreateDefaultLegacyScriptParameters(item.Id))
+        {
+            command.Parameters.Add(parameter);
+        }
+
+        return command;
+    }
+
+    private IReadOnlyList<LegacyScenarioCommandParameter> CreateDefaultLegacyScriptParameters(int commandId)
+    {
+        var instructions = ScenarioStructureProbeReader.LegacyCommandInstructionTable[commandId];
+        var result = new List<LegacyScenarioCommandParameter>();
+        var parameterCount = GetLegacyInstructionCount(commandId);
+        for (var index = 0; index < parameterCount; index++)
+        {
+            var layoutCode = GetLegacyInstructionAt(commandId, instructions, index);
+            if (layoutCode == -1) break;
+
+            var parameter = new LegacyScenarioCommandParameter
+            {
+                Index = result.Count,
+                LayoutCode = layoutCode,
+                Tag = layoutCode,
+                FileOffset = AllocateLegacyScriptSyntheticOffset(),
+                Kind = layoutCode switch
+                {
+                    0x05 => LegacyScenarioParameterKind.Text,
+                    0x35 => LegacyScenarioParameterKind.VariableArray,
+                    0x04 => LegacyScenarioParameterKind.Dword32,
+                    _ => LegacyScenarioParameterKind.Word16
+                },
+                ByteLength = layoutCode switch
+                {
+                    0x05 => 1,
+                    0x35 => 2,
+                    0x04 => 4,
+                    _ => 2
+                }
+            };
+            result.Add(parameter);
+        }
+
+        return result;
+    }
+
+    private int AllocateLegacyScriptSyntheticOffset()
+        => _nextLegacyScriptSyntheticOffset--;
+
+    private static int GetLegacyInstructionCount(int commandId)
+        => commandId switch
+        {
+            0x46 => 11 * 20,
+            0x47 => 12 * 80,
+            _ => 13
+        };
+
+    private static int GetLegacyInstructionAt(int commandId, IReadOnlyList<int> instructions, int index)
+        => commandId switch
+        {
+            0x46 => instructions[index % 11],
+            0x47 => instructions[index % 12],
+            _ => instructions[index]
+        };
+
+    private static bool IsBlockedNewLegacyCommandId(int commandId)
+        => commandId is 0x00 or 0x01 or 0x0C or 0x0D or 0x76;
+
+    private bool TryGetSelectedLegacyScriptCommand(out LegacyScenarioCommandNode command)
+    {
+        command = null!;
+        return _scriptTree.SelectedNode?.Tag is ScenarioStructureRow { NodeType: "Command候选" } row &&
+               TryGetLegacyScriptCommand(row, out command);
+    }
+
+    private bool TryGetSelectedLegacyScriptSection(out LegacyScenarioSection section)
+    {
+        section = null!;
+        if (_currentLegacyScriptDocument == null || _scriptTree.SelectedNode?.Tag is not ScenarioStructureRow row)
+        {
+            return false;
+        }
+
+        var sceneIndex = row.SceneIndex;
+        var sectionIndex = row.SectionIndex;
+        if (row.NodeType == "Scene候选")
+        {
+            return false;
+        }
+
+        if (row.NodeType == "Command候选" && TryGetLegacyScriptCommand(row, out var command))
+        {
+            sceneIndex = command.SceneIndex;
+            sectionIndex = command.SectionIndex;
+        }
+
+        section = _currentLegacyScriptDocument.Scenes
+            .FirstOrDefault(scene => scene.SceneIndex == sceneIndex)?
+            .Sections.FirstOrDefault(candidate => candidate.SectionIndex == sectionIndex)!;
+        return section != null;
+    }
+
+    private bool CanDeleteLegacyScriptCommand(LegacyScenarioCommandNode command, out string reason)
+    {
+        if (_currentLegacyScriptDocument == null)
+        {
+            reason = "当前没有可编辑的旧版完整剧本树。";
+            return false;
+        }
+
+        if (command.StartsBodyBlock || command.IsSubEventMarker || command.OpensSubEventBlock || command.EndsSubEventBlock ||
+            command.CommandId is 0x00 or 0x01 or 0x0C or 0x0D)
+        {
+            reason = "该命令是正文根、子事件标记或旧版结构分界命令。为避免破坏 Section/子事件边界，当前界面不直接删除。";
+            return false;
+        }
+
+        if (command.ChildBlock is { Commands.Count: > 0 })
+        {
+            reason = "该命令下面还有子块命令。请先处理子块内容，再删除载体命令。";
+            return false;
+        }
+
+        var jumpUsers = _currentLegacyScriptDocument.EnumerateCommands()
+            .Where(candidate => candidate.CommandId == 0x76 && candidate.JumpTargetOrdinal == command.CommandOrdinal)
+            .Take(3)
+            .Select(candidate => $"{candidate.CommandIndex:000} {candidate.CommandIdHex} {candidate.CommandName}")
+            .ToList();
+        if (jumpUsers.Count > 0)
+        {
+            reason = "该命令被 0x76 跳转引用，不能直接删除。\r\n引用命令：" + string.Join("；", jumpUsers);
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static bool CanInsertNearLegacyScriptCommand(LegacyScenarioCommandNode command, out string reason)
+    {
+        if (command.StartsBodyBlock || command.IsSubEventMarker || command.OpensSubEventBlock || command.EndsSubEventBlock ||
+            command.CommandId is 0x00 or 0x01 or 0x0C or 0x0D)
+        {
+            reason = "该命令承担正文根、子事件设定、子事件载体或结束分界角色。为避免拆开旧版结构关系，请选择普通命令前后插入，或使用“添加到正文末尾”。";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> CaptureLegacyJumpTargets(LegacyScenarioDocument document)
+    {
+        var byOrdinal = document.EnumerateCommands().ToDictionary(command => command.CommandOrdinal);
+        var result = new Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode>();
+        foreach (var command in byOrdinal.Values.Where(command => command.CommandId == 0x76))
+        {
+            if (command.JumpTargetOrdinal.HasValue && byOrdinal.TryGetValue(command.JumpTargetOrdinal.Value, out var target))
+            {
+                result[command] = target;
+            }
+        }
+
+        return result;
+    }
+
+    private static void RestoreLegacyJumpTargets(
+        LegacyScenarioDocument document,
+        IReadOnlyDictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> jumpTargets)
+    {
+        var activeCommands = document.EnumerateCommands().ToHashSet();
+        foreach (var pair in jumpTargets)
+        {
+            if (!activeCommands.Contains(pair.Key)) continue;
+            if (activeCommands.Contains(pair.Value))
+            {
+                pair.Key.JumpTargetOrdinal = pair.Value.CommandOrdinal;
+                pair.Key.JumpTargetCommandIndex = pair.Value.CommandIndex;
+            }
+            else
+            {
+                pair.Key.JumpTargetOrdinal = null;
+                pair.Key.JumpTargetCommandIndex = null;
+            }
+        }
+    }
+
+    private static void ReindexLegacyScriptDocument(LegacyScenarioDocument document)
+    {
+        var ordinal = 0;
+        foreach (var scene in document.Scenes)
+        {
+            foreach (var section in scene.Sections)
+            {
+                var commandIndex = 0;
+                ReindexLegacyScriptCommandList(section.Commands, ref commandIndex, ref ordinal);
+            }
+        }
+    }
+
+    private static void ReindexLegacyScriptCommandList(
+        IReadOnlyList<LegacyScenarioCommandNode> commands,
+        ref int commandIndex,
+        ref int ordinal)
+    {
+        foreach (var command in commands)
+        {
+            command.CommandIndex = ++commandIndex;
+            command.CommandOrdinal = ordinal++;
+            if (command.ChildBlock != null)
+            {
+                ReindexLegacyScriptCommandList(command.ChildBlock.Commands, ref commandIndex, ref ordinal);
+            }
+        }
+    }
+
+    private static bool TryFindLegacyCommandList(
+        LegacyScenarioDocument document,
+        LegacyScenarioCommandNode target,
+        out List<LegacyScenarioCommandNode> list,
+        out int index)
+    {
+        foreach (var scene in document.Scenes)
+        {
+            foreach (var section in scene.Sections)
+            {
+                if (TryFindLegacyCommandList(section.Commands, target, out list, out index))
+                {
+                    return true;
+                }
+            }
+        }
+
+        list = null!;
+        index = -1;
+        return false;
+    }
+
+    private static bool TryFindLegacyCommandList(
+        List<LegacyScenarioCommandNode> commands,
+        LegacyScenarioCommandNode target,
+        out List<LegacyScenarioCommandNode> list,
+        out int index)
+    {
+        index = commands.IndexOf(target);
+        if (index >= 0)
+        {
+            list = commands;
+            return true;
+        }
+
+        foreach (var command in commands)
+        {
+            if (command.ChildBlock != null &&
+                TryFindLegacyCommandList(command.ChildBlock.Commands, target, out list, out index))
+            {
+                return true;
+            }
+        }
+
+        list = null!;
+        index = -1;
+        return false;
     }
 
     private void BuildScriptTree(ScenarioStructureProbeResult structure, IReadOnlyList<ScenarioTextEntry> texts)
@@ -16040,11 +16583,12 @@ public sealed class MainForm : Form
             foreach (var parameter in command.TextParameters)
             {
                 var capacity = Math.Max(0, parameter.ByteLength - 1);
+                var offsetText = FormatLegacyScriptOffset(parameter.FileOffset, index);
                 var entry = new ScenarioTextEntry
                 {
                     Index = index++,
                     Offset = parameter.FileOffset,
-                    OffsetHex = "0x" + parameter.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                    OffsetHex = offsetText,
                     ByteLength = capacity,
                     CharLength = parameter.Text.Length,
                     Kind = $"旧版文本参数 {command.CommandIdHex}",
@@ -16324,6 +16868,11 @@ public sealed class MainForm : Form
 
     private static string BuildLegacyCommandKey(ScenarioStructureRow row)
         => $"{row.SceneIndex}:{row.SectionIndex}:{row.CommandIndex}:{row.OffsetHex}:{row.CommandId:X2}";
+
+    private static string FormatLegacyScriptOffset(int offset, int syntheticIndex)
+        => offset >= 0
+            ? "0x" + offset.ToString("X6", CultureInfo.InvariantCulture)
+            : $"new:{syntheticIndex:000}";
 
     private static string BuildLegacyScriptParameterPreview(LegacyScenarioCommandNode command)
     {
@@ -17395,6 +17944,7 @@ public sealed class MainForm : Form
                     BuildScriptStructureNoteSeed(row));
                 SetStatus($"剧本制作：{row.CommandName}");
             }
+            UpdateScriptStructureEditButtons();
         }
         else if (_scriptTree.SelectedNode?.Tag is ScenarioTextEntry text)
         {
@@ -17438,6 +17988,7 @@ public sealed class MainForm : Form
                 "从剧本制作页旧版事件树文本参数抓取。",
                 BuildScriptTextNoteSeed(text));
             SetStatus($"剧本制作：文本 {text.OffsetHex}");
+            UpdateScriptStructureEditButtons();
         }
         else
         {
@@ -17445,6 +17996,7 @@ public sealed class MainForm : Form
             _selectedScriptTextEntry = null;
             _scriptTextEditorBox.Clear();
             UpdateScriptTextCapacityLabel();
+            UpdateScriptStructureEditButtons();
         }
     }
 
@@ -17920,7 +18472,7 @@ public sealed class MainForm : Form
     private static string BuildLegacyScriptRowDetail(ScenarioStructureRow row, LegacyScenarioCommandNode command)
     {
         var textSummary = command.TextParameters.Any()
-            ? string.Join(" / ", command.TextParameters.Select(parameter => $"槽{parameter.Index}@0x{parameter.FileOffset:X6} {TrimSingleLine(parameter.Text, 24)}"))
+            ? string.Join(" / ", command.TextParameters.Select(parameter => $"槽{parameter.Index}@{FormatLegacyScriptOffset(parameter.FileOffset, parameter.Index + 1)} {TrimSingleLine(parameter.Text, 24)}"))
             : "无";
         var jumpSummary = command.CommandId == 0x76
             ? command.JumpTargetOrdinal.HasValue
@@ -17946,7 +18498,7 @@ public sealed class MainForm : Form
             Index = parameter.Index,
             SlotName = $"旧版槽 {parameter.Index} / {parameter.LayoutCodeHex}",
             Kind = parameter.Kind.ToString(),
-            RawHex = $"{parameter.TagHex}@0x{parameter.FileOffset:X6}",
+            RawHex = $"{parameter.TagHex}@{FormatLegacyScriptOffset(parameter.FileOffset, parameter.Index + 1)}",
             DecimalValue = parameter.Kind == LegacyScenarioParameterKind.Text
                 ? parameter.ByteLength
                 : parameter.IntValue,
@@ -22183,6 +22735,18 @@ public sealed class MainForm : Form
         }
 
         _mapMakerMaterialGrid.DataSource = new BindingList<MaterialAsset>(query.ToList());
+        HideMapMakerMaterialTechnicalColumns();
+    }
+
+    private void HideMapMakerMaterialTechnicalColumns()
+    {
+        foreach (var columnName in new[] { "Width", "Height", "SizeBytes", "FilePath" })
+        {
+            if (_mapMakerMaterialGrid.Columns.Contains(columnName))
+            {
+                _mapMakerMaterialGrid.Columns[columnName]!.Visible = false;
+            }
+        }
     }
 
     private void ClearMapWorkbenchMaterialFilter()
@@ -23237,6 +23801,11 @@ public sealed class MainForm : Form
     {
         _statusLabel.Text = message;
         _statusStrip.Refresh();
+    }
+
+    private sealed record ScriptCommandComboItem(int Id, string Name)
+    {
+        public override string ToString() => $"0x{Id:X2} {Name}";
     }
 }
 

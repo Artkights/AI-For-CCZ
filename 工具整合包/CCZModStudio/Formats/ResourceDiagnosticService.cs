@@ -114,7 +114,7 @@ public sealed class ResourceDiagnosticService
                 Name = group.Key,
                 Status = $"缺 {missingCount} 个编号",
                 Detail = $"现有 {numbers.Count} 个不同编号，理论连续区间 {min}-{max} 共 {expected} 个；缺号示例：{string.Join("，", examples)}{(missingCount > examples.Count ? " ..." : string.Empty)}",
-                Suggestion = "缺号不一定是错误，但人物形象、地图等常被表格或引擎按编号引用；E5S 仅按旧兼容/存档信息处理；发布前建议确认引用表里没有指向缺失编号。",
+                Suggestion = "缺号不一定是错误，但 R/S 剧本、地图等常被制作流程或引擎按编号引用；E5S 仅按旧兼容/存档信息处理；发布前建议确认引用表或剧本规划里没有指向缺失编号。",
                 Path = string.Empty
             });
         }
@@ -205,7 +205,7 @@ public sealed class ResourceDiagnosticService
             {
                 diagnostics.Add(new ResourceDiagnosticItem
                 {
-                    Severity = item.Category is "R形象" or "S形象" or "地图图片" ? "Warn" : "Info",
+                    Severity = item.Category is "R剧本EEX" or "S剧本EEX" or "地图图片" ? "Warn" : "Info",
                     Category = item.Category,
                     Rule = "格式线索异常",
                     Id = item.Id,
@@ -217,7 +217,7 @@ public sealed class ResourceDiagnosticService
                 });
             }
 
-            if ((item.Category == "R形象" || item.Category == "S形象") && item.SizeBytes < 16)
+            if ((item.Category == "R剧本EEX" || item.Category == "S剧本EEX") && item.SizeBytes < 16)
             {
                 diagnostics.Add(new ResourceDiagnosticItem
                 {
@@ -227,7 +227,7 @@ public sealed class ResourceDiagnosticService
                     Id = item.Id,
                     Name = item.Name,
                     Status = $"{item.SizeBytes} 字节",
-                    Detail = "EEX 资源包过小，连基础头部都可能不完整。",
+                    Detail = "R/S 剧本 EEX 过小，连基础头部都可能不完整。",
                     Suggestion = "建议在 EEX 探针页查看 Magic、版本和头部字段，必要时从原版或素材库重新导入。",
                     Path = item.Path
                 });
@@ -272,21 +272,21 @@ public sealed class ResourceDiagnosticService
         int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out number);
 
     private static bool IsSequenceCategory(string category) =>
-        category is "R形象" or "S形象" or "地图图片" or "E5S存档信息" or "WAV音效" or "MP3音轨";
+        category is "R剧本EEX" or "S剧本EEX" or "地图图片" or "E5S存档信息" or "WAV音效" or "MP3音轨";
 
     private static bool RequiresNumericId(string category) =>
-        category is "R形象" or "S形象" or "地图图片" or "E5S存档信息";
+        category is "R剧本EEX" or "S剧本EEX" or "地图图片" or "E5S存档信息";
 
     private static bool IsCoreSequentialCategory(string category) =>
-        category is "R形象" or "S形象" or "地图图片" or "E5S存档信息";
+        category is "R剧本EEX" or "S剧本EEX" or "地图图片" or "E5S存档信息";
 
     private static bool IsAllowedSpecialName(ResourceIndexItem item) =>
         item.Category == "E5S存档信息" && item.Name.Equals("SV.E5S", StringComparison.OrdinalIgnoreCase);
 
     private static string GetExpectedPattern(string category) => category switch
     {
-        "R形象" => @"^R_\d{2,}\.eex$",
-        "S形象" => @"^S_\d{2,}\.eex$",
+        "R剧本EEX" => @"^R_\d{2,}\.eex$",
+        "S剧本EEX" => @"^S_\d{2,}\.eex$",
         "地图图片" => @"^M\d{3,}\.jpe?g$",
         "E5S存档信息" => @"^(SV\d{3,}|SV)\.E5S$",
         _ => string.Empty
@@ -294,8 +294,8 @@ public sealed class ResourceDiagnosticService
 
     private static string GetFriendlyPattern(string category) => category switch
     {
-        "R形象" => "R_00.eex / R_001.eex",
-        "S形象" => "S_00.eex / S_001.eex",
+        "R剧本EEX" => "R_00.eex / R_001.eex",
+        "S剧本EEX" => "S_00.eex / S_001.eex",
         "地图图片" => "M000.JPG",
         "E5S存档信息" => "SV001.E5S / SV.E5S（存档信息/旧兼容，不是 R/S eex 剧本）",
         "WAV音效" => "数字或语义化 .wav，建议与表格编号保持一致",
@@ -305,7 +305,7 @@ public sealed class ResourceDiagnosticService
 
     private static string ExpectedFormatFor(ResourceIndexItem item) => item.Category switch
     {
-        "R形象" or "S形象" => "EEX",
+        "R剧本EEX" or "S剧本EEX" => "EEX",
         "地图图片" => "JPEG",
         "E5S存档信息" => "E5S",
         "WAV音效" => "WAV",

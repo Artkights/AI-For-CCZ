@@ -211,6 +211,11 @@ public sealed class ResourceDiagnosticNavigationService
 
     private static string ExtractImageAssignmentPrefix(ResourceDiagnosticItem diagnostic, ResourceIndexItem? resource)
     {
+        if (IsScenarioEexCategory(resource?.Category) || IsScenarioEexCategory(diagnostic.Category))
+        {
+            return string.Empty;
+        }
+
         if (resource?.Category == "R形象") return "R";
         if (resource?.Category == "S形象") return "S";
 
@@ -222,6 +227,9 @@ public sealed class ResourceDiagnosticNavigationService
 
         return string.Empty;
     }
+
+    private static bool IsScenarioEexCategory(string? category) =>
+        category is "R剧本EEX" or "S剧本EEX";
 
     private static int? ExtractImageAssignmentRowId(ResourceDiagnosticItem diagnostic)
     {

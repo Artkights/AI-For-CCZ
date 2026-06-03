@@ -13,6 +13,7 @@ var rsWriteSmokeOnly = args.Contains("--rs-write-smoke", StringComparer.OrdinalI
 var migrationSmokeOnly = args.Contains("--migration-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyE5sSmokeOnly = args.Contains("--legacy-e5s-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScenarioDepthSmokeOnly = args.Contains("--legacy-scenario-depth-smoke", StringComparer.OrdinalIgnoreCase);
+var legacyScriptEditSmokeOnly = args.Contains("--legacy-script-edit-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyAllSmoke = args.Contains("--legacy-all-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
@@ -58,6 +59,12 @@ if (legacyE5sSmokeOnly)
 if (legacyScenarioDepthSmokeOnly)
 {
     RunLegacyScenarioDepthSmoke(project);
+    return;
+}
+
+if (legacyScriptEditSmokeOnly)
+{
+    RunLegacyScriptEditSmoke(project);
     return;
 }
 
@@ -338,8 +345,8 @@ if (!imageAssignments.Columns.Contains("R资源状态") || !imageAssignments.Col
 {
     throw new InvalidOperationException("人物 R/S 形象联动表缺少资源状态列。");
 }
-var missingRResources = imageAssignments.AsEnumerable().Count(row => Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture)?.StartsWith("缺失", StringComparison.Ordinal) == true);
-var missingSResources = imageAssignments.AsEnumerable().Count(row => Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture)?.StartsWith("缺失", StringComparison.Ordinal) == true);
+var missingRResources = imageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
+var missingSResources = imageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
 Console.WriteLine($"IMAGE_ASSIGN_RESOURCE missingR={missingRResources} missingS={missingSResources} row0R={imageAssignments.Rows[0]["R资源状态"]} row0S={imageAssignments.Rows[0]["S资源状态"]}");
 
 var row0RPath = ImageAssignmentService.GetImageResourcePath(project, "R", Convert.ToInt32(imageAssignments.Rows[0]["R\u5f62\u8c61\u7f16\u53f7"], CultureInfo.InvariantCulture));
@@ -360,17 +367,17 @@ using (var preview = imagePreviewService.RenderResourcePreview(project, "R", row
     preview.Save(previewPath, System.Drawing.Imaging.ImageFormat.Png);
     var previewInfo = imagePreviewService.BuildResourceInfo(project, "S", row0SId, "\u66f9\u64cd", row0FaceId);
     if (!File.Exists(previewPath) ||
-        !previewInfo.Contains($"S_{row0SId:00}.eex", StringComparison.Ordinal) ||
+        !previewInfo.Contains("Unit_", StringComparison.OrdinalIgnoreCase) ||
         !previewInfo.Contains("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
         !previewInfo.Contains("Face.e5", StringComparison.OrdinalIgnoreCase))
     {
-        throw new InvalidOperationException("R/S EEX preview service validation failed.");
+        throw new InvalidOperationException("R/S image assignment preview service validation failed.");
     }
     Console.WriteLine($"IMAGE_ASSIGN_PREVIEW png={Path.GetFileName(previewPath)} face={row0FaceId} R={row0RId:00} S={row0SId:00}");
 }
 var imageMissingRows = imageAssignments.Rows.Cast<DataRow>()
-    .Where(row => (Convert.ToString(row["R\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture)?.StartsWith("\u7f3a\u5931", StringComparison.Ordinal) == true)
-               || (Convert.ToString(row["S\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture)?.StartsWith("\u7f3a\u5931", StringComparison.Ordinal) == true))
+    .Where(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["R\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture) ?? string.Empty)
+               || CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["S\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture) ?? string.Empty))
     .ToList();
 var firstImageFilterName = imageAssignments.Rows.Cast<DataRow>()
     .Select(row => Convert.ToString(row["\u540d\u79f0"], CultureInfo.InvariantCulture) ?? string.Empty)
@@ -378,7 +385,7 @@ var firstImageFilterName = imageAssignments.Rows.Cast<DataRow>()
 var imageNameFilterRows = string.IsNullOrWhiteSpace(firstImageFilterName)
     ? Array.Empty<DataRow>()
     : ImageAssignmentService.FilterRows(imageAssignments, firstImageFilterName, missingOnly: false);
-var imageResourceFilterRows = ImageAssignmentService.FilterRows(imageAssignments, $"R_{row0RId:00}", missingOnly: false);
+var imageResourceFilterRows = ImageAssignmentService.FilterRows(imageAssignments, $"R{row0RId}", missingOnly: false);
 var imageMissingFilterRows = ImageAssignmentService.FilterRows(imageAssignments, string.Empty, missingOnly: true);
 if ((!string.IsNullOrWhiteSpace(firstImageFilterName) && imageNameFilterRows.Count == 0) ||
     imageResourceFilterRows.All(row => !ReferenceEquals(row, imageAssignments.Rows[0])) ||
@@ -401,7 +408,7 @@ CsvService.ExportColumnsRowsWithAnnotationRow(imageAssignments, imageMissingRepo
     ["S\u8d44\u6e90\u72b6\u6001"] = "S \u8d44\u6e90\u5b58\u5728\u6027"
 }, imageMissingRows);
 var imageMissingReportHeader = File.ReadLines(imageMissingReport).FirstOrDefault() ?? string.Empty;
-if (!imageMissingReportHeader.Contains("R\u8d44\u6e90\u72b6\u6001", StringComparison.Ordinal) || imageMissingRows.Count == 0)
+if (!imageMissingReportHeader.Contains("R\u8d44\u6e90\u72b6\u6001", StringComparison.Ordinal))
 {
     throw new InvalidOperationException("R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\u5bfc\u51fa\u9a8c\u8bc1\u5931\u8d25\u3002");
 }
@@ -573,7 +580,7 @@ var svTextNavigation = creatorNoteNavigation.Parse(svTextNote);
 var eexCrossNote = new CreatorNote
 {
     Scope = "EEX跨文件对比",
-    TargetKey = "EexCross#Base=R_00.eex#PeerKind=同编号R/S#Category=S形象#File=S_00.eex#Role=文本/说明/动作名候选",
+    TargetKey = "EexCross#Base=R_00.eex#PeerKind=同编号R/S#Category=S剧本EEX#File=S_00.eex#Role=文本/说明/动作名候选",
     Title = "EEX跨文件对比备注",
     Content = "验证 EEX 跨文件对比对象详情区能反显相关创作者备注。",
     Tags = "Smoke,EEX跨文件"
@@ -582,7 +589,7 @@ var eexCrossNavigation = creatorNoteNavigation.Parse(eexCrossNote);
 var eexEntryNote = new CreatorNote
 {
     Scope = "EEX区段",
-    TargetKey = "EexEntry#File=R_00.eex#Category=R形象#Index=3#Offset=0x002DE8",
+    TargetKey = "EexEntry#File=R_00.eex#Category=R剧本EEX#Index=3#Offset=0x002DE8",
     Title = "EEX区段备注",
     Content = "验证 EEX 区段探针详情区能反显相关创作者备注。",
     Tags = "Smoke,EEX区段"
@@ -634,7 +641,7 @@ if (!tableNavigation.IsRecognized ||
     !eexEntryNavigation.IsRecognized ||
     eexEntryNavigation.Kind != "EEX区段" ||
     eexEntryNavigation.FileName != "R_00.eex" ||
-    eexEntryNavigation.Category != "R形象" ||
+    eexEntryNavigation.Category != "R剧本EEX" ||
     eexEntryNavigation.SectionIndex != 3 ||
     eexEntryNavigation.OffsetHex != "0x002DE8" ||
     !hexzmapNavigation.IsRecognized ||
@@ -783,7 +790,7 @@ foreach (var eex in eexArchives.Take(5))
 {
     Console.WriteLine($"EEX_ROW {eex.Category}/{eex.FileName} id={eex.Id} len={eex.Length} magic={eex.MagicValid} version={eex.VersionHex} entries={eex.EntryCount} texts={eex.TextHintCount}");
 }
-var eexProbeTarget = eexArchives.FirstOrDefault(x => x.MagicValid && x.Category == "R形象")
+var eexProbeTarget = eexArchives.FirstOrDefault(x => x.MagicValid && x.Category == "R剧本EEX")
                      ?? eexArchives.FirstOrDefault(x => x.MagicValid)
                      ?? throw new InvalidOperationException("未找到可用于 EEX 区段探针的有效 EEX 文件。");
 var eexEntryProbeRows = new EexEntryProbeReader().Probe(eexProbeTarget.Path, eexProbeTarget.Category);
@@ -1487,9 +1494,9 @@ var syntheticImageDiagnostic = new ResourceDiagnosticItem
     Rule = "人物形象缺失",
     Id = firstNamedImageRowId.ToString(CultureInfo.InvariantCulture),
     Name = Convert.ToString(firstNamedImageRow["名称"], CultureInfo.InvariantCulture) ?? string.Empty,
-    Status = $"缺失 R_{firstNamedRId:00}.eex",
-    Detail = $"6.5-0-4 R形象 第 {firstNamedImageRowId} 行引用 R形象编号={firstNamedRId}，但没有找到 R_{firstNamedRId:00}.eex。",
-    Suggestion = "请补齐对应 EEX 文件，或在“人物R/S形象联动”页把编号改为已经存在的形象资源。",
+    Status = "未定位：Pmapobj.e5",
+    Detail = $"6.5-0-4 R形象 第 {firstNamedImageRowId} 行引用 R形象编号={firstNamedRId}，但没有定位到 Pmapobj.e5。",
+    Suggestion = "请先确认 Pmapobj.e5 是否在项目根目录或 E5 目录；再对照 6.5 形象指定器与实机确认该编号是否应调整。",
     Path = ImageAssignmentService.GetImageResourcePath(project, "R", firstNamedRId)
 };
 var imageNavigation = diagnosticNavigationService.Resolve(syntheticImageDiagnostic, scenarioMapLinks, gameResources);
@@ -1738,46 +1745,6 @@ if (enableWriteTest)
         throw new InvalidOperationException($"人物 R/S 联动保存失败：expected={changedS}, actual={actualS}");
     }
     Console.WriteLine($"VERIFY_IMAGE_ASSIGN OK S: {originalS} -> {actualS}");
-
-    var imageResourceReplaceService = new ImageResourceReplaceService();
-    var targetImageResourcePath = ImageAssignmentService.GetImageResourcePath(testProject, "R", 0);
-    var sourceImageResourcePath = ImageAssignmentService.GetImageResourcePath(testProject, "R", 1);
-    Directory.CreateDirectory(Path.GetDirectoryName(targetImageResourcePath)!);
-    File.Copy(ImageAssignmentService.GetImageResourcePath(project, "R", 0), targetImageResourcePath, overwrite: true);
-    File.Copy(ImageAssignmentService.GetImageResourcePath(project, "R", 1), sourceImageResourcePath, overwrite: true);
-    if (!File.Exists(targetImageResourcePath) || !File.Exists(sourceImageResourcePath))
-    {
-        throw new InvalidOperationException("R/S 资源整文件替换测试缺少 R_00.eex 或 R_01.eex。");
-    }
-
-    var originalImageResourceHash = WriteOperationReportService.ComputeSha256(targetImageResourcePath);
-    var sourceImageResourceHash = WriteOperationReportService.ComputeSha256(sourceImageResourcePath);
-    var imageResourcePreview = imageResourceReplaceService.PreviewReplacement(testProject, targetImageResourcePath, sourceImageResourcePath, "R");
-    if (!imageResourcePreview.FormatCheckSummary.Contains("EEX", StringComparison.Ordinal) ||
-        imageResourcePreview.ChangedBytesEstimate <= 0)
-    {
-        throw new InvalidOperationException("R/S 资源替换预览未能识别 EEX 或改动估算异常。");
-    }
-
-    var imageResourceReplace = imageResourceReplaceService.Replace(testProject, targetImageResourcePath, sourceImageResourcePath, "R");
-    var replacedImageResourceHash = WriteOperationReportService.ComputeSha256(targetImageResourcePath);
-    if (!replacedImageResourceHash.Equals(sourceImageResourceHash, StringComparison.OrdinalIgnoreCase) ||
-        string.IsNullOrWhiteSpace(imageResourceReplace.ReportJsonPath) ||
-        !File.Exists(imageResourceReplace.ReportJsonPath))
-    {
-        throw new InvalidOperationException("R/S 资源整文件替换复读校验失败。");
-    }
-
-    var imageResourceRestore = imageResourceReplaceService.Replace(testProject, targetImageResourcePath, imageResourceReplace.BackupPath, "R");
-    var restoredImageResourceHash = WriteOperationReportService.ComputeSha256(targetImageResourcePath);
-    if (!restoredImageResourceHash.Equals(originalImageResourceHash, StringComparison.OrdinalIgnoreCase) ||
-        string.IsNullOrWhiteSpace(imageResourceRestore.ReportJsonPath) ||
-        !File.Exists(imageResourceRestore.ReportJsonPath))
-    {
-        throw new InvalidOperationException("R/S 资源整文件还原复读校验失败。");
-    }
-
-    Console.WriteLine($"VERIFY_IMAGE_RESOURCE_REPLACE OK target={Path.GetFileName(targetImageResourcePath)} source={Path.GetFileName(sourceImageResourcePath)} changed={imageResourceReplace.ChangedBytesEstimate} restoreBackup={Path.GetFileName(imageResourceRestore.BackupPath)}");
 
     var scenarioTextReader = new ScenarioTextReader();
     var testScenarioPath = Path.Combine(testProject.GameRoot, "SV", "SV004.E5S");
@@ -2547,11 +2514,40 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
     var row0Name = Convert.ToString(imageAssignments.Rows[0]["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
     var previewService = new ImageAssignmentPreviewService();
     var previewInfo = previewService.BuildResourceInfo(project, "S", row0S, row0Name, row0Face);
+    var expandedSPreviewRow = imageAssignments.Rows.Cast<DataRow>()
+        .FirstOrDefault(row => Convert.ToInt32(row["S形象编号"], CultureInfo.InvariantCulture) == 250);
+    var expandedSId = expandedSPreviewRow == null
+        ? 250
+        : Convert.ToInt32(expandedSPreviewRow["S形象编号"], CultureInfo.InvariantCulture);
+    using (var rResourcePreview = previewService.TryRenderCharacterResourceImage(project, "R", row0R))
+    using (var normalSResourcePreview = previewService.TryRenderCharacterResourceImage(project, "S", row0S))
+    using (var expandedSResourcePreview = previewService.TryRenderCharacterResourceImage(project, "S", expandedSId))
+    {
+        if (rResourcePreview != null || (row0S < CharacterImageResourceService.FirstEmbeddedSImageId && normalSResourcePreview != null))
+        {
+            throw new InvalidOperationException("R 或基础 S 实图预览不应使用裸扫 Ls12 候选图。");
+        }
+
+        if (expandedSResourcePreview == null)
+        {
+            throw new InvalidOperationException("S=250 扩展形象应能从 Unit 明文 BMP 条目生成预览。");
+        }
+    }
     var previewPng = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RS_R00_FacePreview_{Guid.NewGuid():N}.png");
     Directory.CreateDirectory(Path.GetDirectoryName(previewPng)!);
     using (var preview = previewService.RenderResourcePreview(project, "R", row0R, row0Name, row0Face))
     {
         preview.Save(previewPng, System.Drawing.Imaging.ImageFormat.Png);
+    }
+    var expandedPreviewPng = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RS_S{expandedSId}_UnitPreview_{Guid.NewGuid():N}.png");
+    using (var expandedPreview = previewService.TryRenderCharacterResourceImage(project, "S", expandedSId))
+    {
+        if (expandedPreview == null)
+        {
+            throw new InvalidOperationException($"S={expandedSId} Unit 扩展预览二次生成失败。");
+        }
+
+        expandedPreview.Save(expandedPreviewPng, System.Drawing.Imaging.ImageFormat.Png);
     }
     Console.WriteLine($"RS_IMAGE_ASSIGN rows={imageAssignments.Rows.Count} row0={row0Name} face={row0Face} R={row0R} S={row0S}");
     var hexzmapProbe = new HexzmapProbeReader().Read(project);
@@ -2573,11 +2569,13 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
         !previewInfo.Contains("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
         !previewInfo.Contains("Face.e5", StringComparison.OrdinalIgnoreCase) ||
         !File.Exists(previewPng) ||
-        new FileInfo(previewPng).Length == 0)
+        new FileInfo(previewPng).Length == 0 ||
+        !File.Exists(expandedPreviewPng) ||
+        new FileInfo(expandedPreviewPng).Length == 0)
     {
         throw new InvalidOperationException("人物形象预览未读取到 B形象指定器 6.5 的 FileHead/RFileHead 配置或 Face.e5 头像来源。");
     }
-    Console.WriteLine($"RS_IMAGE_PREVIEW png={Path.GetFileName(previewPng)} face={row0Face}");
+    Console.WriteLine($"RS_IMAGE_PREVIEW png={Path.GetFileName(previewPng)} expanded={Path.GetFileName(expandedPreviewPng)} face={row0Face} S={expandedSId}");
 
     var itemTypeCatalogChecks = new[]
     {
