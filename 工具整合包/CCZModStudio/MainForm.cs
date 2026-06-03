@@ -130,10 +130,6 @@ public sealed class MainForm : Form
     private byte[] _terrainEditorCells = Array.Empty<byte>();
     private byte[] _terrainEditorOriginalCells = Array.Empty<byte>();
     private IReadOnlyDictionary<byte, string> _terrainEditorTerrainLookup = new Dictionary<byte, string>();
-    private readonly Stack<List<TerrainEditorCellChange>> _terrainEditorUndoStack = new();
-    private readonly Stack<List<TerrainEditorCellChange>> _terrainEditorRedoStack = new();
-    private readonly List<TerrainEditorCellChange> _terrainEditorPendingPaintChanges = new();
-    private readonly HashSet<int> _terrainEditorPendingPaintIndexes = new();
     private IReadOnlyList<ScenarioMapLinkInfo> _currentScenarioMapLinks = Array.Empty<ScenarioMapLinkInfo>();
     private BattlefieldEditorDocument? _currentBattlefieldDocument;
     private IReadOnlyList<CreatorNote> _currentCreatorNotes = Array.Empty<CreatorNote>();
@@ -190,9 +186,6 @@ public sealed class MainForm : Form
     private TableReferenceNavigationTarget? _currentTableReferenceTarget;
     private bool _updatingScenarioStructureSelection;
     private bool _updatingScenarioCommandTemplateFilters;
-    private bool _updatingTerrainEditorBlockSelection;
-    private bool _updatingTerrainEditorPresetSelection;
-    private bool _terrainEditorPainting;
     private bool _updatingMapMakerPresetSelection;
     private bool _updatingBattlefieldScenarioSelection;
     private bool _updatingScriptScenarioSelection;
@@ -203,11 +196,8 @@ public sealed class MainForm : Form
     private bool _loadingBattlefieldScenarioDocument;
     private bool _reloadBattlefieldScenarioAfterCurrentLoad;
     private bool _bindingBattlefieldUnits;
-    private DateTime _lastTerrainEditorRenderUtc = DateTime.MinValue;
-    private bool _terrainEditorRenderDeferred;
-    private string _terrainEditorCachedMapPath = string.Empty;
-    private DateTime _terrainEditorCachedMapWriteUtc = DateTime.MinValue;
-    private Bitmap? _terrainEditorCachedMapImage;
+    private DateTime _lastMapMakerRenderUtc = DateTime.MinValue;
+    private bool _mapMakerRenderDeferred;
     private string _battlefieldManualMarkerTargetKey = string.Empty;
     private int _battlefieldManualMarkerX = -1;
     private int _battlefieldManualMarkerY = -1;
@@ -412,7 +402,6 @@ public sealed class MainForm : Form
     private readonly Button _mapMakerSaveTerrainButton = new();
     private readonly Button _mapMakerUndoTerrainButton = new();
     private readonly Button _mapMakerRedoTerrainButton = new();
-    private readonly Button _mapMakerJumpTerrainEditorButton = new();
     private readonly Button _mapMakerReplaceMapImageButton = new();
     private readonly Button _mapMakerExportPreviewButton = new();
     private readonly Button _mapMakerExportJpgButton = new();
@@ -573,18 +562,6 @@ public sealed class MainForm : Form
     private readonly DataGridView _hexzmapGrid = new();
     private readonly PictureBox _hexzmapPreviewBox = new();
     private readonly TextBox _hexzmapInfoBox = new();
-    private readonly Button _loadTerrainEditorButton = new();
-    private readonly Button _saveTerrainEditorButton = new();
-    private readonly Button _undoTerrainEditorButton = new();
-    private readonly Button _redoTerrainEditorButton = new();
-    private readonly ComboBox _terrainEditorBlockCombo = new();
-    private readonly ComboBox _terrainEditorPresetCombo = new();
-    private readonly NumericUpDown _terrainEditorBrushInput = new();
-    private readonly Label _terrainEditorBrushNameLabel = new();
-    private readonly CheckBox _terrainEditorOverlayMapCheckBox = new();
-    private readonly PictureBox _terrainEditorPictureBox = new();
-    private readonly TextBox _terrainEditorInfoBox = new();
-    private readonly TextBox _terrainEditorLegendBox = new();
     private readonly Button _loadScenarioMapLinksButton = new();
     private readonly Button _exportScenarioMapLinksCsvButton = new();
     private readonly Button _locateScenarioMapScenarioButton = new();
@@ -782,7 +759,6 @@ public sealed class MainForm : Form
         _mainTabs.TabPages.Add(BuildRoleEditorPage());
         _mainTabs.TabPages.Add(BuildJobEditorPage());
         _mainTabs.TabPages.Add(BuildItemEditorPage());
-        _mainTabs.TabPages.Add(BuildTerrainEditorPage());
         _mainTabs.TabPages.Add(BuildBattlefieldEditorPage());
         _mainTabs.TabPages.Add(BuildScriptEditorPage());
         _mainTabs.TabPages.Add(BuildWorkflowGuidePage());
@@ -2626,9 +2602,6 @@ public sealed class MainForm : Form
         _mapMakerRedoTerrainButton.Text = "重做";
         _mapMakerRedoTerrainButton.AutoSize = true;
         _mapMakerRedoTerrainButton.Enabled = false;
-        _mapMakerJumpTerrainEditorButton.Text = "地形诊断";
-        _mapMakerJumpTerrainEditorButton.AutoSize = true;
-        _mapMakerJumpTerrainEditorButton.Enabled = false;
         _mapMakerReplaceMapImageButton.Text = "旧版替换底图";
         _mapMakerReplaceMapImageButton.AutoSize = true;
         _mapMakerReplaceMapImageButton.Enabled = false;
@@ -2674,7 +2647,6 @@ public sealed class MainForm : Form
             _mapMakerSaveTerrainButton,
             _mapMakerUndoTerrainButton,
             _mapMakerRedoTerrainButton,
-            _mapMakerJumpTerrainEditorButton,
             _mapMakerReplaceMapImageButton,
             _mapMakerExportPreviewButton,
             _mapMakerExportJpgButton,
@@ -3292,107 +3264,6 @@ public sealed class MainForm : Form
         return page;
     }
 
-    private TabPage BuildTerrainEditorPage()
-    {
-        var page = new TabPage("地形编辑");
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 3,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-        page.Controls.Add(layout);
-
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _loadTerrainEditorButton.Text = "读取地形诊断";
-        _loadTerrainEditorButton.AutoSize = true;
-        _saveTerrainEditorButton.Text = "转到地图制作";
-        _saveTerrainEditorButton.AutoSize = true;
-        _saveTerrainEditorButton.Enabled = false;
-        _undoTerrainEditorButton.Text = "撤销";
-        _undoTerrainEditorButton.AutoSize = true;
-        _undoTerrainEditorButton.Enabled = false;
-        _redoTerrainEditorButton.Text = "重做";
-        _redoTerrainEditorButton.AutoSize = true;
-        _redoTerrainEditorButton.Enabled = false;
-        _terrainEditorBlockCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _terrainEditorBlockCombo.Width = 220;
-        _terrainEditorPresetCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _terrainEditorPresetCombo.Width = 220;
-        _terrainEditorPresetCombo.Enabled = false;
-        _terrainEditorBrushInput.Minimum = 0;
-        _terrainEditorBrushInput.Maximum = 255;
-        _terrainEditorBrushInput.Width = 70;
-        _terrainEditorBrushInput.Value = 0;
-        _terrainEditorBrushInput.Enabled = false;
-        _terrainEditorBrushNameLabel.AutoSize = true;
-        _terrainEditorBrushNameLabel.Padding = new Padding(6, 7, 0, 0);
-        _terrainEditorBrushNameLabel.Text = "地形：0x00";
-        _terrainEditorOverlayMapCheckBox.Text = "叠加地图底图";
-        _terrainEditorOverlayMapCheckBox.AutoSize = true;
-        _terrainEditorOverlayMapCheckBox.Checked = true;
-        _terrainEditorOverlayMapCheckBox.Margin = new Padding(16, 6, 3, 3);
-        toolbar.Controls.AddRange(new Control[]
-        {
-            _loadTerrainEditorButton,
-            _saveTerrainEditorButton,
-            _undoTerrainEditorButton,
-            _redoTerrainEditorButton,
-            new Label { Text = "地图块：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _terrainEditorBlockCombo,
-            new Label { Text = "常用地形：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _terrainEditorPresetCombo,
-            new Label { Text = "画笔ID：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _terrainEditorBrushInput,
-            _terrainEditorBrushNameLabel,
-            _terrainEditorOverlayMapCheckBox
-        });
-        layout.Controls.Add(toolbar, 0, 0);
-
-        _terrainEditorPictureBox.Dock = DockStyle.Fill;
-        _terrainEditorPictureBox.BackColor = Color.Black;
-        _terrainEditorPictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-        layout.Controls.Add(_terrainEditorPictureBox, 0, 1);
-
-        _terrainEditorInfoBox.Dock = DockStyle.Fill;
-        _terrainEditorInfoBox.Multiline = true;
-        _terrainEditorInfoBox.ReadOnly = true;
-        _terrainEditorInfoBox.ScrollBars = ScrollBars.Vertical;
-        _terrainEditorInfoBox.WordWrap = true;
-        _terrainEditorInfoBox.Text = "地形编辑兼容入口：主流程已统一到“地图制作”页。本页只保留 Hexzmap 块诊断、预览和跳转；新建草稿、地图画笔、地形画笔和发布请在地图制作页完成。";
-
-        _terrainEditorLegendBox.Dock = DockStyle.Fill;
-        _terrainEditorLegendBox.Multiline = true;
-        _terrainEditorLegendBox.ReadOnly = true;
-        _terrainEditorLegendBox.ScrollBars = ScrollBars.Vertical;
-        _terrainEditorLegendBox.WordWrap = true;
-        _terrainEditorLegendBox.Text = "地形图例：读取项目后显示素材库 hex 标记中的中文地形候选。";
-
-        var bottomLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 1,
-            ColumnCount = 2
-        };
-        bottomLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
-        bottomLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-        bottomLayout.Controls.Add(_terrainEditorInfoBox, 0, 0);
-        bottomLayout.Controls.Add(_terrainEditorLegendBox, 1, 0);
-        layout.Controls.Add(bottomLayout, 0, 2);
-
-        return page;
-    }
-
     private TabPage BuildBattlefieldEditorPage()
     {
         var page = new TabPage("战场制作");
@@ -3961,16 +3832,11 @@ public sealed class MainForm : Form
             ("详细兵种", () => OpenCoreTable("6.5-4 详细兵种")),
             ("兵种特效", () => OpenCoreTable("6.5-7 兵种特效"))), 1, 0);
         grid.Controls.Add(BuildCoreModuleCard(
-            "地形编辑",
-            "按地图分辨率/48 编辑 Hexzmap 地形格，保存前备份并复读。",
-            ("地形编辑器", () => SelectTabPageByText("地形编辑")),
-            ("地形索引", () => SelectTabPageByText("Hexzmap地形探针")),
-            ("地图联动", () => SelectTabPageByText("关卡地图联动"))), 2, 0);
-        grid.Controls.Add(BuildCoreModuleCard(
             "地图制作",
             "底图、地形层、网格坐标与画笔编辑集中到同一画布。",
             ("地图制作", () => SelectTabPageByText("地图制作")),
-            ("地图联动", () => SelectTabPageByText("关卡地图联动"))), 0, 1);
+            ("地形索引", () => SelectTabPageByText("Hexzmap地形探针")),
+            ("地图联动", () => SelectTabPageByText("关卡地图联动"))), 2, 0);
         grid.Controls.Add(BuildCoreModuleCard(
             "战场制作",
             "围绕关卡、地图、出场单位、坐标、阵营和 AI 组织战场数据。",
@@ -4111,7 +3977,6 @@ public sealed class MainForm : Form
             "角色设定",
             "兵种设定",
             "宝物设定",
-            "地形编辑",
             "地图制作",
             "战场制作",
             "剧本制作",
@@ -4669,15 +4534,6 @@ public sealed class MainForm : Form
             ShowSelectedHexzmapBlock();
         };
         _hexzmapGrid.SelectionChanged += (_, _) => ShowSelectedHexzmapBlock();
-        _loadTerrainEditorButton.Click += (_, _) => LoadTerrainEditor();
-        _saveTerrainEditorButton.Click += (_, _) => JumpTerrainEditorBlockToMapWorkbench();
-        _undoTerrainEditorButton.Click += (_, _) => UndoTerrainEditorPaint();
-        _redoTerrainEditorButton.Click += (_, _) => RedoTerrainEditorPaint();
-        _terrainEditorBlockCombo.SelectedIndexChanged += (_, _) => SelectTerrainEditorBlockFromCombo();
-        _terrainEditorPresetCombo.SelectedIndexChanged += (_, _) => SelectTerrainEditorPreset();
-        _terrainEditorBrushInput.ValueChanged += (_, _) => UpdateTerrainEditorBrushLabel();
-        _terrainEditorOverlayMapCheckBox.CheckedChanged += (_, _) => RenderTerrainEditorPreview();
-        _terrainEditorPictureBox.MouseClick += (_, e) => InspectTerrainEditorCell(e.Location);
         _loadScenarioMapLinksButton.Click += (_, _) => LoadScenarioMapLinks();
         _exportScenarioMapLinksCsvButton.Click += (_, _) => ExportScenarioMapLinksCsv();
         _locateScenarioMapScenarioButton.Click += (_, _) => LocateSelectedScenarioMapScenarioFile();
@@ -4750,7 +4606,6 @@ public sealed class MainForm : Form
         _mapMakerSaveTerrainButton.Click += (_, _) => SaveCurrentMapWorkbenchDraft();
         _mapMakerUndoTerrainButton.Click += (_, _) => UndoMapWorkbenchPaint();
         _mapMakerRedoTerrainButton.Click += (_, _) => RedoMapWorkbenchPaint();
-        _mapMakerJumpTerrainEditorButton.Click += (_, _) => JumpCurrentMapMakerTerrainEditor();
         _mapMakerReplaceMapImageButton.Click += (_, _) => ReplaceCurrentMapImage();
         _mapMakerExportPreviewButton.Click += (_, _) => ExportCurrentMapMakerPreviewPng();
         _mapMakerExportJpgButton.Click += (_, _) => ExportCurrentMapWorkbenchJpg();
@@ -5070,14 +4925,6 @@ public sealed class MainForm : Form
         _terrainEditorCells = Array.Empty<byte>();
         _terrainEditorOriginalCells = Array.Empty<byte>();
         _terrainEditorTerrainLookup = new Dictionary<byte, string>();
-        _terrainEditorBlockCombo.DataSource = null;
-        _terrainEditorPresetCombo.DataSource = null;
-        _saveTerrainEditorButton.Enabled = false;
-        ResetTerrainEditorHistory();
-        _terrainEditorPictureBox.Image?.Dispose();
-        _terrainEditorPictureBox.Image = null;
-        _terrainEditorInfoBox.Text = "地形编辑兼容入口：主流程已统一到“地图制作”页。本页只保留 Hexzmap 块诊断、预览和跳转；新建草稿、地图画笔、地形画笔和发布请在地图制作页完成。";
-        _terrainEditorLegendBox.Text = "地形图例：读取项目后显示素材库 hex 标记中的中文地形候选。";
         _currentScenarioMapLinks = Array.Empty<ScenarioMapLinkInfo>();
         _scenarioMapLinkGrid.DataSource = null;
         _scenarioMapLinkInfoBox.Clear();
@@ -5109,7 +4956,6 @@ public sealed class MainForm : Form
         _mapWorkbenchBrushMode = MapWorkbenchBrushMode.Browse;
         _mapMakerEditTerrainCheckBox.Checked = false;
         _mapMakerEditTerrainCheckBox.Enabled = false;
-        _mapMakerJumpTerrainEditorButton.Enabled = false;
         _mapMakerReplaceMapImageButton.Enabled = false;
         _mapMakerExportPreviewButton.Enabled = false;
         _mapMakerExportJpgButton.Enabled = false;
@@ -14506,10 +14352,6 @@ public sealed class MainForm : Form
         _terrainEditorTerrainLookup = result.terrainLookup;
         _currentHexzmapProbe = result.hexzmap;
         _currentScenarioMapLinks = result.links;
-        if (_terrainEditorBlockCombo.DataSource == null)
-        {
-            BindTerrainEditorBlockCombo();
-        }
 
         return true;
     }
@@ -14724,7 +14566,6 @@ public sealed class MainForm : Form
         if (_currentHexzmapProbe == null)
         {
             _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, _terrainEditorTerrainLookup);
-            BindTerrainEditorBlockCombo();
         }
 
         if (_currentScenarioMapLinks.Count == 0)
@@ -21034,295 +20875,6 @@ public sealed class MainForm : Form
         _lsResourceHeatmapInfoBox.Text = "Ls/E5 字节热力图：请选择一个 Ls/E5 资源后点击“生成字节热力图”。该预览只读，仅观察 16 字节头之后的载荷分布，不解压、不重封包、不写入。";
     }
 
-    private void LoadTerrainEditor()
-    {
-        if (_project == null)
-        {
-            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            Cursor = Cursors.WaitCursor;
-            _terrainEditorTerrainLookup = BuildTerrainNameLookupForCurrentProject();
-            _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, _terrainEditorTerrainLookup);
-            RefreshTerrainEditorPresetCombo();
-            BindTerrainEditorBlockCombo();
-            if (_terrainEditorBlockCombo.Items.Count > 0)
-            {
-                _terrainEditorBlockCombo.SelectedIndex = 0;
-                SelectTerrainEditorBlockFromCombo(force: true);
-            }
-            _saveTerrainEditorButton.Enabled = _terrainEditorBlock?.MapImageExists == true;
-            UpdateTerrainEditorBrushLabel();
-            _terrainEditorInfoBox.Text = "地形编辑兼容入口：已读取 Hexzmap.e5。主流程请使用“地图制作”页；本页只用于块诊断、预览和跳转，不再写回。";
-            SetStatus("地形编辑读取完成");
-        }
-        catch (Exception ex)
-        {
-            _updatingTerrainEditorBlockSelection = false;
-            _terrainEditorInfoBox.Text = ex.ToString();
-            _saveTerrainEditorButton.Enabled = false;
-            Log("读取地形编辑数据失败：" + ex);
-            MessageBox.Show(this, ex.Message, "读取地形编辑失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        finally
-        {
-            Cursor = Cursors.Default;
-        }
-    }
-
-    private void SelectTerrainEditorBlockFromCombo(bool force = false)
-    {
-        if (_updatingTerrainEditorBlockSelection || _currentHexzmapProbe == null) return;
-        if (_terrainEditorBlockCombo.SelectedItem is not HexzmapBlockInfo block) return;
-        var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
-        if (cells.Length != block.BytesRead)
-        {
-            MessageBox.Show(this, $"当前地形块长度不符合地图格数 {block.Width}x{block.Height}，无法预览。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        _terrainEditorBlock = block;
-        _terrainEditorOriginalCells = cells.ToArray();
-        _terrainEditorCells = cells.ToArray();
-        ResetTerrainEditorHistory();
-        _saveTerrainEditorButton.Enabled = block.MapImageExists;
-        RenderTerrainEditorPreview();
-        _terrainEditorInfoBox.Text = BuildTerrainEditorInfo("已载入地形块诊断。");
-    }
-
-    private void BindTerrainEditorBlockCombo()
-    {
-        if (_currentHexzmapProbe == null) return;
-        _updatingTerrainEditorBlockSelection = true;
-        try
-        {
-            _terrainEditorBlockCombo.DataSource = new BindingList<HexzmapBlockInfo>(_currentHexzmapProbe.Blocks.ToList());
-            _terrainEditorBlockCombo.DisplayMember = nameof(HexzmapBlockInfo.MapId);
-            _terrainEditorBlockCombo.ValueMember = nameof(HexzmapBlockInfo.Index);
-        }
-        finally
-        {
-            _updatingTerrainEditorBlockSelection = false;
-        }
-    }
-
-    private void RenderTerrainEditorPreview(bool force = false, bool updateLinkedMap = true)
-    {
-        if (!force && (_terrainEditorPainting || _mapMakerPainting))
-        {
-            var now = DateTime.UtcNow;
-            if ((now - _lastTerrainEditorRenderUtc).TotalMilliseconds < 80)
-            {
-                _terrainEditorRenderDeferred = true;
-                return;
-            }
-
-            _lastTerrainEditorRenderUtc = now;
-        }
-        else
-        {
-            _lastTerrainEditorRenderUtc = DateTime.UtcNow;
-            _terrainEditorRenderDeferred = false;
-        }
-
-        var old = _terrainEditorPictureBox.Image;
-        _terrainEditorPictureBox.Image = null;
-        old?.Dispose();
-        if (_terrainEditorBlock == null || _terrainEditorCells.Length != _terrainEditorBlock.BytesRead) return;
-
-        _terrainEditorPictureBox.Image = RenderTerrainEditorBitmap(_terrainEditorBlock, _terrainEditorCells);
-        if (updateLinkedMap && !_terrainEditorPainting)
-        {
-            RenderMapMakerPreview();
-            UpdateMapMakerEditingButtons();
-        }
-    }
-
-    private Bitmap RenderTerrainEditorBitmap(HexzmapBlockInfo block, byte[] cells)
-    {
-        var mapImagePath = ResolveHexzmapMapImagePath(block);
-        if (_terrainEditorOverlayMapCheckBox.Checked && !string.IsNullOrWhiteSpace(mapImagePath))
-        {
-            try
-            {
-                var mapImage = GetCachedTerrainEditorMapImage(mapImagePath);
-                if (mapImage != null)
-                {
-                    return _hexzmapTerrainRenderService.RenderOverlay(
-                        cells,
-                        block.Width,
-                        block.Height,
-                        mapImage,
-                        45);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("Terrain editor overlay render failed; fallback to pure terrain cells: " + ex.Message);
-            }
-        }
-
-        return _hexzmapTerrainRenderService.RenderTerrainCells(cells, block.Width, block.Height, 18);
-    }
-
-    private Image? GetCachedTerrainEditorMapImage(string mapImagePath)
-    {
-        if (string.IsNullOrWhiteSpace(mapImagePath) || !File.Exists(mapImagePath)) return null;
-        var fullPath = Path.GetFullPath(mapImagePath);
-        var writeUtc = File.GetLastWriteTimeUtc(fullPath);
-        if (_terrainEditorCachedMapImage != null &&
-            _terrainEditorCachedMapPath.Equals(fullPath, StringComparison.OrdinalIgnoreCase) &&
-            _terrainEditorCachedMapWriteUtc == writeUtc)
-        {
-            return _terrainEditorCachedMapImage;
-        }
-
-        _terrainEditorCachedMapImage?.Dispose();
-        _terrainEditorCachedMapImage = null;
-        _terrainEditorCachedMapPath = string.Empty;
-        _terrainEditorCachedMapWriteUtc = DateTime.MinValue;
-        using var image = Image.FromFile(fullPath);
-        _terrainEditorCachedMapImage = new Bitmap(image);
-        _terrainEditorCachedMapPath = fullPath;
-        _terrainEditorCachedMapWriteUtc = writeUtc;
-        return _terrainEditorCachedMapImage;
-    }
-
-    private void BeginTerrainEditorPaint(MouseEventArgs e)
-    {
-        if (e.Button != MouseButtons.Left) return;
-        _terrainEditorPainting = true;
-        _terrainEditorPendingPaintChanges.Clear();
-        _terrainEditorPendingPaintIndexes.Clear();
-        PaintTerrainEditorCell(e.Location, groupWithCurrentStroke: true);
-    }
-
-    private void ContinueTerrainEditorPaint(MouseEventArgs e)
-    {
-        if (!_terrainEditorPainting || e.Button != MouseButtons.Left) return;
-        PaintTerrainEditorCell(e.Location, groupWithCurrentStroke: true);
-    }
-
-    private void EndTerrainEditorPaint()
-    {
-        if (!_terrainEditorPainting) return;
-        _terrainEditorPainting = false;
-        if (_terrainEditorPendingPaintChanges.Count > 0)
-        {
-            _terrainEditorUndoStack.Push(_terrainEditorPendingPaintChanges.ToList());
-            _terrainEditorRedoStack.Clear();
-            UpdateTerrainEditorHistoryButtons();
-        }
-        var hadChanges = _terrainEditorPendingPaintChanges.Count > 0;
-        _terrainEditorPendingPaintChanges.Clear();
-        _terrainEditorPendingPaintIndexes.Clear();
-        if (hadChanges || _terrainEditorRenderDeferred)
-        {
-            RenderTerrainEditorPreview(force: true);
-        }
-    }
-
-    private void InspectTerrainEditorCell(Point location)
-    {
-        if (_terrainEditorBlock == null || _terrainEditorCells.Length != _terrainEditorBlock.BytesRead || _terrainEditorPictureBox.Image == null) return;
-        if (!TryMapPictureBoxPointToTerrainCell(_terrainEditorPictureBox, location, _terrainEditorBlock.Width, _terrainEditorBlock.Height, out var x, out var y)) return;
-        var index = y * _terrainEditorBlock.Width + x;
-        if (index < 0 || index >= _terrainEditorCells.Length) return;
-
-        _terrainEditorInfoBox.Text = BuildTerrainEditorInfo($"只读查看格子 ({x},{y})：{FormatTerrainValue(_terrainEditorCells[index])}。如需修改，请点击“转到地图制作”。");
-        SetStatus($"地形诊断：{_terrainEditorBlock.MapId} ({x},{y})");
-    }
-
-    private void PaintTerrainEditorCell(Point location, bool groupWithCurrentStroke)
-    {
-        if (_terrainEditorBlock == null || _terrainEditorCells.Length != _terrainEditorBlock.BytesRead || _terrainEditorPictureBox.Image == null) return;
-        if (!TryMapPictureBoxPointToTerrainCell(_terrainEditorPictureBox, location, _terrainEditorBlock.Width, _terrainEditorBlock.Height, out var x, out var y)) return;
-        var index = y * _terrainEditorBlock.Width + x;
-        if (groupWithCurrentStroke && !_terrainEditorPendingPaintIndexes.Add(index)) return;
-
-        var oldValue = _terrainEditorCells[index];
-        var newValue = (byte)_terrainEditorBrushInput.Value;
-        if (oldValue == newValue)
-        {
-            _terrainEditorInfoBox.Text = BuildTerrainEditorInfo($"格子 ({x},{y}) 已经是 {FormatTerrainValue(newValue)}。");
-            return;
-        }
-
-        _terrainEditorCells[index] = newValue;
-        var change = new TerrainEditorCellChange(index, oldValue, newValue);
-        if (groupWithCurrentStroke)
-        {
-            _terrainEditorPendingPaintChanges.Add(change);
-        }
-        else
-        {
-            _terrainEditorUndoStack.Push(new List<TerrainEditorCellChange> { change });
-            _terrainEditorRedoStack.Clear();
-            UpdateTerrainEditorHistoryButtons();
-        }
-
-        RenderTerrainEditorPreview();
-        _terrainEditorInfoBox.Text = BuildTerrainEditorInfo($"格子 ({x},{y})：{FormatTerrainValue(oldValue)} -> {FormatTerrainValue(newValue)}");
-        SetStatus($"地形格已修改：{_terrainEditorBlock.MapId} ({x},{y})");
-    }
-
-    private void UndoTerrainEditorPaint()
-    {
-        if (_terrainEditorBlock == null || _terrainEditorUndoStack.Count == 0 || _terrainEditorCells.Length != _terrainEditorBlock.BytesRead) return;
-        var changes = _terrainEditorUndoStack.Pop();
-        for (var i = changes.Count - 1; i >= 0; i--)
-        {
-            var change = changes[i];
-            if (change.Index >= 0 && change.Index < _terrainEditorCells.Length)
-            {
-                _terrainEditorCells[change.Index] = change.OldValue;
-            }
-        }
-        _terrainEditorRedoStack.Push(changes);
-        RenderTerrainEditorPreview();
-        _terrainEditorInfoBox.Text = BuildTerrainEditorInfo($"已撤销一笔地形绘制：{changes.Count} 格。");
-        UpdateTerrainEditorHistoryButtons();
-        SetStatus("地形编辑已撤销");
-    }
-
-    private void RedoTerrainEditorPaint()
-    {
-        if (_terrainEditorBlock == null || _terrainEditorRedoStack.Count == 0 || _terrainEditorCells.Length != _terrainEditorBlock.BytesRead) return;
-        var changes = _terrainEditorRedoStack.Pop();
-        foreach (var change in changes)
-        {
-            if (change.Index >= 0 && change.Index < _terrainEditorCells.Length)
-            {
-                _terrainEditorCells[change.Index] = change.NewValue;
-            }
-        }
-        _terrainEditorUndoStack.Push(changes);
-        RenderTerrainEditorPreview();
-        _terrainEditorInfoBox.Text = BuildTerrainEditorInfo($"已重做一笔地形绘制：{changes.Count} 格。");
-        UpdateTerrainEditorHistoryButtons();
-        SetStatus("地形编辑已重做");
-    }
-
-    private void ResetTerrainEditorHistory()
-    {
-        _terrainEditorPainting = false;
-        _terrainEditorPendingPaintChanges.Clear();
-        _terrainEditorPendingPaintIndexes.Clear();
-        _terrainEditorUndoStack.Clear();
-        _terrainEditorRedoStack.Clear();
-        UpdateTerrainEditorHistoryButtons();
-    }
-
-    private void UpdateTerrainEditorHistoryButtons()
-    {
-        _undoTerrainEditorButton.Enabled = _terrainEditorUndoStack.Count > 0;
-        _redoTerrainEditorButton.Enabled = _terrainEditorRedoStack.Count > 0;
-        UpdateMapMakerEditingButtons();
-    }
-
     private static bool TryMapPictureBoxPointToTerrainCell(PictureBox box, Point point, int gridWidth, int gridHeight, out int x, out int y)
     {
         x = 0;
@@ -21357,152 +20909,10 @@ public sealed class MainForm : Form
         }
     }
 
-    private void UpdateTerrainEditorBrushLabel()
-    {
-        var value = (byte)_terrainEditorBrushInput.Value;
-        _terrainEditorBrushNameLabel.Text = "地形：" + FormatTerrainValue(value);
-        SelectTerrainEditorPresetForBrush(value);
-        if (_mapMakerTerrainBrushInput.Value != value)
-        {
-            _mapMakerTerrainBrushInput.Value = value;
-        }
-    }
-
-    private void RefreshTerrainEditorPresetCombo()
-    {
-        _updatingTerrainEditorPresetSelection = true;
-        try
-        {
-            var presets = _terrainEditorTerrainLookup
-                .OrderBy(x => x.Key)
-                .Select(x => new TerrainEditorPreset(x.Key, x.Value))
-                .ToList();
-            if (presets.Count == 0)
-            {
-                presets.Add(new TerrainEditorPreset((byte)_terrainEditorBrushInput.Value, string.Empty));
-            }
-
-            _terrainEditorPresetCombo.DataSource = presets;
-            _terrainEditorPresetCombo.DisplayMember = nameof(TerrainEditorPreset.DisplayName);
-            _terrainEditorPresetCombo.ValueMember = nameof(TerrainEditorPreset.Id);
-            _terrainEditorLegendBox.Text = BuildTerrainEditorLegendText(presets);
-        }
-        finally
-        {
-            _updatingTerrainEditorPresetSelection = false;
-        }
-
-        SelectTerrainEditorPresetForBrush((byte)_terrainEditorBrushInput.Value);
-    }
-
-    private void SelectTerrainEditorPreset()
-    {
-        if (_updatingTerrainEditorPresetSelection) return;
-        if (_terrainEditorPresetCombo.SelectedItem is not TerrainEditorPreset preset) return;
-        _terrainEditorBrushInput.Value = preset.Id;
-    }
-
-    private void SelectTerrainEditorPresetForBrush(byte value)
-    {
-        if (_updatingTerrainEditorPresetSelection) return;
-        if (_terrainEditorPresetCombo.DataSource is not IEnumerable<TerrainEditorPreset> presets) return;
-        var match = presets.FirstOrDefault(x => x.Id == value);
-        if (match == null) return;
-
-        _updatingTerrainEditorPresetSelection = true;
-        try
-        {
-            _terrainEditorPresetCombo.SelectedItem = match;
-        }
-        finally
-        {
-            _updatingTerrainEditorPresetSelection = false;
-        }
-    }
-
-    private static string BuildTerrainEditorLegendText(IReadOnlyList<TerrainEditorPreset> presets)
-    {
-        if (presets.Count == 0)
-        {
-            return "地形图例：未从素材库解析到 hex 中文候选。如需输入 0..255 画笔 ID，请在地图制作页使用地形画笔。";
-        }
-
-        var lines = presets
-            .Take(120)
-            .Select(x => x.DisplayName)
-            .ToList();
-        var suffix = presets.Count > lines.Count
-            ? $"\r\n... 还有 {presets.Count - lines.Count} 个候选未显示。如需手动输入画笔 ID，请在地图制作页使用地形画笔。"
-            : string.Empty;
-        return "地形图例（来自素材库 hex 标记）：\r\n" + string.Join("\r\n", lines) + suffix;
-    }
-
-    private bool HasTerrainEditorChanges()
-        => _terrainEditorCells.Length == _terrainEditorOriginalCells.Length
-           && _terrainEditorCells.Length > 0
-           && !_terrainEditorCells.SequenceEqual(_terrainEditorOriginalCells);
-
-    private int CountTerrainEditorChangedCells()
-    {
-        if (_terrainEditorCells.Length != _terrainEditorOriginalCells.Length) return 0;
-        var count = 0;
-        for (var i = 0; i < _terrainEditorCells.Length; i++)
-        {
-            if (_terrainEditorCells[i] != _terrainEditorOriginalCells[i]) count++;
-        }
-        return count;
-    }
-
-    private string BuildTerrainEditorInfo(string actionText)
-    {
-        if (_terrainEditorBlock == null) return "地形编辑兼容入口：请先读取 Hexzmap.e5 并选择地图块。本页只读，修改和发布请到地图制作页完成。";
-        var mapText = _terrainEditorBlock.MapImageExists ? _terrainEditorBlock.MapImageName : "未找到同编号地图图片";
-        return
-            $"{actionText}\r\n" +
-            $"地图块：{_terrainEditorBlock.MapId}    Index={_terrainEditorBlock.Index}    偏移={_terrainEditorBlock.OffsetHex}    地图格数={_terrainEditorBlock.Width}x{_terrainEditorBlock.Height}    图片={_terrainEditorBlock.MapPixelWidth}x{_terrainEditorBlock.MapPixelHeight}    地图图片={mapText}\r\n" +
-            $"只读诊断：当前页不再承载地形写回；点击预览可查看格子地形，点击“转到地图制作”会打开同编号地图草稿。\r\n" +
-            "说明：地图格数由底图分辨率决定（48x48 像素/格）；真实发布只允许在地图制作页通过“发布到地形层”执行，并继续使用等长写回边界。";
-    }
-
     private string FormatTerrainValue(byte value)
         => _terrainEditorTerrainLookup.TryGetValue(value, out var name) && !string.IsNullOrWhiteSpace(name)
             ? $"0x{value:X2}（{name}）"
             : $"0x{value:X2}";
-
-    private void SaveTerrainEditorBlock()
-    {
-        MessageBox.Show(this,
-            "独立地形编辑页已退出写回主流程。请在“地图制作”页创建或绑定地图草稿，使用地形画笔修改后，通过“发布到地形层”写回 Hexzmap.e5。",
-            "请使用地图制作页",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
-    }
-
-    private void JumpTerrainEditorBlockToMapWorkbench()
-    {
-        if (_terrainEditorBlock == null)
-        {
-            MessageBox.Show(this, "请先读取并选择一个 Hexzmap 地形块。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        if (!_terrainEditorBlock.MapImageExists || string.IsNullOrWhiteSpace(_terrainEditorBlock.MapImageName))
-        {
-            MessageBox.Show(this, "当前地形块没有同编号 Map\\Mxxx.jpg 底图，无法绑定到地图制作页。", "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        SelectTabPageByText("地图制作");
-        if (_mapImageList.Items.Count == 0) LoadMapImages();
-        if (!SelectMapImageByName(_terrainEditorBlock.MapImageName))
-        {
-            MessageBox.Show(this, "地图制作页未找到对应底图：" + _terrainEditorBlock.MapImageName, "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.TerrainBrush);
-        SetStatus($"已从地形诊断跳转到地图制作：{_terrainEditorBlock.MapId}");
-    }
 
     private void LoadHexzmapProbe()
     {
@@ -22299,18 +21709,12 @@ public sealed class MainForm : Form
             if (_terrainEditorTerrainLookup.Count == 0)
             {
                 _terrainEditorTerrainLookup = BuildTerrainNameLookupForCurrentProject();
-                RefreshTerrainEditorPresetCombo();
                 RefreshMapMakerPresetCombo();
             }
 
             if (_currentHexzmapProbe == null)
             {
                 _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, _terrainEditorTerrainLookup);
-                BindTerrainEditorBlockCombo();
-            }
-            else if (_terrainEditorBlockCombo.DataSource == null)
-            {
-                BindTerrainEditorBlockCombo();
             }
 
             if (_mapMakerTerrainPresetCombo.DataSource == null)
@@ -22362,35 +21766,22 @@ public sealed class MainForm : Form
     private void SelectTerrainEditorBlockForMapMaker(HexzmapBlockInfo block)
     {
         if (_currentHexzmapProbe == null) return;
-        if (_terrainEditorBlockCombo.DataSource == null)
+        var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
+        if (cells.Length != block.BytesRead)
         {
-            BindTerrainEditorBlockCombo();
+            return;
         }
 
-        var index = -1;
-        for (var i = 0; i < _terrainEditorBlockCombo.Items.Count; i++)
+        _terrainEditorBlock = block;
+        _terrainEditorCells = cells.ToArray();
+        _terrainEditorOriginalCells = _terrainEditorCells.ToArray();
+        _mapMakerOriginalTerrainCells = _terrainEditorCells.ToArray();
+        if (_currentMapWorkbenchDraft != null && _currentMapWorkbenchDraft.CellCount == _terrainEditorCells.Length)
         {
-            if (_terrainEditorBlockCombo.Items[i] is HexzmapBlockInfo item && item.Index == block.Index)
-            {
-                index = i;
-                break;
-            }
+            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
         }
 
-        if (index >= 0)
-        {
-            _updatingTerrainEditorBlockSelection = true;
-            try
-            {
-                _terrainEditorBlockCombo.SelectedIndex = index;
-            }
-            finally
-            {
-                _updatingTerrainEditorBlockSelection = false;
-            }
-        }
-
-        SelectTerrainEditorBlockFromCombo();
+        RenderMapMakerPreview();
     }
 
     private HexzmapBlockInfo? FindHexzmapBlockForMap(ResourceIndexItem item)
@@ -22650,7 +22041,7 @@ public sealed class MainForm : Form
     private void SyncMapWorkbenchDraftFromEditor()
     {
         if (_currentMapWorkbenchDraft == null) return;
-        _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+        _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
         _currentMapWorkbenchDraft.MaterialRoot = _mapWorkbenchSettings.LastMaterialRoot;
         if (_currentMapMakerItem != null)
         {
@@ -22674,8 +22065,6 @@ public sealed class MainForm : Form
         _mapMakerMapRedoStack.Clear();
         _mapMakerTerrainUndoStack.Clear();
         _mapMakerTerrainRedoStack.Clear();
-        _terrainEditorUndoStack.Clear();
-        _terrainEditorRedoStack.Clear();
         UpdateMapMakerEditingButtons();
     }
 
@@ -22746,7 +22135,6 @@ public sealed class MainForm : Form
                 $"素材数量：{_currentMaterialAssets.Count}\r\n" +
                 "地图画笔会把选中素材整张缩放到 48x48 覆盖当前格；地形画笔只使用 HexTag 构建中文地形候选。";
             SaveMapWorkbenchSettings();
-            RefreshTerrainEditorPresetCombo();
             RefreshMapMakerPresetCombo();
             if (showMessages) SetStatus("地图工作台素材库索引完成");
         }
@@ -22856,8 +22244,26 @@ public sealed class MainForm : Form
         return _terrainEditorCells.Length == _currentMapWorkbenchDraft.CellCount;
     }
 
-    private void RenderMapMakerPreview()
+    private void RenderMapMakerPreview(bool force = false)
     {
+        if (!force && _mapMakerPainting)
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastMapMakerRenderUtc).TotalMilliseconds < 50)
+            {
+                _mapMakerRenderDeferred = true;
+                return;
+            }
+
+            _lastMapMakerRenderUtc = now;
+            _mapMakerRenderDeferred = false;
+        }
+        else
+        {
+            _lastMapMakerRenderUtc = DateTime.UtcNow;
+            _mapMakerRenderDeferred = false;
+        }
+
         _mapViewerBox.Image = null;
         _mapViewerRenderedImage?.Dispose();
         _mapViewerRenderedImage = null;
@@ -22875,56 +22281,8 @@ public sealed class MainForm : Form
             _mapMakerShowGridCheckBox.Checked,
             _mapMakerTerrainOpacityTrackBar.Value);
         _mapViewerBox.Image = _mapViewerRenderedImage;
-        _mapViewerImage?.Dispose();
-        _mapViewerImage = _mapCanvasComposeService.ComposeFinal(_currentMapWorkbenchDraft);
         _mapMakerExportPreviewButton.Enabled = true;
         UpdateMapMakerEditingButtons();
-    }
-
-    private void DrawTerrainCellsOnMapMaker(Graphics g, int pixelWidth, int pixelHeight)
-    {
-        if (_currentMapMakerItem == null || _currentMapMakerItem.GridWidth <= 0 || _currentMapMakerItem.GridHeight <= 0)
-        {
-            return;
-        }
-
-        var alpha = Math.Clamp(_mapMakerTerrainOpacityTrackBar.Value, 0, 100) * 255 / 100;
-        var cellWidth = pixelWidth / (float)_currentMapMakerItem.GridWidth;
-        var cellHeight = pixelHeight / (float)_currentMapMakerItem.GridHeight;
-        for (var y = 0; y < _currentMapMakerItem.GridHeight; y++)
-        {
-            for (var x = 0; x < _currentMapMakerItem.GridWidth; x++)
-            {
-                var value = _terrainEditorCells[y * _currentMapMakerItem.GridWidth + x];
-                var color = HexzmapTerrainRenderService.GetTerrainColor(value);
-                using var brush = new SolidBrush(Color.FromArgb(alpha, color));
-                g.FillRectangle(brush, x * cellWidth, y * cellHeight, cellWidth + 0.5f, cellHeight + 0.5f);
-            }
-        }
-    }
-
-    private void DrawMapMakerGrid(Graphics g, int pixelWidth, int pixelHeight)
-    {
-        if (_currentMapMakerItem == null || _currentMapMakerItem.GridWidth <= 0 || _currentMapMakerItem.GridHeight <= 0)
-        {
-            return;
-        }
-
-        using var darkPen = new Pen(Color.FromArgb(150, Color.Black));
-        using var lightPen = new Pen(Color.FromArgb(65, Color.White));
-        for (var x = 0; x <= _currentMapMakerItem.GridWidth; x++)
-        {
-            var px = x * pixelWidth / (float)_currentMapMakerItem.GridWidth;
-            g.DrawLine(darkPen, px, 0, px, pixelHeight);
-            g.DrawLine(lightPen, px + 1, 0, px + 1, pixelHeight);
-        }
-
-        for (var y = 0; y <= _currentMapMakerItem.GridHeight; y++)
-        {
-            var py = y * pixelHeight / (float)_currentMapMakerItem.GridHeight;
-            g.DrawLine(darkPen, 0, py, pixelWidth, py);
-            g.DrawLine(lightPen, 0, py + 1, pixelWidth, py + 1);
-        }
     }
 
     private void BeginMapMakerTerrainPaint(MouseEventArgs e)
@@ -22975,9 +22333,9 @@ public sealed class MainForm : Form
         _mapMakerPendingMapPaintIndexes.Clear();
         _mapMakerPendingTerrainPaintChanges.Clear();
         _mapMakerPendingTerrainPaintIndexes.Clear();
-        if (hadChanges || _terrainEditorRenderDeferred)
+        if (hadChanges || _mapMakerRenderDeferred)
         {
-            RenderMapMakerPreview();
+            RenderMapMakerPreview(force: true);
         }
         UpdateMapMakerEditingButtons();
     }
@@ -23060,7 +22418,7 @@ public sealed class MainForm : Form
         }
 
         _terrainEditorCells[index] = newValue;
-        _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+        _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
         var change = new TerrainEditorCellChange(index, oldValue, newValue);
         if (groupWithCurrentStroke)
         {
@@ -23073,10 +22431,6 @@ public sealed class MainForm : Form
         }
 
         RenderMapMakerPreview();
-        if (_terrainEditorBlock != null)
-        {
-            _terrainEditorInfoBox.Text = BuildTerrainEditorInfo($"地图制作页修改草稿格子 ({x},{y})：{FormatTerrainValue(oldValue)} -> {FormatTerrainValue(newValue)}");
-        }
         _mapViewerInfoBox.Text = BuildMapMakerInfo($"格子 ({x},{y})：{FormatTerrainValue(oldValue)} -> {FormatTerrainValue(newValue)}", x, y);
         SetStatus($"地形画笔：({x},{y})");
     }
@@ -23096,7 +22450,7 @@ public sealed class MainForm : Form
                 }
             }
             _mapMakerTerrainRedoStack.Push(changes);
-            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
             RenderMapMakerPreview();
             _mapViewerInfoBox.Text = BuildMapMakerInfo($"已撤销一笔地形绘制：{changes.Count} 格。");
             SetStatus("地图工作台已撤销地形绘制");
@@ -23132,7 +22486,7 @@ public sealed class MainForm : Form
                 }
             }
             _mapMakerTerrainUndoStack.Push(changes);
-            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
             RenderMapMakerPreview();
             _mapViewerInfoBox.Text = BuildMapMakerInfo($"已重做一笔地形绘制：{changes.Count} 格。");
             SetStatus("地图工作台已重做地形绘制");
@@ -23203,7 +22557,6 @@ public sealed class MainForm : Form
         _mapMakerSaveTerrainButton.Enabled = hasDraft;
         _mapMakerUndoTerrainButton.Enabled = hasDraft && (_mapMakerMapUndoStack.Count > 0 || _mapMakerTerrainUndoStack.Count > 0);
         _mapMakerRedoTerrainButton.Enabled = hasDraft && (_mapMakerMapRedoStack.Count > 0 || _mapMakerTerrainRedoStack.Count > 0);
-        _mapMakerJumpTerrainEditorButton.Enabled = hasBoundMap;
         _mapMakerReplaceMapImageButton.Enabled = hasBoundMap;
         _mapMakerExportPreviewButton.Enabled = _mapViewerBox.Image != null;
         _mapMakerExportJpgButton.Enabled = hasDraft;
@@ -23251,10 +22604,6 @@ public sealed class MainForm : Form
         var value = (byte)_mapMakerTerrainBrushInput.Value;
         _mapMakerBrushNameLabel.Text = "地形：" + FormatTerrainValue(value);
         SelectMapMakerPresetForBrush(value);
-        if (_terrainEditorBrushInput.Value != value)
-        {
-            _terrainEditorBrushInput.Value = value;
-        }
     }
 
     private void SelectMapMakerPresetForBrush(byte value)
@@ -23392,13 +22741,6 @@ public sealed class MainForm : Form
         }
 
         return count;
-    }
-
-    private void JumpCurrentMapMakerTerrainEditor()
-    {
-        if (!TryLoadMapMakerTerrainForSelectedMap(showMessage: true)) return;
-        SelectTabPageByText("地形编辑");
-        SetStatus($"已跳到地形编辑：{_terrainEditorBlock?.MapId}");
     }
 
     private void ReplaceCurrentMapImage()

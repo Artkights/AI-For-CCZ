@@ -5,13 +5,15 @@ namespace CCZModStudio.Core;
 
 public sealed class MapCanvasComposeService
 {
+    private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
+
     public Bitmap ComposeFinal(MapWorkbenchDraft draft)
         => Compose(draft, showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false);
 
     public Bitmap ComposePreview(MapWorkbenchDraft draft, bool showTerrain, bool showGrid, int terrainOpacityPercent)
         => Compose(draft, showTerrain, showGrid, terrainOpacityPercent, checkerboardBlank: true);
 
-    private static Bitmap Compose(
+    private Bitmap Compose(
         MapWorkbenchDraft draft,
         bool showTerrain,
         bool showGrid,
@@ -32,9 +34,9 @@ public sealed class MapCanvasComposeService
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.PixelOffsetMode = PixelOffsetMode.Half;
 
-        if (!string.IsNullOrWhiteSpace(draft.BaseLayerPath) && File.Exists(draft.BaseLayerPath))
+        var baseImage = GetCachedImage(draft.BaseLayerPath);
+        if (baseImage != null)
         {
-            using var baseImage = Image.FromFile(draft.BaseLayerPath);
             g.Clear(Color.Black);
             g.DrawImage(baseImage, new Rectangle(0, 0, pixelWidth, pixelHeight));
         }
@@ -51,11 +53,11 @@ public sealed class MapCanvasComposeService
         {
             if (cell.Index < 0 || cell.Index >= draft.GridWidth * draft.GridHeight) continue;
             var materialPath = MapDraftService.ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath);
-            if (string.IsNullOrWhiteSpace(materialPath) || !File.Exists(materialPath)) continue;
+            var material = GetCachedImage(materialPath);
+            if (material == null) continue;
 
             var x = cell.Index % draft.GridWidth;
             var y = cell.Index / draft.GridWidth;
-            using var material = Image.FromFile(materialPath);
             g.DrawImage(material, new Rectangle(x * tileSize, y * tileSize, tileSize, tileSize));
         }
 
@@ -69,6 +71,30 @@ public sealed class MapCanvasComposeService
             DrawGrid(g, draft.GridWidth, draft.GridHeight, pixelWidth, pixelHeight);
         }
 
+        return bitmap;
+    }
+
+    private Bitmap? GetCachedImage(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+
+        var fullPath = Path.GetFullPath(path);
+        var info = new FileInfo(fullPath);
+        if (_imageCache.TryGetValue(fullPath, out var cached) &&
+            cached.LastWriteUtc == info.LastWriteTimeUtc &&
+            cached.Length == info.Length)
+        {
+            return cached.Bitmap;
+        }
+
+        using var source = Image.FromFile(fullPath);
+        var bitmap = new Bitmap(source);
+        if (_imageCache.TryGetValue(fullPath, out cached))
+        {
+            cached.Bitmap.Dispose();
+        }
+
+        _imageCache[fullPath] = new CachedImage(info.LastWriteTimeUtc, info.Length, bitmap);
         return bitmap;
     }
 
@@ -124,4 +150,6 @@ public sealed class MapCanvasComposeService
             g.DrawLine(lightPen, 0, py + 1, pixelWidth, py + 1);
         }
     }
+
+    private sealed record CachedImage(DateTime LastWriteUtc, long Length, Bitmap Bitmap);
 }
