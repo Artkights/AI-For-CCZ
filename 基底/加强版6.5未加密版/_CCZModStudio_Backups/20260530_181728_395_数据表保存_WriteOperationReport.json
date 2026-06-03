@@ -1,0 +1,40 @@
+{
+  "SchemaVersion": "1.0",
+  "OperationId": "94eb84028bc245d38742466e04532063",
+  "CreatedAt": "2026-05-30T18:17:28.3989274+08:00",
+  "OperationKind": "数据表保存",
+  "SourceAction": "数据表保存前自动备份",
+  "ProjectRoot": "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\加强版6.5未加密版",
+  "TargetRelativePath": "Data.e5",
+  "TargetPath": "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\加强版6.5未加密版\\Data.e5",
+  "BackupPath": "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\加强版6.5未加密版\\_CCZModStudio_Backups\\20260530_181728_395_Data.e5",
+  "TextReportPath": "",
+  "JsonReportPath": "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\加强版6.5未加密版\\_CCZModStudio_Backups\\20260530_181728_395_数据表保存_WriteOperationReport.json",
+  "BeforeSha256": "638744E07B39A12DB2D807892D1FBC7EA69F7E43CAD2771DAA9003574B92B846",
+  "AfterSha256": "FAC7A75190C81753CED3ABBAFD2004A1C8F4E7F94DF3875FEAA703F180DFB33F",
+  "ChangedBytes": 1,
+  "Summary": "保存数据表“6.5-0 人物”，目标 Data.e5，字段改动 1 项，字节改动 1。",
+  "SafetyNotes": "该报告由当前 MOD 项目直接保存流程自动生成。保存前已备份目标文件；如需回退，请使用备份文件或备份历史功能。",
+  "FormatCheckSummary": "",
+  "RiskSummary": "",
+  "Changes": [
+    {
+      "Category": "表格字段",
+      "TableName": "6.5-0 人物",
+      "RowIndex": 0,
+      "ColumnName": "撤退台词",
+      "OffsetHex": "0x19B",
+      "ByteLength": 1,
+      "OldValue": "1",
+      "NewValue": "0",
+      "Annotation": "表“6.5-0 人物”第 0 行字段“撤退台词”从“1”改为“0”。"
+    }
+  ],
+  "Metadata": {
+    "TableName": "6.5-0 人物",
+    "Version": "6.5",
+    "RowCount": "1024",
+    "RowSize": "32",
+    "DataPos": "0x18C"
+  }
+}

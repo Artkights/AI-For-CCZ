@@ -1,0 +1,1143 @@
+<?xml version="1.0" standalone="yes"?>
+<DocumentElement>
+  <HexTable>
+    <ID>1</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-0 人物</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>396</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>32</RowSize>
+    <Columns>名称,头像,撤退台词,暴击台词,Army,武力,统帅,智力,敏捷,士气,初始HP,初始MP,职业,级别,经验</Columns>
+    <Bytes>13,2,1,1,1,1,1,1,1,1,2,1,1,1,1</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>2</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-0-1 人物列传</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>184400</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>3</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-0-2 暴击台词</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>140000</DataPos>
+    <RowCount>99</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>4</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-0-3 撤退台词</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>130000</DataPos>
+    <RowCount>49</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>5</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-0-4 R形象</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>921600</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>2</RowSize>
+    <Columns>名称,R形象编号</Columns>
+    <Bytes>-1,2</Bytes>
+    <IndexTable>6.3-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>6</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-0-5 S形象</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>862208</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>2</RowSize>
+    <Columns>名称,S形象编号</Columns>
+    <Bytes>-1,2</Bytes>
+    <IndexTable>6.3-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>7</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-1 物品（0-103）</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>33164</DataPos>
+    <RowCount>104</RowCount>
+    <RowSize>25</RowSize>
+    <Columns>名称,类型,装备特效号,价格（/100）,图标,初始能力,装备特效号-效果值,升级能力成长,宝物图鉴</Columns>
+    <Bytes>17,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>8</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-2 物品（104-153）</TableName>
+    <FileName>Star.e5</FileName>
+    <DataPos>0</DataPos>
+    <RowCount>50</RowCount>
+    <RowSize>25</RowSize>
+    <Columns>名称,类型,装备特效号,价格（/100）,图标,初始能力,装备特效号-效果值,升级能力成长,宝物图鉴</Columns>
+    <Bytes>17,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>104</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>9</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-1-1 物品说明（0-103）</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>0</DataPos>
+    <RowCount>104</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-1 物品（0-103）</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>10</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-2-1 物品说明（104-153）</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>20800</DataPos>
+    <RowCount>50</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-2 物品（104-153）</IndexTable>
+    <BeginID>104</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>11</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-3 兵种系</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>569360</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>9</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>9</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>12</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-3-1 地形发挥</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>43172</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>60</RowSize>
+    <Columns>名称,平原,草原,树林,荒地,山地,岩山,山崖,雪原,桥梁,浅滩,沼泽,池塘,小河,大河,栅栏,城墙,城内,城门,城池,关隘,鹿砦,村庄,兵营,民居,宝物库,水池,火,船,祭坛,地下</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>13</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-3-2 移动消耗</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>43202</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>60</RowSize>
+    <Columns>名称,平原,草原,树林,荒地,山地,岩山,山崖,雪原,桥梁,浅滩,沼泽,池塘,小河,大河,栅栏,城墙,城内,城门,城池,关隘,鹿砦,村庄,兵营,民居,宝物库,水池,火,船,祭坛,地下</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>14</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-3-3 兵种相克</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>668288</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>40</RowSize>
+    <Columns>名称,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>15</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-3-4 兵种属性</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>669888</DataPos>
+    <RowCount>8</RowCount>
+    <RowSize>40</RowSize>
+    <Columns>0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39</Columns>
+    <Bytes>1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>16</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-4 详细兵种</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>858320</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>9</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>9</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>17</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-4-1 兵种说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>70000</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-4 详细兵种</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>18</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-4-2 兵种成长</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>40372</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>35</RowSize>
+    <Columns>名称,移动力,攻击范围,攻击,防御,精神,爆发,士气,HP,MP</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-4 详细兵种</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>19</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-4-3 兵种穿透</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>27777</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,穿透</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-4 详细兵种</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>20</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5 策略</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>45572</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>97</RowSize>
+    <Columns>名称,策略类型,施展对象,施法范围,穿透范围,策略消耗,策略图标,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79</Columns>
+    <Bytes>11,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>21</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-1 策略说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>32600</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>22</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-2 策略动画1</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>744124</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>23</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-3 策略动画2</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>133744</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>24</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-4 策略伤害类型</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>298935</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>25</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-5 策略伤害比例</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>243485</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>26</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-6 策略命中率</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>241159</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>27</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-7 学会策略</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>414209</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>28</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-8 战场AI策略限制</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>234880</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>29</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-5-9 练武场AI策略限制</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>231814</DataPos>
+    <RowCount>86</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.3-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>30</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-7 兵种特效</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>855968</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>16</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>0</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>31</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-7-1 兵种特效说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>96000</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.3-7 兵种特效</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>32</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-7-2 兵种特效分配</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>893360</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>8</RowSize>
+    <Columns>名称,1号武将,2号武将,3号武将,兵种,特效值</Columns>
+    <Bytes>-1,2,2,2,1,1</Bytes>
+    <IndexTable>6.3-7 兵种特效</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>33</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-7-3 人物专属、套装专属</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>917504</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>16</RowSize>
+    <Columns>名称,武将1,装备1,特效值1,武将2,装备2,特效值2,装备3-1,装备3-2,装备3-3,特效值3,装备4-1,装备4-2,装备4-3,特效值4</Columns>
+    <Bytes>-1,2,1,1,2,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-7 兵种特效</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>34</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-8 战役名称</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>50000</DataPos>
+    <RowCount>99</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>200</Bytes>
+    <IndexTable>6.3</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>35</ID>
+    <Enable>true</Enable>
+    <TableName>6.3-8-1 商店数据</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>35764</DataPos>
+    <RowCount>128</RowCount>
+    <RowSize>36</RowSize>
+    <Columns>开关仓库人物,买卖物品人物,装备1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,道具17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32</Columns>
+    <Bytes>2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.3-8 战役名称</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>36</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-0 人物</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>396</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>32</RowSize>
+    <Columns>名称,头像,撤退台词,暴击台词,Army,武力,统帅,智力,敏捷,士气,初始HP,初始MP,职业,级别,经验</Columns>
+    <Bytes>13,2,1,1,1,1,1,1,1,1,2,1,1,1,1</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>37</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-0-1 人物列传</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>184400</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>38</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-0-2 暴击台词</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>140000</DataPos>
+    <RowCount>99</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>39</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-0-3 撤退台词</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>440200</DataPos>
+    <RowCount>49</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>40</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-0-4 R形象</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>921600</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>2</RowSize>
+    <Columns>名称,R形象编号</Columns>
+    <Bytes>-1,2</Bytes>
+    <IndexTable>6.4-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>41</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-0-5 S形象</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>862208</DataPos>
+    <RowCount>1024</RowCount>
+    <RowSize>2</RowSize>
+    <Columns>名称,S形象编号</Columns>
+    <Bytes>-1,2</Bytes>
+    <IndexTable>6.4-0 人物</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>42</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-1 物品（0-103）</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>33164</DataPos>
+    <RowCount>104</RowCount>
+    <RowSize>25</RowSize>
+    <Columns>名称,类型,装备特效号,价格（/100）,图标,初始能力,装备特效号-效果值,升级能力成长,宝物图鉴</Columns>
+    <Bytes>17,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>43</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-2 物品（104-255）</TableName>
+    <FileName>Star.e5</FileName>
+    <DataPos>0</DataPos>
+    <RowCount>151</RowCount>
+    <RowSize>25</RowSize>
+    <Columns>名称,类型,装备特效号,价格（/100）,图标,初始能力,装备特效号-效果值,升级能力成长,宝物图鉴</Columns>
+    <Bytes>17,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>104</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>44</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-1-1 物品说明（0-103）</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>389200</DataPos>
+    <RowCount>104</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-1 物品（0-103）</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>45</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-1-2 装备特效名称（1A-57）</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>567784</DataPos>
+    <RowCount>1</RowCount>
+    <RowSize>885</RowSize>
+    <Columns>1A（6）,1B（6）,1C（7）,1D（6）,1E（8.5）,1F,20（5）,21（5）,22（5）,23（5）,24,25（3）,26（3）,27（5.5）,28（5）,29,2A,2B,2C,2D,2E,2F（6）,30（6）,31,32,33,34（5）,35,36,37（6）,38（6）,39（3）,3A,3B,3C（6）,3D（6）,3E（6）,3F（5）,40（6）,41（6）,42,43（6）,44（5）,45（6）,46,47,48,49,4A,4B,4C,4D,4E,4F,50,51,52,53,54,55,56,57</Columns>
+    <Bytes>13</Bytes>
+    <IndexTable>6.4-1 物品（0-103）</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>46</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-1-3 装备特效名称（58-7F）</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>653312</DataPos>
+    <RowCount>1</RowCount>
+    <RowSize>368</RowSize>
+    <Columns>58,59（6）,5A,5B,5C,5D,5E（6）,5F,60,61,62,63,64,65,66,67,68,69,6A,6B,6C,6D,6E,6F,70,71,72,73,74,75,76,77,78,79,7A,7B,7C,7D,7E,7F</Columns>
+    <Bytes>9</Bytes>
+    <IndexTable>6.4-1 物品（0-103）</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>47</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-2-1 物品说明（104-255）</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>410000</DataPos>
+    <RowCount>151</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-2 物品（104-255）</IndexTable>
+    <BeginID>104</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>48</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-3 兵种系</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>569360</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>9</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>9</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>49</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-3-1 地形发挥</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>43172</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>60</RowSize>
+    <Columns>名称,平原,草原,树林,荒地,山地,岩山,山崖,雪原,桥梁,浅滩,沼泽,池塘,小河,大河,栅栏,城墙,城内,城门,城池,关隘,鹿砦,村庄,兵营,民居,宝物库,水池,火,船,祭坛,地下</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>50</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-3-2 移动消耗</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>43202</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>60</RowSize>
+    <Columns>名称,平原,草原,树林,荒地,山地,岩山,山崖,雪原,桥梁,浅滩,沼泽,池塘,小河,大河,栅栏,城墙,城内,城门,城池,关隘,鹿砦,村庄,兵营,民居,宝物库,水池,火,船,祭坛,地下</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>51</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-3-3 兵种相克</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>668288</DataPos>
+    <RowCount>40</RowCount>
+    <RowSize>40</RowSize>
+    <Columns>名称,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>52</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-3-4 兵种属性</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>669888</DataPos>
+    <RowCount>8</RowCount>
+    <RowSize>40</RowSize>
+    <Columns>0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39</Columns>
+    <Bytes>1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-3 兵种系</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>53</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-4 详细兵种</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>858320</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>9</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>9</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>54</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-4-1 兵种说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>70000</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-4 详细兵种</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>55</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-4-2 兵种成长</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>40372</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>35</RowSize>
+    <Columns>名称,移动力,攻击范围,攻击,防御,精神,爆发,士气,HP,MP</Columns>
+    <Bytes>-1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-4 详细兵种</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>56</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-4-3 兵种穿透</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>27777</DataPos>
+    <RowCount>80</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,穿透</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-4 详细兵种</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>57</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5 策略</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>45572</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>97</RowSize>
+    <Columns>名称,策略类型,施展对象,施法范围,穿透范围,策略消耗,策略图标,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79</Columns>
+    <Bytes>11,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>58</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-1 策略说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>0</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>59</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-2 策略动画1</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>668144</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>60</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-3 策略动画2</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>668000</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>61</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-4 策略伤害类型</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>667856</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>62</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-5 策略伤害比例</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>667712</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>63</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-6 策略命中率</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>667424</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>64</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-7 学会策略</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>667568</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>65</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-8 战场AI策略限制</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>667136</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>66</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-5-9 练武场AI策略限制</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>667280</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.4-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>67</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-6 必杀</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>59540</DataPos>
+    <RowCount>96</RowCount>
+    <RowSize>16</RowSize>
+    <Columns>名称,图标,攻击范围,穿透范围,消耗SP</Columns>
+    <Bytes>11,1,1,1,1</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>68</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-6-1 必杀说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>28800</DataPos>
+    <RowCount>96</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-6 必杀</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>69</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-7 兵种特效</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>649216</DataPos>
+    <RowCount>255</RowCount>
+    <RowSize>16</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>0</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>70</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-7-1 兵种特效说明</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>86000</DataPos>
+    <RowCount>255</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-7 兵种特效</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>71</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-7-2 兵种特效分配</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>888832</DataPos>
+    <RowCount>255</RowCount>
+    <RowSize>8</RowSize>
+    <Columns>名称,1号武将,2号武将,3号武将,兵种,特效值</Columns>
+    <Bytes>-1,2,2,2,1,1</Bytes>
+    <IndexTable>6.4-7 兵种特效</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>72</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-7-3 人物专属、套装专属</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>915456</DataPos>
+    <RowCount>255</RowCount>
+    <RowSize>16</RowSize>
+    <Columns>名称,武将1,装备1,特效值1,武将2,装备2,特效值2,装备3-1,装备3-2,装备3-3,特效值3,装备4-1,装备4-2,装备4-3,特效值4</Columns>
+    <Bytes>-1,2,1,1,2,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-7 兵种特效</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>73</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-8 战役名称</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>50000</DataPos>
+    <RowCount>99</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称</Columns>
+    <Bytes>200</Bytes>
+    <IndexTable>6.4</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>74</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-8-1 商店数据</TableName>
+    <FileName>Data.e5</FileName>
+    <DataPos>35764</DataPos>
+    <RowCount>128</RowCount>
+    <RowSize>36</RowSize>
+    <Columns>开关仓库人物,买卖物品人物,装备1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,道具17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32</Columns>
+    <Bytes>2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1</Bytes>
+    <IndexTable>6.4-8 战役名称</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>75</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-1-2 物品获取说明（0-103）</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>439800</DataPos>
+    <RowCount>104</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-1 物品（0-103）</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
+    <ID>76</ID>
+    <Enable>true</Enable>
+    <TableName>6.4-2-2 物品获取说明（104-199）</TableName>
+    <FileName>Imsg.e5</FileName>
+    <DataPos>460600</DataPos>
+    <RowCount>96</RowCount>
+    <RowSize>200</RowSize>
+    <Columns>名称,介绍</Columns>
+    <Bytes>-1,200</Bytes>
+    <IndexTable>6.4-2 物品（104-255）</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+</DocumentElement>

@@ -1,0 +1,14 @@
+[
+  {
+    "@name": "base",
+    "@id": "https://api.nuget.org/v3/vulnerabilities/vulnerability.base.json",
+    "@updated": "2023-12-13T00:48:47.5745986Z",
+    "comment": "The base data for vulnerability update periodically"
+  },
+  {
+    "@name": "update",
+    "@id": "https://api.nuget.org/v3/vulnerabilities/vulnerability.update.json",
+    "@updated": "2023-12-13T00:48:47.5745986Z",
+    "comment": "The patch data for the vulnerability. Contains all the vulnerabilities since base was last updated."
+  }
+]

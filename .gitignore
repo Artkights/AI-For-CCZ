@@ -1,0 +1,30 @@
+.vs/
+
+# Visual Studio / MSBuild output
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.dotnet_home/
+
+# Local generated exports and test copies
+CCZModStudio_Exports/
+CCZModStudio_TestCopies/
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*

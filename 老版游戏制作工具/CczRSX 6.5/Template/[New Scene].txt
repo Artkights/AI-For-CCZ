@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Cmd Tag="Scene">
+  <Cmds>
+    <Cmd Tag="Section">
+      <Cmds>
+        <Cmd CID="2">
+          <Data>
+            <Value PID="5" Set="" />
+          </Data>
+        </Cmd>
+        <Cmd>
+          <Cmds>
+            <Cmd />
+          </Cmds>
+        </Cmd>
+      </Cmds>
+    </Cmd>
+  </Cmds>
+</Cmd>
