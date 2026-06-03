@@ -2508,29 +2508,60 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
 
     var row0R = Convert.ToInt32(imageAssignments.Rows[0]["R形象编号"], CultureInfo.InvariantCulture);
     var row0S = Convert.ToInt32(imageAssignments.Rows[0]["S形象编号"], CultureInfo.InvariantCulture);
+    var row0Job = imageAssignments.Columns.Contains("职业")
+        ? Convert.ToInt32(imageAssignments.Rows[0]["职业"], CultureInfo.InvariantCulture)
+        : 1;
     var row0Face = imageAssignments.Columns.Contains("头像编号")
         ? Convert.ToInt32(imageAssignments.Rows[0]["头像编号"], CultureInfo.InvariantCulture)
         : 0;
     var row0Name = Convert.ToString(imageAssignments.Rows[0]["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
     var previewService = new ImageAssignmentPreviewService();
-    var previewInfo = previewService.BuildResourceInfo(project, "S", row0S, row0Name, row0Face);
-    var expandedSPreviewRow = imageAssignments.Rows.Cast<DataRow>()
+    var previewInfo = previewService.BuildResourceInfo(project, "S", row0S, row0Name, row0Face, row0Job, 1);
+    AssertSMapping(0, 1, 1, 4);
+    AssertSMapping(0, 1, 2, 5);
+    AssertSMapping(0, 1, 3, 6);
+    AssertSMapping(1, null, 1, 241, 242, 243);
+    AssertSMapping(32, null, 1, 334, 335, 336);
+    AssertSMapping(33, null, 1, 337);
+    AssertSMapping(250, null, 1, 554);
+    AssertSMapping(252, null, 1, 556);
+    AssertSMapping(253, null, 1, 557);
+    var indexedSPreviewRow = imageAssignments.Rows.Cast<DataRow>()
         .FirstOrDefault(row => Convert.ToInt32(row["S形象编号"], CultureInfo.InvariantCulture) == 250);
-    var expandedSId = expandedSPreviewRow == null
+    var indexedSId = indexedSPreviewRow == null
         ? 250
-        : Convert.ToInt32(expandedSPreviewRow["S形象编号"], CultureInfo.InvariantCulture);
+        : Convert.ToInt32(indexedSPreviewRow["S形象编号"], CultureInfo.InvariantCulture);
     using (var rResourcePreview = previewService.TryRenderCharacterResourceImage(project, "R", row0R))
-    using (var normalSResourcePreview = previewService.TryRenderCharacterResourceImage(project, "S", row0S))
-    using (var expandedSResourcePreview = previewService.TryRenderCharacterResourceImage(project, "S", expandedSId))
+    using (var normalSResourcePreview = previewService.TryRenderCharacterResourceImage(project, "S", row0S, row0Job, 1))
+    using (var indexedSResourcePreview = previewService.TryRenderCharacterResourceImage(project, "S", indexedSId, null, 1))
+    using (var defaultSAllyPreview = previewService.TryRenderCharacterResourceImage(project, "S", 0, 1, 1))
+    using (var defaultSFriendPreview = previewService.TryRenderCharacterResourceImage(project, "S", 0, 1, 2))
+    using (var defaultSEnemyPreview = previewService.TryRenderCharacterResourceImage(project, "S", 0, 1, 3))
+    using (var outOfRangeSPreview = previewService.TryRenderCharacterResourceImage(project, "S", 253, null, 1))
     {
-        if (rResourcePreview != null || (row0S < CharacterImageResourceService.FirstEmbeddedSImageId && normalSResourcePreview != null))
+        if (rResourcePreview == null)
         {
-            throw new InvalidOperationException("R 或基础 S 实图预览不应使用裸扫 Ls12 候选图。");
+            throw new InvalidOperationException("R 形象应能从 Pmapobj.e5 的 0x110 索引表生成预览。");
         }
 
-        if (expandedSResourcePreview == null)
+        if (row0S > 0 && normalSResourcePreview == null)
         {
-            throw new InvalidOperationException("S=250 扩展形象应能从 Unit 明文 BMP 条目生成预览。");
+            throw new InvalidOperationException($"S={row0S} 形象应能从 Unit_*.e5 的 0x110 索引表生成预览。");
+        }
+
+        if (indexedSResourcePreview == null)
+        {
+            throw new InvalidOperationException($"S={indexedSId} 形象应能从 Unit_*.e5 的 0x110 索引表生成预览。");
+        }
+
+        if (defaultSAllyPreview == null || defaultSFriendPreview == null || defaultSEnemyPreview == null)
+        {
+            throw new InvalidOperationException("S=0 默认兵种形象应能按职业=1 和我/友/敌阵营分别生成预览。");
+        }
+
+        if (outOfRangeSPreview != null)
+        {
+            throw new InvalidOperationException("S=253 按紧凑映射会指向 Unit图557，当前 Unit 索引表应严格越界而不是回退旧直读。");
         }
     }
     var previewPng = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RS_R00_FacePreview_{Guid.NewGuid():N}.png");
@@ -2539,17 +2570,24 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
     {
         preview.Save(previewPng, System.Drawing.Imaging.ImageFormat.Png);
     }
-    var expandedPreviewPng = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RS_S{expandedSId}_UnitPreview_{Guid.NewGuid():N}.png");
-    using (var expandedPreview = previewService.TryRenderCharacterResourceImage(project, "S", expandedSId))
+    var indexedPreviewPng = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RS_S{indexedSId}_UnitPreview_{Guid.NewGuid():N}.png");
+    var indexedPreviewColorPixels = 0;
+    using (var indexedPreview = previewService.TryRenderCharacterResourceImage(project, "S", indexedSId, null, 1))
     {
-        if (expandedPreview == null)
+        if (indexedPreview == null)
         {
-            throw new InvalidOperationException($"S={expandedSId} Unit 扩展预览二次生成失败。");
+            throw new InvalidOperationException($"S={indexedSId} Unit 索引预览二次生成失败。");
         }
 
-        expandedPreview.Save(expandedPreviewPng, System.Drawing.Imaging.ImageFormat.Png);
+        indexedPreviewColorPixels = CountColorfulPixels(indexedPreview);
+        if (indexedPreviewColorPixels < 48)
+        {
+            throw new InvalidOperationException($"S={indexedSId} Unit 索引预览仍接近灰度，可能没有套用 tsb 调色板。colorPixels={indexedPreviewColorPixels}");
+        }
+
+        indexedPreview.Save(indexedPreviewPng, System.Drawing.Imaging.ImageFormat.Png);
     }
-    Console.WriteLine($"RS_IMAGE_ASSIGN rows={imageAssignments.Rows.Count} row0={row0Name} face={row0Face} R={row0R} S={row0S}");
+    Console.WriteLine($"RS_IMAGE_ASSIGN rows={imageAssignments.Rows.Count} row0={row0Name} face={row0Face} job={row0Job} R={row0R} S={row0S}");
     var hexzmapProbe = new HexzmapProbeReader().Read(project);
     if (hexzmapProbe.DirectoryEntries.Count == 0)
     {
@@ -2570,12 +2608,13 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
         !previewInfo.Contains("Face.e5", StringComparison.OrdinalIgnoreCase) ||
         !File.Exists(previewPng) ||
         new FileInfo(previewPng).Length == 0 ||
-        !File.Exists(expandedPreviewPng) ||
-        new FileInfo(expandedPreviewPng).Length == 0)
+        !File.Exists(indexedPreviewPng) ||
+        new FileInfo(indexedPreviewPng).Length == 0)
     {
         throw new InvalidOperationException("人物形象预览未读取到 B形象指定器 6.5 的 FileHead/RFileHead 配置或 Face.e5 头像来源。");
     }
-    Console.WriteLine($"RS_IMAGE_PREVIEW png={Path.GetFileName(previewPng)} expanded={Path.GetFileName(expandedPreviewPng)} face={row0Face} S={expandedSId}");
+    var indexedMapping = CharacterImageResourceService.ResolveSUnitImageMapping(indexedSId);
+    Console.WriteLine($"RS_IMAGE_PREVIEW png={Path.GetFileName(previewPng)} indexed={Path.GetFileName(indexedPreviewPng)} face={row0Face} S={indexedSId} mapped={string.Join("/", indexedMapping.ImageNumbers)} colorPixels={indexedPreviewColorPixels}");
 
     var itemTypeCatalogChecks = new[]
     {
@@ -2748,6 +2787,242 @@ static (int CommandCount, int MaxDepth) AnalyzeLegacyScenarioDepth(LegacyScenari
     }
 
     return (commandCount, maxDepth);
+}
+
+static void RunLegacyScriptEditSmoke(CczProject project)
+{
+    var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "LegacyScriptEditSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+    Directory.CreateDirectory(smokeRoot);
+    foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Star.e5", "Imsg.e5" })
+    {
+        var source = Path.Combine(project.GameRoot, coreFile);
+        if (File.Exists(source))
+        {
+            File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+        }
+    }
+
+    var rsRoot = Path.Combine(smokeRoot, "RS");
+    Directory.CreateDirectory(rsRoot);
+    var sourceScenarioPath = Path.Combine(project.GameRoot, "RS", "R_00.eex");
+    if (!File.Exists(sourceScenarioPath))
+    {
+        sourceScenarioPath = Directory.GetFiles(Path.Combine(project.GameRoot, "RS"), "R_*.eex", SearchOption.TopDirectoryOnly)
+            .OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)
+            .FirstOrDefault()
+            ?? throw new FileNotFoundException("剧本结构编辑烟测找不到 R_*.eex。", Path.Combine(project.GameRoot, "RS", "R_*.eex"));
+    }
+
+    var scenarioFileName = Path.GetFileName(sourceScenarioPath);
+    var testScenarioPath = Path.Combine(rsRoot, scenarioFileName);
+    File.Copy(sourceScenarioPath, testScenarioPath, overwrite: false);
+    File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+        $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=Legacy script edit smoke\r\n");
+
+    var sceneStringPath = ProjectDetector.FindSceneDictionaryPath(project);
+    if (!File.Exists(sceneStringPath))
+    {
+        throw new FileNotFoundException("剧本结构编辑烟测需要 CczString.ini。", sceneStringPath);
+    }
+
+    var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+    var dictionary = new SceneStringParser().Parse(sceneStringPath);
+    var writer = new LegacyScenarioWriter();
+    var reader = new LegacyScenarioReader();
+    var document = reader.Read(testScenarioPath, dictionary);
+    var originalCommandCount = document.CommandCount;
+
+    var targetSection = document.Scenes
+        .SelectMany(scene => scene.Sections)
+        .Where(section => section.DeclaredLength < 65000)
+        .FirstOrDefault(section => section.Commands.Any(command => command.StartsBodyBlock && command.ChildBlock != null))
+        ?? throw new InvalidOperationException("剧本结构编辑烟测找不到可追加普通命令的正文 Section。");
+    var bodyRoot = targetSection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null);
+    var bodyCommands = bodyRoot.ChildBlock!.Commands;
+    var insertedCommandId = 0x09;
+    var insertedCommandName = dictionary.Commands.FirstOrDefault(command => command.Id == insertedCommandId)?.Name ?? $"Command 0x{insertedCommandId:X2}";
+    var inserted = new LegacyScenarioCommandNode
+    {
+        SceneIndex = targetSection.SceneIndex,
+        SectionIndex = targetSection.SectionIndex,
+        CommandId = insertedCommandId,
+        CommandName = insertedCommandName,
+        FileOffset = 0,
+        ConsumedBytes = 0
+    };
+    inserted.Parameters.Add(new LegacyScenarioCommandParameter
+    {
+        Index = 0,
+        LayoutCode = 0x04,
+        Tag = 0x04,
+        FileOffset = 0,
+        Kind = LegacyScenarioParameterKind.Dword32,
+        ByteLength = 4,
+        IntValue = 0
+    });
+
+    var insertIndex = GetLegacyScriptEditAppendIndex(bodyCommands);
+    var jumpTargets = CaptureLegacyScriptEditJumpTargets(document);
+    bodyCommands.Insert(insertIndex, inserted);
+    ReindexLegacyScriptEditDocument(document);
+    RestoreLegacyScriptEditJumpTargets(document, jumpTargets);
+
+    var addSave = writer.Save(
+        testProject,
+        Path.Combine("RS", scenarioFileName),
+        document,
+        dictionary,
+        "Legacy script edit smoke add command");
+    var addVerify = reader.Read(testScenarioPath, dictionary);
+    if (addVerify.CommandCount != originalCommandCount + 1 ||
+        string.IsNullOrWhiteSpace(addSave.BackupPath) ||
+        !File.Exists(addSave.BackupPath) ||
+        string.IsNullOrWhiteSpace(addSave.ReportJsonPath) ||
+        !File.Exists(addSave.ReportJsonPath))
+    {
+        throw new InvalidOperationException("新增剧本命令后的完整保存、复读、备份或报告验证失败。");
+    }
+    var addedCommandCount = addVerify.CommandCount;
+
+    var verifySection = addVerify.Scenes
+        .First(scene => scene.SceneIndex == targetSection.SceneIndex)
+        .Sections.First(section => section.SectionIndex == targetSection.SectionIndex);
+    var verifyBody = verifySection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null).ChildBlock!;
+    var deleteIndex = GetLegacyScriptEditAppendIndex(verifyBody.Commands) - 1;
+    if (deleteIndex < 0 || verifyBody.Commands[deleteIndex].CommandId != insertedCommandId)
+    {
+        throw new InvalidOperationException("新增剧本命令复读后未出现在正文追加区。");
+    }
+
+    var insertedVerify = verifyBody.Commands[deleteIndex];
+    var editableParameter = insertedVerify.Parameters.FirstOrDefault(parameter => parameter.Kind == LegacyScenarioParameterKind.Dword32)
+        ?? throw new InvalidOperationException("新增剧本命令复读后缺少可编辑普通参数。");
+    const int editedParameterValue = 12345;
+    editableParameter.IntValue = editedParameterValue;
+    var paramSave = writer.Save(
+        testProject,
+        Path.Combine("RS", scenarioFileName),
+        addVerify,
+        dictionary,
+        "Legacy script edit smoke edit numeric parameter");
+    var paramVerify = reader.Read(testScenarioPath, dictionary);
+    var paramVerifySection = paramVerify.Scenes
+        .First(scene => scene.SceneIndex == targetSection.SceneIndex)
+        .Sections.First(section => section.SectionIndex == targetSection.SectionIndex);
+    var paramVerifyBody = paramVerifySection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null).ChildBlock!;
+    var paramVerifyIndex = GetLegacyScriptEditAppendIndex(paramVerifyBody.Commands) - 1;
+    if (paramVerifyIndex < 0 ||
+        paramVerifyBody.Commands[paramVerifyIndex].CommandId != insertedCommandId ||
+        paramVerifyBody.Commands[paramVerifyIndex].Parameters.FirstOrDefault(parameter => parameter.Kind == LegacyScenarioParameterKind.Dword32)?.IntValue != editedParameterValue ||
+        string.IsNullOrWhiteSpace(paramSave.BackupPath) ||
+        !File.Exists(paramSave.BackupPath) ||
+        string.IsNullOrWhiteSpace(paramSave.ReportJsonPath) ||
+        !File.Exists(paramSave.ReportJsonPath))
+    {
+        throw new InvalidOperationException("修改剧本命令普通参数后的完整保存、复读、备份或报告验证失败。");
+    }
+
+    jumpTargets = CaptureLegacyScriptEditJumpTargets(paramVerify);
+    paramVerifyBody.Commands.RemoveAt(paramVerifyIndex);
+    ReindexLegacyScriptEditDocument(paramVerify);
+    RestoreLegacyScriptEditJumpTargets(paramVerify, jumpTargets);
+
+    var deleteSave = writer.Save(
+        testProject,
+        Path.Combine("RS", scenarioFileName),
+        paramVerify,
+        dictionary,
+        "Legacy script edit smoke delete command");
+    var deleteVerify = reader.Read(testScenarioPath, dictionary);
+    if (deleteVerify.CommandCount != originalCommandCount ||
+        string.IsNullOrWhiteSpace(deleteSave.BackupPath) ||
+        !File.Exists(deleteSave.BackupPath) ||
+        string.IsNullOrWhiteSpace(deleteSave.ReportJsonPath) ||
+        !File.Exists(deleteSave.ReportJsonPath))
+    {
+        throw new InvalidOperationException("删除剧本命令后的完整保存、复读、备份或报告验证失败。");
+    }
+
+    Console.WriteLine($"LEGACY_SCRIPT_EDIT_SMOKE_OK file={scenarioFileName} section={targetSection.SceneIndex}/{targetSection.SectionIndex} command=0x{insertedCommandId:X2}/{insertedCommandName} param={editedParameterValue} count={originalCommandCount}->{addedCommandCount}->{deleteVerify.CommandCount} addBackup={Path.GetFileName(addSave.BackupPath)} paramBackup={Path.GetFileName(paramSave.BackupPath)} deleteBackup={Path.GetFileName(deleteSave.BackupPath)}");
+}
+
+static int GetLegacyScriptEditAppendIndex(IReadOnlyList<LegacyScenarioCommandNode> commands)
+{
+    var index = commands.Count;
+    while (index > 0 && IsLegacyScriptEditTrailingBoundary(commands[index - 1]))
+    {
+        index--;
+    }
+
+    return index;
+}
+
+static bool IsLegacyScriptEditTrailingBoundary(LegacyScenarioCommandNode command)
+    => command.EndsSubEventBlock || command.CommandId is 0x0C or 0x0D;
+
+static Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> CaptureLegacyScriptEditJumpTargets(LegacyScenarioDocument document)
+{
+    var byOrdinal = document.EnumerateCommands().ToDictionary(command => command.CommandOrdinal);
+    var result = new Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode>();
+    foreach (var command in byOrdinal.Values.Where(command => command.CommandId == 0x76))
+    {
+        if (command.JumpTargetOrdinal.HasValue && byOrdinal.TryGetValue(command.JumpTargetOrdinal.Value, out var target))
+        {
+            result[command] = target;
+        }
+    }
+
+    return result;
+}
+
+static void RestoreLegacyScriptEditJumpTargets(
+    LegacyScenarioDocument document,
+    IReadOnlyDictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> jumpTargets)
+{
+    var activeCommands = document.EnumerateCommands().ToHashSet();
+    foreach (var pair in jumpTargets)
+    {
+        if (!activeCommands.Contains(pair.Key)) continue;
+        if (activeCommands.Contains(pair.Value))
+        {
+            pair.Key.JumpTargetOrdinal = pair.Value.CommandOrdinal;
+            pair.Key.JumpTargetCommandIndex = pair.Value.CommandIndex;
+        }
+        else
+        {
+            pair.Key.JumpTargetOrdinal = null;
+            pair.Key.JumpTargetCommandIndex = null;
+        }
+    }
+}
+
+static void ReindexLegacyScriptEditDocument(LegacyScenarioDocument document)
+{
+    var ordinal = 0;
+    foreach (var scene in document.Scenes)
+    {
+        foreach (var section in scene.Sections)
+        {
+            var commandIndex = 0;
+            ReindexLegacyScriptEditCommands(section.Commands, ref commandIndex, ref ordinal);
+        }
+    }
+}
+
+static void ReindexLegacyScriptEditCommands(
+    IReadOnlyList<LegacyScenarioCommandNode> commands,
+    ref int commandIndex,
+    ref int ordinal)
+{
+    foreach (var command in commands)
+    {
+        command.CommandIndex = ++commandIndex;
+        command.CommandOrdinal = ordinal++;
+        if (command.ChildBlock != null)
+        {
+            ReindexLegacyScriptEditCommands(command.ChildBlock.Commands, ref commandIndex, ref ordinal);
+        }
+    }
 }
 
 static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -3510,6 +3785,34 @@ static void RunMapWorkbenchSmoke(CczProject sourceProject, CczProject testProjec
 static string BuildBattlefieldCommandSignature(BattlefieldEditorDocument document)
     => string.Join("|", document.CommandCandidates.Take(20).Select(command =>
         $"{command.SceneIndex}:{command.SectionIndex}:{command.CommandIndex}:{command.OffsetHex}:{command.CommandIdHex}:{command.CommandName}"));
+
+static int CountColorfulPixels(System.Drawing.Bitmap bitmap)
+{
+    var count = 0;
+    for (var y = 0; y < bitmap.Height; y++)
+    {
+        for (var x = 0; x < bitmap.Width; x++)
+        {
+            var pixel = bitmap.GetPixel(x, y);
+            if (pixel.A == 0) continue;
+            var max = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
+            var min = Math.Min(pixel.R, Math.Min(pixel.G, pixel.B));
+            if (max - min >= 16) count++;
+        }
+    }
+
+    return count;
+}
+
+static void AssertSMapping(int sImageId, int? jobId, int factionSlot, params int[] expected)
+{
+    var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId, factionSlot);
+    var actual = mapping.ImageNumbers.ToArray();
+    if (!actual.SequenceEqual(expected))
+    {
+        throw new InvalidOperationException($"S 映射不符合预期：S={sImageId}, job={jobId?.ToString(CultureInfo.InvariantCulture) ?? "null"}, faction={factionSlot}, expected={string.Join("/", expected)}, actual={string.Join("/", actual)}");
+    }
+}
 
 static LegacyScenarioCommandNode? FindLegacyBattlefieldCommand(LegacyScenarioDocument document, BattlefieldUnitCandidate candidate)
 {

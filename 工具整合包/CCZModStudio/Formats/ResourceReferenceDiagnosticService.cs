@@ -129,7 +129,7 @@ public sealed class ResourceReferenceDiagnosticService
             Status = $"已命名引用 {namedRows.Count}，已命名定位异常 {missingNamed.Count}，空名占位定位异常 {missingUnnamed.Count}",
             Detail = prefix == "R"
                 ? $"{tableName} 的 {idColumn} 表示 R 形象编号：对应 Pmapobj.e5 的正/反两张图（2n+1/2n+2，1-based 图号）。"
-                : $"{tableName} 的 {idColumn} 表示 S 形象编号：本地形象对应表显示 1-240 为基础区、241+ 为特殊/扩展区；S>=241 且 Unit 明文 BMP 条目存在时可预览首帧，基础 S 最终帧仍需 Ls12 解码和实机/形象指定器确认。",
+                : $"{tableName} 的 {idColumn} 表示 S 形象紧凑编号：S=0 按人物职业和预览阵营取默认兵种图，S=1..32 对应 Unit 图 241..336 的三转特殊三联，S>=33 从 Unit 图 337 起按一转特殊单张映射；E5 索引表从 0x110 开始，每项 12 字节。",
             Suggestion = "先处理已命名人物中明显越界/异常的编号，再结合旧工具与实机确认；该报告不再要求补齐 RS\\*.eex。",
             Path = project.GameRoot
         });

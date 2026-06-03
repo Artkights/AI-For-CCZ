@@ -423,6 +423,7 @@ public sealed class MainForm : Form
     private readonly PictureBox _imageAssignmentFacePreviewBox = new();
     private readonly PictureBox _imageAssignmentRPreviewBox = new();
     private readonly PictureBox _imageAssignmentSPreviewBox = new();
+    private readonly ComboBox _imageAssignmentSPreviewFactionCombo = new();
     private readonly TextBox _imageAssignmentPreviewInfoBox = new();
     private readonly Button _loadEexArchivesButton = new();
     private readonly Button _openEexArchiveButton = new();
@@ -520,6 +521,8 @@ public sealed class MainForm : Form
     private readonly TreeView _scriptTree = new();
     private readonly DataGridView _scriptCommandGrid = new();
     private readonly DataGridView _scriptParameterGrid = new();
+    private readonly TextBox _scriptParameterValueBox = new();
+    private readonly Button _applyScriptParameterValueButton = new();
     private readonly DataGridView _scriptTextGrid = new();
     private readonly DataGridView _scriptSearchResultGrid = new();
     private readonly TabControl _scriptLowerLeftTabs = new();
@@ -1231,9 +1234,13 @@ public sealed class MainForm : Form
         _openRsDirectoryButton.Text = "打开RS目录";
         _openRsDirectoryButton.AutoSize = true;
         _imageAssignmentSearchBox.Width = 220;
-        _imageAssignmentSearchBox.PlaceholderText = "筛选人物/R编号/S编号/资源状态";
+        _imageAssignmentSearchBox.PlaceholderText = "筛选人物/职业/R编号/S编号/资源状态";
         _imageAssignmentMissingOnlyCheckBox.Text = "仅缺失资源";
         _imageAssignmentMissingOnlyCheckBox.AutoSize = true;
+        _imageAssignmentSPreviewFactionCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _imageAssignmentSPreviewFactionCombo.Width = 92;
+        _imageAssignmentSPreviewFactionCombo.Items.AddRange(new object[] { "我军", "友军", "敌军" });
+        _imageAssignmentSPreviewFactionCombo.SelectedIndex = 0;
         _filterImageAssignmentsButton.Text = "筛选";
         _filterImageAssignmentsButton.AutoSize = true;
         _clearImageAssignmentFilterButton.Text = "显示全部";
@@ -1254,6 +1261,8 @@ public sealed class MainForm : Form
             _openRsDirectoryButton,
             _imageAssignmentSearchBox,
             _imageAssignmentMissingOnlyCheckBox,
+            new Label { Text = "S预览阵营：", AutoSize = true, Padding = new Padding(10, 7, 0, 0) },
+            _imageAssignmentSPreviewFactionCombo,
             _filterImageAssignmentsButton,
             _clearImageAssignmentFilterButton,
             _locateImageResourceButton,
@@ -1302,7 +1311,7 @@ public sealed class MainForm : Form
         imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
         imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
-        // 右侧预览区显示头像；S>=241 可显示已验证的 Unit 明文扩展首帧，R 和基础 S 仍需 Ls12 解码。
+        // 右侧预览区显示头像；R/S 按 E5 0x110 索引表取图，不再按裸扫出现顺序取候选图。
         _imageAssignmentFacePreviewBox.Dock = DockStyle.Fill;
         _imageAssignmentFacePreviewBox.BackColor = Color.FromArgb(32, 32, 36);
         _imageAssignmentFacePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
@@ -3720,16 +3729,17 @@ public sealed class MainForm : Form
         var detailLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 9,
+            RowCount = 10,
             ColumnCount = 1
         };
         detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 26));
+        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
         detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
         detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
+        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 54));
         detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detailLayout.Controls.Add(new Label
@@ -3764,22 +3774,43 @@ public sealed class MainForm : Form
         _scriptParameterGrid.RowHeadersVisible = false;
         _scriptParameterGrid.BorderStyle = BorderStyle.FixedSingle;
         detailLayout.Controls.Add(_scriptParameterGrid, 0, 3);
+        var parameterEditToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Padding = new Padding(0, 4, 0, 4)
+        };
+        _scriptParameterValueBox.Width = 140;
+        _scriptParameterValueBox.PlaceholderText = "十进制或 0x";
+        _scriptParameterValueBox.Enabled = false;
+        _applyScriptParameterValueButton.Text = "应用参数值";
+        _applyScriptParameterValueButton.AutoSize = true;
+        _applyScriptParameterValueButton.Enabled = false;
+        parameterEditToolbar.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "选中参数：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            _scriptParameterValueBox,
+            _applyScriptParameterValueButton
+        });
+        detailLayout.Controls.Add(parameterEditToolbar, 0, 4);
         _scriptTextCapacityLabel.Text = "文本容量：未选择";
         _scriptTextCapacityLabel.AutoSize = true;
-        detailLayout.Controls.Add(_scriptTextCapacityLabel, 0, 4);
+        detailLayout.Controls.Add(_scriptTextCapacityLabel, 0, 5);
         detailLayout.Controls.Add(new Label
         {
             Text = "旧版文本参数编辑框",
             AutoSize = true,
             Padding = new Padding(0, 2, 0, 6),
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 5);
+        }, 0, 6);
         _scriptTextEditorBox.Dock = DockStyle.Fill;
         _scriptTextEditorBox.Multiline = true;
         _scriptTextEditorBox.ScrollBars = ScrollBars.Vertical;
         _scriptTextEditorBox.WordWrap = true;
         _scriptTextEditorBox.BorderStyle = BorderStyle.FixedSingle;
-        detailLayout.Controls.Add(_scriptTextEditorBox, 0, 6);
+        detailLayout.Controls.Add(_scriptTextEditorBox, 0, 7);
 
         _scriptToggleHintButton.Text = "保存规则（展开）";
         _scriptToggleHintButton.AutoSize = true;
@@ -3804,8 +3835,8 @@ public sealed class MainForm : Form
             Text = "保存规则：旧版剧本读取成功时，当前文本参数会写入真实命令树，并通过“完整保存剧本”重建整个 R/S eex；保存前自动备份，替换前按旧规则重读校验。旧版读取失败时，才回落到原地短写文本兼容路径。"
         };
         _scriptHintPanel.Controls.Add(hint);
-        detailLayout.Controls.Add(_scriptToggleHintButton, 0, 7);
-        detailLayout.Controls.Add(_scriptHintPanel, 0, 8);
+        detailLayout.Controls.Add(_scriptToggleHintButton, 0, 8);
+        detailLayout.Controls.Add(_scriptHintPanel, 0, 9);
         workspaceSplit.Panel2.Controls.Add(detailLayout);
         mainSplit.Panel2.Controls.Add(workspaceSplit);
         layout.Controls.Add(mainSplit, 0, 2);
@@ -4432,6 +4463,7 @@ public sealed class MainForm : Form
         _filterImageAssignmentsButton.Click += (_, _) => ApplyImageAssignmentFilter();
         _clearImageAssignmentFilterButton.Click += (_, _) => ClearImageAssignmentFilter();
         _imageAssignmentMissingOnlyCheckBox.CheckedChanged += (_, _) => ApplyImageAssignmentFilter();
+        _imageAssignmentSPreviewFactionCombo.SelectedIndexChanged += (_, _) => ShowSelectedImageAssignmentDetail();
         _imageAssignmentSearchBox.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Enter) return;
@@ -4567,6 +4599,15 @@ public sealed class MainForm : Form
         _jumpScriptBattlefieldButton.Click += async (_, _) => await JumpScriptBattlefieldAsync();
         _scriptTree.AfterSelect += (_, _) => ShowSelectedScriptTreeNode();
         _scriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedScriptSearchResult();
+        _scriptParameterGrid.SelectionChanged += (_, _) => ShowSelectedLegacyScriptParameter();
+        _scriptParameterGrid.CellDoubleClick += (_, _) => ShowSelectedLegacyScriptParameter();
+        _scriptParameterValueBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplySelectedLegacyScriptParameterValue();
+            e.SuppressKeyPress = true;
+        };
+        _applyScriptParameterValueButton.Click += (_, _) => ApplySelectedLegacyScriptParameterValue();
         _scriptTextEditorBox.TextChanged += (_, _) => UpdateScriptTextCapacityLabel();
         _loadLsResourcesButton.Click += (_, _) => LoadLsResources();
         _openLsResourceButton.Click += (_, _) => OpenSelectedLsResourceLocation();
@@ -4943,6 +4984,7 @@ public sealed class MainForm : Form
         _scriptTree.Nodes.Clear();
         _scriptCommandGrid.DataSource = null;
         _scriptParameterGrid.DataSource = null;
+        ClearLegacyScriptParameterEditor();
         _scriptTextGrid.DataSource = null;
         _scriptTextEditorBox.Clear();
         _scriptTextCapacityLabel.Text = "文本容量：未选择";
@@ -8180,7 +8222,7 @@ public sealed class MainForm : Form
         if (columnName == "职业名称") return "根据人物表“职业”编号自动引用 `6.5-4 详细兵种` 的名称，便于确认角色当前兵种。";
         if (columnName == "头像说明") return "根据人物表“头像”编号生成的头像映射说明：Data 头像号 -> Face.e5 小头像号（0 号使用 1-8 候选）以及 Tou.dll 真彩资源号（=小头像号+300，语言2052）。";
         if (columnName is "R形象编号") return "人物 R 形象编号：对应 Pmapobj.e5 的正/反两张图（正=2n+1，反=2n+2，按 1-based 图号解释）。";
-        if (columnName is "S形象编号") return "人物 S 形象编号：本地形象对应表显示基础区为 1-240，241 起为特殊/扩展区。S>=241 且 Unit 明文 BMP 条目存在时可预览首帧；基础 S 的最终帧仍需 Ls12 解码和实机/形象指定器确认。";
+        if (columnName is "S形象编号") return "人物 S 形象紧凑编号：S=0 按职业和预览阵营取默认兵种图；S=1..32 对应三转特殊三张图；S>=33 从 Unit 图337 起对应一转特殊单张图。";
         if (columnName is "R资源状态" or "S资源状态") return "状态列用于提示相关资源文件是否已定位（例如 Pmapobj.e5、Unit_*.e5）。";
 
         var personTable = _tables.FirstOrDefault(t => t.TableName == "6.5-0 人物");
@@ -11286,16 +11328,26 @@ public sealed class MainForm : Form
             _saveImageAssignmentsButton.Enabled = canEdit;
             foreach (DataGridViewColumn column in _imageAssignmentGrid.Columns)
             {
-                column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "头像编号" or "R资源状态" or "S资源状态";
+                column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "头像编号" or "职业" or "职业名称" or "R资源状态" or "S资源状态";
                 if (column.DataPropertyName == "头像编号")
                 {
                     column.Width = 76;
                     column.ToolTipText = "来自人物表“头像”字段；右侧会尝试从 E5\\Face.e5 抽取对应 PNG 头像作为人物确认预览。";
                 }
+                if (column.DataPropertyName == "职业")
+                {
+                    column.Width = 60;
+                    column.ToolTipText = "来自人物表“职业”字段；S=0 默认兵种预览会用 职业*3+阵营槽 计算 Unit 图号。";
+                }
+                if (column.DataPropertyName == "职业名称")
+                {
+                    column.Width = 110;
+                    column.ToolTipText = "根据 6.5-4 详细兵种自动引用的职业名称。";
+                }
                 if (column.DataPropertyName is "R资源状态" or "S资源状态")
                 {
                     column.Width = 150;
-                    column.ToolTipText = "R：根据 Pmapobj.e5 正/反图号解释编号；S：根据 Unit_atk/mov/spc.e5 和扩展编号口径解释。S>=241 且 Unit 明文 BMP 条目存在时可显示首帧预览；普通 S 和 R 仍需 Ls12 解码。";
+                    column.ToolTipText = "R：根据 Pmapobj.e5 正/反图号解释编号；S：按紧凑编号映射到 Unit_atk/mov/spc.e5。预览按 E5 0x110 索引表取图。";
                 }
             }
             ColorImageAssignmentResourceRows();
@@ -11304,7 +11356,7 @@ public sealed class MainForm : Form
             _imageAssignmentSummaryText =
                 $"已读取人物 R/S 形象联动表：{_currentImageAssignments.Rows.Count} 行。\r\n" +
                 $"资源解释检查：R 未定位 {missingR} 项，S 未/部分定位 {missingS} 项。\r\n" +
-                "右侧显示人物表头像预览；S>=241 且 Unit 明文 BMP 扩展条目存在时显示移动/攻击/特技首帧。R 形象和 S=1..240 基础形象仍需 Ls12 封包目录/解压和帧选择，当前不显示裸扫候选图。当前项目可直接编辑 R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
+                "右侧显示人物表头像预览，并按 E5 0x110 索引表显示 R/S 形象预览：R=n 取 Pmapobj.e5 图 2n+1；S=0 按职业和预览阵营取默认兵种图，S=1..32 取三转特殊三张图，S>=33 取一转特殊单张图。当前项目可直接编辑 R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
             _imageAssignmentInfoBox.Text = _imageAssignmentSummaryText;
             ShowSelectedImageAssignmentDetail();
             Log("已读取人物 R/S 形象联动表。");
@@ -11350,7 +11402,7 @@ public sealed class MainForm : Form
         if (!string.IsNullOrWhiteSpace(keyword))
         {
             var escaped = EscapeDataViewLikeValue(keyword);
-            var searchableColumns = new[] { "ID", "名称", "头像编号", "R形象编号", "S形象编号", "R资源状态", "S资源状态" }
+            var searchableColumns = new[] { "ID", "名称", "头像编号", "职业", "职业名称", "R形象编号", "S形象编号", "R资源状态", "S资源状态" }
                 .Where(name => _currentImageAssignments.Columns.Contains(name))
                 .Select(name => $"CONVERT([{name}], 'System.String') LIKE '*{escaped}*'")
                 .ToList();
@@ -11472,8 +11524,12 @@ public sealed class MainForm : Form
         var id = Convert.ToString(row["ID"], CultureInfo.InvariantCulture) ?? string.Empty;
         var name = Convert.ToString(row["\u540d\u79f0"], CultureInfo.InvariantCulture) ?? string.Empty;
         var faceId = row.Table.Columns.Contains("头像编号") ? Convert.ToInt32(row["头像编号"], CultureInfo.InvariantCulture) : (int?)null;
+        var jobId = row.Table.Columns.Contains("职业") ? Convert.ToInt32(row["职业"], CultureInfo.InvariantCulture) : (int?)null;
+        var jobName = row.Table.Columns.Contains("职业名称") ? Convert.ToString(row["职业名称"], CultureInfo.InvariantCulture) ?? string.Empty : string.Empty;
         TryGetImageResourceId(row, "R", out var rId);
         TryGetImageResourceId(row, "S", out var sId);
+        var sFactionSlot = GetImageAssignmentSPreviewFactionSlot();
+        var sMapping = CharacterImageResourceService.ResolveSUnitImageMapping(sId, jobId, sFactionSlot);
         var rPath = ImageAssignmentService.GetImageResourcePath(_project, "R", rId);
         var sPath = ImageAssignmentService.GetImageResourcePath(_project, "S", sId);
         var rStatus = Convert.ToString(row["R\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture) ?? string.Empty;
@@ -11481,18 +11537,20 @@ public sealed class MainForm : Form
         var detail =
             $"\u5f53\u524d\u9009\u4e2d\uff1aID={id}  \u540d\u79f0={name}\r\n" +
             $"头像={faceId?.ToString(CultureInfo.InvariantCulture) ?? "未读取"}  来源：人物表“头像”字段，预览来自 E5\\Face.e5\r\n" +
+            $"职业={jobId?.ToString(CultureInfo.InvariantCulture) ?? "未读取"} {jobName}  S预览阵营={CharacterImageResourceService.BuildSPreviewFactionText(sFactionSlot)}\r\n" +
             $"R={rId:00}  {rStatus}  \u8def\u5f84\uff1a{rPath}\r\n" +
             $"S={sId:00}  {sStatus}  \u8def\u5f84\uff1a{sPath}\r\n" +
-            "R/S 实图预览：S>=241 且 Unit 明文 BMP 扩展条目存在时显示首帧；R 和基础 S 仍需 Ls12 解码，裸扫图片不会再显示。\r\n" +
+            $"S图号映射：{sMapping.Detail}\r\n" +
+            "R/S 实图预览：按 E5 0x110 索引表取图；R=n -> Pmapobj.e5 图 2n+1；S 按默认兵种/三转特殊/一转特殊紧凑映射取 Unit 图。裸扫图片不会再显示。\r\n" +
             "\u63d0\u793a\uff1a\u5f53\u524d\u5355\u5143\u683c\u5728 S \u5217\u65f6\uff0c\u201c\u5b9a\u4f4d\u9009\u4e2d\u8d44\u6e90\u201d\u4f1a\u5b9a\u4f4d S\uff1b\u5176\u4ed6\u5217\u9ed8\u8ba4\u5b9a\u4f4d R\u3002";
 
         _imageAssignmentInfoBox.Text = string.IsNullOrWhiteSpace(_imageAssignmentSummaryText)
             ? detail
             : _imageAssignmentSummaryText + "\r\n\r\n" + detail;
-        RefreshSelectedImageAssignmentPreview(name, rId, sId, faceId);
+        RefreshSelectedImageAssignmentPreview(name, rId, sId, faceId, jobId, sFactionSlot);
     }
 
-    private void RefreshSelectedImageAssignmentPreview(string personName, int rId, int sId, int? faceId)
+    private void RefreshSelectedImageAssignmentPreview(string personName, int rId, int sId, int? faceId, int? jobId, int sFactionSlot)
     {
         if (_project == null)
         {
@@ -11502,11 +11560,11 @@ public sealed class MainForm : Form
 
         try
         {
-            // R remains blocked on Pmapobj Ls12 mapping; S>=241 can use verified Unit BMP extension strips.
+            // R/S preview uses the E5 image index at 0x110; do not fall back to raw magic-order scans.
             SetPictureBoxImage(_imageAssignmentFacePreviewBox,
                 faceId.HasValue ? _imageAssignmentPreviewService.TryRenderFaceImage(_project, faceId.Value) : null);
             SetPictureBoxImage(_imageAssignmentRPreviewBox, _imageAssignmentPreviewService.TryRenderCharacterResourceImage(_project, "R", rId));
-            SetPictureBoxImage(_imageAssignmentSPreviewBox, _imageAssignmentPreviewService.TryRenderCharacterResourceImage(_project, "S", sId));
+            SetPictureBoxImage(_imageAssignmentSPreviewBox, _imageAssignmentPreviewService.TryRenderCharacterResourceImage(_project, "S", sId, jobId, sFactionSlot));
         }
         catch (Exception ex)
         {
@@ -11520,6 +11578,12 @@ public sealed class MainForm : Form
         SetPictureBoxImage(_imageAssignmentFacePreviewBox, null);
         SetPictureBoxImage(_imageAssignmentRPreviewBox, null);
         SetPictureBoxImage(_imageAssignmentSPreviewBox, null);
+    }
+
+    private int GetImageAssignmentSPreviewFactionSlot()
+    {
+        var selected = _imageAssignmentSPreviewFactionCombo.SelectedIndex + 1;
+        return CharacterImageResourceService.NormalizeSPreviewFactionSlot(selected);
     }
 
     private string BuildCompactImageAssignmentInfo(string prefix, int id)
@@ -11623,7 +11687,7 @@ public sealed class MainForm : Form
                 ["ID"] = "\u4eba\u7269\u884c\u53f7/\u7f16\u53f7\uff0c\u7528\u4e8e\u56de\u67e5\u4eba\u7269\u8868\u3002",
                 ["\u540d\u79f0"] = "\u4eba\u7269\u540d\u79f0\u3002",
                 ["R\u5f62\u8c61\u7f16\u53f7"] = "R \u5f62\u8c61\u7f16\u53f7\uff1a\u4eba\u7269\u6307\u5b9a\u8868\u4e2d\u7684\u7f16\u53f7 n\uff0c\u6309\u6559\u7a0b\u53e3\u5f84\u5b9a\u4f4d Pmapobj.e5 \u56fe 2n+1/2n+2\u3002",
-                ["S\u5f62\u8c61\u7f16\u53f7"] = "S 形象编号：本地形象对应表显示基础区为 1-240，241 起为特殊/扩展区；S>=241 且 Unit 明文 BMP 条目存在时可预览首帧，基础 S 仍需 Ls12 解码和实机/形象指定器确认。资源候选为 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。",
+                ["S\u5f62\u8c61\u7f16\u53f7"] = "S 形象紧凑编号：S=0 按职业和预览阵营取默认兵种图；S=1..32 对应三转特殊三张图；S>=33 从 Unit 图337 起对应一转特殊单张图。E5 索引表从 0x110 开始，每项 12 字节。",
                 ["R\u8d44\u6e90\u72b6\u6001"] = "R \u8d44\u6e90\u5b9a\u4f4d\u68c0\u67e5\u7ed3\u679c\uff1a\u4e0d\u518d\u6309 RS\\R_XX.eex \u5224\u65ad\u4eba\u7269\u56fe\u50cf\u3002",
                 ["S\u8d44\u6e90\u72b6\u6001"] = "S \u8d44\u6e90\u5b9a\u4f4d\u68c0\u67e5\u7ed3\u679c\uff1a\u4e0d\u518d\u6309 RS\\S_XX.eex \u5224\u65ad\u4eba\u7269\u56fe\u50cf\u3002"
             };
@@ -15761,6 +15825,7 @@ public sealed class MainForm : Form
             _scriptTree.Nodes.Clear();
             _scriptCommandGrid.DataSource = null;
             _scriptParameterGrid.DataSource = null;
+            ClearLegacyScriptParameterEditor();
             _scriptTextGrid.DataSource = null;
             _scriptSearchResultGrid.DataSource = null;
             _scriptTextEditorBox.Clear();
@@ -15840,9 +15905,10 @@ public sealed class MainForm : Form
         var targetName = bodyRoot == null
             ? $"Scene {section.SceneIndex} / Section {section.SectionIndex} 顶层末尾"
             : $"Scene {section.SceneIndex} / Section {section.SectionIndex} 事件正文末尾";
+        var insertIndex = GetLegacyScriptAppendIndex(targetList);
 
         ApplyLegacyScriptStructureEdit(
-            () => targetList.Add(command),
+            () => targetList.Insert(insertIndex, command),
             command,
             $"已添加命令到 {targetName}。");
     }
@@ -15872,9 +15938,10 @@ public sealed class MainForm : Form
         if (!TryGetSelectedLegacyScriptCommand(out var selected) || selected.ChildBlock == null) return;
         var command = CreateLegacyScriptCommand(selected.SceneIndex, selected.SectionIndex);
         if (command == null) return;
+        var insertIndex = GetLegacyScriptAppendIndex(selected.ChildBlock.Commands);
 
         ApplyLegacyScriptStructureEdit(
-            () => selected.ChildBlock.Commands.Add(command),
+            () => selected.ChildBlock.Commands.Insert(insertIndex, command),
             command,
             $"已追加命令到 {selected.CommandIdHex} {selected.CommandName} 的子块。");
     }
@@ -15923,7 +15990,7 @@ public sealed class MainForm : Form
         SetStatus("剧本制作：" + statusText);
     }
 
-    private void RefreshLegacyScriptView(LegacyScenarioCommandNode? preferredSelection)
+    private void RefreshLegacyScriptView(LegacyScenarioCommandNode? preferredSelection, int? preferredParameterIndex = null)
     {
         if (_currentLegacyScriptDocument == null) return;
 
@@ -15961,6 +16028,10 @@ public sealed class MainForm : Form
         if (preferredSelection != null && TrySelectLegacyScriptCommand(preferredSelection))
         {
             ShowSelectedScriptTreeNode();
+            if (preferredParameterIndex.HasValue && TrySelectLegacyScriptParameterRow(preferredParameterIndex.Value))
+            {
+                ShowSelectedLegacyScriptParameter();
+            }
         }
         else if (SelectDefaultScriptTreeNode())
         {
@@ -16155,6 +16226,20 @@ public sealed class MainForm : Form
         reason = string.Empty;
         return true;
     }
+
+    private static int GetLegacyScriptAppendIndex(List<LegacyScenarioCommandNode> commands)
+    {
+        var index = commands.Count;
+        while (index > 0 && IsLegacyScriptTrailingBoundary(commands[index - 1]))
+        {
+            index--;
+        }
+
+        return index;
+    }
+
+    private static bool IsLegacyScriptTrailingBoundary(LegacyScenarioCommandNode command)
+        => command.EndsSubEventBlock || command.CommandId is 0x0C or 0x0D;
 
     private static Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> CaptureLegacyJumpTargets(LegacyScenarioDocument document)
     {
@@ -17778,6 +17863,7 @@ public sealed class MainForm : Form
 
     private void BindScriptParameterRows(IReadOnlyList<ScenarioCommandParameterRow> rows)
     {
+        ClearLegacyScriptParameterEditor();
         _scriptParameterGrid.DataSource = new BindingList<ScenarioCommandParameterRow>(rows.ToList());
         foreach (DataGridViewColumn column in _scriptParameterGrid.Columns)
         {
@@ -17810,6 +17896,226 @@ public sealed class MainForm : Form
                 column.Width = 280;
             }
         }
+
+        if (!_bindingScriptDocument)
+        {
+            ShowSelectedLegacyScriptParameter();
+        }
+    }
+
+    private void ShowSelectedLegacyScriptParameter()
+    {
+        if (_bindingScriptDocument) return;
+        if (!TryGetSelectedLegacyScriptParameter(out var command, out var parameter, out _))
+        {
+            ClearLegacyScriptParameterEditor();
+            return;
+        }
+
+        _scriptParameterValueBox.Text = parameter.Kind switch
+        {
+            LegacyScenarioParameterKind.Text => parameter.Text,
+            LegacyScenarioParameterKind.VariableArray => parameter.Values.Count == 0
+                ? string.Empty
+                : string.Join(",", parameter.Values),
+            _ => parameter.IntValue.ToString(CultureInfo.InvariantCulture)
+        };
+
+        if (CanEditLegacyScriptParameter(command, parameter, out var reason))
+        {
+            _scriptParameterValueBox.Enabled = true;
+            _applyScriptParameterValueButton.Enabled = true;
+            SetStatus($"剧本参数：槽 {parameter.Index} 可编辑，当前值 {parameter.IntValue}");
+        }
+        else
+        {
+            _scriptParameterValueBox.Enabled = false;
+            _applyScriptParameterValueButton.Enabled = false;
+            SetStatus("剧本参数：" + reason);
+        }
+    }
+
+    private void ClearLegacyScriptParameterEditor()
+    {
+        _scriptParameterValueBox.Clear();
+        _scriptParameterValueBox.Enabled = false;
+        _applyScriptParameterValueButton.Enabled = false;
+    }
+
+    private void ApplySelectedLegacyScriptParameterValue()
+    {
+        if (!TryGetSelectedLegacyScriptParameter(out var command, out var parameter, out var row))
+        {
+            MessageBox.Show(this, "请先在参数表中选择一个旧版命令参数槽。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanEditLegacyScriptParameter(command, parameter, out var reason))
+        {
+            MessageBox.Show(this, reason, "该参数暂不开放编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryParseLegacyScriptParameterValue(_scriptParameterValueBox.Text, parameter.Kind, out var newValue, out var error))
+        {
+            MessageBox.Show(this, error, "参数值无效", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _scriptParameterValueBox.Focus();
+            _scriptParameterValueBox.SelectAll();
+            return;
+        }
+
+        if (parameter.IntValue == newValue)
+        {
+            SetStatus($"剧本参数：槽 {parameter.Index} 未检测到改动");
+            return;
+        }
+
+        var oldValue = parameter.IntValue;
+        parameter.IntValue = newValue;
+        RefreshLegacyScriptView(command, row.Index);
+        _saveScriptStructureButton.Enabled = true;
+        SetStatus($"剧本参数：{command.CommandIdHex} {command.CommandName} 槽 {parameter.Index} {oldValue} -> {newValue}，需完整保存剧本");
+    }
+
+    private bool TryGetSelectedLegacyScriptParameter(
+        out LegacyScenarioCommandNode command,
+        out LegacyScenarioCommandParameter parameter,
+        out ScenarioCommandParameterRow row)
+    {
+        command = null!;
+        parameter = null!;
+        row = null!;
+
+        row = GetSelectedScriptParameterRow()!;
+        if (row == null) return false;
+
+        if (!TryGetSelectedLegacyScriptCommand(out command))
+        {
+            var commandRow = GetSelectedScriptCommandRow();
+            if (commandRow == null || !TryGetLegacyScriptCommand(commandRow, out command))
+            {
+                return false;
+            }
+        }
+
+        var parameterIndex = row.Index;
+        parameter = command.Parameters.FirstOrDefault(candidate => candidate.Index == parameterIndex)!;
+        return parameter != null;
+    }
+
+    private ScenarioCommandParameterRow? GetSelectedScriptParameterRow()
+    {
+        if (_scriptParameterGrid.SelectedRows.Count > 0 &&
+            _scriptParameterGrid.SelectedRows[0].DataBoundItem is ScenarioCommandParameterRow selected)
+        {
+            return selected;
+        }
+
+        return _scriptParameterGrid.CurrentRow?.DataBoundItem as ScenarioCommandParameterRow;
+    }
+
+    private static bool CanEditLegacyScriptParameter(
+        LegacyScenarioCommandNode command,
+        LegacyScenarioCommandParameter parameter,
+        out string reason)
+    {
+        if (command.StartsBodyBlock || command.IsSubEventMarker || command.OpensSubEventBlock || command.EndsSubEventBlock ||
+            command.CommandId is 0x00 or 0x01 or 0x0C or 0x0D)
+        {
+            reason = "结构分界命令的参数保持保护状态。";
+            return false;
+        }
+
+        if (command.CommandId == 0x76)
+        {
+            reason = "0x76 跳转位移由完整保存按目标命令重算，不能手动改成普通数值。";
+            return false;
+        }
+
+        reason = parameter.Kind switch
+        {
+            LegacyScenarioParameterKind.Text => "文本参数请选中树里的文本节点后使用下方文本框编辑。",
+            LegacyScenarioParameterKind.VariableArray => "可变数组参数长度和内容暂不开放直接编辑。",
+            LegacyScenarioParameterKind.Word16 or LegacyScenarioParameterKind.Dword32 => string.Empty,
+            _ => "该参数类型暂不开放编辑。"
+        };
+        return string.IsNullOrEmpty(reason);
+    }
+
+    private static bool TryParseLegacyScriptParameterValue(
+        string text,
+        LegacyScenarioParameterKind kind,
+        out int value,
+        out string error)
+    {
+        value = 0;
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0)
+        {
+            error = "请输入参数值。支持十进制，或 0x 开头的十六进制。";
+            return false;
+        }
+
+        if (trimmed.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            var hex = trimmed[2..];
+            if (kind == LegacyScenarioParameterKind.Dword32)
+            {
+                if (!uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    error = "32 位参数的十六进制值应为 0x00000000 到 0xFFFFFFFF。";
+                    return false;
+                }
+
+                value = unchecked((int)parsed);
+                error = string.Empty;
+                return true;
+            }
+
+            if (!uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var word) || word > ushort.MaxValue)
+            {
+                error = "16 位参数的十六进制值应为 0x0000 到 0xFFFF。";
+                return false;
+            }
+
+            value = word > 60000 ? unchecked((ushort)word) - 65536 : (int)word;
+            error = string.Empty;
+            return true;
+        }
+
+        if (!int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var decimalValue))
+        {
+            error = "参数值只能填写整数，或 0x 开头的十六进制。";
+            return false;
+        }
+
+        if (kind == LegacyScenarioParameterKind.Word16 && (decimalValue < -5535 || decimalValue > 60000))
+        {
+            error = "16 位参数的十进制值可填写 -5535 到 60000；如需写入完整无符号位型，请使用 0x0000 到 0xFFFF。";
+            return false;
+        }
+
+        value = decimalValue;
+        error = string.Empty;
+        return true;
+    }
+
+    private bool TrySelectLegacyScriptParameterRow(int parameterIndex)
+    {
+        foreach (DataGridViewRow gridRow in _scriptParameterGrid.Rows)
+        {
+            if (gridRow.DataBoundItem is not ScenarioCommandParameterRow candidate || candidate.Index != parameterIndex) continue;
+            gridRow.Selected = true;
+            var firstVisibleCell = gridRow.Cells.Cast<DataGridViewCell>().FirstOrDefault(cell => cell.Visible);
+            if (firstVisibleCell != null)
+            {
+                _scriptParameterGrid.CurrentCell = firstVisibleCell;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     private void BindScriptTextRows(IReadOnlyList<ScenarioTextEntry> rows)
@@ -17921,6 +18227,10 @@ public sealed class MainForm : Form
                 BindScriptTextRows(textRows);
                 BindScriptParameterRows(parameterRows);
             });
+            if (row.NodeType == "Command候选")
+            {
+                ShowSelectedLegacyScriptParameter();
+            }
             _scriptTextEditorBox.Clear();
             UpdateScriptTextCapacityLabel();
             _scriptDetailBox.Text = BuildScriptRowDetail(row);
@@ -18133,6 +18443,7 @@ public sealed class MainForm : Form
             BindScriptTextRows(textRows);
             BindScriptParameterRows(parameterRows);
         });
+        ShowSelectedLegacyScriptParameter();
         _scriptTextEditorBox.Clear();
         UpdateScriptTextCapacityLabel();
         _scriptDetailBox.Text = BuildScriptRowDetail(row);
@@ -18616,6 +18927,7 @@ public sealed class MainForm : Form
                 SelectScriptTreeNode(result.CommandRow, suppressEvents: true);
                 BindScriptParameterRows(parameterRows);
             });
+            ShowSelectedLegacyScriptParameter();
             _selectedScriptCommandRow = result.CommandRow;
             _selectedScriptTextEntry = null;
             _scriptTextEditorBox.Clear();

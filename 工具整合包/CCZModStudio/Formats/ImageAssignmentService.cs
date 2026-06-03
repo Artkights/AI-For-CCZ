@@ -15,11 +15,13 @@ public sealed class ImageAssignmentService
     public DataTable Load(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var personTable = Find(tables, "6.5-0 人物");
+        var jobTable = Find(tables, "6.5-4 详细兵种");
         var rTable = Find(tables, "6.5-0-4 R形象");
         var sTable = Find(tables, "6.5-0-5 S形象");
         EnsureImageTablesMatchBImageAssigner(rTable, sTable);
 
         var person = _reader.Read(project, personTable, tables);
+        var jobs = _reader.Read(project, jobTable, tables);
         var r = _reader.Read(project, rTable, tables);
         var s = _reader.Read(project, sTable, tables);
         if (!person.Validation.IsUsable || !r.Validation.IsUsable || !s.Validation.IsUsable)
@@ -31,6 +33,8 @@ public sealed class ImageAssignmentService
         output.Columns.Add("ID", typeof(int));
         output.Columns.Add("名称", typeof(string));
         output.Columns.Add("头像编号", typeof(int));
+        output.Columns.Add("职业", typeof(int));
+        output.Columns.Add("职业名称", typeof(string));
         output.Columns.Add("R形象编号", typeof(int));
         output.Columns.Add("S形象编号", typeof(int));
         output.Columns.Add("R资源状态", typeof(string));
@@ -38,16 +42,22 @@ public sealed class ImageAssignmentService
         output.Columns["ID"]!.ReadOnly = true;
         output.Columns["名称"]!.ReadOnly = true;
         output.Columns["头像编号"]!.ReadOnly = true;
+        output.Columns["职业"]!.ReadOnly = true;
+        output.Columns["职业名称"]!.ReadOnly = true;
 
+        var jobNames = BuildJobNameLookup(jobs.Data);
         var count = Math.Min(person.Data.Rows.Count, Math.Min(r.Data.Rows.Count, s.Data.Rows.Count));
         for (var i = 0; i < count; i++)
         {
             var rId = Convert.ToInt32(r.Data.Rows[i]["R形象编号"], CultureInfo.InvariantCulture);
             var sId = Convert.ToInt32(s.Data.Rows[i]["S形象编号"], CultureInfo.InvariantCulture);
+            var jobId = Convert.ToInt32(person.Data.Rows[i]["职业"], CultureInfo.InvariantCulture);
             output.Rows.Add(
                 Convert.ToInt32(person.Data.Rows[i]["ID"], CultureInfo.InvariantCulture),
                 Convert.ToString(person.Data.Rows[i]["名称"], CultureInfo.InvariantCulture) ?? string.Empty,
                 Convert.ToInt32(person.Data.Rows[i]["头像"], CultureInfo.InvariantCulture),
+                jobId,
+                jobNames.GetValueOrDefault(jobId, $"职业{jobId}"),
                 rId,
                 sId,
                 GetImageResourceStatus(project, "R", rId),
@@ -103,6 +113,20 @@ public sealed class ImageAssignmentService
 
     private static HexTableDefinition Find(IReadOnlyList<HexTableDefinition> tables, string tableName) =>
         tables.Single(t => t.TableName == tableName);
+
+    private static IReadOnlyDictionary<int, string> BuildJobNameLookup(DataTable jobs)
+    {
+        var result = new Dictionary<int, string>();
+        if (!jobs.Columns.Contains("ID") || !jobs.Columns.Contains("名称")) return result;
+        foreach (DataRow row in jobs.Rows)
+        {
+            var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+            var name = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+            result[id] = string.IsNullOrWhiteSpace(name) ? $"职业{id}" : name;
+        }
+
+        return result;
+    }
 
     private static void EnsureImageTablesMatchBImageAssigner(HexTableDefinition rTable, HexTableDefinition sTable)
     {
@@ -169,7 +193,7 @@ public sealed class ImageAssignmentService
     private static bool MatchesKeyword(DataRow row, string keyword)
     {
         var values = new List<string>();
-        foreach (var columnName in new[] { "ID", "名称", "头像编号", "R形象编号", "S形象编号", "R资源状态", "S资源状态" })
+        foreach (var columnName in new[] { "ID", "名称", "头像编号", "职业", "职业名称", "R形象编号", "S形象编号", "R资源状态", "S资源状态" })
         {
             if (!row.Table.Columns.Contains(columnName)) continue;
             values.Add(Convert.ToString(row[columnName], CultureInfo.InvariantCulture) ?? string.Empty);

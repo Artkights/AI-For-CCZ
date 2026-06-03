@@ -115,7 +115,7 @@ public sealed class TableReferenceLookupService
         if (name is "策略类型" or "施展对象") return "枚举参数：通常影响策略分类、目标阵营或可选对象；当前按内部枚举提示处理。";
         if (name.Contains("效果值", StringComparison.Ordinal)) return "联动参数：通常与同一行的特效号/类型配套，不宜脱离上下文单独修改。";
         if (name.Contains("R形象", StringComparison.Ordinal)) return "资源引用：R 形象编号 n 对应 Pmapobj.e5 第 2n+1 张正面、第 2n+2 张反面（1-based 图号）；不是 RS\\R_XX.eex 人物图像。";
-        if (name.Contains("S形象", StringComparison.Ordinal)) return "资源引用：S 形象编号通常结合 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5；本地形象对应表显示 1-240 为基础区、241+ 为特殊/扩展区，S>=241 可在明文 BMP 扩展条目存在时预览首帧；不是 RS\\S_XX.eex 人物图像。";
+        if (name.Contains("S形象", StringComparison.Ordinal)) return "资源引用：S 形象编号是紧凑编号：S=0 按人物职业和预览阵营取默认兵种图，S=1..32 映射 Unit 图 241..336 三转特殊三联，S>=33 从 Unit 图 337 起映射一转特殊单张；不是 RS\\S_XX.eex 人物图像。";
 
         return string.Empty;
     }

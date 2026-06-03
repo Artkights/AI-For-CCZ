@@ -17,10 +17,10 @@ public sealed class ImageAssignmentPreviewService
 {
     private const int PreviewWidth = 420;
     private const int PreviewHeight = 300;
-    private const int FirstEmbeddedSImageId = 241;
-    private const int MaxEmbeddedImageBytes = 10_000_000;
-    private readonly Dictionary<string, IReadOnlyList<PngSlice>> _facePngIndexCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, IReadOnlyList<EmbeddedImageSlice>> _embeddedBmpIndexCache = new(StringComparer.OrdinalIgnoreCase);
+    private const int E5ImageIndexOffset = 0x110;
+    private const int E5ImageIndexEntrySize = 12;
+    private readonly Dictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<Color>? _tsbPaletteCache;
 
     public Bitmap RenderResourcePreview(CczProject project, string prefix, int id, string personName, int? faceId = null)
     {
@@ -48,7 +48,7 @@ public sealed class ImageAssignmentPreviewService
 
         var faceCaption = string.Empty;
         var faceBitmap = faceId.HasValue ? TryLoadMappedFaceImage(project, faceId.Value, out faceCaption) : null;
-        var imageBitmap = TryLoadMappedE5Image(project, prefix, id, out var imageCaption);
+        var imageBitmap = TryLoadMappedE5Image(project, prefix, id, null, CharacterImageResourceService.DefaultSPreviewFactionSlot, out var imageCaption);
         try
         {
             g.DrawString($"{personName}  {title}", titleFont, titleBrush, 12, 10);
@@ -94,8 +94,8 @@ public sealed class ImageAssignmentPreviewService
             g.DrawString(fileText, smallFont, CharacterImageResourceService.IsMissingStatus(status.Status) ? warnBrush : textBrush,
                 new RectangleF(18, 194, bitmap.Width - 36, 36));
             g.DrawString(prefix == "R"
-                    ? "读取口径：Data/Ekd5 的 R 形象号 n -> Pmapobj.e5 图 2n+1 / 2n+2；未解包 Ls12 前不显示候选图。"
-                    : "读取口径：S 1..240 仍需 Ls12 解码；S>=241 可预览 Unit 明文扩展条目。",
+                    ? "读取口径：R 形象号 n -> Pmapobj.e5 索引图 2n+1；索引表从 0x110 开始。"
+                    : "读取口径：S 形象号 n -> Unit_atk/mov/spc.e5 索引图 n；索引表从 0x110 开始。",
                 smallFont,
                 warnBrush,
                 new RectangleF(18, 236, bitmap.Width - 36, 44));
@@ -114,9 +114,12 @@ public sealed class ImageAssignmentPreviewService
     }
 
     public Bitmap? TryRenderCharacterResourceImage(CczProject project, string prefix, int id)
+        => TryRenderCharacterResourceImage(project, prefix, id, jobId: null, sFactionSlot: CharacterImageResourceService.DefaultSPreviewFactionSlot);
+
+    public Bitmap? TryRenderCharacterResourceImage(CczProject project, string prefix, int id, int? jobId, int sFactionSlot)
     {
         prefix = NormalizePrefix(prefix);
-        return TryLoadMappedE5Image(project, prefix, id, out _);
+        return TryLoadMappedE5Image(project, prefix, id, jobId, sFactionSlot, out _);
     }
 
     private static void DrawCenteredImage(Graphics g, Image image, Rectangle rect, Pen borderPen)
@@ -133,137 +136,276 @@ public sealed class ImageAssignmentPreviewService
         g.DrawImage(image, new Rectangle(x, y, w, h));
     }
 
-    private Bitmap? TryLoadMappedE5Image(CczProject project, string prefix, int id, out string caption)
+    private Bitmap? TryLoadMappedE5Image(CczProject project, string prefix, int id, int? jobId, int sFactionSlot, out string caption)
     {
         prefix = NormalizePrefix(prefix);
         if (prefix == "S")
         {
-            var preview = TryRenderEmbeddedSImage(project, id, out caption);
+            var preview = TryRenderSImage(project, id, jobId, sFactionSlot, out caption);
             if (preview != null) return preview;
             return null;
         }
 
-        caption = "Pmapobj.e5 Ls12 未解包";
-        return null;
+        return TryRenderRImage(project, id, out caption);
     }
 
-    private Bitmap? TryRenderEmbeddedSImage(CczProject project, int sImageId, out string caption)
+    private Bitmap? TryRenderRImage(CczProject project, int rImageId, out string caption)
     {
-        caption = sImageId < FirstEmbeddedSImageId
-            ? "S 1..240 需要 Ls12 解码"
-            : "Unit 明文扩展条目未定位";
-        if (sImageId < FirstEmbeddedSImageId) return null;
+        caption = "Pmapobj.e5 未定位";
+        if (rImageId < 0) return null;
 
-        var entryIndex = checked(sImageId - FirstEmbeddedSImageId);
-        var frames = new List<UnitFramePreview>();
-        var availableCounts = new List<string>();
+        var imageNumber = checked(rImageId * 2 + 1);
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        var frame = TryRenderE5EntryFrame(project, path, imageNumber, RawPreviewSpecs.PmapObjWidth, RawPreviewSpecs.PmapObjFrameHeight, out var detail);
+        caption = frame == null
+            ? $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 未读取：{detail}"
+            : $"R{rImageId} -> Pmapobj.e5 #{imageNumber}";
+        return frame;
+    }
+
+    private Bitmap? TryRenderSImage(CczProject project, int sImageId, int? jobId, int sFactionSlot, out string caption)
+    {
+        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId, sFactionSlot);
+        caption = mapping.Detail;
+        if (mapping.ImageNumbers.Count == 0) return null;
+
+        var groups = new List<UnitImagePreviewGroup>();
+        var errors = new List<string>();
         try
         {
-            foreach (var spec in UnitPreviewSpecs)
+            foreach (var imageNumber in mapping.ImageNumbers)
             {
-                var path = CharacterImageResourceService.ResolveGameFile(project, spec.FileName);
-                if (!File.Exists(path)) continue;
+                var frames = new List<UnitFramePreview>();
+                foreach (var spec in UnitPreviewSpecs)
+                {
+                    var path = CharacterImageResourceService.ResolveGameFile(project, spec.FileName);
+                    var frame = TryRenderE5EntryFrame(project, path, imageNumber, spec.RawWidth, spec.FrameHeight, out var detail);
+                    if (frame == null)
+                    {
+                        errors.Add($"图{imageNumber}{spec.Label}:{detail}");
+                        continue;
+                    }
 
-                var slices = GetEmbeddedBmpIndex(path)
-                    .Where(slice => slice.Width == spec.FrameWidth &&
-                                    slice.Height >= spec.FrameHeight &&
-                                    slice.Height % spec.FrameHeight == 0)
-                    .ToList();
-                availableCounts.Add($"{spec.Label}{slices.Count}");
-                if (entryIndex < 0 || entryIndex >= slices.Count) continue;
+                    frames.Add(new UnitFramePreview($"{spec.Label}#{imageNumber}", frame));
+                }
 
-                using var strip = LoadEmbeddedImageSlice(path, slices[entryIndex]);
-                if (strip == null) continue;
-
-                var frame = CropRepresentativeFrame(strip, spec.FrameHeight);
-                frames.Add(new UnitFramePreview(spec.Label, frame));
+                if (frames.Count > 0)
+                {
+                    groups.Add(new UnitImagePreviewGroup(imageNumber, frames));
+                }
             }
 
-            if (frames.Count == 0)
+            if (groups.Count == 0)
             {
-                caption = availableCounts.Count == 0
-                    ? "Unit 明文 BMP 条目未定位"
-                    : $"S{sImageId} 超出明文扩展覆盖：{string.Join(" / ", availableCounts)}";
+                caption = $"S{sImageId} 未读取：{mapping.Detail}；{string.Join(" / ", errors)}";
                 return null;
             }
 
-            caption = $"S{sImageId} -> Unit 明文扩展 #{entryIndex + 1}";
-            return ComposeUnitFrames(frames);
+            caption = $"{mapping.ShortText}";
+            return ComposeUnitFrameGroups(groups);
         }
         finally
         {
-            foreach (var frame in frames)
+            foreach (var group in groups)
             {
-                frame.Image.Dispose();
+                foreach (var frame in group.Frames)
+                {
+                    frame.Image.Dispose();
+                }
             }
         }
     }
 
-    private IReadOnlyList<EmbeddedImageSlice> GetEmbeddedBmpIndex(string path)
+    private Bitmap? TryRenderE5EntryFrame(CczProject project, string path, int imageNumber, int rawWidth, int frameHeight, out string detail)
     {
-        path = Path.GetFullPath(path);
-        if (_embeddedBmpIndexCache.TryGetValue(path, out var cached)) return cached;
         if (!File.Exists(path))
         {
-            _embeddedBmpIndexCache[path] = Array.Empty<EmbeddedImageSlice>();
-            return _embeddedBmpIndexCache[path];
+            detail = "文件不存在";
+            return null;
         }
 
-        var bytes = File.ReadAllBytes(path);
-        var result = new List<EmbeddedImageSlice>();
-        var offset = 0;
-        while (offset + 6 <= bytes.Length)
+        var entries = GetE5ImageIndex(path);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
         {
-            var found = Array.IndexOf(bytes, (byte)'B', offset);
-            if (found < 0 || found + 6 > bytes.Length) break;
-            if (bytes[found + 1] != (byte)'M')
-            {
-                offset = found + 1;
-                continue;
-            }
-
-            var size = BitConverter.ToUInt32(bytes, found + 2);
-            if (size >= 14 &&
-                size <= MaxEmbeddedImageBytes &&
-                found + (long)size <= bytes.Length)
-            {
-                try
-                {
-                    using var stream = new MemoryStream(bytes, found, (int)size, writable: false);
-                    using var image = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: false);
-                    result.Add(new EmbeddedImageSlice(found, (int)size, image.Width, image.Height));
-                    offset = found + Math.Max(1, (int)size);
-                    continue;
-                }
-                catch (ArgumentException)
-                {
-                    // Continue scanning; random bytes can still contain BM.
-                }
-                catch (ExternalException)
-                {
-                    // Continue scanning; GDI+ rejected this candidate.
-                }
-            }
-
-            offset = found + 1;
+            detail = $"索引越界 #{imageNumber}/{entries.Count}";
+            return null;
         }
 
-        _embeddedBmpIndexCache[path] = result;
+        var entry = entries[imageNumber - 1];
+        var bytes = ReadEntryBytes(path, entry);
+        using var decoded = TryDecodeStandardImage(bytes);
+        if (decoded != null)
+        {
+            detail = $"{entry.Kind} offset=0x{entry.Offset:X} size={entry.Length:N0}";
+            return CropRepresentativeFrame(decoded, frameHeight);
+        }
+
+        if (bytes.Length > 0 && bytes[0] == 0)
+        {
+            var rawPalette = LoadTsbPalette(project);
+            var raw = TryRenderRawIndexedStrip(bytes, rawWidth, frameHeight, rawPalette, out var paletteMode);
+            if (raw != null)
+            {
+                detail = $"{paletteMode} offset=0x{entry.Offset:X} size={entry.Length:N0}";
+                return raw;
+            }
+        }
+
+        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}";
+        return null;
+    }
+
+    private IReadOnlyList<E5ImageEntry> GetE5ImageIndex(string path)
+    {
+        path = Path.GetFullPath(path);
+        if (_e5ImageIndexCache.TryGetValue(path, out var cached)) return cached;
+        if (!File.Exists(path))
+        {
+            _e5ImageIndexCache[path] = Array.Empty<E5ImageEntry>();
+            return _e5ImageIndexCache[path];
+        }
+
+        var data = File.ReadAllBytes(path);
+        var result = new List<E5ImageEntry>();
+        for (var offset = E5ImageIndexOffset; offset + E5ImageIndexEntrySize <= data.Length; offset += E5ImageIndexEntrySize)
+        {
+            var sizeA = ReadBigEndianUInt32(data, offset);
+            var sizeB = ReadBigEndianUInt32(data, offset + 4);
+            var imageOffset = ReadBigEndianUInt32(data, offset + 8);
+            if (sizeA == 0 ||
+                sizeA != sizeB ||
+                imageOffset >= data.Length ||
+                sizeB > data.Length - imageOffset)
+            {
+                break;
+            }
+
+            result.Add(new E5ImageEntry(
+                result.Count + 1,
+                checked((int)imageOffset),
+                checked((int)sizeB),
+                DetectE5ImageKind(data, checked((int)imageOffset), checked((int)sizeB))));
+        }
+
+        _e5ImageIndexCache[path] = result;
         return result;
     }
 
-    private static Bitmap? LoadEmbeddedImageSlice(string path, EmbeddedImageSlice slice)
+    private static byte[] ReadEntryBytes(string path, E5ImageEntry entry)
     {
-        var bytes = new byte[slice.Length];
-        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        var bytes = new byte[entry.Length];
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        stream.Position = entry.Offset;
+        stream.ReadExactly(bytes);
+        return bytes;
+    }
+
+    private static Bitmap? TryDecodeStandardImage(byte[] bytes)
+    {
+        if (bytes.Length < 2) return null;
+        var isBmp = bytes[0] == (byte)'B' && bytes[1] == (byte)'M';
+        var isJpeg = bytes[0] == 0xFF && bytes[1] == 0xD8;
+        var isPng = bytes.Length >= PngMagic.Length && Matches(bytes, 0, PngMagic);
+        if (!isBmp && !isJpeg && !isPng) return null;
+
+        try
         {
-            stream.Position = slice.Offset;
-            stream.ReadExactly(bytes);
+            using var memory = new MemoryStream(bytes, writable: false);
+            using var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: false);
+            return new Bitmap(image);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (ExternalException)
+        {
+            return null;
+        }
+    }
+
+    private static string DetectE5ImageKind(byte[] data, int offset, int length)
+    {
+        if (length <= 0 || offset < 0 || offset >= data.Length) return "EMPTY";
+        if (offset + 1 < data.Length && data[offset] == (byte)'B' && data[offset + 1] == (byte)'M') return "BMP";
+        if (offset + 1 < data.Length && data[offset] == 0xFF && data[offset + 1] == 0xD8) return "JPG";
+        if (offset + PngMagic.Length <= data.Length && Matches(data, offset, PngMagic)) return "PNG";
+        if (data[offset] == 0) return "RAW";
+        return $"0x{data[offset]:X2}";
+    }
+
+    private static Bitmap? TryRenderRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, out string paletteMode)
+    {
+        paletteMode = palette.Count >= 256 ? "RAW+TSB" : "RAW灰度";
+        if (rawWidth <= 0 || frameHeight <= 0) return null;
+        var rawLength = bytes.Length - (bytes.Length % rawWidth);
+        if (rawLength < rawWidth * frameHeight) return null;
+
+        var rawHeight = rawLength / rawWidth;
+        using var strip = new Bitmap(rawWidth, rawHeight, PixelFormat.Format32bppArgb);
+        for (var y = 0; y < rawHeight; y++)
+        {
+            for (var x = 0; x < rawWidth; x++)
+            {
+                var value = bytes[y * rawWidth + x];
+                if (value == 0)
+                {
+                    strip.SetPixel(x, y, Color.Transparent);
+                    continue;
+                }
+
+                var gray = Math.Min(255, 48 + value);
+                var color = value < palette.Count
+                    ? palette[value]
+                    : Color.FromArgb(255, gray, gray, gray);
+                strip.SetPixel(x, y, IsMagentaKey(color) ? Color.Transparent : color);
+            }
         }
 
-        using var memory = new MemoryStream(bytes, writable: false);
-        using var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: false);
-        return new Bitmap(image);
+        return CropRepresentativeFrame(strip, frameHeight);
+    }
+
+    private IReadOnlyList<Color> LoadTsbPalette(CczProject project)
+    {
+        if (_tsbPaletteCache != null) return _tsbPaletteCache;
+        var path = ResolveTsbPalettePath(project);
+        if (path == null)
+        {
+            _tsbPaletteCache = Array.Empty<Color>();
+            return _tsbPaletteCache;
+        }
+
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length < 256 * 4)
+        {
+            _tsbPaletteCache = Array.Empty<Color>();
+            return _tsbPaletteCache;
+        }
+
+        var colors = new Color[256];
+        for (var i = 0; i < colors.Length; i++)
+        {
+            var offset = i * 4;
+            var b = bytes[offset];
+            var g = bytes[offset + 1];
+            var r = bytes[offset + 2];
+            colors[i] = Color.FromArgb(255, r, g, b);
+        }
+
+        _tsbPaletteCache = colors;
+        return _tsbPaletteCache;
+    }
+
+    private static string? ResolveTsbPalettePath(CczProject project)
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "Palettes", "tsb"),
+            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "Palettes", "tsb"),
+            Path.Combine(project.WorkspaceRoot, "老版游戏制作工具", "普罗-综合工具v0.3", "tsb")
+        };
+
+        return candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4);
     }
 
     private static Bitmap CropRepresentativeFrame(Bitmap strip, int frameHeight)
@@ -315,12 +457,23 @@ public sealed class ImageAssignmentPreviewService
             for (var x = 0; x < bitmap.Width; x++)
             {
                 var pixel = bitmap.GetPixel(x, y);
-                if (pixel.R >= 248 && pixel.G <= 8 && pixel.B >= 248)
+                if (IsMagentaKey(pixel))
                 {
                     bitmap.SetPixel(x, y, Color.Transparent);
                 }
             }
         }
+    }
+
+    private static bool IsMagentaKey(Color pixel)
+    {
+        if (pixel.A == 0) return true;
+
+        // Pmapobj.e5 的 JPG 帧会把透明底色压缩成一组接近洋红的像素，不能只匹配 FF00FF。
+        return pixel.R >= 210 &&
+               pixel.B >= 210 &&
+               pixel.G <= 90 &&
+               Math.Abs(pixel.R - pixel.B) <= 70;
     }
 
     private static int CountVisiblePixels(Bitmap bitmap)
@@ -337,43 +490,44 @@ public sealed class ImageAssignmentPreviewService
         return count;
     }
 
-    private static Bitmap ComposeUnitFrames(IReadOnlyList<UnitFramePreview> frames)
+    private static Bitmap ComposeUnitFrameGroups(IReadOnlyList<UnitImagePreviewGroup> groups)
     {
         const int cellWidth = 92;
-        const int imageHeight = 78;
-        const int labelHeight = 18;
-        var bitmap = new Bitmap(Math.Max(cellWidth, frames.Count * cellWidth), imageHeight + labelHeight + 12, PixelFormat.Format32bppArgb);
+        const int imageHeight = 84;
+        const int rowPadding = 8;
+        var maxColumns = Math.Max(1, groups.Max(group => group.Frames.Count));
+        var rowHeight = imageHeight + rowPadding;
+        var bitmap = new Bitmap(Math.Max(cellWidth, maxColumns * cellWidth), Math.Max(rowHeight, groups.Count * rowHeight), PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
         g.Clear(Color.FromArgb(24, 26, 28));
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         using var borderPen = new Pen(Color.FromArgb(95, 105, 112));
-        using var labelBrush = new SolidBrush(Color.FromArgb(218, 226, 232));
-        var baseFont = SystemFonts.MessageBoxFont ?? Control.DefaultFont;
-        using var font = new Font(baseFont.FontFamily, 8, FontStyle.Regular);
-        using var labelFormat = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
 
-        for (var i = 0; i < frames.Count; i++)
+        for (var row = 0; row < groups.Count; row++)
         {
-            var left = i * cellWidth;
-            var imageRect = new Rectangle(left + 8, 8, cellWidth - 16, imageHeight);
-            g.DrawRectangle(borderPen, imageRect);
+            var top = row * rowHeight;
+            var frames = groups[row].Frames;
+            for (var i = 0; i < frames.Count; i++)
+            {
+                var left = i * cellWidth;
+                var imageRect = new Rectangle(left + 8, top + 6, cellWidth - 16, imageHeight);
+                g.DrawRectangle(borderPen, imageRect);
 
-            var image = frames[i].Image;
-            var scale = Math.Min(imageRect.Width / (float)image.Width, imageRect.Height / (float)image.Height);
-            var width = Math.Max(1, (int)Math.Round(image.Width * scale));
-            var height = Math.Max(1, (int)Math.Round(image.Height * scale));
-            var x = imageRect.Left + (imageRect.Width - width) / 2;
-            var y = imageRect.Top + (imageRect.Height - height) / 2;
-            g.DrawImage(image, new Rectangle(x, y, width, height));
-
-            g.DrawString(frames[i].Label, font, labelBrush, new RectangleF(left, imageHeight + 8, cellWidth, labelHeight), labelFormat);
+                var image = frames[i].Image;
+                var scale = Math.Min(imageRect.Width / (float)image.Width, imageRect.Height / (float)image.Height);
+                var width = Math.Max(1, (int)Math.Round(image.Width * scale));
+                var height = Math.Max(1, (int)Math.Round(image.Height * scale));
+                var x = imageRect.Left + (imageRect.Width - width) / 2;
+                var y = imageRect.Top + (imageRect.Height - height) / 2;
+                g.DrawImage(image, new Rectangle(x, y, width, height));
+            }
         }
 
         return bitmap;
     }
 
-    public string BuildResourceInfo(CczProject project, string prefix, int id, string personName, int? faceId = null)
+    public string BuildResourceInfo(CczProject project, string prefix, int id, string personName, int? faceId = null, int? jobId = null, int sFactionSlot = CharacterImageResourceService.DefaultSPreviewFactionSlot)
     {
         prefix = NormalizePrefix(prefix);
         var resolver = new CharacterImageResourceService();
@@ -386,9 +540,9 @@ public sealed class ImageAssignmentPreviewService
         if (faceId.HasValue)
         {
             var facePath = ResolveFaceFile(project);
-            var faceCount = facePath != null ? GetFacePngIndex(facePath).Count : 0;
+            var faceCount = facePath != null ? GetE5ImageIndex(facePath).Count : 0;
             sb.AppendLine("头像映射：" + resolver.BuildFaceHint(project, faceId.Value));
-            sb.AppendLine($"头像预览：{(facePath == null ? "未找到 E5\\Face.e5" : $"E5\\Face.e5 内 PNG 候选 {faceCount} 张；按教程映射取图")}");
+            sb.AppendLine($"头像预览：{(facePath == null ? "未找到 E5\\Face.e5" : $"E5\\Face.e5 0x110 索引表内条目 {faceCount} 张；按教程映射取图")}");
         }
         sb.AppendLine($"资源定位：{status.Status}：{status.ResourceName}");
         sb.AppendLine($"资源路径：{status.Path}");
@@ -398,7 +552,7 @@ public sealed class ImageAssignmentPreviewService
         sb.AppendLine($"B形象指定器配置：FileHead={assignerConfig.GetValueOrDefault("FileHead", "未找到")}，RFileHead={assignerConfig.GetValueOrDefault("RFileHead", "未找到")}，UserPath2={assignerConfig.GetValueOrDefault("UserPath2", "未找到")}");
         sb.AppendLine($"新剧本编辑器配置：RSMax={sceneConfig.GetValueOrDefault("RSMax", "未找到")}，ExePath={sceneConfig.GetValueOrDefault("ExePath", "未找到")}");
 
-        sb.AppendLine(BuildCharacterPreviewStatus(project, prefix, id));
+        sb.AppendLine(BuildCharacterPreviewStatus(project, prefix, id, jobId, sFactionSlot));
 
         if (!ResourcePathExists(status.Path))
         {
@@ -408,28 +562,26 @@ public sealed class ImageAssignmentPreviewService
 
         sb.AppendLine("文件状态：" + BuildResourceFileStateText(status.Path));
         sb.AppendLine(prefix == "R"
-            ? "说明：R 形象当前按 Pmapobj.e5 正反图号定位；封包内图片重排/替换尚未开放写入。"
-            : "说明：S 形象当前按 1-240 基础区、241+ 扩展区解释；S>=241 且 Unit 明文 BMP 条目存在时可显示只读首帧预览，普通 S 与完整动作帧仍需继续解码验证。");
+            ? "说明：R 形象当前按 Pmapobj.e5 的 0x110 索引表读取，R=n 取正面图号 2n+1；封包内图片重排/替换尚未开放写入。"
+            : "说明：S 形象当前按紧凑编号映射到 Unit_*.e5：S=0 由职业和预览阵营计算，S=1..32 对应三转特殊三张图，S>=33 对应一转特殊单张图。");
         return sb.ToString();
     }
 
-    private string BuildCharacterPreviewStatus(CczProject project, string prefix, int id)
+    private string BuildCharacterPreviewStatus(CczProject project, string prefix, int id, int? jobId, int sFactionSlot)
     {
         prefix = NormalizePrefix(prefix);
         if (prefix == "R")
         {
-            return "实图预览：R 仍需 Pmapobj.e5 的 Ls12 目录/解压和正反图条目映射，当前不显示裸扫图。";
+            using var rPreview = TryRenderRImage(project, id, out var rCaption);
+            return rPreview == null
+                ? $"实图预览：{rCaption}。"
+                : $"实图预览：可显示 {rCaption} 的代表帧。";
         }
 
-        if (id < FirstEmbeddedSImageId)
-        {
-            return $"实图预览：S{id} 属于 1-240 基础区，仍需 Unit_* 的 Ls12 目录/解压和动作帧选择。";
-        }
-
-        using var preview = TryRenderEmbeddedSImage(project, id, out var caption);
-        return preview == null
-            ? $"实图预览：{caption}。"
-            : $"实图预览：可显示 {caption} 的移动/攻击/特技首帧。";
+        using var sPreview = TryRenderSImage(project, id, jobId, sFactionSlot, out var sCaption);
+        return sPreview == null
+            ? $"实图预览：{sCaption}。"
+            : $"实图预览：可显示 {sCaption} 的移动/攻击/特技代表帧。";
     }
 
     private static bool ResourcePathExists(string path)
@@ -632,14 +784,7 @@ public sealed class ImageAssignmentPreviewService
     {
         var facePath = ResolveFaceFile(project);
         if (facePath == null) return null;
-        var slices = GetFacePngIndex(facePath);
-        if (faceId < 0 || faceId >= slices.Count) return null;
-
-        var slice = slices[faceId];
-        var bytes = File.ReadAllBytes(facePath);
-        using var stream = new MemoryStream(bytes, slice.Offset, slice.Length, writable: false);
-        using var image = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: false);
-        return new Bitmap(image);
+        return TryLoadE5EntryImage(facePath, faceId + 1, out _);
     }
 
     private Bitmap? TryLoadMappedFaceImage(CczProject project, int dataFaceId, out string caption)
@@ -649,43 +794,47 @@ public sealed class ImageAssignmentPreviewService
         if (facePath == null) return null;
 
         var mapping = new CharacterImageResourceService().MapFaceId(dataFaceId);
-        var slices = GetFacePngIndex(facePath);
-        if (slices.Count == 0) return null;
+        var entries = GetE5ImageIndex(facePath);
+        if (entries.Count == 0) return null;
 
-        // 教程口径：Face.e5 图号为 1-based；slice 下标为 0-based。
+        // 教程口径：Face.e5 图号为 1-based。
         var preferredFaceNumber = mapping.FaceImageNumbers.FirstOrDefault();
-        var index = preferredFaceNumber - 1;
-        if (index < 0 || index >= slices.Count) index = 0;
+        if (preferredFaceNumber <= 0 || preferredFaceNumber > entries.Count) preferredFaceNumber = 1;
 
         caption = mapping.FaceImageNumbers.Count == 1
             ? $"头像号 {dataFaceId} -> Face#{preferredFaceNumber}"
             : $"头像号 {dataFaceId} -> Face#{mapping.FaceImageNumbers.First()}-{mapping.FaceImageNumbers.Last()}";
 
-        var slice = slices[index];
-        var bytes = File.ReadAllBytes(facePath);
-        using var stream = new MemoryStream(bytes, slice.Offset, slice.Length, writable: false);
-        using var image = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: false);
-        return new Bitmap(image);
+        return TryLoadE5EntryImage(facePath, preferredFaceNumber, out _);
     }
 
-    private IReadOnlyList<PngSlice> GetFacePngIndex(string facePath)
+    private Bitmap? TryLoadE5EntryImage(string path, int imageNumber, out string detail)
     {
-        facePath = Path.GetFullPath(facePath);
-        if (_facePngIndexCache.TryGetValue(facePath, out var cached)) return cached;
-        var bytes = File.ReadAllBytes(facePath);
-        var result = new List<PngSlice>();
-        for (var offset = 0; offset + PngMagic.Length <= bytes.Length; offset++)
+        detail = "未读取";
+        if (!File.Exists(path))
         {
-            if (!Matches(bytes, offset, PngMagic)) continue;
-            if (TryReadPngLength(bytes, offset, out var length))
-            {
-                result.Add(new PngSlice(offset, length));
-                offset += Math.Max(0, length - 1);
-            }
+            detail = "文件不存在";
+            return null;
         }
 
-        _facePngIndexCache[facePath] = result;
-        return result;
+        var entries = GetE5ImageIndex(path);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+        {
+            detail = $"索引越界 #{imageNumber}/{entries.Count}";
+            return null;
+        }
+
+        var entry = entries[imageNumber - 1];
+        var bytes = ReadEntryBytes(path, entry);
+        var image = TryDecodeStandardImage(bytes);
+        if (image != null)
+        {
+            detail = $"{entry.Kind} offset=0x{entry.Offset:X} size={entry.Length:N0}";
+            return image;
+        }
+
+        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}";
+        return null;
     }
 
     private static string? ResolveFaceFile(CczProject project)
@@ -699,33 +848,16 @@ public sealed class ImageAssignmentPreviewService
         return candidates.FirstOrDefault(File.Exists);
     }
 
-    private static bool TryReadPngLength(byte[] bytes, int offset, out int length)
-    {
-        length = 0;
-        var pos = offset + PngMagic.Length;
-        while (pos + 12 <= bytes.Length)
-        {
-            var chunkLength = ReadBigEndianInt32(bytes, pos);
-            if (chunkLength < 0 || chunkLength > bytes.Length - pos - 12) return false;
-            var typeOffset = pos + 4;
-            pos += 12 + chunkLength;
-            if (bytes[typeOffset] == (byte)'I' &&
-                bytes[typeOffset + 1] == (byte)'E' &&
-                bytes[typeOffset + 2] == (byte)'N' &&
-                bytes[typeOffset + 3] == (byte)'D')
-            {
-                length = pos - offset;
-                return length > PngMagic.Length;
-            }
-        }
-
-        return false;
-    }
-
     private static int ReadBigEndianInt32(byte[] bytes, int offset)
         => (bytes[offset] << 24) |
            (bytes[offset + 1] << 16) |
            (bytes[offset + 2] << 8) |
+           bytes[offset + 3];
+
+    private static uint ReadBigEndianUInt32(byte[] bytes, int offset)
+        => ((uint)bytes[offset] << 24) |
+           ((uint)bytes[offset + 1] << 16) |
+           ((uint)bytes[offset + 2] << 8) |
            bytes[offset + 3];
 
     private static bool Matches(byte[] bytes, int offset, byte[] magic)
@@ -776,13 +908,13 @@ public sealed class ImageAssignmentPreviewService
 
     private static readonly byte[] PngMagic = { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
 
-    private sealed record PngSlice(int Offset, int Length);
+    private sealed record E5ImageEntry(int Number, int Offset, int Length, string Kind);
 
-    private sealed record EmbeddedImageSlice(int Offset, int Length, int Width, int Height);
-
-    private sealed record UnitPreviewSpec(string FileName, int FrameWidth, int FrameHeight, string Label);
+    private sealed record UnitPreviewSpec(string FileName, int RawWidth, int FrameHeight, string Label);
 
     private sealed record UnitFramePreview(string Label, Bitmap Image);
+
+    private sealed record UnitImagePreviewGroup(int ImageNumber, IReadOnlyList<UnitFramePreview> Frames);
 
     private sealed record EexPreviewMetadata(
         bool MagicValid,
@@ -797,4 +929,10 @@ public sealed class ImageAssignmentPreviewService
         new("Unit_atk.e5", 64, 64, "攻击"),
         new("Unit_spc.e5", 48, 48, "特技")
     ];
+
+    private static class RawPreviewSpecs
+    {
+        public const int PmapObjWidth = 48;
+        public const int PmapObjFrameHeight = 64;
+    }
 }

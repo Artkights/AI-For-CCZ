@@ -8,7 +8,7 @@ public sealed class CharacterImageResourceService
     // Tou.dll true-color face resource id = Face.e5 small-face number + 300 (lang=2052)
     public const int FaceTrueColorResourceBase = 300;
     public const int TrueColorLanguageId = 2052;
-    public const int FirstEmbeddedSImageId = 241;
+    public const int DefaultSPreviewFactionSlot = 1;
 
     public CharacterFaceMapping MapFaceId(int dataFaceId)
     {
@@ -45,7 +45,7 @@ public sealed class CharacterImageResourceService
                 exists ? "已定位" : "未定位",
                 "Pmapobj.e5 (默认/普通形象)",
                 path,
-                "R=0 表示使用普通形象（与兵种/初始设定相关），不是错误；当前工具只定位编号和 Pmapobj.e5，不显示未经 Ls12 解包验证的候选图。");
+                "R=0 表示使用普通形象（与兵种/初始设定相关），不是错误；当前按 Pmapobj.e5 的 0x110 索引表读取第 1 张正面图作为预览。");
         }
         return new CharacterImageResourceStatus(
             "R",
@@ -53,7 +53,7 @@ public sealed class CharacterImageResourceService
             exists ? "已定位" : "未定位",
             $"Pmapobj.e5 图{front}/{back}",
             path,
-            $"R 形象 {rImageId} 对应 Pmapobj.e5 第 {front} 张正面、第 {back} 张反面（教程口径）。注意：Pmapobj.e5 是 Ls 封包，必须解析真实目录/解压后才能确认图像；当前工具不再显示裸扫 JPEG 候选图。");
+            $"R 形象 {rImageId} 对应 Pmapobj.e5 第 {front} 张正面、第 {back} 张反面（教程口径）；当前按 0x110 起始的 12 字节大端索引表读取，不再按裸扫出现顺序取图。");
     }
 
     public CharacterImageResourceStatus BuildSStatus(CczProject project, int sImageId)
@@ -69,16 +69,16 @@ public sealed class CharacterImageResourceService
                 status,
                 "Unit_* (默认/普通形象)",
                 string.Join(";", unitFiles),
-                "S=0 表示使用普通形象（与兵种/初始设定相关），不是错误；普通 S 仍需解析 Unit_* 的 Ls12 条目后才能显示。");
+                "S=0 表示使用普通兵种形象，不是错误；预览时按人物职业和预览阵营计算 Unit 图号。");
         }
-        var mapping = BuildSMappingText(sImageId);
+        var mapping = ResolveSUnitImageMapping(sImageId);
         return new CharacterImageResourceStatus(
             "S",
             sImageId,
             status,
             mapping.ShortText,
             string.Join(";", unitFiles),
-            mapping.Detail + " 资源候选：Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。注意：S 形象最终显示通常与兵种、动作、朝向和帧选择相关；当前只对 S>=241 且三套 Unit 文件中存在明文 BMP 扩展条目的编号显示首帧预览。");
+            mapping.Detail + " 资源候选：Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。当前按 0x110 起始的 12 字节大端索引表读取，不再按裸扫出现顺序取图。");
     }
 
     public string BuildFaceHint(CczProject project, int dataFaceId)
@@ -103,7 +103,80 @@ public sealed class CharacterImageResourceService
         status.StartsWith("未定位", StringComparison.Ordinal) ||
         status.StartsWith("部分定位", StringComparison.Ordinal);
 
-    public static string BuildSMappingShortText(int sImageId) => BuildSMappingText(sImageId).ShortText;
+    public static string BuildSMappingShortText(int sImageId) => ResolveSUnitImageMapping(sImageId).ShortText;
+
+    public static int NormalizeSPreviewFactionSlot(int factionSlot) =>
+        factionSlot is >= 1 and <= 3 ? factionSlot : DefaultSPreviewFactionSlot;
+
+    public static string BuildSPreviewFactionText(int factionSlot) =>
+        NormalizeSPreviewFactionSlot(factionSlot) switch
+        {
+            1 => "我军",
+            2 => "友军",
+            3 => "敌军",
+            _ => "我军"
+        };
+
+    public static SUnitImageMapping ResolveSUnitImageMapping(int sImageId, int? jobId = null, int factionSlot = DefaultSPreviewFactionSlot)
+    {
+        if (sImageId < 0)
+        {
+            return new SUnitImageMapping(
+                sImageId,
+                jobId,
+                NormalizeSPreviewFactionSlot(factionSlot),
+                Array.Empty<int>(),
+                $"S{sImageId} 无效",
+                $"S 形象 {sImageId} 小于 0，无法映射 Unit 图号。");
+        }
+
+        if (sImageId == 0)
+        {
+            var slot = NormalizeSPreviewFactionSlot(factionSlot);
+            if (!jobId.HasValue || jobId.Value < 0)
+            {
+                return new SUnitImageMapping(
+                    sImageId,
+                    jobId,
+                    slot,
+                    Array.Empty<int>(),
+                    "S0 默认兵种",
+                    "S=0 表示使用默认兵种形象；需要人物表“职业”和预览阵营才能计算 Unit 图号。");
+            }
+
+            var imageNumber = checked(jobId.Value * 3 + slot);
+            var faction = BuildSPreviewFactionText(slot);
+            return new SUnitImageMapping(
+                sImageId,
+                jobId,
+                slot,
+                new[] { imageNumber },
+                $"S0 职业{jobId.Value}{faction}图{imageNumber}",
+                $"S=0 默认兵种形象：Unit 图号 = 职业({jobId.Value}) * 3 + 阵营槽({slot}, {faction}) = {imageNumber}。");
+        }
+
+        if (sImageId <= 32)
+        {
+            var first = checked(240 + (sImageId - 1) * 3 + 1);
+            var numbers = new[] { first, first + 1, first + 2 };
+            return new SUnitImageMapping(
+                sImageId,
+                jobId,
+                NormalizeSPreviewFactionSlot(factionSlot),
+                numbers,
+                $"S{sImageId} 特殊图{first}-{first + 2}",
+                $"S 形象 {sImageId} 属于三转特殊形象：对应 Unit 图 {first}/{first + 1}/{first + 2}。");
+        }
+
+        var oneStageImageNumber = checked(336 + (sImageId - 32));
+        return new SUnitImageMapping(
+            sImageId,
+            jobId,
+            NormalizeSPreviewFactionSlot(factionSlot),
+            new[] { oneStageImageNumber },
+            $"S{sImageId} 特殊图{oneStageImageNumber}",
+            $"S 形象 {sImageId} 属于一转特殊形象：对应 Unit 图 {oneStageImageNumber}。");
+    }
 
     public static string? ResolveFaceFile(CczProject project)
     {
@@ -132,20 +205,6 @@ public sealed class CharacterImageResourceService
         ResolveGameFile(project, "Unit_spc.e5")
     ];
 
-    private static SImageMappingText BuildSMappingText(int sImageId)
-    {
-        if (sImageId is > 0 and < FirstEmbeddedSImageId)
-        {
-            return new($"基础S{sImageId}", "本地 6.4 形象对应表显示基础 S 形象覆盖 1-240；这些条目仍需按 Ls12 目录/解压和动作帧选择读取，不能按明文 BMP 出现顺序预览。");
-        }
-
-        var entryIndex = checked(sImageId - FirstEmbeddedSImageId);
-        return new(
-            $"扩展S{sImageId} Unit明文#{entryIndex + 1}",
-            $"本地 6.4 形象对应表显示 S=241 起进入特殊/扩展区；当前项目 Unit_*.e5 内存在一批明文 BMP 扩展条目，可按 S-{FirstEmbeddedSImageId} 作为零基条目下标做只读首帧预览。");
-    }
-
-    private sealed record SImageMappingText(string ShortText, string Detail);
 }
 
 public sealed record CharacterFaceMapping(
@@ -160,4 +219,12 @@ public sealed record CharacterImageResourceStatus(
     string Status,
     string ResourceName,
     string Path,
+    string Detail);
+
+public sealed record SUnitImageMapping(
+    int SImageId,
+    int? JobId,
+    int FactionSlot,
+    IReadOnlyList<int> ImageNumbers,
+    string ShortText,
     string Detail);
