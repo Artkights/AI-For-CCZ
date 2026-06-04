@@ -15,6 +15,8 @@ var legacyE5sSmokeOnly = args.Contains("--legacy-e5s-smoke", StringComparer.Ordi
 var legacyScenarioDepthSmokeOnly = args.Contains("--legacy-scenario-depth-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScriptEditSmokeOnly = args.Contains("--legacy-script-edit-smoke", StringComparer.OrdinalIgnoreCase);
 var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
+var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCase);
+var jobStrategyWriteSmokeOnly = args.Contains("--job-strategy-write-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyAllSmoke = args.Contains("--legacy-all-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
@@ -75,6 +77,18 @@ if (e5ImageReplaceSmokeOnly)
     return;
 }
 
+if (shopSmokeOnly)
+{
+    RunShopEditorSmoke(project, tables);
+    return;
+}
+
+if (jobStrategyWriteSmokeOnly)
+{
+    RunJobStrategyWriteSmoke(project, tables);
+    return;
+}
+
 if (enableWriteTest && !legacyAllSmoke)
 {
     Console.WriteLine("WRITE_MODE=RS_CORE (--write 当前只运行 R/S eex 核心写入烟测；旧 E5S 探针请显式使用 --legacy-e5s-smoke 或 --legacy-all-smoke)");
@@ -124,6 +138,43 @@ if (!jobEvidence.Contains("\u8de8\u8868\u5f15\u7528\u89e3\u91ca", StringComparis
 {
     throw new InvalidOperationException("\u804c\u4e1a\u5b57\u6bb5\u8de8\u8868\u5f15\u7528\u89e3\u91ca\u672a\u751f\u6210\u3002");
 }
+var roleQuoteMappingService = new RoleQuoteMappingService();
+var criticalQuoteTable = tables.Single(t => t.TableName == "6.5-0-2 暴击台词");
+var retreatQuoteTable = tables.Single(t => t.TableName == "6.5-0-3 撤退台词");
+var criticalQuoteRead = reader.Read(project, criticalQuoteTable, tables);
+var retreatQuoteRead = reader.Read(project, retreatQuoteTable, tables);
+var caocaoRow = personAnnotationRead.Data.Rows.Cast<DataRow>().Single(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) == 0);
+var xiahoudunRow = personAnnotationRead.Data.Rows.Cast<DataRow>().Single(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) == 1);
+var caorenRow = personAnnotationRead.Data.Rows.Cast<DataRow>().Single(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) == 5);
+var liubeiRow = personAnnotationRead.Data.Rows.Cast<DataRow>().Single(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) == 32);
+var caocaoRetreat = roleQuoteMappingService.ResolveRetreatQuote(caocaoRow, retreatQuoteRead.Data);
+var caocaoCritical = roleQuoteMappingService.ResolveCriticalQuote(project, caocaoRow, criticalQuoteRead.Data);
+var xiahoudunCritical = roleQuoteMappingService.ResolveCriticalQuote(project, xiahoudunRow, criticalQuoteRead.Data);
+var caorenCritical = roleQuoteMappingService.ResolveCriticalQuote(project, caorenRow, criticalQuoteRead.Data);
+var liubeiCritical = roleQuoteMappingService.ResolveCriticalQuote(project, liubeiRow, criticalQuoteRead.Data);
+if (caocaoRetreat.QuoteId != 0 ||
+    Convert.ToString(caocaoRetreat.QuoteRow?["介绍"], CultureInfo.InvariantCulture) != "苍天不佑……" ||
+    caocaoCritical.QuoteIds.SingleOrDefault() != 0 ||
+    xiahoudunCritical.QuoteIds.SingleOrDefault() != 1 ||
+    !caorenCritical.QuoteIds.SequenceEqual(new[] { 24, 25, 26 }) ||
+    liubeiCritical.QuoteIds.SingleOrDefault() != 20)
+{
+    throw new InvalidOperationException("角色暴击/撤退台词映射规则与 6.5 基底预期不符。");
+}
+var criticalField = personAnnotationTable.Fields.Single(f => f.ColumnName == "暴击台词");
+var retreatField = personAnnotationTable.Fields.Single(f => f.ColumnName == "撤退台词");
+var criticalEvidence = tableReferenceLookupService.BuildCellReferenceEvidence(project, tables, personAnnotationTable, criticalField, caocaoRow["暴击台词"]);
+var retreatEvidence = tableReferenceLookupService.BuildCellReferenceEvidence(project, tables, personAnnotationTable, retreatField, caocaoRow["撤退台词"]);
+var criticalNavigation = tableReferenceLookupService.ResolveCellReferenceTarget(project, tables, personAnnotationTable, criticalField, caocaoRow["暴击台词"], 0);
+var retreatNavigation = tableReferenceLookupService.ResolveCellReferenceTarget(project, tables, personAnnotationTable, retreatField, caocaoRow["撤退台词"], 0);
+if (!criticalEvidence.Contains("暴击台词类型号", StringComparison.Ordinal) ||
+    !retreatEvidence.Contains("撤退台词兼容字段", StringComparison.Ordinal) ||
+    criticalNavigation.CanNavigate ||
+    retreatNavigation.CanNavigate)
+{
+    throw new InvalidOperationException("角色台词字段仍被误解释为直接跨表行引用。");
+}
+Console.WriteLine($"ROLE_QUOTE_MAPPING retreat0=#{caocaoRetreat.QuoteId} critical0=#{caocaoCritical.QuoteIds[0]} critical1=#{xiahoudunCritical.QuoteIds[0]} caoren={string.Join("/", caorenCritical.QuoteIds)} liubei={string.Join("/", liubeiCritical.QuoteIds)}");
 var faceField = personAnnotationTable.Fields.Single(f => f.ColumnName == "\u5934\u50cf");
 var faceEvidence = tableReferenceLookupService.BuildCellReferenceEvidence(project, tables, personAnnotationTable, faceField, personAnnotationRead.Data.Rows[0]["\u5934\u50cf"]);
 if (!faceEvidence.Contains("\u5934\u50cf\u7f16\u53f7", StringComparison.Ordinal) || !faceEvidence.Contains("Face.e5", StringComparison.OrdinalIgnoreCase))
@@ -2796,6 +2847,204 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
     Console.WriteLine("RS_SMOKE OK");
 }
 
+static int ExtractShopSlotNumber(string columnName)
+{
+    var text = columnName;
+    if (text.StartsWith("\u88c5\u5907", StringComparison.Ordinal)) text = text[2..];
+    if (text.StartsWith("\u9053\u5177", StringComparison.Ordinal)) text = text[2..];
+    return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var slot) ? slot : -1;
+}
+
+static void RunShopEditorSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+{
+    var buildShopEditorData = typeof(MainForm).GetMethod("BuildShopEditorData", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.BuildShopEditorData");
+    var data = buildShopEditorData.Invoke(smokeForm, new object[] { project, tables }) as DataTable
+        ?? throw new InvalidOperationException("商店编辑聚合数据构建失败。");
+
+    var shopTable = tables.Single(t => t.TableName == "6.5-8-1 商店数据");
+    var campaignNameTable = tables.Single(t => t.TableName == "6.5-8 战役名称");
+    if (data.Rows.Count != shopTable.RowCount)
+    {
+        throw new InvalidOperationException($"商店编辑行数不正确：actual={data.Rows.Count}, expected={shopTable.RowCount}");
+    }
+
+    foreach (var columnName in new[] { "ID", "槽位类型", "关卡名称", "开关仓库人物", "开关仓库人物名", "买卖物品人物", "买卖物品人物名", "装备1", "道具17", "装备摘要", "道具摘要" })
+    {
+        if (!data.Columns.Contains(columnName))
+        {
+            throw new InvalidOperationException($"商店编辑缺少列：{columnName}");
+        }
+    }
+
+    var normalRows = data.Rows.Cast<DataRow>()
+        .Count(row => string.Equals(Convert.ToString(row["槽位类型"], CultureInfo.InvariantCulture), "普通关卡", StringComparison.Ordinal));
+    if (normalRows != campaignNameTable.RowCount)
+    {
+        throw new InvalidOperationException($"普通关卡行数不正确：actual={normalRows}, expected={campaignNameTable.RowCount}");
+    }
+
+    var first = data.Rows[0];
+    var firstName = Convert.ToString(first["关卡名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+    var firstWarehousePreview = Convert.ToString(first["开关仓库人物名"], CultureInfo.InvariantCulture) ?? string.Empty;
+    var firstBuySellPreview = Convert.ToString(first["买卖物品人物名"], CultureInfo.InvariantCulture) ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(firstWarehousePreview) || string.IsNullOrWhiteSpace(firstBuySellPreview))
+    {
+        throw new InvalidOperationException("商店编辑人物预览列为空。");
+    }
+
+    var itemSlotValues = data.Rows.Cast<DataRow>()
+        .SelectMany(row => data.Columns.Cast<DataColumn>()
+            .Where(column => column.ColumnName.StartsWith("装备", StringComparison.Ordinal) || column.ColumnName.StartsWith("道具", StringComparison.Ordinal))
+            .Select(column => Convert.ToString(row[column], CultureInfo.InvariantCulture) ?? string.Empty))
+        .Where(value => value.Length > 0)
+        .ToList();
+    if (itemSlotValues.Count == 0)
+    {
+        throw new InvalidOperationException("商店编辑没有读取到任何物品槽值。");
+    }
+
+    var firstItemId = itemSlotValues
+        .Select(value => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : 255)
+        .FirstOrDefault(id => id != 255);
+    if (firstItemId == 0)
+    {
+        firstItemId = 1;
+    }
+
+    var buildShopItemLookupTable = typeof(MainForm).GetMethod("BuildShopItemLookupTable", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.BuildShopItemLookupTable");
+    var itemLookup = buildShopItemLookupTable.Invoke(smokeForm, new object[] { true }) as DataTable
+        ?? throw new InvalidOperationException("Shop item lookup table was not built.");
+    var mappedItemDisplay = itemLookup.Rows.Cast<DataRow>()
+        .Select(row => Convert.ToString(row["\u663e\u793a"], CultureInfo.InvariantCulture) ?? string.Empty)
+        .FirstOrDefault(text => text.Contains("\uFF5C", StringComparison.Ordinal) && !text.StartsWith("255 ", StringComparison.Ordinal))
+        ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(mappedItemDisplay) || int.TryParse(mappedItemDisplay, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+    {
+        throw new InvalidOperationException("Shop item display is still numeric-only; expected Chinese name/category/type text.");
+    }
+
+    var buildShopItemDetailText = typeof(MainForm).GetMethod("BuildShopItemDetailText", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.BuildShopItemDetailText");
+    var itemDetail = Convert.ToString(buildShopItemDetailText.Invoke(smokeForm, new object[] { firstItemId }), CultureInfo.InvariantCulture) ?? string.Empty;
+    foreach (var marker in new[] { "\u7269\u54c1\u9884\u89c8", "\u5927\u7c7b", "\u7c7b\u578b", "\u4ef7\u683c\u5b57\u6bb5", "\u7279\u6548", "\u7269\u54c1\u8bf4\u660e" })
+    {
+        if (!itemDetail.Contains(marker, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Shop item detail is missing creator-facing mapping text: " + marker);
+        }
+    }
+
+    var currentShopEditorDataField = typeof(MainForm).GetField("_currentShopEditorData", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_currentShopEditorData");
+    var shopEditorGridField = typeof(MainForm).GetField("_shopEditorGrid", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_shopEditorGrid");
+    var shopBatchScopeComboField = typeof(MainForm).GetField("_shopBatchScopeCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_shopBatchScopeCombo");
+    var shopBatchSlotComboField = typeof(MainForm).GetField("_shopBatchSlotCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_shopBatchSlotCombo");
+    var shopBatchSetItemComboField = typeof(MainForm).GetField("_shopBatchSetItemCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_shopBatchSetItemCombo");
+    var shopBatchFindItemComboField = typeof(MainForm).GetField("_shopBatchFindItemCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_shopBatchFindItemCombo");
+    var shopBatchReplaceItemComboField = typeof(MainForm).GetField("_shopBatchReplaceItemCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingFieldException("MainForm", "_shopBatchReplaceItemCombo");
+    var configureShopEditorGrid = typeof(MainForm).GetMethod("ConfigureShopEditorGrid", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.ConfigureShopEditorGrid");
+    var getShopBatchTargetColumns = typeof(MainForm).GetMethod("GetShopBatchTargetColumns", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.GetShopBatchTargetColumns");
+    var applyShopBatchSet = typeof(MainForm).GetMethod("ApplyShopBatchSet", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.ApplyShopBatchSet");
+    var applyShopBatchClear = typeof(MainForm).GetMethod("ApplyShopBatchClear", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.ApplyShopBatchClear");
+    var applyShopBatchReplace = typeof(MainForm).GetMethod("ApplyShopBatchReplace", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+        ?? throw new MissingMethodException("MainForm.ApplyShopBatchReplace");
+
+    currentShopEditorDataField.SetValue(smokeForm, data);
+    var shopEditorGrid = shopEditorGridField.GetValue(smokeForm) as DataGridView
+        ?? throw new InvalidOperationException("Unable to read shop editor grid.");
+    shopEditorGrid.DataSource = data;
+    configureShopEditorGrid.Invoke(smokeForm, Array.Empty<object>());
+    if (shopEditorGrid.Columns["\u88c5\u59071"] is not DataGridViewComboBoxColumn equipmentColumn ||
+        shopEditorGrid.Columns["\u9053\u517717"] is not DataGridViewComboBoxColumn itemColumn ||
+        equipmentColumn.DisplayMember != "\u663e\u793a" ||
+        equipmentColumn.ValueMember != "ID" ||
+        itemColumn.DisplayMember != "\u663e\u793a" ||
+        itemColumn.ValueMember != "ID")
+    {
+        throw new InvalidOperationException("Shop item slots were not converted to Chinese mapped dropdown columns.");
+    }
+
+    var scopeCombo = shopBatchScopeComboField.GetValue(smokeForm) as ComboBox
+        ?? throw new InvalidOperationException("Unable to read shop batch scope combo.");
+    var slotCombo = shopBatchSlotComboField.GetValue(smokeForm) as ComboBox
+        ?? throw new InvalidOperationException("Unable to read shop batch slot combo.");
+    var setItemCombo = shopBatchSetItemComboField.GetValue(smokeForm) as ComboBox
+        ?? throw new InvalidOperationException("Unable to read shop batch set combo.");
+    var findItemCombo = shopBatchFindItemComboField.GetValue(smokeForm) as ComboBox
+        ?? throw new InvalidOperationException("Unable to read shop batch find combo.");
+    var replaceItemCombo = shopBatchReplaceItemComboField.GetValue(smokeForm) as ComboBox
+        ?? throw new InvalidOperationException("Unable to read shop batch replace combo.");
+
+    var batchSlotDisplays = ((DataTable?)slotCombo.DataSource)?.Rows.Cast<DataRow>()
+        .Select(row => Convert.ToString(row["\u663e\u793a"], CultureInfo.InvariantCulture) ?? string.Empty)
+        .ToList() ?? new List<string>();
+    if (!batchSlotDisplays.Contains("\u88c5\u59071", StringComparer.Ordinal) ||
+        !batchSlotDisplays.Contains("\u9053\u517717", StringComparer.Ordinal) ||
+        batchSlotDisplays.Contains("2", StringComparer.Ordinal))
+    {
+        throw new InvalidOperationException("Shop batch slot dropdown is missing Chinese equipment/item slot labels.");
+    }
+
+    scopeCombo.SelectedItem = "\u5f53\u524d\u7b5b\u9009\u884c";
+    data.DefaultView.RowFilter = "ID = 0";
+    slotCombo.SelectedValue = "\u88c5\u59071-16";
+    var equipmentBatchColumns = ((IEnumerable<string>?)getShopBatchTargetColumns.Invoke(smokeForm, Array.Empty<object>()))?.ToList() ?? new List<string>();
+    if (equipmentBatchColumns.Count != 16 || equipmentBatchColumns.Select(ExtractShopSlotNumber).Order().SequenceEqual(Enumerable.Range(1, 16)) == false)
+    {
+        throw new InvalidOperationException(
+            "Shop batch equipment 1-16 range is incorrect. selected=" +
+            Convert.ToString(slotCombo.SelectedValue, CultureInfo.InvariantCulture) +
+            " columns=" + string.Join(",", equipmentBatchColumns));
+    }
+
+    setItemCombo.SelectedValue = firstItemId;
+    applyShopBatchSet.Invoke(smokeForm, Array.Empty<object>());
+    var batchRow = data.Rows[0];
+    if (equipmentBatchColumns.Any(columnName => Convert.ToInt32(batchRow[columnName], CultureInfo.InvariantCulture) != firstItemId))
+    {
+        throw new InvalidOperationException("Shop batch set did not update equipment 1-16.");
+    }
+
+    findItemCombo.SelectedValue = firstItemId;
+    replaceItemCombo.SelectedValue = 255;
+    applyShopBatchReplace.Invoke(smokeForm, Array.Empty<object>());
+    if (equipmentBatchColumns.Any(columnName => Convert.ToInt32(batchRow[columnName], CultureInfo.InvariantCulture) != 255))
+    {
+        throw new InvalidOperationException("Shop batch replace did not update equipment 1-16.");
+    }
+
+    slotCombo.SelectedValue = "\u9053\u517717-32";
+    var itemBatchColumns = ((IEnumerable<string>?)getShopBatchTargetColumns.Invoke(smokeForm, Array.Empty<object>()))?.ToList() ?? new List<string>();
+    if (itemBatchColumns.Count != 16 || itemBatchColumns.Select(ExtractShopSlotNumber).Order().SequenceEqual(Enumerable.Range(17, 16)) == false)
+    {
+        throw new InvalidOperationException("Shop batch item 17-32 range is incorrect.");
+    }
+
+    setItemCombo.SelectedValue = firstItemId;
+    applyShopBatchSet.Invoke(smokeForm, Array.Empty<object>());
+    applyShopBatchClear.Invoke(smokeForm, Array.Empty<object>());
+    if (itemBatchColumns.Any(columnName => Convert.ToInt32(batchRow[columnName], CultureInfo.InvariantCulture) != 255))
+    {
+        throw new InvalidOperationException("Shop batch clear did not update item 17-32.");
+    }
+    data.DefaultView.RowFilter = string.Empty;
+
+    Console.WriteLine($"SHOP_EDITOR_SMOKE rows={data.Rows.Count} normal={normalRows} firstName={firstName} warehouse={firstWarehousePreview} buySell={firstBuySellPreview} itemSlots={itemSlotValues.Count} mapped={mappedItemDisplay} detailId={firstItemId} batchEquip={equipmentBatchColumns.Count} batchItem={itemBatchColumns.Count}");
+    Console.WriteLine("SHOP_EDITOR_SMOKE OK");
+}
+
 static void RunLegacyScenarioDepthSmoke(CczProject project)
 {
     var sceneStringPath = ProjectDetector.FindSceneDictionaryPath(project);
@@ -3154,11 +3403,102 @@ static void RunE5ImageReplaceSmoke(CczProject project)
 
     var unitMovTarget = Path.Combine(smokeRoot, "Unit_mov.e5");
     File.Copy(unitMovSource, unitMovTarget, overwrite: false);
+    var smokeE5Dir = Path.Combine(smokeRoot, "E5");
+    Directory.CreateDirectory(smokeE5Dir);
+    foreach (var e5File in new[] { "Face.e5", "Effarea.e5", "Hitarea.e5", "Logo.e5", "Mmap.e5", "U_select.e5", "Weather.e5", "Gate.e5", "Mark.e5", "Meff.e5" })
+    {
+        var source = CharacterImageResourceService.ResolveGameFile(project, e5File);
+        if (File.Exists(source))
+        {
+            File.Copy(source, Path.Combine(smokeE5Dir, e5File), overwrite: false);
+        }
+    }
+
+    foreach (var rootE5File in new[] { "Pmapobj.e5", "Unit_atk.e5", "Unit_spc.e5" })
+    {
+        var source = CharacterImageResourceService.ResolveGameFile(project, rootE5File);
+        if (File.Exists(source))
+        {
+            File.Copy(source, Path.Combine(smokeRoot, rootE5File), overwrite: false);
+        }
+    }
+
+    foreach (var iconDll in new[] { "Itemicon.dll", "Mgcicon.dll", "Cmdicon.dll" })
+    {
+        var source = Path.Combine(project.GameRoot, iconDll);
+        if (File.Exists(source))
+        {
+            File.Copy(source, Path.Combine(smokeRoot, iconDll), overwrite: false);
+        }
+    }
+
     File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
         $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=E5 image replace smoke\r\n");
 
     var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
     var service = new E5ImageReplaceService();
+    var catalogService = new ImageResourceCatalogService();
+    var catalog = catalogService.BuildCatalog(testProject);
+    foreach (var required in new[] { "Face.e5", "Pmapobj.e5", "Unit_mov.e5", "Hitarea.e5", "Effarea.e5", "Logo.e5", "Mmap.e5", "U_select.e5", "Gate.e5", "Weather.e5" })
+    {
+        var item = catalog.FirstOrDefault(x => x.FileName.Equals(required, StringComparison.OrdinalIgnoreCase));
+        if (item == null || !item.Exists || item.EntryCount <= 0)
+        {
+            throw new InvalidOperationException($"图片资源目录烟测未能读取 {required} 的 0x110 图片索引。");
+        }
+    }
+
+    var mark = catalog.FirstOrDefault(x => x.FileName.Equals("Mark.e5", StringComparison.OrdinalIgnoreCase));
+    if (mark == null || !mark.Exists || mark.SupportsE5Index || mark.CanReplace)
+    {
+        throw new InvalidOperationException("图片资源目录烟测应将 Mark.e5 标记为非 0x110 索引资源且不可替换。");
+    }
+
+    var face = catalog.Single(x => x.FileName.Equals("Face.e5", StringComparison.OrdinalIgnoreCase));
+    var faceEntry = catalogService.ReadEntries(face).FirstOrDefault(x => x.ImageNumber == 1);
+    if (faceEntry == null)
+    {
+        throw new InvalidOperationException("图片资源目录烟测未能读取 Face.e5 #1。");
+    }
+
+    using (var facePreview = catalogService.RenderEntryPreview(testProject, faceEntry))
+    {
+        if (facePreview == null || facePreview.Width <= 0 || facePreview.Height <= 0)
+        {
+            throw new InvalidOperationException("图片资源目录烟测未能渲染 Face.e5 #1 预览。");
+        }
+    }
+
+    var itemIcon = catalog.Single(x => x.FileName.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase));
+    var mgcIcon = catalog.Single(x => x.FileName.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase));
+    var cmdIcon = catalog.Single(x => x.FileName.Equals("Cmdicon.dll", StringComparison.OrdinalIgnoreCase));
+    if (!itemIcon.Exists || itemIcon.EntryCount <= 0 || itemIcon.CanReplace || !itemIcon.SupportsPreview)
+    {
+        throw new InvalidOperationException("图片资源目录烟测未能把 Itemicon.dll 对齐为只读可预览图标资源。");
+    }
+
+    if (!mgcIcon.Exists || mgcIcon.EntryCount <= 0 || mgcIcon.CanReplace || !mgcIcon.SupportsPreview ||
+        !cmdIcon.Exists || cmdIcon.EntryCount <= 0 || cmdIcon.CanReplace || !cmdIcon.SupportsPreview)
+    {
+        throw new InvalidOperationException("图片资源目录烟测未能把策略/命令 DLL 图标对齐为只读可预览资源。");
+    }
+
+    var itemIconEntry = catalogService.ReadEntries(itemIcon).FirstOrDefault(x => x.ImageNumber == 0);
+    if (itemIconEntry == null || !itemIconEntry.Kind.Equals("DLL图标", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("图片资源目录烟测未能读取 Itemicon.dll #0 图标条目。");
+    }
+
+    using (var iconPreview = catalogService.RenderEntryPreview(testProject, itemIconEntry))
+    {
+        if (iconPreview == null || iconPreview.Width <= 0 || iconPreview.Height <= 0)
+        {
+            throw new InvalidOperationException("图片资源目录烟测未能渲染 Itemicon.dll #0 图标预览。");
+        }
+    }
+
+    Console.WriteLine($"IMAGE_RESOURCE_CATALOG files={catalog.Count} face={face.EntryCount} markIndex={mark.SupportsE5Index} hit={catalog.First(x => x.FileName.Equals("Hitarea.e5", StringComparison.OrdinalIgnoreCase)).EntryCount} eff={catalog.First(x => x.FileName.Equals("Effarea.e5", StringComparison.OrdinalIgnoreCase)).EntryCount} itemIcons={itemIcon.EntryCount} mgcIcons={mgcIcon.EntryCount} cmdIcons={cmdIcon.EntryCount}");
+
     var entries = service.ReadIndex(unitMovTarget);
     if (entries.Count < 554)
     {
@@ -3198,6 +3538,29 @@ static void RunE5ImageReplaceSmoke(CczProject project)
     }
 
     Console.WriteLine($"E5_IMAGE_REPLACE_SMOKE OK target={Path.GetFileName(result.TargetPath)} image={result.ImageNumber} kind={result.OldKind}->{result.NewKind} size={result.OldSizeBytes}->{result.NewSizeBytes} backup={Path.GetFileName(result.BackupPath)} json={Path.GetFileName(result.ReportJsonPath)}");
+}
+
+static void RunJobStrategyWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+{
+    var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "JobStrategyWriteSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+    Directory.CreateDirectory(smokeRoot);
+    foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5" })
+    {
+        var source = Path.Combine(project.GameRoot, coreFile);
+        if (!File.Exists(source))
+        {
+            throw new FileNotFoundException("兵种策略写入烟测缺少核心文件。", source);
+        }
+
+        File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+    }
+
+    File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+        $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=job strategy write smoke\r\n");
+
+    var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+    RunJobStrategyWriteSmokeCore(testProject, tables);
+    Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_ROOT {smokeRoot}");
 }
 
 static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -3699,6 +4062,62 @@ static void RunJobWriteSmoke(CczProject testProject, IReadOnlyList<HexTableDefin
     }
 
     Console.WriteLine($"JOB_EFFECT_WRITE_SMOKE_OK id={effectId} 1号武将={effectPersonOriginal}->{effectPersonActual} 兵种={effectJobOriginal}->{effectJobActual} 特效值={effectValueOriginal}->{effectValueActual} saves={effectSaves.Length}");
+
+    RunJobStrategyWriteSmokeCore(testProject, tables);
+}
+
+static void RunJobStrategyWriteSmokeCore(CczProject testProject, IReadOnlyList<HexTableDefinition> tables)
+{
+    var reader = new HexTableReader();
+    var writer = new HexTableWriter();
+    var strategyTable = tables.Single(t => t.TableName == "6.5-5 策略");
+    var strategyLearnTable = tables.Single(t => t.TableName == "6.5-5-7 学会策略");
+    var strategyBattleAiTable = tables.Single(t => t.TableName == "6.5-5-8 战场AI策略限制");
+    var strategyRead = reader.Read(testProject, strategyTable, tables);
+    var strategyLearnRead = reader.Read(testProject, strategyLearnTable, tables);
+    var strategyBattleAiRead = reader.Read(testProject, strategyBattleAiTable, tables);
+    if (!strategyRead.Validation.IsUsable || !strategyLearnRead.Validation.IsUsable || !strategyBattleAiRead.Validation.IsUsable)
+    {
+        throw new InvalidOperationException("兵种策略写入烟测读取策略主表或 EKD5 附表失败。");
+    }
+
+    var strategyId = 0;
+    var strategyRow = FindSmokeRowById(strategyRead.Data, strategyId);
+    var strategyLearnRow = FindSmokeRowById(strategyLearnRead.Data, strategyId);
+    var strategyBattleAiRow = FindSmokeRowById(strategyBattleAiRead.Data, strategyId);
+    var jobLevelColumn = strategyRead.Data.Columns.Contains("0")
+        ? "0"
+        : strategyRead.Data.Columns.Cast<DataColumn>().First(c => int.TryParse(c.ColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)).ColumnName;
+    var strategyLevelOriginal = Convert.ToInt32(strategyRow[jobLevelColumn], CultureInfo.InvariantCulture);
+    var strategyLevelChanged = strategyLevelOriginal == 1 ? 2 : 1;
+    var strategyLearnOriginal = Convert.ToInt32(strategyLearnRow["内容"], CultureInfo.InvariantCulture);
+    var strategyLearnChanged = strategyLearnOriginal == 1 ? 2 : 1;
+    var strategyBattleAiOriginal = Convert.ToInt32(strategyBattleAiRow["内容"], CultureInfo.InvariantCulture);
+    var strategyBattleAiChanged = strategyBattleAiOriginal == 1 ? 2 : 1;
+    strategyRow[jobLevelColumn] = strategyLevelChanged;
+    strategyLearnRow["内容"] = strategyLearnChanged;
+    strategyBattleAiRow["内容"] = strategyBattleAiChanged;
+    var strategySaves = new[]
+    {
+        writer.Save(testProject, strategyTable, strategyRead.Data),
+        writer.Save(testProject, strategyLearnTable, strategyLearnRead.Data),
+        writer.Save(testProject, strategyBattleAiTable, strategyBattleAiRead.Data)
+    };
+    var strategyVerify = reader.Read(testProject, strategyTable, tables);
+    var strategyLearnVerify = reader.Read(testProject, strategyLearnTable, tables);
+    var strategyBattleAiVerify = reader.Read(testProject, strategyBattleAiTable, tables);
+    var strategyLevelActual = Convert.ToInt32(FindSmokeRowById(strategyVerify.Data, strategyId)[jobLevelColumn], CultureInfo.InvariantCulture);
+    var strategyLearnActual = Convert.ToInt32(FindSmokeRowById(strategyLearnVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
+    var strategyBattleAiActual = Convert.ToInt32(FindSmokeRowById(strategyBattleAiVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
+    if (strategyLevelActual != strategyLevelChanged ||
+        strategyLearnActual != strategyLearnChanged ||
+        strategyBattleAiActual != strategyBattleAiChanged ||
+        strategySaves.Any(x => string.IsNullOrWhiteSpace(x.BackupPath) || !File.Exists(x.BackupPath)))
+    {
+        throw new InvalidOperationException($"兵种策略写入烟测复读失败：level={strategyLevelActual}, learn={strategyLearnActual}, battleAi={strategyBattleAiActual}");
+    }
+
+    Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_OK id={strategyId} 学会等级[{jobLevelColumn}]={strategyLevelOriginal}->{strategyLevelActual} 效果索引={strategyLearnOriginal}->{strategyLearnActual} AI战场={strategyBattleAiOriginal}->{strategyBattleAiActual} saves={strategySaves.Length}");
 }
 
 static void RunBattlefieldTextWriteSmoke(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)

@@ -247,7 +247,7 @@ dotnet run --project .\CCZModStudio.SmokeTests\CCZModStudio.SmokeTests.csproj --
 
 ## 2026-05-30 05:09 更新：数据表跨表引用诊断
 
-新增 `TableReferenceDiagnosticService`，资源诊断现在会把已确认的常用数据表编号关系做成中文诊断行：人物职业/兵种、暴击/撤退台词概览、兵种特效分配、人物专属/套装专属、商店人物与物品槽位、物品装备特效号等。诊断详情使用 `源表/行 ID/字段` 标记，选中后可直接点 `跳到数据表` 定位到对应单元格，再查看字段中文解释、跨表证据和创作者备注。对已知可能存在扩展/特殊编码的台词编号、兵种特效武将高位值，只做概览和跳转，不贸然判为错误。Smoke 已验证 `TABLE_REFERENCE_DIAGNOSTIC` 与 `TABLE_REFERENCE_DIAGNOSTIC_NAV table=6.5-0 人物 row=0 field=职业`，本轮输出归拢到 `工具整合包\_本轮归拢_20260530_050933`。
+新增 `TableReferenceDiagnosticService`，资源诊断现在会把已确认的常用数据表编号关系做成中文诊断行：人物职业/兵种、兵种特效分配、人物专属/套装专属、商店人物与物品槽位、物品装备特效号等。诊断详情使用 `源表/行 ID/字段` 标记，选中后可直接点 `跳到数据表` 定位到对应单元格，再查看字段中文解释、跨表证据和创作者备注。暴击/撤退台词后续已确认不是人物字段值直接跳转文本行，改由角色设定页按引擎规则解析；兵种特效武将高位值只做概览和跳转，不贸然判为错误。Smoke 已验证 `TABLE_REFERENCE_DIAGNOSTIC` 与 `TABLE_REFERENCE_DIAGNOSTIC_NAV table=6.5-0 人物 row=0 field=职业`，本轮输出归拢到 `工具整合包\_本轮归拢_20260530_050933`。
 
 ## 2026-05-30 08:13 更新：数据表单元格跨表引用跳转
 

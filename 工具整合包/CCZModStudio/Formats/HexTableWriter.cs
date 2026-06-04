@@ -27,6 +27,11 @@ public sealed class HexTableWriter
             throw new InvalidOperationException("该表被标记为 ReadOnly，当前版本不允许写入。 ");
         }
 
+        if (ItemEffectNameReader.IsItemEffectNameTable(table))
+        {
+            throw new InvalidOperationException("装备特效名称表使用 00 分隔的变长字符串，当前只开放正确读取；请通过“宝物设定 -> 宝物特效”维护项目侧特效目录。 ");
+        }
+
         if (data.Rows.Count != table.RowCount)
         {
             throw new InvalidOperationException($"行数不匹配：表定义 {table.RowCount} 行，当前数据 {data.Rows.Count} 行。 ");

@@ -282,8 +282,6 @@ public sealed class TableReferenceDiagnosticService
         var rules = new List<ReferenceDiagnosticRule>();
 
         rules.Add(ReferenceDiagnosticRule.Single("6.5-0 人物", "职业", "兵种", "6.5-4 详细兵种", "人物职业/兵种编号", "人物表“职业”通常引用详细兵种表。"));
-        rules.Add(ReferenceDiagnosticRule.Single("6.5-0 人物", "暴击台词", "人物", "6.5-0-2 暴击台词", "暴击台词编号", "人物表“暴击台词”通常引用暴击台词表；部分 MOD 可能使用扩展台词编号，因此仅做概览和跳转。", reportInvalidRows: false));
-        rules.Add(ReferenceDiagnosticRule.Single("6.5-0 人物", "撤退台词", "人物", "6.5-0-3 撤退台词", "撤退台词编号", "人物表“撤退台词”通常引用撤退台词表；部分 MOD 可能使用扩展台词编号，因此仅做概览和跳转。", reportInvalidRows: false));
 
         foreach (var field in new[] { "1号武将", "2号武将", "3号武将" })
         {

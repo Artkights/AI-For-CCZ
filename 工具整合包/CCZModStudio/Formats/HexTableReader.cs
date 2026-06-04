@@ -58,6 +58,12 @@ public sealed class HexTableReader
             return new TableReadResult { Table = table, Data = data, Validation = validation };
         }
 
+        if (ItemEffectNameReader.IsItemEffectNameTable(table))
+        {
+            ReadItemEffectNameTable(project, table, data);
+            return new TableReadResult { Table = table, Data = data, Validation = validation };
+        }
+
         var filePath = project.ResolveGameFile(table.FileName);
         using var stream = File.OpenRead(filePath);
         using var reader = new BinaryReader(stream);
@@ -95,6 +101,29 @@ public sealed class HexTableReader
         return new TableReadResult { Table = table, Data = data, Validation = validation };
     }
 
+    private static void ReadItemEffectNameTable(CczProject project, HexTableDefinition table, DataTable data)
+    {
+        var names = new ItemEffectNameReader().ReadNames(project, table);
+        var row = data.NewRow();
+        row["ID"] = table.BeginId;
+        foreach (DataColumn column in data.Columns)
+        {
+            if (column.ColumnName == "ID") continue;
+            if (TryParseLeadingHexByte(column.ColumnName, out var id) &&
+                names.TryGetValue(id, out var name))
+            {
+                row[column.ColumnName] = name;
+            }
+            else
+            {
+                row[column.ColumnName] = string.Empty;
+            }
+        }
+
+        data.Rows.Add(row);
+        data.AcceptChanges();
+    }
+
     private DataTable? TryLoadIndexTable(CczProject project, string indexTableName, IReadOnlyList<HexTableDefinition> allTables)
     {
         if (_indexCache.TryGetValue(indexTableName, out var cached)) return cached;
@@ -116,6 +145,12 @@ public sealed class HexTableReader
         if (indexTable.Columns.Contains("名称")) return indexTable.Rows[rowIndex]["名称"];
         if (indexTable.Columns.Count > 1) return indexTable.Rows[rowIndex][1];
         return $"#{id}";
+    }
+
+    private static bool TryParseLeadingHexByte(string columnName, out int id)
+    {
+        var token = new string(columnName.TakeWhile(Uri.IsHexDigit).ToArray());
+        return int.TryParse(token, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out id);
     }
 
     private static DataTable CreateDataTable(HexTableDefinition table)

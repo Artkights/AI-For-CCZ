@@ -9,16 +9,24 @@ public sealed class ItemIconPreviewService
     private readonly Dictionary<string, IReadOnlyList<BitmapResource>> _bitmapResourceCache = new(StringComparer.OrdinalIgnoreCase);
 
     public ItemIconPreviewResult BuildPreview(CczProject project, int iconIndex, int canvasSize = 96)
+        => BuildPreview(project, iconIndex, "Itemicon.dll", "物品图标", canvasSize);
+
+    public ItemIconPreviewResult BuildPreview(
+        CczProject project,
+        int iconIndex,
+        string resourceFileName,
+        string displayName,
+        int canvasSize = 96)
     {
-        var sourcePath = ResolveItemIconDll(project);
+        var sourcePath = ResolveIconDll(project, resourceFileName);
         if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
         {
             return new ItemIconPreviewResult(
-                sourcePath ?? Path.Combine(project.GameRoot, "Itemicon.dll"),
+                sourcePath ?? Path.Combine(project.GameRoot, resourceFileName),
                 iconIndex,
                 0,
                 null,
-                "未找到 Itemicon.dll，暂无法显示物品图标。");
+                $"未找到 {resourceFileName}，暂无法显示{displayName}。");
         }
 
         var extractIconCount = GetIconCount(sourcePath);
@@ -31,13 +39,13 @@ public sealed class ItemIconPreviewService
                     iconIndex,
                     extractIconCount,
                     null,
-                    $"图标编号 {iconIndex} 超出 Itemicon.dll 可枚举范围 0-{extractIconCount - 1}。");
+                    $"{displayName}编号 {iconIndex} 超出 {resourceFileName} 可枚举范围 0-{extractIconCount - 1}。");
             }
 
             var iconBitmap = ExtractIconBitmap(sourcePath, iconIndex, canvasSize);
             var iconMessage = iconBitmap == null
-                ? $"图标编号 {iconIndex} 在 Itemicon.dll 中枚举到，但提取图像失败。"
-                : $"来源 Itemicon.dll；字段图标={iconIndex}；可枚举图标={extractIconCount}。当前按 Windows 图标资源顺序预览，最终对应关系仍建议结合旧工具/实机确认。";
+                ? $"{displayName}编号 {iconIndex} 在 {resourceFileName} 中枚举到，但提取图像失败。"
+                : $"来源 {resourceFileName}；字段图标={iconIndex}；可枚举图标={extractIconCount}。当前按 Windows 图标资源顺序预览，最终对应关系仍建议结合旧工具/实机确认。";
             return new ItemIconPreviewResult(sourcePath, iconIndex, extractIconCount, iconBitmap, iconMessage);
         }
 
@@ -50,7 +58,7 @@ public sealed class ItemIconPreviewService
                 iconIndex,
                 0,
                 null,
-                "Itemicon.dll 未能枚举到标准图标资源；也未解析到 RT_BITMAP 候选图标。");
+                $"{resourceFileName} 未能枚举到标准图标资源；也未解析到 RT_BITMAP 候选图标。");
         }
 
         if (iconIndex < 0 || iconIndex >= bitmapIconCount)
@@ -60,7 +68,7 @@ public sealed class ItemIconPreviewService
                 iconIndex,
                 bitmapIconCount,
                 null,
-                $"图标编号 {iconIndex} 超出 Itemicon.dll RT_BITMAP 候选范围 0-{bitmapIconCount - 1}。");
+                $"{displayName}编号 {iconIndex} 超出 {resourceFileName} RT_BITMAP 候选范围 0-{bitmapIconCount - 1}。");
         }
 
         var resource = ResolveBitmapResource(bitmapResources, iconIndex);
@@ -71,13 +79,13 @@ public sealed class ItemIconPreviewService
                 iconIndex,
                 bitmapIconCount,
                 null,
-                $"图标编号 {iconIndex} 没有匹配的 Itemicon.dll RT_BITMAP 候选资源。");
+                $"{displayName}编号 {iconIndex} 没有匹配的 {resourceFileName} RT_BITMAP 候选资源。");
         }
 
         var bitmap = RenderDib(resource.DibBytes, canvasSize);
         var message = bitmap == null
-            ? $"图标编号 {iconIndex} 匹配到 Itemicon.dll RT_BITMAP 资源 ID={resource.Id}，但 DIB 转图像失败。"
-            : $"来源 Itemicon.dll；字段图标={iconIndex}；RT_BITMAP 资源ID={resource.Id}；候选图标数={bitmapIconCount}。当前按资源ID成对规则预览，最终对应关系仍建议结合旧工具/实机确认。";
+            ? $"{displayName}编号 {iconIndex} 匹配到 {resourceFileName} RT_BITMAP 资源 ID={resource.Id}，但 DIB 转图像失败。"
+            : $"来源 {resourceFileName}；字段图标={iconIndex}；RT_BITMAP 资源ID={resource.Id}；候选图标数={bitmapIconCount}。当前按资源ID成对规则预览，最终对应关系仍建议结合旧工具/实机确认。";
         return new ItemIconPreviewResult(sourcePath, iconIndex, bitmapIconCount, bitmap, message);
     }
 
@@ -90,11 +98,14 @@ public sealed class ItemIconPreviewService
     }
 
     private static string ResolveItemIconDll(CczProject project)
+        => ResolveIconDll(project, "Itemicon.dll");
+
+    private static string ResolveIconDll(CczProject project, string resourceFileName)
     {
         var candidates = new[]
         {
-            Path.Combine(project.GameRoot, "Itemicon.dll"),
-            Path.Combine(project.WorkspaceRoot, "Itemicon.dll")
+            Path.Combine(project.GameRoot, resourceFileName),
+            Path.Combine(project.WorkspaceRoot, resourceFileName)
         };
         return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
     }

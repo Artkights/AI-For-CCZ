@@ -5,14 +5,117 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 namespace CCZModStudio;
 
 public sealed class MainForm : Form
 {
+    private const string UiLayoutSettingsFileName = "ui-layout.json";
+    private const int UiLayoutSettingsVersion = 1;
     private const int ScriptCommandGridMaxRows = 800;
     private const int ScriptLegacyTreeCommandNodeLimitPerSection = 20000;
     private const int ScriptLegacyTreeMaxNestedDepth = 64;
+    private const string JobStrategyLearningPrefix = "学会等级_";
+    private const string JobStrategyIconResourceFileName = "Mgcicon.dll";
+    private static readonly JsonSerializerOptions UiLayoutJsonOptions = new()
+    {
+        WriteIndented = true
+    };
+    private static readonly string[] JobStrategyPrimaryColumns =
+    [
+        "名称",
+        "策略类型",
+        "施展对象",
+        "施法范围",
+        "穿透范围",
+        "策略消耗",
+        "策略图标"
+    ];
+
+    private static readonly (string ColumnName, string TableName)[] JobStrategyCompanionColumns =
+    [
+        ("小动画", "6.5-5-2 策略动画1"),
+        ("大动画", "6.5-5-3 策略动画2"),
+        ("是否伤血", "6.5-5-4 策略伤害类型"),
+        ("伤害系数", "6.5-5-5 策略伤害比例"),
+        ("命中上限", "6.5-5-6 策略命中率"),
+        ("效果索引", "6.5-5-7 学会策略"),
+        ("AI策略（战场）", "6.5-5-8 战场AI策略限制"),
+        ("AI策略（练武）", "6.5-5-9 练武场AI策略限制")
+    ];
+
+    private static readonly IReadOnlyDictionary<int, string> JobStrategyTypeNames = new Dictionary<int, string>
+    {
+        [0] = "火系",
+        [1] = "水系",
+        [2] = "地系",
+        [3] = "风系",
+        [4] = "眩晕",
+        [5] = "诱惑",
+        [6] = "谍报",
+        [7] = "压迫/威吓",
+        [8] = "咒骂/挑拨",
+        [9] = "钝兵/钝队",
+        [10] = "虚脱/厌战",
+        [11] = "士气提升",
+        [12] = "防御提升",
+        [13] = "攻击提升",
+        [14] = "爆发提升",
+        [15] = "谎报",
+        [16] = "中毒",
+        [17] = "定身",
+        [18] = "封咒",
+        [19] = "补给",
+        [20] = "MP补给",
+        [21] = "觉醒",
+        [22] = "回归",
+        [23] = "天气",
+        [24] = "八阵图",
+        [25] = "四神",
+        [26] = "霸气",
+        [27] = "强行",
+        [28] = "衰气",
+        [29] = "疾行",
+        [30] = "诅咒",
+        [31] = "精妙",
+        [32] = "连击",
+        [33] = "伪报",
+        [34] = "纵火",
+        [35] = "修筑",
+        [36] = "诱敌",
+        [37] = "瞬移",
+        [38] = "雷系",
+        [39] = "撞心",
+        [40] = "扩展策略A",
+        [41] = "扩展策略B",
+        [42] = "扩展策略C"
+    };
+
+    private static readonly IReadOnlyDictionary<int, string> JobStrategyTargetNames = new Dictionary<int, string>
+    {
+        [0] = "敌方",
+        [1] = "我方",
+        [2] = "全屏/天气",
+        [5] = "全屏己方气合",
+        [6] = "全屏对方反气合"
+    };
+
+    private sealed record ShopItemInfo(
+        int Id,
+        string Name,
+        string Category,
+        string TypeDescription,
+        int PriceUnit,
+        string EffectName,
+        string EffectHint,
+        string Description)
+    {
+        public string DisplayName => Id == 255
+            ? "255 空槽"
+            : $"{Id:D3} {Name}｜{Category}｜{TypeDescription}";
+    }
 
     private readonly ProjectDetector _projectDetector = new();
     private readonly HexTableParser _tableParser = new();
@@ -52,12 +155,14 @@ public sealed class MainForm : Form
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
     private readonly GameResourceIndexer _gameResourceIndexer = new();
+    private readonly ImageResourceCatalogService _imageResourceCatalogService = new();
     private readonly ResourceDiagnosticService _resourceDiagnosticService = new();
     private readonly ResourceReferenceDiagnosticService _resourceReferenceDiagnosticService = new();
     private readonly TableReferenceDiagnosticService _tableReferenceDiagnosticService = new();
     private readonly ResourceDiagnosticNavigationService _resourceDiagnosticNavigationService = new();
     private readonly ResourceChangeReviewHintService _resourceChangeReviewHintService = new();
     private readonly TableReferenceLookupService _tableReferenceLookupService = new();
+    private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
     private readonly ImageAssignmentService _imageAssignmentService = new();
     private readonly EexArchiveReader _eexArchiveReader = new();
     private readonly EexEntryProbeReader _eexEntryProbeReader = new();
@@ -83,7 +188,9 @@ public sealed class MainForm : Form
     private readonly BattlefieldUnitReviewService _battlefieldUnitReviewService = new();
     private readonly ItemIconPreviewService _itemIconPreviewService = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
+    private readonly ItemEffectNameReader _itemEffectNameReader = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
+    private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
 
     private CczProject? _project;
     private IReadOnlyList<HexTableDefinition> _tables = Array.Empty<HexTableDefinition>();
@@ -94,6 +201,8 @@ public sealed class MainForm : Form
     private SceneStringDocument? _currentSceneStringDocument;
     private IReadOnlyList<MaterialAsset> _currentMaterialAssets = Array.Empty<MaterialAsset>();
     private IReadOnlyList<ResourceIndexItem> _currentGameResources = Array.Empty<ResourceIndexItem>();
+    private IReadOnlyList<ImageResourceFileInfo> _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
+    private IReadOnlyList<ImageResourceEntryInfo> _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();
     private IReadOnlyList<ResourceDiagnosticItem> _currentResourceDiagnostics = Array.Empty<ResourceDiagnosticItem>();
     private IReadOnlyList<ProjectAuditItem> _currentAuditItems = Array.Empty<ProjectAuditItem>();
     private IReadOnlyList<ProjectDiffItem> _currentProjectDiffItems = Array.Empty<ProjectDiffItem>();
@@ -152,6 +261,12 @@ public sealed class MainForm : Form
     private TableReadResult? _jobMoveCostRead;
     private TableReadResult? _jobRestraintRead;
     private TableReadResult? _jobAttributeRead;
+    private DataTable? _currentJobStrategyData;
+    private TableReadResult? _jobStrategyRead;
+    private readonly Dictionary<string, TableReadResult> _jobStrategyCompanionReads = new(StringComparer.Ordinal);
+    private IReadOnlyDictionary<int, string> _jobStrategyJobNames = new Dictionary<int, string>();
+    private int _jobStrategyConfiguredMagicCount;
+    private string _jobStrategyConfiguredMagicSource = string.Empty;
     private DataTable? _currentJobEffectData;
     private HexTableDefinition? _jobEffectNameTable;
     private TableReadResult? _jobEffectDescriptionRead;
@@ -165,6 +280,12 @@ public sealed class MainForm : Form
     private TableReadResult? _itemDescriptionLowRead;
     private TableReadResult? _itemDescriptionHighRead;
     private IReadOnlyDictionary<int, string> _itemEffectNames = new Dictionary<int, string>();
+    private DataTable? _currentShopEditorData;
+    private TableReadResult? _shopCampaignNameRead;
+    private TableReadResult? _shopDataRead;
+    private IReadOnlyDictionary<int, string> _shopEditorPersonNames = new Dictionary<int, string>();
+    private IReadOnlyDictionary<int, string> _shopEditorItemNames = new Dictionary<int, string>();
+    private IReadOnlyDictionary<int, ShopItemInfo> _shopEditorItemInfos = new Dictionary<int, ShopItemInfo>();
     private DataTable? _currentImageAssignments;
     private string _editingCreatorNoteId = string.Empty;
     private (string Scope, string TargetKey, string Title, string SourceHint, string ContentSeed)? _lastCreatorNoteContext;
@@ -186,6 +307,8 @@ public sealed class MainForm : Form
     private Image? _mapViewerImage;
     private Bitmap? _mapViewerRenderedImage;
     private TableReferenceNavigationTarget? _currentTableReferenceTarget;
+    private UiLayoutSettings _uiLayoutSettings = new();
+    private readonly Dictionary<string, SplitContainer> _uiLayoutSplits = new(StringComparer.Ordinal);
     private bool _updatingScenarioStructureSelection;
     private bool _updatingScenarioCommandTemplateFilters;
     private bool _updatingMapMakerPresetSelection;
@@ -281,6 +404,16 @@ public sealed class MainForm : Form
     private readonly DataGridView _jobRestraintGrid = new();
     private readonly DataGridView _jobAttributeGrid = new();
     private readonly TextBox _jobMatrixInfoBox = new();
+    private readonly Button _loadJobStrategyEditorButton = new();
+    private readonly Button _saveJobStrategyEditorButton = new();
+    private readonly Button _openJobStrategyTableButton = new();
+    private readonly Button _filterJobStrategyEditorButton = new();
+    private readonly Button _clearJobStrategyEditorFilterButton = new();
+    private readonly TextBox _jobStrategyEditorSearchBox = new();
+    private readonly DataGridView _jobStrategyEditorGrid = new();
+    private readonly TextBox _jobStrategyEditorInfoBox = new();
+    private readonly PictureBox _jobStrategyPreviewBox = new();
+    private readonly TextBox _jobStrategyPreviewInfoBox = new();
     private readonly Button _loadJobEffectEditorButton = new();
     private readonly Button _saveJobEffectEditorButton = new();
     private readonly Button _openJobExclusiveEffectTableButton = new();
@@ -299,6 +432,22 @@ public sealed class MainForm : Form
     private readonly TextBox _itemEditorInfoBox = new();
     private readonly PictureBox _itemIconPreviewBox = new();
     private readonly TextBox _itemIconPreviewInfoBox = new();
+    private readonly Button _loadShopEditorButton = new();
+    private readonly Button _saveShopEditorButton = new();
+    private readonly Button _openShopDataTableButton = new();
+    private readonly Button _filterShopEditorButton = new();
+    private readonly Button _clearShopEditorFilterButton = new();
+    private readonly TextBox _shopEditorSearchBox = new();
+    private readonly ComboBox _shopBatchScopeCombo = new();
+    private readonly ComboBox _shopBatchSlotCombo = new();
+    private readonly ComboBox _shopBatchSetItemCombo = new();
+    private readonly ComboBox _shopBatchFindItemCombo = new();
+    private readonly ComboBox _shopBatchReplaceItemCombo = new();
+    private readonly Button _shopBatchSetButton = new();
+    private readonly Button _shopBatchClearButton = new();
+    private readonly Button _shopBatchReplaceButton = new();
+    private readonly DataGridView _shopEditorGrid = new();
+    private readonly TextBox _shopEditorInfoBox = new();
     private readonly DataGridView _workflowActionGrid = new();
     private readonly DataGridView _workflowDashboardGrid = new();
     private readonly DataGridView _workflowEvidenceGrid = new();
@@ -412,6 +561,20 @@ public sealed class MainForm : Form
     private readonly Button _mapMakerExportJpgButton = new();
     private readonly Button _mapMakerPublishMapButton = new();
     private readonly Button _mapMakerPublishTerrainButton = new();
+    private readonly Button _loadImageResourcesButton = new();
+    private readonly Button _openImageResourceButton = new();
+    private readonly Button _replaceImageResourceEntryButton = new();
+    private readonly Button _restoreImageResourceEntryButton = new();
+    private readonly Button _exportImageResourceEntriesButton = new();
+    private readonly ComboBox _imageResourceCategoryFilterCombo = new();
+    private readonly TextBox _imageResourceSearchBox = new();
+    private readonly Button _filterImageResourcesButton = new();
+    private readonly Button _clearImageResourceFilterButton = new();
+    private readonly DataGridView _imageResourceFileGrid = new();
+    private readonly DataGridView _imageResourceEntryGrid = new();
+    private readonly PictureBox _imageResourcePreviewBox = new();
+    private readonly TextBox _imageResourceInfoBox = new();
+    private readonly TextBox _imageResourceEntryInfoBox = new();
     private readonly Button _loadImageAssignmentsButton = new();
     private readonly Button _saveImageAssignmentsButton = new();
     private readonly Button _openRsDirectoryButton = new();
@@ -524,6 +687,18 @@ public sealed class MainForm : Form
     private readonly Button _createScriptNoteButton = new();
     private readonly Button _jumpScriptBattlefieldButton = new();
     private readonly TreeView _scriptTree = new();
+    private readonly ContextMenuStrip _scriptTreeContextMenu = new();
+    private readonly ToolStripMenuItem _scriptContextAppendSectionItem = new("添加到本节正文末尾");
+    private readonly ToolStripMenuItem _scriptContextInsertBeforeItem = new("在此命令前插入");
+    private readonly ToolStripMenuItem _scriptContextInsertAfterItem = new("在此命令后插入");
+    private readonly ToolStripMenuItem _scriptContextAppendChildItem = new("追加到子块");
+    private readonly ToolStripMenuItem _scriptContextDeleteItem = new("删除命令");
+    private readonly ToolStripMenuItem _scriptContextEditItem = new("编辑当前对象");
+    private readonly ToolStripMenuItem _scriptContextApplyParameterItem = new("应用参数值");
+    private readonly ToolStripMenuItem _scriptContextSaveTextItem = new("保存当前文本");
+    private readonly ToolStripMenuItem _scriptContextCopyItem = new("复制命令");
+    private readonly ToolStripMenuItem _scriptContextPreviewPasteItem = new("粘贴预览");
+    private readonly ToolStripMenuItem _scriptContextNoteItem = new("记录备注");
     private readonly DataGridView _scriptCommandGrid = new();
     private readonly DataGridView _scriptParameterGrid = new();
     private readonly TextBox _scriptParameterValueBox = new();
@@ -536,6 +711,7 @@ public sealed class MainForm : Form
     private readonly Label _scriptHeaderLabel = new();
     private readonly Panel _scriptHintPanel = new();
     private readonly Button _scriptToggleHintButton = new();
+    private readonly TextBox _scriptPreviewBox = new();
     private readonly TextBox _scriptDetailBox = new();
     private readonly DataGridView _scenarioFileGrid = new();
     private readonly DataGridView _scenarioCommandProbeGrid = new();
@@ -656,6 +832,8 @@ public sealed class MainForm : Form
         Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
         EncodingService.EnsureCodePages();
+        LoadUiLayoutSettings();
+        ApplyWindowLayoutSettings();
         BuildLayout();
         WireEvents();
     }
@@ -740,31 +918,40 @@ public sealed class MainForm : Form
         ConfigureSplitContainerDistanceAfterLayout(mainSplit, desiredDistance: 360, desiredPanel1Min: 25, desiredPanel2Min: 25);
         root.Controls.Add(mainSplit, 0, 2);
 
-        var leftPanel = new TableLayoutPanel
+        var leftSplit = CreateResizableSplit("BuildLayout.LeftFileTableList", Orientation.Horizontal, 310);
+        var filePanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 4,
+            RowCount = 2,
             ColumnCount = 1
         };
-        leftPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        leftPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        leftPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        leftPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-        mainSplit.Panel1.Controls.Add(leftPanel);
+        filePanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        filePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var tablePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        tablePanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        tablePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        mainSplit.Panel1.Controls.Add(leftSplit);
 
-        leftPanel.Controls.Add(MakeHeader("项目文件检查"), 0, 0);
+        filePanel.Controls.Add(MakeHeader("项目文件检查"), 0, 0);
         _fileGrid.Dock = DockStyle.Fill;
         _fileGrid.ReadOnly = true;
         _fileGrid.AllowUserToAddRows = false;
         _fileGrid.AllowUserToDeleteRows = false;
         _fileGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _fileGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        leftPanel.Controls.Add(_fileGrid, 0, 1);
+        filePanel.Controls.Add(_fileGrid, 0, 1);
 
-        leftPanel.Controls.Add(MakeHeader("CczRSX 数据表"), 0, 2);
+        tablePanel.Controls.Add(MakeHeader("CczRSX 数据表"), 0, 0);
         _tableList.Dock = DockStyle.Fill;
         _tableList.HorizontalScrollbar = true;
-        leftPanel.Controls.Add(_tableList, 0, 3);
+        tablePanel.Controls.Add(_tableList, 0, 1);
+        leftSplit.Panel1.Controls.Add(filePanel);
+        leftSplit.Panel2.Controls.Add(tablePanel);
 
         _mainTabs.Dock = DockStyle.Fill;
         mainSplit.Panel2.Controls.Add(_mainTabs);
@@ -775,6 +962,7 @@ public sealed class MainForm : Form
         _mainTabs.TabPages.Add(BuildItemEditorPage());
         _mainTabs.TabPages.Add(BuildBattlefieldEditorPage());
         _mainTabs.TabPages.Add(BuildScriptEditorPage());
+        _mainTabs.TabPages.Add(BuildShopEditorPage());
         _mainTabs.TabPages.Add(BuildWorkflowGuidePage());
 
         var tablePage = new TabPage("数据表编辑");
@@ -910,11 +1098,10 @@ public sealed class MainForm : Form
         var auditLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
-        auditLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         auditLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         auditLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         auditPage.Controls.Add(auditLayout);
@@ -936,25 +1123,26 @@ public sealed class MainForm : Form
         _auditInfoBox.ReadOnly = true;
         _auditInfoBox.ScrollBars = ScrollBars.Vertical;
         _auditInfoBox.WordWrap = false;
-        auditLayout.Controls.Add(_auditInfoBox, 0, 1);
         _auditGrid.Dock = DockStyle.Fill;
         _auditGrid.ReadOnly = true;
         _auditGrid.AllowUserToAddRows = false;
         _auditGrid.AllowUserToDeleteRows = false;
         _auditGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _auditGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        auditLayout.Controls.Add(_auditGrid, 0, 2);
+        var auditSplit = CreateResizableSplit("BuildLayout.AuditInfoGrid", Orientation.Horizontal, 90);
+        auditSplit.Panel1.Controls.Add(_auditInfoBox);
+        auditSplit.Panel2.Controls.Add(_auditGrid);
+        auditLayout.Controls.Add(auditSplit, 0, 1);
         _mainTabs.TabPages.Add(auditPage);
 
         var projectDiffPage = new TabPage("测试副本差异/发布");
         var projectDiffLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
-        projectDiffLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         projectDiffLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         projectDiffLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         projectDiffPage.Controls.Add(projectDiffLayout);
@@ -1010,25 +1198,26 @@ public sealed class MainForm : Form
         _projectDiffInfoBox.ReadOnly = true;
         _projectDiffInfoBox.ScrollBars = ScrollBars.Vertical;
         _projectDiffInfoBox.WordWrap = false;
-        projectDiffLayout.Controls.Add(_projectDiffInfoBox, 0, 1);
         _projectDiffGrid.Dock = DockStyle.Fill;
         _projectDiffGrid.ReadOnly = true;
         _projectDiffGrid.AllowUserToAddRows = false;
         _projectDiffGrid.AllowUserToDeleteRows = false;
         _projectDiffGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _projectDiffGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        projectDiffLayout.Controls.Add(_projectDiffGrid, 0, 2);
+        var projectDiffSplit = CreateResizableSplit("BuildLayout.ProjectDiffInfoGrid", Orientation.Horizontal, 104);
+        projectDiffSplit.Panel1.Controls.Add(_projectDiffInfoBox);
+        projectDiffSplit.Panel2.Controls.Add(_projectDiffGrid);
+        projectDiffLayout.Controls.Add(projectDiffSplit, 0, 1);
         _mainTabs.TabPages.Add(projectDiffPage);
 
         var backupHistoryPage = new TabPage("备份历史/回滚");
         var backupHistoryLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
-        backupHistoryLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         backupHistoryLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         backupHistoryLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         backupHistoryPage.Controls.Add(backupHistoryLayout);
@@ -1064,28 +1253,28 @@ public sealed class MainForm : Form
         _backupHistoryInfoBox.ReadOnly = true;
         _backupHistoryInfoBox.ScrollBars = ScrollBars.Vertical;
         _backupHistoryInfoBox.WordWrap = false;
-        backupHistoryLayout.Controls.Add(_backupHistoryInfoBox, 0, 1);
         _backupHistoryGrid.Dock = DockStyle.Fill;
         _backupHistoryGrid.ReadOnly = true;
         _backupHistoryGrid.AllowUserToAddRows = false;
         _backupHistoryGrid.AllowUserToDeleteRows = false;
         _backupHistoryGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _backupHistoryGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        backupHistoryLayout.Controls.Add(_backupHistoryGrid, 0, 2);
+        var backupHistorySplit = CreateResizableSplit("BuildLayout.BackupHistoryInfoGrid", Orientation.Horizontal, 104);
+        backupHistorySplit.Panel1.Controls.Add(_backupHistoryInfoBox);
+        backupHistorySplit.Panel2.Controls.Add(_backupHistoryGrid);
+        backupHistoryLayout.Controls.Add(backupHistorySplit, 0, 1);
         _mainTabs.TabPages.Add(backupHistoryPage);
 
         var creatorNotePage = new TabPage("创作者备注");
         var creatorNoteLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 4,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         creatorNotePage.Controls.Add(creatorNoteLayout);
 
         var creatorNoteToolbar = new FlowLayoutPanel
@@ -1137,7 +1326,6 @@ public sealed class MainForm : Form
         _creatorNoteGrid.AllowUserToDeleteRows = false;
         _creatorNoteGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _creatorNoteGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        creatorNoteLayout.Controls.Add(_creatorNoteGrid, 0, 1);
 
         var creatorNoteEditor = new TableLayoutPanel
         {
@@ -1163,6 +1351,7 @@ public sealed class MainForm : Form
             "R/S命令",
             "R/S文本",
             "游戏资源",
+            "图片资源",
             "资源诊断",
             "EEX资源",
             "EEX区段",
@@ -1200,7 +1389,6 @@ public sealed class MainForm : Form
         creatorNoteEditor.Controls.Add(new Label { Text = "内容", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, 0, 3);
         creatorNoteEditor.Controls.Add(_creatorNoteContentBox, 0, 4);
         creatorNoteEditor.SetColumnSpan(_creatorNoteContentBox, 4);
-        creatorNoteLayout.Controls.Add(creatorNoteEditor, 0, 2);
 
         _creatorNoteInfoBox.Dock = DockStyle.Fill;
         _creatorNoteInfoBox.Multiline = true;
@@ -1209,10 +1397,136 @@ public sealed class MainForm : Form
         _creatorNoteInfoBox.ScrollBars = ScrollBars.Vertical;
         _creatorNoteInfoBox.WordWrap = false;
         _creatorNoteInfoBox.Text = "创作者备注：项目侧 JSON 备注，不修改游戏文件。可用于记录剧情设计、资源用途、待办、风险和实机验证结果。";
-        creatorNoteLayout.Controls.Add(_creatorNoteInfoBox, 0, 3);
+        var creatorNoteBottomSplit = CreateResizableSplit("BuildLayout.CreatorNoteEditorInfo", Orientation.Horizontal, 360);
+        creatorNoteBottomSplit.Panel1.Controls.Add(creatorNoteEditor);
+        creatorNoteBottomSplit.Panel2.Controls.Add(_creatorNoteInfoBox);
+        var creatorNoteSplit = CreateResizableSplit("BuildLayout.CreatorNoteGridEditor", Orientation.Horizontal, 300);
+        creatorNoteSplit.Panel1.Controls.Add(_creatorNoteGrid);
+        creatorNoteSplit.Panel2.Controls.Add(creatorNoteBottomSplit);
+        creatorNoteLayout.Controls.Add(creatorNoteSplit, 0, 1);
         _mainTabs.TabPages.Add(creatorNotePage);
 
-        var imagePage = new TabPage("形象设定");
+        var imagePage = new TabPage("图片处理");
+        var imageTabs = new TabControl
+        {
+            Dock = DockStyle.Fill
+        };
+        imagePage.Controls.Add(imageTabs);
+
+        var imageResourcePage = new TabPage("图片资源");
+        var imageResourceLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        imageResourceLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        imageResourceLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        imageResourcePage.Controls.Add(imageResourceLayout);
+
+        var imageResourceToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false
+        };
+        _loadImageResourcesButton.Text = "读取图片资源";
+        _loadImageResourcesButton.AutoSize = true;
+        _openImageResourceButton.Text = "定位文件";
+        _openImageResourceButton.AutoSize = true;
+        _replaceImageResourceEntryButton.Text = "替换E5条目";
+        _replaceImageResourceEntryButton.AutoSize = true;
+        _restoreImageResourceEntryButton.Text = "从备份还原";
+        _restoreImageResourceEntryButton.AutoSize = true;
+        _exportImageResourceEntriesButton.Text = "导出条目CSV";
+        _exportImageResourceEntriesButton.AutoSize = true;
+        _imageResourceCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _imageResourceCategoryFilterCombo.Width = 112;
+        _imageResourceSearchBox.Width = 210;
+        _imageResourceSearchBox.PlaceholderText = "筛选文件/别名/用途";
+        _filterImageResourcesButton.Text = "筛选";
+        _filterImageResourcesButton.AutoSize = true;
+        _clearImageResourceFilterButton.Text = "显示全部";
+        _clearImageResourceFilterButton.AutoSize = true;
+        imageResourceToolbar.Controls.AddRange(new Control[]
+        {
+            _loadImageResourcesButton,
+            _openImageResourceButton,
+            _replaceImageResourceEntryButton,
+            _restoreImageResourceEntryButton,
+            _exportImageResourceEntriesButton,
+            new Label { Text = "分类：", AutoSize = true, Padding = new Padding(10, 7, 0, 0) },
+            _imageResourceCategoryFilterCombo,
+            _imageResourceSearchBox,
+            _filterImageResourcesButton,
+            _clearImageResourceFilterButton
+        });
+        imageResourceLayout.Controls.Add(imageResourceToolbar, 0, 0);
+
+        var imageResourceSplit = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical
+        };
+        ConfigureSplitContainerDistanceAfterLayout(imageResourceSplit, desiredDistance: 720, desiredPanel1Min: 420, desiredPanel2Min: 320);
+
+        var imageResourceLeft = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal
+        };
+        ConfigureSplitContainerDistanceAfterLayout(imageResourceLeft, desiredDistance: 260, desiredPanel1Min: 150, desiredPanel2Min: 150);
+        _imageResourceFileGrid.Dock = DockStyle.Fill;
+        _imageResourceFileGrid.ReadOnly = true;
+        _imageResourceFileGrid.AllowUserToAddRows = false;
+        _imageResourceFileGrid.AllowUserToDeleteRows = false;
+        _imageResourceFileGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+        _imageResourceFileGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _imageResourceEntryGrid.Dock = DockStyle.Fill;
+        _imageResourceEntryGrid.ReadOnly = true;
+        _imageResourceEntryGrid.AllowUserToAddRows = false;
+        _imageResourceEntryGrid.AllowUserToDeleteRows = false;
+        _imageResourceEntryGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+        _imageResourceEntryGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        imageResourceLeft.Panel1.Controls.Add(_imageResourceFileGrid);
+        imageResourceLeft.Panel2.Controls.Add(_imageResourceEntryGrid);
+
+        var imageResourceRight = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        imageResourceRight.RowStyles.Add(new RowStyle(SizeType.Absolute, 280));
+        imageResourceRight.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+        imageResourceRight.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        _imageResourcePreviewBox.Dock = DockStyle.Fill;
+        _imageResourcePreviewBox.BackColor = Color.FromArgb(32, 32, 36);
+        _imageResourcePreviewBox.BorderStyle = BorderStyle.FixedSingle;
+        _imageResourcePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
+        _imageResourceInfoBox.Dock = DockStyle.Fill;
+        _imageResourceInfoBox.Multiline = true;
+        _imageResourceInfoBox.ReadOnly = true;
+        _imageResourceInfoBox.ScrollBars = ScrollBars.Vertical;
+        _imageResourceInfoBox.WordWrap = false;
+        _imageResourceInfoBox.Text = "图片处理：可读取 Face/R/S、范围图、策略动画、背景图、R 插图、界面图等 E5 图片索引资源；战场地图底图请继续使用地图制作模块。";
+        _imageResourceEntryInfoBox.Dock = DockStyle.Fill;
+        _imageResourceEntryInfoBox.Multiline = true;
+        _imageResourceEntryInfoBox.ReadOnly = true;
+        _imageResourceEntryInfoBox.ScrollBars = ScrollBars.Vertical;
+        _imageResourceEntryInfoBox.WordWrap = false;
+        imageResourceRight.Controls.Add(_imageResourcePreviewBox, 0, 0);
+        imageResourceRight.Controls.Add(_imageResourceInfoBox, 0, 1);
+        imageResourceRight.Controls.Add(_imageResourceEntryInfoBox, 0, 2);
+        imageResourceSplit.Panel1.Controls.Add(imageResourceLeft);
+        imageResourceSplit.Panel2.Controls.Add(imageResourceRight);
+        imageResourceLayout.Controls.Add(imageResourceSplit, 0, 1);
+        imageTabs.TabPages.Add(imageResourcePage);
+
+        var imageAssignmentPage = new TabPage("人物R/S指定");
         var imageLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1223,7 +1537,7 @@ public sealed class MainForm : Form
         imageLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         imageLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         imageLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        imagePage.Controls.Add(imageLayout);
+        imageAssignmentPage.Controls.Add(imageLayout);
         var imageToolbar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1368,17 +1682,17 @@ public sealed class MainForm : Form
 
         imageSplit.Panel2.Controls.Add(imagePreviewLayout);
         imageLayout.Controls.Add(imageSplit, 0, 2);
+        imageTabs.TabPages.Add(imageAssignmentPage);
         _mainTabs.TabPages.Add(imagePage);
 
         var patchPage = new TabPage("补丁导入");
         var patchLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
-        patchLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         patchLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         patchLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         patchPage.Controls.Add(patchLayout);
@@ -1421,7 +1735,6 @@ public sealed class MainForm : Form
         _patchInfoBox.ReadOnly = true;
         _patchInfoBox.ScrollBars = ScrollBars.Vertical;
         _patchInfoBox.WordWrap = false;
-        patchLayout.Controls.Add(_patchInfoBox, 0, 1);
 
         _patchGrid.Dock = DockStyle.Fill;
         _patchGrid.ReadOnly = true;
@@ -1429,18 +1742,20 @@ public sealed class MainForm : Form
         _patchGrid.AllowUserToDeleteRows = false;
         _patchGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _patchGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        patchLayout.Controls.Add(_patchGrid, 0, 2);
+        var patchSplit = CreateResizableSplit("BuildLayout.PatchInfoGrid", Orientation.Horizontal, 98);
+        patchSplit.Panel1.Controls.Add(_patchInfoBox);
+        patchSplit.Panel2.Controls.Add(_patchGrid);
+        patchLayout.Controls.Add(patchSplit, 0, 1);
         _mainTabs.TabPages.Add(patchPage);
 
         var movePage = new TabPage("搬运配置预览");
         var moveLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
-        moveLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         moveLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         moveLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         movePage.Controls.Add(moveLayout);
@@ -1473,7 +1788,6 @@ public sealed class MainForm : Form
         _moveInfoBox.ReadOnly = true;
         _moveInfoBox.ScrollBars = ScrollBars.Vertical;
         _moveInfoBox.WordWrap = false;
-        moveLayout.Controls.Add(_moveInfoBox, 0, 1);
 
         _moveGrid.Dock = DockStyle.Fill;
         _moveGrid.ReadOnly = true;
@@ -1481,7 +1795,10 @@ public sealed class MainForm : Form
         _moveGrid.AllowUserToDeleteRows = false;
         _moveGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _moveGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        moveLayout.Controls.Add(_moveGrid, 0, 2);
+        var moveSplit = CreateResizableSplit("BuildLayout.MoveInfoGrid", Orientation.Horizontal, 82);
+        moveSplit.Panel1.Controls.Add(_moveInfoBox);
+        moveSplit.Panel2.Controls.Add(_moveGrid);
+        moveLayout.Controls.Add(moveSplit, 0, 1);
         _mainTabs.TabPages.Add(movePage);
 
         var sceneDictPage = new TabPage("剧本字典");
@@ -1664,11 +1981,10 @@ public sealed class MainForm : Form
         var resourceDiagnosticLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
-        resourceDiagnosticLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         resourceDiagnosticLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         resourceDiagnosticLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         resourceDiagnosticPage.Controls.Add(resourceDiagnosticLayout);
@@ -1742,14 +2058,16 @@ public sealed class MainForm : Form
         _resourceDiagnosticInfoBox.ReadOnly = true;
         _resourceDiagnosticInfoBox.ScrollBars = ScrollBars.Vertical;
         _resourceDiagnosticInfoBox.WordWrap = false;
-        resourceDiagnosticLayout.Controls.Add(_resourceDiagnosticInfoBox, 0, 1);
         _resourceDiagnosticGrid.Dock = DockStyle.Fill;
         _resourceDiagnosticGrid.ReadOnly = true;
         _resourceDiagnosticGrid.AllowUserToAddRows = false;
         _resourceDiagnosticGrid.AllowUserToDeleteRows = false;
         _resourceDiagnosticGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _resourceDiagnosticGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        resourceDiagnosticLayout.Controls.Add(_resourceDiagnosticGrid, 0, 2);
+        var resourceDiagnosticSplit = CreateResizableSplit("BuildLayout.ResourceDiagnosticInfoGrid", Orientation.Horizontal, 104);
+        resourceDiagnosticSplit.Panel1.Controls.Add(_resourceDiagnosticInfoBox);
+        resourceDiagnosticSplit.Panel2.Controls.Add(_resourceDiagnosticGrid);
+        resourceDiagnosticLayout.Controls.Add(resourceDiagnosticSplit, 0, 1);
         _mainTabs.TabPages.Add(resourceDiagnosticPage);
 
         var eexPage = new TabPage("EEX资源探针");
@@ -2691,11 +3009,10 @@ public sealed class MainForm : Form
         var mapRightLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 1,
             ColumnCount = 1
         };
         mapRightLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        mapRightLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 145));
         var mapScroll = new Panel
         {
             Dock = DockStyle.Fill,
@@ -2711,18 +3028,18 @@ public sealed class MainForm : Form
         _mapViewerInfoBox.ScrollBars = ScrollBars.Vertical;
         _mapViewerInfoBox.WordWrap = true;
         _mapViewerInfoBox.Text = "地图制作：统一地图绘制工作台。新建草稿默认 30x30，每格 48x48；地图画笔覆盖格图片，地形画笔编辑草稿地形层；绑定现有 Mxxx 槽位且尺寸一致时才允许发布到游戏。";
-        mapRightLayout.Controls.Add(mapScroll, 0, 0);
-        mapRightLayout.Controls.Add(_mapViewerInfoBox, 0, 1);
+        var mapCanvasInfoSplit = CreateResizableSplit("BuildLayout.MapCanvasInfo", Orientation.Horizontal, 560);
+        mapCanvasInfoSplit.Panel1.Controls.Add(mapScroll);
+        mapCanvasInfoSplit.Panel2.Controls.Add(_mapViewerInfoBox);
+        mapRightLayout.Controls.Add(mapCanvasInfoSplit, 0, 0);
         var mapMakerMaterialLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 4,
+            RowCount = 2,
             ColumnCount = 1
         };
         mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var mapMakerMaterialToolbar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -2764,9 +3081,13 @@ public sealed class MainForm : Form
         _mapMakerMaterialInfoBox.WordWrap = true;
         _mapMakerMaterialInfoBox.Text = "素材库：点击“选择素材库”后从本地目录读取图片。地图画笔会把选中素材整张缩放到 48x48 并覆盖当前格。";
         mapMakerMaterialLayout.Controls.Add(mapMakerMaterialToolbar, 0, 0);
-        mapMakerMaterialLayout.Controls.Add(_mapMakerMaterialGrid, 0, 1);
-        mapMakerMaterialLayout.Controls.Add(_mapMakerMaterialPreview, 0, 2);
-        mapMakerMaterialLayout.Controls.Add(_mapMakerMaterialInfoBox, 0, 3);
+        var mapMaterialPreviewInfoSplit = CreateResizableSplit("BuildLayout.MapMaterialPreviewInfo", Orientation.Horizontal, 240);
+        mapMaterialPreviewInfoSplit.Panel1.Controls.Add(_mapMakerMaterialPreview);
+        mapMaterialPreviewInfoSplit.Panel2.Controls.Add(_mapMakerMaterialInfoBox);
+        var mapMaterialSplit = CreateResizableSplit("BuildLayout.MapMaterialGridPreview", Orientation.Horizontal, 320);
+        mapMaterialSplit.Panel1.Controls.Add(_mapMakerMaterialGrid);
+        mapMaterialSplit.Panel2.Controls.Add(mapMaterialPreviewInfoSplit);
+        mapMakerMaterialLayout.Controls.Add(mapMaterialSplit, 0, 1);
         mapSplit.Panel1.Controls.Add(_mapImageList);
         mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
         mapEditorSplit.Panel2.Controls.Add(mapMakerMaterialLayout);
@@ -2788,13 +3109,12 @@ public sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
         page.Controls.Add(layout);
 
         var toolbar = new FlowLayoutPanel
@@ -2845,7 +3165,6 @@ public sealed class MainForm : Form
         ConfigureSplitContainerDistanceAfterLayout(roleSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
         roleSplit.Panel1.Controls.Add(_roleEditorGrid);
         roleSplit.Panel2.Controls.Add(BuildRoleTextDetailPanel());
-        layout.Controls.Add(roleSplit, 0, 1);
 
         _roleEditorInfoBox.Dock = DockStyle.Fill;
         _roleEditorInfoBox.Multiline = true;
@@ -2853,7 +3172,10 @@ public sealed class MainForm : Form
         _roleEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _roleEditorInfoBox.WordWrap = true;
         _roleEditorInfoBox.Text = "角色设定：读取后可编辑人物基础字段、头像、职业、等级、能力和 R/S 形象编号；保存前自动备份，保存后复读校验。";
-        layout.Controls.Add(_roleEditorInfoBox, 0, 2);
+        var roleBodyInfoSplit = CreateResizableSplit("BuildRoleEditorPage.BodyInfo", Orientation.Horizontal, 560);
+        roleBodyInfoSplit.Panel1.Controls.Add(roleSplit);
+        roleBodyInfoSplit.Panel2.Controls.Add(_roleEditorInfoBox);
+        layout.Controls.Add(roleBodyInfoSplit, 0, 1);
         return page;
     }
 
@@ -2925,13 +3247,12 @@ public sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
         page.Controls.Add(layout);
 
         var toolbar = new FlowLayoutPanel
@@ -2972,15 +3293,8 @@ public sealed class MainForm : Form
         _itemEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _itemEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
 
-        var body = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 1
-        };
-        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 76));
-        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 24));
-        body.Controls.Add(_itemEditorGrid, 0, 0);
+        var body = CreateResizableSplit("BuildItemEditorPage.GridPreview", Orientation.Vertical, 760);
+        body.Panel1.Controls.Add(_itemEditorGrid);
 
         var previewPanel = new TableLayoutPanel
         {
@@ -3011,16 +3325,17 @@ public sealed class MainForm : Form
         _itemIconPreviewInfoBox.WordWrap = true;
         _itemIconPreviewInfoBox.Text = "读取宝物/物品后，选择某行会按“图标”字段从 Itemicon.dll 显示候选图标。";
         previewPanel.Controls.Add(_itemIconPreviewInfoBox, 0, 2);
-        body.Controls.Add(previewPanel, 1, 0);
-        layout.Controls.Add(body, 0, 1);
-
         _itemEditorInfoBox.Dock = DockStyle.Fill;
         _itemEditorInfoBox.Multiline = true;
         _itemEditorInfoBox.ReadOnly = true;
         _itemEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _itemEditorInfoBox.WordWrap = true;
         _itemEditorInfoBox.Text = "宝物设定：按旧版格式显示 ID、图标、名称、类别、能力、价格、特效和介绍；特效名随特效号动态映射，可通过“宝物特效”维护项目侧 UTF-8 特效目录。";
-        layout.Controls.Add(_itemEditorInfoBox, 0, 2);
+        body.Panel2.Controls.Add(previewPanel);
+        var itemBodyInfoSplit = CreateResizableSplit("BuildItemEditorPage.BodyInfo", Orientation.Horizontal, 560);
+        itemBodyInfoSplit.Panel1.Controls.Add(body);
+        itemBodyInfoSplit.Panel2.Controls.Add(_itemEditorInfoBox);
+        layout.Controls.Add(itemBodyInfoSplit, 0, 1);
         return page;
     }
 
@@ -3037,13 +3352,12 @@ public sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
         detailPage.Controls.Add(layout);
 
         var toolbar = new FlowLayoutPanel
@@ -3081,22 +3395,14 @@ public sealed class MainForm : Form
         });
         layout.Controls.Add(toolbar, 0, 0);
 
-        var detailBody = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 1,
-            ColumnCount = 2
-        };
-        detailBody.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        detailBody.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260));
-        layout.Controls.Add(detailBody, 0, 1);
+        var detailBody = CreateResizableSplit("BuildJobEditorPage.DetailGridPreview", Orientation.Vertical, 760);
 
         _jobEditorGrid.Dock = DockStyle.Fill;
         _jobEditorGrid.AllowUserToAddRows = false;
         _jobEditorGrid.AllowUserToDeleteRows = false;
         _jobEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        detailBody.Controls.Add(_jobEditorGrid, 0, 0);
+        detailBody.Panel1.Controls.Add(_jobEditorGrid);
 
         var previewPanel = new TableLayoutPanel
         {
@@ -3120,7 +3426,7 @@ public sealed class MainForm : Form
         _jobAreaPreviewInfoBox.WordWrap = true;
         _jobAreaPreviewInfoBox.Text = "读取兵种后，选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。";
         previewPanel.Controls.Add(_jobAreaPreviewInfoBox, 0, 2);
-        detailBody.Controls.Add(previewPanel, 1, 0);
+        detailBody.Panel2.Controls.Add(previewPanel);
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
         _jobEditorInfoBox.Multiline = true;
@@ -3128,20 +3434,22 @@ public sealed class MainForm : Form
         _jobEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobEditorInfoBox.WordWrap = true;
         _jobEditorInfoBox.Text = "兵种设定：读取后可编辑详细兵种名称、说明、成长参数和穿透；保存前自动备份，保存后复读校验。";
-        layout.Controls.Add(_jobEditorInfoBox, 0, 2);
+        var detailBodyInfoSplit = CreateResizableSplit("BuildJobEditorPage.DetailBodyInfo", Orientation.Horizontal, 560);
+        detailBodyInfoSplit.Panel1.Controls.Add(detailBody);
+        detailBodyInfoSplit.Panel2.Controls.Add(_jobEditorInfoBox);
+        layout.Controls.Add(detailBodyInfoSplit, 0, 1);
         tabs.TabPages.Add(detailPage);
 
         var terrainPage = new TabPage("兵种系/地形");
         var terrainLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         terrainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         terrainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        terrainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
         terrainPage.Controls.Add(terrainLayout);
 
         var terrainToolbar = new FlowLayoutPanel
@@ -3181,7 +3489,6 @@ public sealed class MainForm : Form
         _jobTerrainGrid.AllowUserToDeleteRows = false;
         _jobTerrainGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobTerrainGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        terrainLayout.Controls.Add(_jobTerrainGrid, 0, 1);
 
         _jobTerrainInfoBox.Dock = DockStyle.Fill;
         _jobTerrainInfoBox.Multiline = true;
@@ -3189,20 +3496,22 @@ public sealed class MainForm : Form
         _jobTerrainInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobTerrainInfoBox.WordWrap = true;
         _jobTerrainInfoBox.Text = "兵种系/地形：读取后可编辑兵种系名称、各地形发挥和移动消耗；保存前自动备份，保存后复读校验。";
-        terrainLayout.Controls.Add(_jobTerrainInfoBox, 0, 2);
+        var terrainSplit = CreateResizableSplit("BuildJobEditorPage.TerrainGridInfo", Orientation.Horizontal, 560);
+        terrainSplit.Panel1.Controls.Add(_jobTerrainGrid);
+        terrainSplit.Panel2.Controls.Add(_jobTerrainInfoBox);
+        terrainLayout.Controls.Add(terrainSplit, 0, 1);
         tabs.TabPages.Add(terrainPage);
 
         var matrixPage = new TabPage("相克/属性矩阵");
         var matrixLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         matrixLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         matrixLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        matrixLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
         matrixPage.Controls.Add(matrixLayout);
 
         var matrixToolbar = new FlowLayoutPanel
@@ -3248,7 +3557,6 @@ public sealed class MainForm : Form
         _jobAttributeGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
         attributePage.Controls.Add(_jobAttributeGrid);
         matrixTabs.TabPages.Add(attributePage);
-        matrixLayout.Controls.Add(matrixTabs, 0, 1);
 
         _jobMatrixInfoBox.Dock = DockStyle.Fill;
         _jobMatrixInfoBox.Multiline = true;
@@ -3256,20 +3564,112 @@ public sealed class MainForm : Form
         _jobMatrixInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobMatrixInfoBox.WordWrap = true;
         _jobMatrixInfoBox.Text = "相克/属性矩阵：读取后可编辑 40x40 兵种相克矩阵与 8x40 原始兵种属性矩阵；保存前自动备份，保存后复读校验。属性 8 行语义尚未确认，先按原始属性行显示。";
-        matrixLayout.Controls.Add(_jobMatrixInfoBox, 0, 2);
+        var matrixSplit = CreateResizableSplit("BuildJobEditorPage.MatrixTabsInfo", Orientation.Horizontal, 560);
+        matrixSplit.Panel1.Controls.Add(matrixTabs);
+        matrixSplit.Panel2.Controls.Add(_jobMatrixInfoBox);
+        matrixLayout.Controls.Add(matrixSplit, 0, 1);
         tabs.TabPages.Add(matrixPage);
+
+        var strategyPage = new TabPage("兵种策略");
+        var strategyLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        strategyLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        strategyLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        strategyPage.Controls.Add(strategyLayout);
+
+        var strategyToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _loadJobStrategyEditorButton.Text = "读取兵种策略";
+        _loadJobStrategyEditorButton.AutoSize = true;
+        _saveJobStrategyEditorButton.Text = "保存兵种策略";
+        _saveJobStrategyEditorButton.AutoSize = true;
+        _saveJobStrategyEditorButton.Enabled = false;
+        _openJobStrategyTableButton.Text = "通用策略表";
+        _openJobStrategyTableButton.AutoSize = true;
+        _jobStrategyEditorSearchBox.Width = 220;
+        _jobStrategyEditorSearchBox.PlaceholderText = "策略名/兵种/等级/属性";
+        _filterJobStrategyEditorButton.Text = "筛选";
+        _filterJobStrategyEditorButton.AutoSize = true;
+        _clearJobStrategyEditorFilterButton.Text = "清除";
+        _clearJobStrategyEditorFilterButton.AutoSize = true;
+        strategyToolbar.Controls.AddRange(new Control[]
+        {
+            _loadJobStrategyEditorButton,
+            _saveJobStrategyEditorButton,
+            _openJobStrategyTableButton,
+            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _jobStrategyEditorSearchBox,
+            _filterJobStrategyEditorButton,
+            _clearJobStrategyEditorFilterButton
+        });
+        strategyLayout.Controls.Add(strategyToolbar, 0, 0);
+
+        _jobStrategyEditorGrid.Dock = DockStyle.Fill;
+        _jobStrategyEditorGrid.AllowUserToAddRows = false;
+        _jobStrategyEditorGrid.AllowUserToDeleteRows = false;
+        _jobStrategyEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+        _jobStrategyEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+
+        var strategyBody = CreateResizableSplit("BuildJobEditorPage.StrategyGridPreview", Orientation.Vertical, 760);
+        strategyBody.Panel1.Controls.Add(_jobStrategyEditorGrid);
+
+        var strategyPreviewPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1,
+            Padding = new Padding(8, 0, 0, 0)
+        };
+        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 210));
+        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        strategyPreviewPanel.Controls.Add(new Label { Text = "策略预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
+        _jobStrategyPreviewBox.Dock = DockStyle.Fill;
+        _jobStrategyPreviewBox.SizeMode = PictureBoxSizeMode.CenterImage;
+        _jobStrategyPreviewBox.BackColor = Color.White;
+        _jobStrategyPreviewBox.BorderStyle = BorderStyle.FixedSingle;
+        strategyPreviewPanel.Controls.Add(_jobStrategyPreviewBox, 0, 1);
+        _jobStrategyPreviewInfoBox.Dock = DockStyle.Fill;
+        _jobStrategyPreviewInfoBox.Multiline = true;
+        _jobStrategyPreviewInfoBox.ReadOnly = true;
+        _jobStrategyPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
+        _jobStrategyPreviewInfoBox.WordWrap = true;
+        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应预览。";
+        strategyPreviewPanel.Controls.Add(_jobStrategyPreviewInfoBox, 0, 2);
+        strategyBody.Panel2.Controls.Add(strategyPreviewPanel);
+
+        _jobStrategyEditorInfoBox.Dock = DockStyle.Fill;
+        _jobStrategyEditorInfoBox.Multiline = true;
+        _jobStrategyEditorInfoBox.ReadOnly = true;
+        _jobStrategyEditorInfoBox.ScrollBars = ScrollBars.Vertical;
+        _jobStrategyEditorInfoBox.WordWrap = true;
+        _jobStrategyEditorInfoBox.Text = "兵种策略：读取后可编辑策略基础属性、EKD5 策略附表属性，以及各详细兵种的学会等级；学会等级为 0 表示该兵种不能学习。";
+        var strategyBodyInfoSplit = CreateResizableSplit("BuildJobEditorPage.StrategyBodyInfo", Orientation.Horizontal, 560);
+        strategyBodyInfoSplit.Panel1.Controls.Add(strategyBody);
+        strategyBodyInfoSplit.Panel2.Controls.Add(_jobStrategyEditorInfoBox);
+        strategyLayout.Controls.Add(strategyBodyInfoSplit, 0, 1);
+        tabs.TabPages.Add(strategyPage);
 
         var effectPage = new TabPage("兵种特效");
         var effectLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         effectLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         effectLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        effectLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
         effectPage.Controls.Add(effectLayout);
 
         var effectToolbar = new FlowLayoutPanel
@@ -3309,7 +3709,6 @@ public sealed class MainForm : Form
         _jobEffectEditorGrid.AllowUserToDeleteRows = false;
         _jobEffectEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobEffectEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        effectLayout.Controls.Add(_jobEffectEditorGrid, 0, 1);
 
         _jobEffectEditorInfoBox.Dock = DockStyle.Fill;
         _jobEffectEditorInfoBox.Multiline = true;
@@ -3317,7 +3716,10 @@ public sealed class MainForm : Form
         _jobEffectEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobEffectEditorInfoBox.WordWrap = true;
         _jobEffectEditorInfoBox.Text = "兵种特效：读取后可编辑特效说明、武将/兵种分配和特效值；特效名称来自 6.5-7 原始名称区，当前只读显示。";
-        effectLayout.Controls.Add(_jobEffectEditorInfoBox, 0, 2);
+        var effectSplit = CreateResizableSplit("BuildJobEditorPage.EffectGridInfo", Orientation.Horizontal, 560);
+        effectSplit.Panel1.Controls.Add(_jobEffectEditorGrid);
+        effectSplit.Panel2.Controls.Add(_jobEffectEditorInfoBox);
+        effectLayout.Controls.Add(effectSplit, 0, 1);
         tabs.TabPages.Add(effectPage);
         return page;
     }
@@ -3328,13 +3730,12 @@ public sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
         var toolbar = new FlowLayoutPanel
@@ -3447,7 +3848,6 @@ public sealed class MainForm : Form
 
         topSplit.Panel1.Controls.Add(textPanel);
         topSplit.Panel2.Controls.Add(previewLayout);
-        layout.Controls.Add(topSplit, 0, 1);
 
         var battlefieldBottomTabs = new TabControl { Dock = DockStyle.Fill };
         var unitPage = new TabPage("出场/坐标候选");
@@ -3512,7 +3912,10 @@ public sealed class MainForm : Form
 
         battlefieldBottomTabs.TabPages.Add(unitPage);
         battlefieldBottomTabs.TabPages.Add(commandPage);
-        layout.Controls.Add(battlefieldBottomTabs, 0, 2);
+        var battlefieldMainSplit = CreateResizableSplit("BuildBattlefieldEditorPage.TopBottom", Orientation.Horizontal, 470);
+        battlefieldMainSplit.Panel1.Controls.Add(topSplit);
+        battlefieldMainSplit.Panel2.Controls.Add(battlefieldBottomTabs);
+        layout.Controls.Add(battlefieldMainSplit, 0, 1);
 
         return page;
     }
@@ -3539,20 +3942,20 @@ public sealed class MainForm : Form
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true
         };
-        _loadScriptButton.Text = "\u8bfb\u53d6\u5267\u672c\u5217\u8868";
+        _loadScriptButton.Text = "读取剧本列表";
         _loadScriptButton.AutoSize = true;
         _scriptScenarioCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _scriptScenarioCombo.Width = 260;
         _scriptSearchBox.Width = 180;
-        _scriptSearchBox.PlaceholderText = "搜索命令/注释/文本";
+        _scriptSearchBox.PlaceholderText = "搜索命令/文本";
         _scriptSearchButton.Text = "搜索";
         _scriptSearchButton.AutoSize = true;
         _scriptClearSearchButton.Text = "清除";
         _scriptClearSearchButton.AutoSize = true;
-        _locateScriptCommandButton.Text = "定位命令";
+        _locateScriptCommandButton.Text = "定位";
         _locateScriptCommandButton.AutoSize = true;
         _locateScriptCommandButton.Enabled = false;
-        _copyScriptCommandButton.Text = "复制命令候选";
+        _copyScriptCommandButton.Text = "复制";
         _copyScriptCommandButton.AutoSize = true;
         _copyScriptCommandButton.Enabled = false;
         _previewPasteScriptCommandButton.Text = "粘贴预览";
@@ -3573,19 +3976,19 @@ public sealed class MainForm : Form
         _appendScriptCommandToChildBlockButton.Text = "追加到子块";
         _appendScriptCommandToChildBlockButton.AutoSize = true;
         _appendScriptCommandToChildBlockButton.Enabled = false;
-        _deleteScriptCommandButton.Text = "删除命令";
+        _deleteScriptCommandButton.Text = "删除";
         _deleteScriptCommandButton.AutoSize = true;
         _deleteScriptCommandButton.Enabled = false;
-        _saveScriptTextButton.Text = "保存当前文本";
+        _saveScriptTextButton.Text = "保存文本";
         _saveScriptTextButton.AutoSize = true;
         _saveScriptTextButton.Enabled = false;
-        _saveScriptStructureButton.Text = "完整保存剧本";
+        _saveScriptStructureButton.Text = "完整保存";
         _saveScriptStructureButton.AutoSize = true;
         _saveScriptStructureButton.Enabled = false;
-        _createScriptNoteButton.Text = "记录剧本备注";
+        _createScriptNoteButton.Text = "备注";
         _createScriptNoteButton.AutoSize = true;
         _createScriptNoteButton.Enabled = false;
-        _jumpScriptBattlefieldButton.Text = "跳到战场制作";
+        _jumpScriptBattlefieldButton.Text = "战场";
         _jumpScriptBattlefieldButton.AutoSize = true;
         _jumpScriptBattlefieldButton.Enabled = false;
         toolbar.Controls.AddRange(new Control[]
@@ -3599,27 +4002,26 @@ public sealed class MainForm : Form
             _locateScriptCommandButton,
             _copyScriptCommandButton,
             _previewPasteScriptCommandButton,
-            _saveScriptTextButton,
             _saveScriptStructureButton,
             _createScriptNoteButton,
             _jumpScriptBattlefieldButton
         });
         layout.Controls.Add(toolbar, 0, 0);
 
-        // A compact header aligned with v0.23习惯：提示“字典是否加载”和当前剧本。
         _scriptHeaderLabel.Dock = DockStyle.Fill;
         _scriptHeaderLabel.AutoSize = true;
         _scriptHeaderLabel.ForeColor = Color.FromArgb(210, 210, 210);
         _scriptHeaderLabel.Padding = new Padding(2, 0, 0, 6);
-        _scriptHeaderLabel.Text = "字典：未加载（CczString.ini）    剧本：未选择";
+        _scriptHeaderLabel.Text = "字典：未加载    剧本：未选择";
         layout.Controls.Add(_scriptHeaderLabel, 0, 1);
 
         var mainSplit = new SplitContainer
         {
             Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
+            Orientation = Orientation.Vertical
         };
-        ConfigureSplitContainerDistanceAfterLayout(mainSplit, desiredDistance: 620, desiredPanel1Min: 360, desiredPanel2Min: 320);
+        ConfigureSplitContainerDistanceAfterLayout(mainSplit, desiredDistance: 560, desiredPanel1Min: 360, desiredPanel2Min: 420);
+
         _scriptTree.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         _scriptTree.Dock = DockStyle.Fill;
         _scriptTree.HideSelection = false;
@@ -3627,6 +4029,9 @@ public sealed class MainForm : Form
         _scriptTree.ShowLines = true;
         _scriptTree.ShowNodeToolTips = true;
         _scriptTree.BorderStyle = BorderStyle.FixedSingle;
+        ConfigureScriptTreeContextMenu();
+        _scriptTree.ContextMenuStrip = _scriptTreeContextMenu;
+        _scriptTree.NodeMouseClick += (_, e) => HandleScriptTreeNodeMouseClick(e);
 
         var treePanel = new TableLayoutPanel
         {
@@ -3640,7 +4045,7 @@ public sealed class MainForm : Form
         treePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         treePanel.Controls.Add(new Label
         {
-            Text = "剧本事件树",
+            Text = "事件树",
             AutoSize = true,
             Padding = new Padding(0, 0, 0, 6),
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
@@ -3655,157 +4060,39 @@ public sealed class MainForm : Form
         };
         structureToolbar.Controls.AddRange(new Control[]
         {
-            new Label { Text = "新增：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
-            _scriptNewCommandCombo,
-            _appendScriptCommandToSectionButton,
-            _insertScriptCommandBeforeButton,
-            _insertScriptCommandAfterButton,
-            _appendScriptCommandToChildBlockButton,
-            _deleteScriptCommandButton
+            new Label { Text = "新增命令：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            _scriptNewCommandCombo
         });
         treePanel.Controls.Add(structureToolbar, 0, 1);
         treePanel.Controls.Add(_scriptTree, 0, 2);
         mainSplit.Panel1.Controls.Add(treePanel);
 
-        var workspaceSplit = new SplitContainer
+        ConfigureHiddenScriptGrids();
+        var hiddenBindingsPanel = new Panel
         {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical
+            Visible = false,
+            Size = Size.Empty
         };
-        ConfigureSplitContainerDistanceAfterLayout(workspaceSplit, desiredDistance: 860, desiredPanel1Min: 520, desiredPanel2Min: 260);
+        hiddenBindingsPanel.Controls.AddRange(new Control[] { _scriptCommandGrid, _scriptTextGrid, _scriptSearchResultGrid });
+        page.Controls.Add(hiddenBindingsPanel);
 
-        var centerLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 3,
-            ColumnCount = 1
-        };
-        centerLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        centerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 44));
-        centerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 56));
+        _scriptPreviewBox.Dock = DockStyle.Fill;
+        _scriptPreviewBox.Multiline = true;
+        _scriptPreviewBox.ReadOnly = true;
+        _scriptPreviewBox.ScrollBars = ScrollBars.Vertical;
+        _scriptPreviewBox.WordWrap = true;
+        _scriptPreviewBox.BorderStyle = BorderStyle.FixedSingle;
+        _scriptPreviewBox.BackColor = Color.FromArgb(250, 250, 250);
+        _scriptPreviewBox.Text = "选择剧本后显示当前对象。";
 
-        centerLayout.Controls.Add(new Label
-        {
-            Text = "命令与文本联动视图",
-            AutoSize = true,
-            Padding = new Padding(0, 0, 0, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 0);
-
-        _scriptCommandGrid.Dock = DockStyle.Fill;
-        _scriptCommandGrid.ReadOnly = true;
-        _scriptCommandGrid.AllowUserToAddRows = false;
-        _scriptCommandGrid.AllowUserToDeleteRows = false;
-        _scriptCommandGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        _scriptCommandGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _scriptCommandGrid.MultiSelect = false;
-        _scriptCommandGrid.RowHeadersVisible = false;
-        _scriptCommandGrid.BorderStyle = BorderStyle.FixedSingle;
-        centerLayout.Controls.Add(_scriptCommandGrid, 0, 1);
-
-        var lowerSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Horizontal,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(lowerSplit, desiredDistance: 310, desiredPanel1Min: 180, desiredPanel2Min: 180);
-
-        _scriptTextGrid.Dock = DockStyle.Fill;
-        _scriptTextGrid.ReadOnly = true;
-        _scriptTextGrid.AllowUserToAddRows = false;
-        _scriptTextGrid.AllowUserToDeleteRows = false;
-        _scriptTextGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        _scriptTextGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _scriptTextGrid.MultiSelect = false;
-        _scriptTextGrid.RowHeadersVisible = false;
-        _scriptTextGrid.BorderStyle = BorderStyle.FixedSingle;
-
-        var textPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1
-        };
-        textPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        textPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        textPanel.Controls.Add(new Label
-        {
-            Text = "当前 Section / Scene 文本线索",
-            AutoSize = true,
-            Padding = new Padding(0, 0, 0, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 0);
-        textPanel.Controls.Add(_scriptTextGrid, 0, 1);
-        lowerSplit.Panel1.Controls.Add(textPanel);
-
-        _scriptSearchResultGrid.Dock = DockStyle.Fill;
-        _scriptSearchResultGrid.ReadOnly = true;
-        _scriptSearchResultGrid.AllowUserToAddRows = false;
-        _scriptSearchResultGrid.AllowUserToDeleteRows = false;
-        _scriptSearchResultGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        _scriptSearchResultGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _scriptSearchResultGrid.MultiSelect = false;
-        _scriptSearchResultGrid.RowHeadersVisible = false;
-        _scriptSearchResultGrid.BorderStyle = BorderStyle.FixedSingle;
-
-        var searchPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1
-        };
-        searchPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        searchPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        searchPanel.Controls.Add(new Label
-        {
-            Text = "搜索结果 / 快速定位",
-            AutoSize = true,
-            Padding = new Padding(0, 0, 0, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 0);
-        searchPanel.Controls.Add(_scriptSearchResultGrid, 0, 1);
-        lowerSplit.Panel2.Controls.Add(searchPanel);
-        centerLayout.Controls.Add(lowerSplit, 0, 2);
-        workspaceSplit.Panel1.Controls.Add(centerLayout);
-
-        var detailLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 10,
-            ColumnCount = 1
-        };
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 54));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detailLayout.Controls.Add(new Label
-        {
-            Text = "当前树节点",
-            AutoSize = true,
-            Padding = new Padding(0, 0, 0, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 0);
         _scriptDetailBox.Dock = DockStyle.Fill;
         _scriptDetailBox.Multiline = true;
         _scriptDetailBox.ReadOnly = true;
         _scriptDetailBox.ScrollBars = ScrollBars.Vertical;
         _scriptDetailBox.WordWrap = true;
         _scriptDetailBox.BorderStyle = BorderStyle.FixedSingle;
-        _scriptDetailBox.Text = "剧本制作：按 CczSceneEditor2 v0.23 的 Scene / Section / Command 树作为唯一导航面；文本参数挂在命令节点下，选中具体文本参数后在下方编辑。";
-        detailLayout.Controls.Add(_scriptDetailBox, 0, 1);
-        detailLayout.Controls.Add(new Label
-        {
-            Text = "参数槽 / 对照解释",
-            AutoSize = true,
-            Padding = new Padding(0, 6, 0, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 2);
+        _scriptDetailBox.Text = "读取剧本后，在左侧选择 Scene、Section、命令或文本。";
+
         _scriptParameterGrid.Dock = DockStyle.Fill;
         _scriptParameterGrid.ReadOnly = true;
         _scriptParameterGrid.AllowUserToAddRows = false;
@@ -3815,7 +4102,7 @@ public sealed class MainForm : Form
         _scriptParameterGrid.MultiSelect = false;
         _scriptParameterGrid.RowHeadersVisible = false;
         _scriptParameterGrid.BorderStyle = BorderStyle.FixedSingle;
-        detailLayout.Controls.Add(_scriptParameterGrid, 0, 3);
+
         var parameterEditToolbar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -3827,7 +4114,7 @@ public sealed class MainForm : Form
         _scriptParameterValueBox.Width = 140;
         _scriptParameterValueBox.PlaceholderText = "十进制或 0x";
         _scriptParameterValueBox.Enabled = false;
-        _applyScriptParameterValueButton.Text = "应用参数值";
+        _applyScriptParameterValueButton.Text = "应用参数";
         _applyScriptParameterValueButton.AutoSize = true;
         _applyScriptParameterValueButton.Enabled = false;
         parameterEditToolbar.Controls.AddRange(new Control[]
@@ -3836,53 +4123,326 @@ public sealed class MainForm : Form
             _scriptParameterValueBox,
             _applyScriptParameterValueButton
         });
-        detailLayout.Controls.Add(parameterEditToolbar, 0, 4);
+
+        var textEditPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1
+        };
+        textEditPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        textEditPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        textEditPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var textToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        textToolbar.Controls.Add(new Label
+        {
+            Text = "文本",
+            AutoSize = true,
+            Padding = new Padding(0, 7, 8, 6),
+            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
+        });
+        textToolbar.Controls.Add(_saveScriptTextButton);
+        textEditPanel.Controls.Add(textToolbar, 0, 0);
         _scriptTextCapacityLabel.Text = "文本容量：未选择";
         _scriptTextCapacityLabel.AutoSize = true;
-        detailLayout.Controls.Add(_scriptTextCapacityLabel, 0, 5);
-        detailLayout.Controls.Add(new Label
-        {
-            Text = "旧版文本参数编辑框",
-            AutoSize = true,
-            Padding = new Padding(0, 2, 0, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        }, 0, 6);
+        _scriptTextCapacityLabel.Padding = new Padding(0, 0, 0, 4);
+        textEditPanel.Controls.Add(_scriptTextCapacityLabel, 0, 1);
         _scriptTextEditorBox.Dock = DockStyle.Fill;
         _scriptTextEditorBox.Multiline = true;
         _scriptTextEditorBox.ScrollBars = ScrollBars.Vertical;
         _scriptTextEditorBox.WordWrap = true;
         _scriptTextEditorBox.BorderStyle = BorderStyle.FixedSingle;
-        detailLayout.Controls.Add(_scriptTextEditorBox, 0, 7);
-
-        _scriptToggleHintButton.Text = "保存规则（展开）";
-        _scriptToggleHintButton.AutoSize = true;
-        _scriptToggleHintButton.FlatStyle = FlatStyle.System;
-        _scriptToggleHintButton.Margin = new Padding(0, 2, 0, 2);
-        _scriptToggleHintButton.Click += (_, _) =>
-        {
-            _scriptHintPanel.Visible = !_scriptHintPanel.Visible;
-            _scriptToggleHintButton.Text = _scriptHintPanel.Visible ? "保存规则（收起）" : "保存规则（展开）";
-        };
-
-        _scriptHintPanel.Dock = DockStyle.Fill;
-        _scriptHintPanel.Padding = new Padding(0);
-        _scriptHintPanel.Visible = false;
-        var hint = new TextBox
+        textEditPanel.Controls.Add(_scriptTextEditorBox, 0, 2);
+        var parameterPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Multiline = true,
-            ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical,
-            WordWrap = true,
-            Text = "保存规则：旧版剧本读取成功时，当前文本参数会写入真实命令树，并通过“完整保存剧本”重建整个 R/S eex；保存前自动备份，替换前按旧规则重读校验。旧版读取失败时，才回落到原地短写文本兼容路径。"
+            RowCount = 3,
+            ColumnCount = 1
         };
-        _scriptHintPanel.Controls.Add(hint);
-        detailLayout.Controls.Add(_scriptToggleHintButton, 0, 8);
-        detailLayout.Controls.Add(_scriptHintPanel, 0, 9);
-        workspaceSplit.Panel2.Controls.Add(detailLayout);
-        mainSplit.Panel2.Controls.Add(workspaceSplit);
+        parameterPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        parameterPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        parameterPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        parameterPanel.Controls.Add(MakeHeader("参数"), 0, 0);
+        parameterPanel.Controls.Add(_scriptParameterGrid, 0, 1);
+        parameterPanel.Controls.Add(parameterEditToolbar, 0, 2);
+
+        var previewDetailSplit = CreateResizableSplit("BuildScriptEditorPage.PreviewDetail", Orientation.Horizontal, 220);
+        previewDetailSplit.Panel1.Controls.Add(CreateTitledPanel("对象预览", _scriptPreviewBox, new Padding(0, 0, 0, 6)));
+        previewDetailSplit.Panel2.Controls.Add(CreateTitledPanel("详情", _scriptDetailBox, new Padding(0, 6, 0, 6)));
+        var parameterTextSplit = CreateResizableSplit("BuildScriptEditorPage.ParameterText", Orientation.Horizontal, 260);
+        parameterTextSplit.Panel1.Controls.Add(parameterPanel);
+        parameterTextSplit.Panel2.Controls.Add(textEditPanel);
+        var detailLayout = CreateResizableSplit("BuildScriptEditorPage.DetailTopBottom", Orientation.Horizontal, 430);
+        detailLayout.Panel1.Controls.Add(previewDetailSplit);
+        detailLayout.Panel2.Controls.Add(parameterTextSplit);
+
+        mainSplit.Panel2.Controls.Add(detailLayout);
         layout.Controls.Add(mainSplit, 0, 2);
 
+        return page;
+    }
+
+    private void ConfigureHiddenScriptGrids()
+    {
+        _scriptCommandGrid.Dock = DockStyle.Fill;
+        _scriptCommandGrid.ReadOnly = true;
+        _scriptCommandGrid.AllowUserToAddRows = false;
+        _scriptCommandGrid.AllowUserToDeleteRows = false;
+        _scriptCommandGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        _scriptCommandGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _scriptCommandGrid.MultiSelect = false;
+        _scriptCommandGrid.RowHeadersVisible = false;
+        _scriptCommandGrid.BorderStyle = BorderStyle.FixedSingle;
+
+        _scriptTextGrid.Dock = DockStyle.Fill;
+        _scriptTextGrid.ReadOnly = true;
+        _scriptTextGrid.AllowUserToAddRows = false;
+        _scriptTextGrid.AllowUserToDeleteRows = false;
+        _scriptTextGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        _scriptTextGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _scriptTextGrid.MultiSelect = false;
+        _scriptTextGrid.RowHeadersVisible = false;
+        _scriptTextGrid.BorderStyle = BorderStyle.FixedSingle;
+
+        _scriptSearchResultGrid.Dock = DockStyle.Fill;
+        _scriptSearchResultGrid.ReadOnly = true;
+        _scriptSearchResultGrid.AllowUserToAddRows = false;
+        _scriptSearchResultGrid.AllowUserToDeleteRows = false;
+        _scriptSearchResultGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        _scriptSearchResultGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _scriptSearchResultGrid.MultiSelect = false;
+        _scriptSearchResultGrid.RowHeadersVisible = false;
+        _scriptSearchResultGrid.BorderStyle = BorderStyle.FixedSingle;
+    }
+
+    private void ConfigureScriptTreeContextMenu()
+    {
+        if (_scriptTreeContextMenu.Items.Count > 0) return;
+
+        _scriptContextAppendSectionItem.Click += (_, _) => AppendLegacyScriptCommandToSection();
+        _scriptContextInsertBeforeItem.Click += (_, _) => InsertLegacyScriptCommandNearSelected(beforeSelected: true);
+        _scriptContextInsertAfterItem.Click += (_, _) => InsertLegacyScriptCommandNearSelected(beforeSelected: false);
+        _scriptContextAppendChildItem.Click += (_, _) => AppendLegacyScriptCommandToChildBlock();
+        _scriptContextDeleteItem.Click += (_, _) => DeleteSelectedLegacyScriptCommand();
+        _scriptContextEditItem.Click += (_, _) => FocusSelectedScriptObjectEditor();
+        _scriptContextApplyParameterItem.Click += (_, _) => ApplySelectedLegacyScriptParameterValue();
+        _scriptContextSaveTextItem.Click += async (_, _) => await SaveSelectedScriptTextAsync();
+        _scriptContextCopyItem.Click += (_, _) => CopySelectedScriptCommandSummary();
+        _scriptContextPreviewPasteItem.Click += (_, _) => PreviewPasteScriptCommandCandidate();
+        _scriptContextNoteItem.Click += (_, _) => CreateScriptNote();
+
+        _scriptTreeContextMenu.Opening += (_, e) =>
+        {
+            UpdateScriptTreeContextMenuItems();
+            if (_scriptTree.SelectedNode == null)
+            {
+                e.Cancel = true;
+            }
+        };
+
+        _scriptTreeContextMenu.Items.AddRange(new ToolStripItem[]
+        {
+            _scriptContextEditItem,
+            new ToolStripSeparator(),
+            _scriptContextAppendSectionItem,
+            _scriptContextInsertBeforeItem,
+            _scriptContextInsertAfterItem,
+            _scriptContextAppendChildItem,
+            _scriptContextDeleteItem,
+            new ToolStripSeparator(),
+            _scriptContextApplyParameterItem,
+            _scriptContextSaveTextItem,
+            new ToolStripSeparator(),
+            _scriptContextCopyItem,
+            _scriptContextPreviewPasteItem,
+            _scriptContextNoteItem
+        });
+    }
+
+    private void HandleScriptTreeNodeMouseClick(TreeNodeMouseClickEventArgs e)
+    {
+        if (e.Button == MouseButtons.Right)
+        {
+            _scriptTree.SelectedNode = e.Node;
+            ShowSelectedScriptTreeNode();
+        }
+    }
+
+    private void UpdateScriptTreeContextMenuItems()
+    {
+        var hasLegacyDocument = _currentLegacyScriptDocument != null;
+        var hasCommandTemplate = _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem;
+        var selectedCommand = TryGetSelectedLegacyScriptCommand(out var command);
+        var selectedSection = TryGetSelectedLegacyScriptSection(out _);
+        var selectedText = GetSelectedScriptTextEntry();
+        var canInsertNear = hasLegacyDocument &&
+                            hasCommandTemplate &&
+                            selectedCommand &&
+                            CanInsertNearLegacyScriptCommand(command, out _) &&
+                            TryFindLegacyCommandList(_currentLegacyScriptDocument!, command, out _, out _);
+
+        _scriptContextEditItem.Enabled = selectedCommand || selectedText != null || _scriptTree.SelectedNode?.Tag is ScenarioStructureRow;
+        _scriptContextAppendSectionItem.Enabled = hasLegacyDocument && hasCommandTemplate && selectedSection;
+        _scriptContextInsertBeforeItem.Enabled = canInsertNear;
+        _scriptContextInsertAfterItem.Enabled = canInsertNear;
+        _scriptContextAppendChildItem.Enabled = hasLegacyDocument && hasCommandTemplate && selectedCommand && command.ChildBlock != null;
+        _scriptContextDeleteItem.Enabled = hasLegacyDocument && selectedCommand && CanDeleteLegacyScriptCommand(command, out _);
+        _scriptContextApplyParameterItem.Enabled = _applyScriptParameterValueButton.Enabled;
+        _scriptContextSaveTextItem.Enabled = _saveScriptTextButton.Enabled;
+        _scriptContextCopyItem.Enabled = selectedCommand;
+        _scriptContextPreviewPasteItem.Enabled = selectedCommand && _scriptCommandClipboardItem != null;
+        _scriptContextNoteItem.Enabled = _createScriptNoteButton.Enabled;
+
+        var commandName = FormatScriptNewCommandMenuText();
+        _scriptContextAppendSectionItem.Text = string.IsNullOrWhiteSpace(commandName)
+            ? "添加到本节正文末尾"
+            : $"添加到本节正文末尾：{commandName}";
+        _scriptContextInsertBeforeItem.Text = string.IsNullOrWhiteSpace(commandName)
+            ? "在此命令前插入"
+            : $"在此命令前插入：{commandName}";
+        _scriptContextInsertAfterItem.Text = string.IsNullOrWhiteSpace(commandName)
+            ? "在此命令后插入"
+            : $"在此命令后插入：{commandName}";
+        _scriptContextAppendChildItem.Text = string.IsNullOrWhiteSpace(commandName)
+            ? "追加到子块"
+            : $"追加到子块：{commandName}";
+    }
+
+    private void FocusSelectedScriptObjectEditor()
+    {
+        if (GetSelectedScriptTextEntry() != null)
+        {
+            _scriptTextEditorBox.Focus();
+            _scriptTextEditorBox.SelectAll();
+            return;
+        }
+
+        if (_scriptParameterGrid.Rows.Count > 0)
+        {
+            if (_scriptParameterGrid.CurrentCell == null)
+            {
+                var firstVisibleCell = _scriptParameterGrid.Rows[0].Cells
+                    .Cast<DataGridViewCell>()
+                    .FirstOrDefault(cell => cell.Visible);
+                if (firstVisibleCell != null)
+                {
+                    _scriptParameterGrid.CurrentCell = firstVisibleCell;
+                    _scriptParameterGrid.Rows[0].Selected = true;
+                }
+            }
+
+            _scriptParameterGrid.Focus();
+            ShowSelectedLegacyScriptParameter();
+            return;
+        }
+
+        _scriptTree.Focus();
+    }
+
+    private string? FormatScriptNewCommandMenuText()
+        => _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem item
+            ? item.ToString()
+            : null;
+
+    private TabPage BuildShopEditorPage()
+    {
+        var page = new TabPage("商店编辑");
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        page.Controls.Add(layout);
+
+        var toolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _loadShopEditorButton.Text = "读取商店";
+        _loadShopEditorButton.AutoSize = true;
+        _saveShopEditorButton.Text = "保存商店";
+        _saveShopEditorButton.AutoSize = true;
+        _saveShopEditorButton.Enabled = false;
+        _openShopDataTableButton.Text = "通用商店表";
+        _openShopDataTableButton.AutoSize = true;
+        _shopEditorSearchBox.Width = 220;
+        _shopEditorSearchBox.PlaceholderText = "关卡/人物/物品/编号";
+        _filterShopEditorButton.Text = "筛选";
+        _filterShopEditorButton.AutoSize = true;
+        _clearShopEditorFilterButton.Text = "清除";
+        _clearShopEditorFilterButton.AutoSize = true;
+        _shopBatchScopeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _shopBatchScopeCombo.Width = 108;
+        _shopBatchScopeCombo.Items.AddRange(new object[] { "当前筛选行", "选中行", "全部行" });
+        _shopBatchScopeCombo.SelectedIndex = 0;
+        _shopBatchSlotCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _shopBatchSlotCombo.Width = 96;
+        _shopBatchSetItemCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _shopBatchSetItemCombo.Width = 230;
+        _shopBatchFindItemCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _shopBatchFindItemCombo.Width = 170;
+        _shopBatchReplaceItemCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _shopBatchReplaceItemCombo.Width = 170;
+        _shopBatchSetButton.Text = "批量填入";
+        _shopBatchSetButton.AutoSize = true;
+        _shopBatchSetButton.Enabled = false;
+        _shopBatchClearButton.Text = "批量清空";
+        _shopBatchClearButton.AutoSize = true;
+        _shopBatchClearButton.Enabled = false;
+        _shopBatchReplaceButton.Text = "批量替换";
+        _shopBatchReplaceButton.AutoSize = true;
+        _shopBatchReplaceButton.Enabled = false;
+        toolbar.Controls.AddRange(new Control[]
+        {
+            _loadShopEditorButton,
+            _saveShopEditorButton,
+            _openShopDataTableButton,
+            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _shopEditorSearchBox,
+            _filterShopEditorButton,
+            _clearShopEditorFilterButton,
+            new Label { Text = "批量：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _shopBatchScopeCombo,
+            _shopBatchSlotCombo,
+            _shopBatchSetItemCombo,
+            _shopBatchSetButton,
+            _shopBatchClearButton,
+            new Label { Text = "替换：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _shopBatchFindItemCombo,
+            _shopBatchReplaceItemCombo,
+            _shopBatchReplaceButton
+        });
+        layout.Controls.Add(toolbar, 0, 0);
+
+        _shopEditorGrid.Dock = DockStyle.Fill;
+        _shopEditorGrid.AllowUserToAddRows = false;
+        _shopEditorGrid.AllowUserToDeleteRows = false;
+        _shopEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        _shopEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+
+        _shopEditorInfoBox.Dock = DockStyle.Fill;
+        _shopEditorInfoBox.Multiline = true;
+        _shopEditorInfoBox.ReadOnly = true;
+        _shopEditorInfoBox.ScrollBars = ScrollBars.Vertical;
+        _shopEditorInfoBox.WordWrap = true;
+        _shopEditorInfoBox.Text = "商店编辑：读取后可按关卡/商店槽位编辑战役名称、开关仓库人物、买卖物品人物、装备 1-16 和道具 17-32。";
+        var shopSplit = CreateResizableSplit("BuildShopEditorPage.GridInfo", Orientation.Horizontal, 560);
+        shopSplit.Panel1.Controls.Add(_shopEditorGrid);
+        shopSplit.Panel2.Controls.Add(_shopEditorInfoBox);
+        layout.Controls.Add(shopSplit, 0, 1);
         return page;
     }
 
@@ -3946,10 +4506,11 @@ public sealed class MainForm : Form
             ("角色编辑器", OpenRoleEditor)), 0, 0);
         grid.Controls.Add(BuildCoreModuleCard(
             "兵种设定",
-            "集中处理兵种系、详细兵种和兵种特效。",
+            "集中处理兵种系、详细兵种、兵种策略和兵种特效。",
             ("兵种编辑器", OpenJobEditor),
             ("兵种系", () => OpenCoreTable("6.5-3 兵种系")),
             ("详细兵种", () => OpenCoreTable("6.5-4 详细兵种")),
+            ("兵种策略", () => { SelectTabPageByText("兵种设定"); LoadJobStrategyEditor(); }),
             ("兵种特效", () => OpenCoreTable("6.5-7 兵种特效"))), 1, 0);
         grid.Controls.Add(BuildCoreModuleCard(
             "宝物设定",
@@ -3968,12 +4529,14 @@ public sealed class MainForm : Form
             ("R/S探针", () => SelectTabPageByText("R/S eex高级探针"))), 1, 1);
         grid.Controls.Add(BuildCoreModuleCard(
             "剧本制作",
-            "按 CczSceneEditor2 习惯推进事件树、命令和参数编辑。",
+            "推进事件树、命令参数、每关名称和商店配置。",
             ("剧本编辑器", () => SelectTabPageByText("剧本制作")),
+            ("商店编辑", OpenShopEditor),
             ("命令字典", () => SelectTabPageByText("剧本字典"))), 2, 1);
         grid.Controls.Add(BuildCoreModuleCard(
-            "形象设定",
-            "管理人物 R/S 编号和 RS 资源状态。",
+            "图片处理",
+            "管理头像、R/S形象、图标、范围图和背景等图片资源。",
+            ("图片资源", OpenCoreImageResources),
             ("人物R/S", OpenCoreImageAssignments),
             ("资源索引", () => SelectTabPageByText("游戏资源索引"))), 0, 2);
         grid.Controls.Add(BuildCoreModuleCard(
@@ -4100,7 +4663,8 @@ public sealed class MainForm : Form
             "地图制作",
             "战场制作",
             "剧本制作",
-            "形象设定",
+            "商店编辑",
+            "图片处理",
             "高级工具"
         };
 
@@ -4126,16 +4690,13 @@ public sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 6,
+            RowCount = 3,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 23));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 28));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
         var toolbar = new FlowLayoutPanel
@@ -4221,7 +4782,6 @@ public sealed class MainForm : Form
         _workflowActionGrid.AllowUserToDeleteRows = false;
         _workflowActionGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _workflowActionGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        layout.Controls.Add(_workflowActionGrid, 0, 2);
 
         _workflowDashboardGrid.Dock = DockStyle.Fill;
         _workflowDashboardGrid.ReadOnly = true;
@@ -4229,7 +4789,6 @@ public sealed class MainForm : Form
         _workflowDashboardGrid.AllowUserToDeleteRows = false;
         _workflowDashboardGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _workflowDashboardGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        layout.Controls.Add(_workflowDashboardGrid, 0, 3);
 
         _workflowEvidenceGrid.Dock = DockStyle.Fill;
         _workflowEvidenceGrid.ReadOnly = true;
@@ -4237,7 +4796,6 @@ public sealed class MainForm : Form
         _workflowEvidenceGrid.AllowUserToDeleteRows = false;
         _workflowEvidenceGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _workflowEvidenceGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        layout.Controls.Add(_workflowEvidenceGrid, 0, 4);
 
         _workflowGuideGrid.Dock = DockStyle.Fill;
         _workflowGuideGrid.ReadOnly = true;
@@ -4245,7 +4803,16 @@ public sealed class MainForm : Form
         _workflowGuideGrid.AllowUserToDeleteRows = false;
         _workflowGuideGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _workflowGuideGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        layout.Controls.Add(_workflowGuideGrid, 0, 5);
+        var workflowTopSplit = CreateResizableSplit("BuildWorkflowGuidePage.ActionDashboard", Orientation.Horizontal, 220);
+        workflowTopSplit.Panel1.Controls.Add(_workflowActionGrid);
+        workflowTopSplit.Panel2.Controls.Add(_workflowDashboardGrid);
+        var workflowBottomSplit = CreateResizableSplit("BuildWorkflowGuidePage.EvidenceGuide", Orientation.Horizontal, 220);
+        workflowBottomSplit.Panel1.Controls.Add(_workflowEvidenceGrid);
+        workflowBottomSplit.Panel2.Controls.Add(_workflowGuideGrid);
+        var workflowGridSplit = CreateResizableSplit("BuildWorkflowGuidePage.TopBottom", Orientation.Horizontal, 420);
+        workflowGridSplit.Panel1.Controls.Add(workflowTopSplit);
+        workflowGridSplit.Panel2.Controls.Add(workflowBottomSplit);
+        layout.Controls.Add(workflowGridSplit, 0, 2);
 
         return page;
     }
@@ -4259,9 +4826,68 @@ public sealed class MainForm : Form
         Padding = new Padding(0, 8, 0, 4)
     };
 
-
-    private static void ConfigureSplitContainerDistanceAfterLayout(SplitContainer split, int desiredDistance, int desiredPanel1Min, int desiredPanel2Min)
+    private static Control CreateTitledPanel(string title, Control content, Padding headerPadding)
     {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        panel.Controls.Add(new Label
+        {
+            Text = title,
+            AutoSize = true,
+            Padding = headerPadding,
+            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
+        }, 0, 0);
+        panel.Controls.Add(content, 0, 1);
+        return panel;
+    }
+
+    private SplitContainer CreateResizableSplit(
+        string layoutKey,
+        Orientation orientation,
+        int desiredDistance,
+        int desiredPanel1Min = 25,
+        int desiredPanel2Min = 25)
+    {
+        var split = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = orientation
+        };
+        ConfigureSplitContainerDistanceAfterLayout(
+            split,
+            layoutKey,
+            desiredDistance,
+            desiredPanel1Min,
+            desiredPanel2Min);
+        return split;
+    }
+
+    private void ConfigureSplitContainerDistanceAfterLayout(
+        SplitContainer split,
+        int desiredDistance,
+        int desiredPanel1Min,
+        int desiredPanel2Min,
+        [CallerArgumentExpression(nameof(split))] string? splitExpression = null,
+        [CallerMemberName] string? callerMemberName = null)
+        => ConfigureSplitContainerDistanceAfterLayout(
+            split,
+            $"{callerMemberName ?? "Layout"}.{splitExpression ?? "split"}",
+            desiredDistance,
+            desiredPanel1Min,
+            desiredPanel2Min);
+
+    private void ConfigureSplitContainerDistanceAfterLayout(SplitContainer split, string layoutKey, int desiredDistance, int desiredPanel1Min, int desiredPanel2Min)
+    {
+        layoutKey = NormalizeUiLayoutKey(layoutKey);
+        _uiLayoutSplits[layoutKey] = split;
+        var applyingProgrammaticDistance = false;
+
         void Apply()
         {
             if (split.IsDisposed) return;
@@ -4278,10 +4904,21 @@ public sealed class MainForm : Form
             var panel1Min = canUseRequestedMins ? desiredPanel1Min : 0;
             var panel2Min = canUseRequestedMins ? desiredPanel2Min : 0;
             var maxDistance = Math.Max(panel1Min, totalLength - panel2Min - split.SplitterWidth);
-            var target = Math.Clamp(desiredDistance, panel1Min, maxDistance);
+            var target = Math.Clamp(
+                ResolveConfiguredSplitterDistance(layoutKey, totalLength, split.SplitterWidth, desiredDistance),
+                panel1Min,
+                maxDistance);
             if (split.SplitterDistance != target)
             {
-                split.SplitterDistance = target;
+                applyingProgrammaticDistance = true;
+                try
+                {
+                    split.SplitterDistance = target;
+                }
+                finally
+                {
+                    applyingProgrammaticDistance = false;
+                }
             }
 
             if (canUseRequestedMins)
@@ -4293,10 +4930,158 @@ public sealed class MainForm : Form
 
         split.SizeChanged += (_, _) => Apply();
         split.HandleCreated += (_, _) => Apply();
+        split.SplitterMoved += (_, _) =>
+        {
+            if (applyingProgrammaticDistance) return;
+
+            SaveSplitContainerRatio(layoutKey, split);
+            SaveUiLayoutSettings();
+        };
         if (split.IsHandleCreated)
         {
             split.BeginInvoke((Action)Apply);
         }
+    }
+
+    private static string NormalizeUiLayoutKey(string layoutKey)
+        => layoutKey.Trim();
+
+    private int ResolveConfiguredSplitterDistance(string layoutKey, int totalLength, int splitterWidth, int desiredDistance)
+    {
+        var usableLength = totalLength - splitterWidth;
+        if (usableLength <= 0) return desiredDistance;
+
+        if (_uiLayoutSettings.SplitRatios.TryGetValue(layoutKey, out var savedRatio)
+            && !double.IsNaN(savedRatio)
+            && !double.IsInfinity(savedRatio)
+            && savedRatio > 0
+            && savedRatio < 1)
+        {
+            return (int)Math.Round(usableLength * savedRatio);
+        }
+
+        return desiredDistance;
+    }
+
+    private void SaveSplitContainerRatio(string layoutKey, SplitContainer split)
+    {
+        if (split.IsDisposed) return;
+
+        var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+        var usableLength = totalLength - split.SplitterWidth;
+        if (usableLength <= 0) return;
+
+        var ratio = Math.Clamp(split.SplitterDistance / (double)usableLength, 0.01, 0.99);
+        _uiLayoutSettings.SplitRatios[layoutKey] = ratio;
+    }
+
+    private void SaveCurrentUiLayoutSettings()
+    {
+        CaptureWindowLayoutSettings();
+        foreach (var pair in _uiLayoutSplits)
+        {
+            SaveSplitContainerRatio(pair.Key, pair.Value);
+        }
+
+        SaveUiLayoutSettings();
+    }
+
+    private void LoadUiLayoutSettings()
+    {
+        try
+        {
+            var path = GetUiLayoutSettingsPath();
+            if (!File.Exists(path)) return;
+
+            var settings = JsonSerializer.Deserialize<UiLayoutSettings>(
+                File.ReadAllText(path),
+                UiLayoutJsonOptions);
+            if (settings == null) return;
+
+            _uiLayoutSettings = settings;
+            _uiLayoutSettings.SplitRatios ??= new Dictionary<string, double>(StringComparer.Ordinal);
+        }
+        catch
+        {
+            _uiLayoutSettings = new UiLayoutSettings();
+        }
+    }
+
+    private void SaveUiLayoutSettings()
+    {
+        try
+        {
+            _uiLayoutSettings.Version = UiLayoutSettingsVersion;
+            var path = GetUiLayoutSettingsPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, JsonSerializer.Serialize(_uiLayoutSettings, UiLayoutJsonOptions));
+        }
+        catch
+        {
+            // Layout persistence is best effort; failed saves should not block editing.
+        }
+    }
+
+    private static string GetUiLayoutSettingsPath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return string.IsNullOrWhiteSpace(appData)
+            ? Path.Combine(AppContext.BaseDirectory, UiLayoutSettingsFileName)
+            : Path.Combine(appData, "CCZModStudio", UiLayoutSettingsFileName);
+    }
+
+    private void CaptureWindowLayoutSettings()
+    {
+        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        if (bounds.Width <= 0 || bounds.Height <= 0) return;
+
+        _uiLayoutSettings.WindowLeft = bounds.Left;
+        _uiLayoutSettings.WindowTop = bounds.Top;
+        _uiLayoutSettings.WindowWidth = bounds.Width;
+        _uiLayoutSettings.WindowHeight = bounds.Height;
+        _uiLayoutSettings.WindowMaximized = WindowState == FormWindowState.Maximized;
+    }
+
+    private void ApplyWindowLayoutSettings()
+    {
+        if (_uiLayoutSettings.WindowWidth <= 0 || _uiLayoutSettings.WindowHeight <= 0) return;
+
+        var savedBounds = new Rectangle(
+            _uiLayoutSettings.WindowLeft,
+            _uiLayoutSettings.WindowTop,
+            _uiLayoutSettings.WindowWidth,
+            _uiLayoutSettings.WindowHeight);
+        if (Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(savedBounds)))
+        {
+            StartPosition = FormStartPosition.Manual;
+            Bounds = savedBounds;
+        }
+        else
+        {
+            Size = savedBounds.Size;
+        }
+
+        if (_uiLayoutSettings.WindowMaximized)
+        {
+            WindowState = FormWindowState.Maximized;
+        }
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        SaveCurrentUiLayoutSettings();
+        base.OnFormClosing(e);
+    }
+
+    private sealed class UiLayoutSettings
+    {
+        public int Version { get; set; } = UiLayoutSettingsVersion;
+        public Dictionary<string, double> SplitRatios { get; set; } = new(StringComparer.Ordinal);
+        public int WindowLeft { get; set; }
+        public int WindowTop { get; set; }
+        public int WindowWidth { get; set; }
+        public int WindowHeight { get; set; }
+        public bool WindowMaximized { get; set; }
     }
 
     private void WireEvents()
@@ -4412,6 +5197,33 @@ public sealed class MainForm : Form
             RefreshItemEditorRowStyle(e.RowIndex);
             ShowSelectedItemEditorCell();
         };
+        _loadShopEditorButton.Click += (_, _) => LoadShopEditor();
+        _saveShopEditorButton.Click += (_, _) => SaveShopEditor();
+        _openShopDataTableButton.Click += (_, _) => OpenCoreTable("6.5-8-1 商店数据");
+        _filterShopEditorButton.Click += (_, _) => ApplyShopEditorFilter();
+        _clearShopEditorFilterButton.Click += (_, _) => ClearShopEditorFilter();
+        _shopBatchSetButton.Click += (_, _) => ApplyShopBatchSet();
+        _shopBatchClearButton.Click += (_, _) => ApplyShopBatchClear();
+        _shopBatchReplaceButton.Click += (_, _) => ApplyShopBatchReplace();
+        _shopEditorSearchBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyShopEditorFilter();
+            e.SuppressKeyPress = true;
+        };
+        _shopEditorGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            SetStatus("商店编辑单元格显示值无法匹配，请重新读取或检查物品映射。");
+        };
+        _shopEditorGrid.SelectionChanged += (_, _) => ShowSelectedShopEditorCell();
+        _shopEditorGrid.CellValidating += (_, e) => ValidateShopEditorCell(e);
+        _shopEditorGrid.CellEndEdit += (_, e) =>
+        {
+            UpdateShopEditorDerivedCells(e.RowIndex, e.ColumnIndex);
+            RefreshShopEditorRowStyle(e.RowIndex);
+            ShowSelectedShopEditorCell();
+        };
         _loadJobTerrainButton.Click += (_, _) => LoadJobTerrainEditor();
         _saveJobTerrainButton.Click += (_, _) => SaveJobTerrainEditor();
         _openJobRestraintTableButton.Click += (_, _) => OpenCoreTable("6.5-3-3 兵种相克");
@@ -4436,6 +5248,33 @@ public sealed class MainForm : Form
         _jobAttributeGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobAttributeGrid, e);
         _jobRestraintGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobRestraintGrid, e.RowIndex);
         _jobAttributeGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobAttributeGrid, e.RowIndex);
+        _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
+        _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
+        _openJobStrategyTableButton.Click += (_, _) => OpenCoreTable("6.5-5 策略");
+        _filterJobStrategyEditorButton.Click += (_, _) => ApplyJobStrategyFilter();
+        _clearJobStrategyEditorFilterButton.Click += (_, _) => ClearJobStrategyFilter();
+        _jobStrategyEditorSearchBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyJobStrategyFilter();
+            e.SuppressKeyPress = true;
+        };
+        _jobStrategyEditorGrid.SelectionChanged += (_, _) => ShowSelectedJobStrategyCell();
+        _jobStrategyEditorGrid.CellValidating += (_, e) => ValidateJobStrategyCell(e);
+        _jobStrategyEditorGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                _jobStrategyEditorInfoBox.Text = $"兵种策略单元格显示失败：{e.Exception?.Message}";
+            }
+        };
+        _jobStrategyEditorGrid.CellEndEdit += (_, e) =>
+        {
+            UpdateJobStrategyDerivedCells(e.RowIndex, e.ColumnIndex);
+            RefreshJobStrategyRowStyle(e.RowIndex);
+            ShowSelectedJobStrategyCell();
+        };
         _loadJobEffectEditorButton.Click += (_, _) => LoadJobEffectEditor();
         _saveJobEffectEditorButton.Click += (_, _) => SaveJobEffectEditor();
         _openJobExclusiveEffectTableButton.Click += (_, _) => OpenCoreTable("6.5-7-3 人物专属、套装专属");
@@ -4505,6 +5344,22 @@ public sealed class MainForm : Form
         _clearTableRowFilterButton.Click += (_, _) => ClearTableRowFilter();
         _changedTableRowsOnly.CheckedChanged += (_, _) => ApplyTableRowFilter();
         _loadImageAssignmentsButton.Click += (_, _) => LoadImageAssignments();
+        _loadImageResourcesButton.Click += (_, _) => LoadImageResources();
+        _openImageResourceButton.Click += (_, _) => OpenSelectedImageResourceLocation();
+        _replaceImageResourceEntryButton.Click += (_, _) => ImportOrReplaceSelectedImageResourceEntry(restoreMode: false);
+        _restoreImageResourceEntryButton.Click += (_, _) => ImportOrReplaceSelectedImageResourceEntry(restoreMode: true);
+        _exportImageResourceEntriesButton.Click += (_, _) => ExportImageResourceEntriesCsv();
+        _filterImageResourcesButton.Click += (_, _) => ApplyImageResourceFilter();
+        _clearImageResourceFilterButton.Click += (_, _) => ClearImageResourceFilter();
+        _imageResourceCategoryFilterCombo.SelectedIndexChanged += (_, _) => ApplyImageResourceFilter();
+        _imageResourceSearchBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyImageResourceFilter();
+            e.SuppressKeyPress = true;
+        };
+        _imageResourceFileGrid.SelectionChanged += (_, _) => ShowSelectedImageResourceFile();
+        _imageResourceEntryGrid.SelectionChanged += (_, _) => ShowSelectedImageResourceEntry();
         _saveImageAssignmentsButton.Click += (_, _) => SaveImageAssignments();
         _openRsDirectoryButton.Click += (_, _) => OpenRsDirectory();
         _filterImageAssignmentsButton.Click += (_, _) => ApplyImageAssignmentFilter();
@@ -4804,6 +5659,7 @@ public sealed class MainForm : Form
     {
         _project = project;
         _attackAreaPreviewService.ClearCache();
+        _strategyAnimationPreviewService.ClearCache();
         var mode = project.IsTestCopy ? "测试副本：允许保存" : "当前项目：允许保存";
         _projectLabel.Text = $"项目：{project.Name}    模式：{mode}    GameRoot：{project.GameRoot}    HexTable：{project.HexTableXmlPath}";
         _fileGrid.DataSource = new BindingList<ProjectFileStatus>(project.GetFileStatuses().ToList());
@@ -4848,6 +5704,16 @@ public sealed class MainForm : Form
         _jobAttributeGrid.DataSource = null;
         _saveJobMatrixButton.Enabled = false;
         _jobMatrixInfoBox.Text = "相克/属性矩阵：读取后可编辑 40x40 兵种相克矩阵与 8x40 原始兵种属性矩阵。";
+        _currentJobStrategyData = null;
+        _jobStrategyRead = null;
+        _jobStrategyCompanionReads.Clear();
+        _jobStrategyJobNames = new Dictionary<int, string>();
+        _jobStrategyConfiguredMagicCount = 0;
+        _jobStrategyConfiguredMagicSource = string.Empty;
+        _jobStrategyEditorGrid.DataSource = null;
+        _saveJobStrategyEditorButton.Enabled = false;
+        _jobStrategyEditorInfoBox.Text = "兵种策略：读取后可编辑策略基础属性、EKD5 策略附表属性，以及各详细兵种的学会等级。";
+        ClearJobStrategyPreview("兵种策略：读取后选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”可显示右侧预览。");
         _currentJobEffectData = null;
         _jobEffectNameTable = null;
         _jobEffectDescriptionRead = null;
@@ -4868,6 +5734,24 @@ public sealed class MainForm : Form
         _saveItemEditorButton.Enabled = false;
         _itemEditorInfoBox.Text = "宝物设定：读取后按旧版表头顺序显示；特效名只读并随特效号动态映射，支持通过“宝物特效”维护项目侧 UTF-8 特效目录，隐藏图鉴、分段、重复价格和长解释列。";
         ClearItemIconPreview("宝物设定：读取后会按所选行的“图标”字段从 Itemicon.dll 显示候选图标。");
+        _currentShopEditorData = null;
+        _shopCampaignNameRead = null;
+        _shopDataRead = null;
+        _shopEditorPersonNames = new Dictionary<int, string>();
+        _shopEditorItemNames = new Dictionary<int, string>();
+        _shopEditorItemInfos = new Dictionary<int, ShopItemInfo>();
+        _shopEditorGrid.DataSource = null;
+        _shopEditorGrid.ReadOnly = true;
+        _shopEditorSearchBox.Clear();
+        _saveShopEditorButton.Enabled = false;
+        _shopBatchSetButton.Enabled = false;
+        _shopBatchClearButton.Enabled = false;
+        _shopBatchReplaceButton.Enabled = false;
+        _shopBatchSlotCombo.DataSource = null;
+        _shopBatchSetItemCombo.DataSource = null;
+        _shopBatchFindItemCombo.DataSource = null;
+        _shopBatchReplaceItemCombo.DataSource = null;
+        _shopEditorInfoBox.Text = "商店编辑：读取后可按关卡/商店槽位编辑战役名称、开关仓库人物、买卖物品人物、装备 1-16 和道具 17-32。";
         _roleEditorInfoBox.Text = "角色设定：读取后可编辑人物基础字段、头像、职业、等级、能力和 R/S 形象编号；保存前自动备份，保存后复读校验。";
         _chartColumnCombo.DataSource = null;
         _renderChartButton.Enabled = false;
@@ -4938,6 +5822,16 @@ public sealed class MainForm : Form
         _materialGrid.DataSource = null;
         _materialPreview.Image?.Dispose();
         _materialPreview.Image = null;
+        _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
+        _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();
+        _imageResourceFileGrid.DataSource = null;
+        _imageResourceEntryGrid.DataSource = null;
+        _imageResourceCategoryFilterCombo.Items.Clear();
+        _imageResourceSearchBox.Clear();
+        _imageResourceCatalogService.ClearCache();
+        SetPictureBoxImage(_imageResourcePreviewBox, null);
+        _imageResourceInfoBox.Text = "图片处理：读取后可管理 Face/R/S、范围图、策略动画、背景图、R 插图、界面图等 E5 图片资源。";
+        _imageResourceEntryInfoBox.Clear();
         _materialInfoBox.Clear();
         _mapMakerSelectedMaterial = null;
         _mapWorkbenchSettings = new MapWorkbenchSettings();
@@ -6026,7 +6920,7 @@ public sealed class MainForm : Form
             ClearCurrentTableReferenceTarget();
             ConfigureDataGrid(result);
             ConfigureChartColumns(result.Data);
-            var canEdit = result.Validation.IsUsable && !result.Table.ReadOnly;
+            var canEdit = CanEditTable(result);
             _fieldAnnotationBox.Text = _fieldAnnotationService.BuildTableSummary(table, result.Validation, canEdit);
             LogTableValidation(result.Validation);
             SetStatus(result.Validation.IsUsable
@@ -6047,7 +6941,7 @@ public sealed class MainForm : Form
 
     private void ConfigureDataGrid(TableReadResult result)
     {
-        var canEdit = result.Validation.IsUsable && !result.Table.ReadOnly;
+        var canEdit = CanEditTable(result);
         _dataGrid.ReadOnly = !canEdit;
         _saveTableButton.Enabled = canEdit;
         _exportCsvButton.Enabled = result.Validation.IsUsable && result.Data.Rows.Count > 0;
@@ -6090,6 +6984,11 @@ public sealed class MainForm : Form
         RefreshDataGridRowStyles();
     }
 
+    private static bool CanEditTable(TableReadResult result)
+        => result.Validation.IsUsable &&
+           !result.Table.ReadOnly &&
+           !ItemEffectNameReader.IsItemEffectNameTable(result.Table);
+
     private void ShowSelectedDataCellAnnotation(int rowIndex, int columnIndex)
     {
         if (_currentTableResult == null || rowIndex < 0 || columnIndex < 0)
@@ -6110,7 +7009,7 @@ public sealed class MainForm : Form
             _fieldAnnotationBox.Text = _fieldAnnotationService.BuildTableSummary(
                 _currentTableResult.Table,
                 _currentTableResult.Validation,
-                _currentTableResult.Validation.IsUsable && !_currentTableResult.Table.ReadOnly);
+                CanEditTable(_currentTableResult));
             ClearCurrentTableReferenceTarget("当前选中的是 ID 列；请选择具体字段查看跨表引用。");
             return;
         }
@@ -6485,6 +7384,12 @@ public sealed class MainForm : Form
     {
         if (_project == null || _currentTableResult == null)
         {
+            return;
+        }
+
+        if (!CanEditTable(_currentTableResult))
+        {
+            MessageBox.Show(this, "当前表不开放直接保存。装备特效名称表使用 00 分隔的变长字符串，请通过“宝物设定 -> 宝物特效”维护项目侧特效目录。", "不能保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -8270,6 +9175,8 @@ public sealed class MainForm : Form
         if (columnName == "ID") return "人物行号/编号，用于和曹操传人物表下标对应。";
         if (columnName == "职业名称") return "根据人物表“职业”编号自动引用 `6.5-4 详细兵种` 的名称，便于确认角色当前兵种。";
         if (columnName == "头像说明") return "根据人物表“头像”编号生成的头像映射说明：Data 头像号 -> Face.e5 小头像号（0 号使用 1-8 候选）以及 Tou.dll 真彩资源号（=小头像号+300，语言2052）。";
+        if (columnName == "暴击台词") return "暴击台词类型号，不是直接文本行号。若人物命中 Ekd5.exe @ 0x89C30 的 21 组特殊人物表，则使用对应特殊台词行 #0..#20；否则按 `21 + 类型号 * 3` 起连续 3 行作为普通暴击随机台词。";
+        if (columnName == "撤退台词") return "6.5 实机显示撤退台词时通常按人物行 ID 读取 `6.5-0-3 撤退台词` 同 ID 行（仅 0..48），不是直接使用该字段值定位文本行；该字段保留为兼容/旧工具数据。";
         if (columnName is "R形象编号") return "人物 R 形象编号：对应 Pmapobj.e5 的正/反两张图（正=2n+1，反=2n+2，按 1-based 图号解释）。";
         if (columnName is "S形象编号") return "人物 S 形象紧凑编号：S=0 按职业和预览阵营取默认兵种图；S=1..32 对应三转特殊三张图；S>=33 从 Unit 图337 起对应一转特殊单张图。";
         if (columnName is "R资源状态" or "S资源状态") return "状态列用于提示相关资源文件是否已定位（例如 Pmapobj.e5、Unit_*.e5）。";
@@ -8418,29 +9325,88 @@ public sealed class MainForm : Form
         }
 
         var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
-        var criticalId = Convert.ToInt32(roleRow["暴击台词"], CultureInfo.InvariantCulture);
-        var retreatId = Convert.ToInt32(roleRow["撤退台词"], CultureInfo.InvariantCulture);
         var bioRow = TryFindRowById(_roleBiographyRead.Data, roleId);
-        var criticalRow = TryFindRowById(_roleCriticalQuoteRead.Data, criticalId);
-        var retreatRow = TryFindRowById(_roleRetreatQuoteRead.Data, retreatId);
+        var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuote(_project!, roleRow, _roleCriticalQuoteRead.Data);
+        var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         _roleBiographyBox.Text = Convert.ToString(bioRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
-        _roleCriticalQuoteBox.Text = Convert.ToString(criticalRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
-        _roleRetreatQuoteBox.Text = Convert.ToString(retreatRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+        _roleCriticalQuoteBox.Text = BuildCriticalQuoteEditorText(criticalMapping);
+        _roleRetreatQuoteBox.Text = Convert.ToString(retreatMapping.QuoteRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
 
-        // 6.5：撤退台词表只有 49 行（0..48），但人物表中的“撤退台词”字段在 MOD 中可能出现超范围值；
-        // 此时代表该人物没有可编辑的撤退台词行（或由剧本/其他机制控制），不应连带禁止保存列传/暴击台词。
-        var canSaveAny = bioRow != null || criticalRow != null || retreatRow != null;
+        var canSaveAny = bioRow != null || criticalMapping.QuoteRows.Count > 0 || retreatMapping.QuoteRow != null;
         _saveRoleTextDetailButton.Enabled = canSaveAny;
 
-        var retreatHint = retreatRow == null
-            ? $"撤退台词：台词 ID={retreatId}，未在撤退台词表(0-48)中找到；可能无撤退台词或由 S 剧本撤退事件对白触发。"
-            : $"撤退台词：台词 ID={retreatId}，GBK {EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200 字节。";
+        var criticalByteHint = BuildCriticalQuoteByteHint(criticalMapping, _roleCriticalQuoteBox.Text);
+        var retreatHint = retreatMapping.QuoteRow == null
+            ? retreatMapping.Explanation
+            : $"{retreatMapping.Explanation} GBK {EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200 字节。";
         _roleTextDetailInfoBox.Text =
             $"人物列传：人物 ID={roleId}，GBK {EncodingService.GetGbkByteCount(_roleBiographyBox.Text)}/200 字节。\r\n" +
-            $"暴击台词：台词 ID={criticalId}，GBK {EncodingService.GetGbkByteCount(_roleCriticalQuoteBox.Text)}/200 字节。\r\n" +
+            $"{criticalMapping.Explanation} {criticalByteHint}\r\n" +
             $"{retreatHint}\r\n" +
             "保存会写回 Imsg.e5，保存前自动备份，保存后复读校验。";
+    }
+
+    private static string BuildCriticalQuoteEditorText(RoleCriticalQuoteMapping mapping)
+    {
+        if (mapping.QuoteRows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (mapping.IsSpecialRoleQuote || mapping.QuoteRows.Count == 1)
+        {
+            return Convert.ToString(mapping.QuoteRows[0]["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+        }
+
+        return string.Join(
+            Environment.NewLine + Environment.NewLine,
+            mapping.QuoteRows.Select(row => Convert.ToString(row["介绍"], CultureInfo.InvariantCulture) ?? string.Empty));
+    }
+
+    private static string BuildCriticalQuoteByteHint(RoleCriticalQuoteMapping mapping, string editorText)
+    {
+        if (mapping.QuoteRows.Count == 0)
+        {
+            return "没有可编辑的暴击台词行。";
+        }
+
+        if (mapping.IsSpecialRoleQuote || mapping.QuoteRows.Count == 1)
+        {
+            return $"GBK {EncodingService.GetGbkByteCount(editorText)}/200 字节。";
+        }
+
+        var parts = SplitCriticalQuoteEditorText(editorText, mapping.QuoteRows.Count);
+        var hints = parts
+            .Select((part, index) => $"#{mapping.QuoteIds[index]}={EncodingService.GetGbkByteCount(part)}/200")
+            .ToArray();
+        return "每条 GBK 字节：" + string.Join("，", hints) + "。";
+    }
+
+    private static IReadOnlyList<string> SplitCriticalQuoteEditorText(string text, int expectedCount)
+    {
+        if (expectedCount <= 1)
+        {
+            return new[] { text };
+        }
+
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var parts = normalized
+            .Split(new[] { "\n\n" }, StringSplitOptions.None)
+            .Select(part => part.Replace("\n", "\r\n", StringComparison.Ordinal))
+            .ToList();
+        while (parts.Count < expectedCount)
+        {
+            parts.Add(string.Empty);
+        }
+
+        if (parts.Count > expectedCount)
+        {
+            parts[expectedCount - 1] = string.Join("\r\n\r\n", parts.Skip(expectedCount - 1));
+            parts.RemoveRange(expectedCount, parts.Count - expectedCount);
+        }
+
+        return parts;
     }
 
     private void SaveSelectedRoleTextDetails()
@@ -8456,17 +9422,20 @@ public sealed class MainForm : Form
 
         var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
         var roleName = Convert.ToString(roleRow["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
-        var criticalId = Convert.ToInt32(roleRow["暴击台词"], CultureInfo.InvariantCulture);
-        var retreatId = Convert.ToInt32(roleRow["撤退台词"], CultureInfo.InvariantCulture);
         var bioRow = FindRowById(_roleBiographyRead.Data, roleId);
-        var criticalRow = FindRowById(_roleCriticalQuoteRead.Data, criticalId);
-        var retreatRow = TryFindRowById(_roleRetreatQuoteRead.Data, retreatId);
+        var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuote(_project, roleRow, _roleCriticalQuoteRead.Data);
+        var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         bioRow["介绍"] = _roleBiographyBox.Text;
-        criticalRow["介绍"] = _roleCriticalQuoteBox.Text;
-        if (retreatRow != null)
+        var criticalParts = SplitCriticalQuoteEditorText(_roleCriticalQuoteBox.Text, Math.Max(1, criticalMapping.QuoteRows.Count));
+        for (var i = 0; i < criticalMapping.QuoteRows.Count; i++)
         {
-            retreatRow["介绍"] = _roleRetreatQuoteBox.Text;
+            criticalMapping.QuoteRows[i]["介绍"] = criticalParts[i];
+        }
+
+        if (retreatMapping.QuoteRow != null)
+        {
+            retreatMapping.QuoteRow["介绍"] = _roleRetreatQuoteBox.Text;
         }
 
         if (_roleBiographyRead.Data.GetChanges() == null &&
@@ -8480,10 +9449,10 @@ public sealed class MainForm : Form
         var preview =
             $"角色：{roleId} {roleName}\r\n" +
             $"列传 GBK：{EncodingService.GetGbkByteCount(_roleBiographyBox.Text)}/200\r\n" +
-            $"暴击台词 #{criticalId} GBK：{EncodingService.GetGbkByteCount(_roleCriticalQuoteBox.Text)}/200\r\n" +
-            (retreatRow == null
-                ? $"撤退台词 #{retreatId}：未找到(撤退台词表仅 0-48)，本次不写回撤退台词。"
-                : $"撤退台词 #{retreatId} GBK：{EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200");
+            $"暴击台词：{string.Join(", ", criticalMapping.QuoteIds.Select(id => "#" + id.ToString(CultureInfo.InvariantCulture)))} {BuildCriticalQuoteByteHint(criticalMapping, _roleCriticalQuoteBox.Text)}\r\n" +
+            (retreatMapping.QuoteRow == null
+                ? "撤退台词：未找到实际会使用的撤退台词行，本次不写回撤退台词。"
+                : $"撤退台词 #{retreatMapping.QuoteId} GBK：{EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200");
         if (MessageBox.Show(this,
                 $"即将保存当前角色列传/台词到 Imsg.e5。\r\n\r\n{preview}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
                 "确认保存角色文本",
@@ -9172,25 +10141,7 @@ public sealed class MainForm : Form
     }
 
     private IReadOnlyDictionary<int, string> BuildBaseItemEffectNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
-    {
-        var result = new Dictionary<int, string>();
-        foreach (var tableName in new[] { "6.5-1-2 装备特效名称（1A-57）", "6.5-1-3 装备特效名称（58-7F）" })
-        {
-            var read = _tableReader.Read(project, FindTable(tables, tableName), tables);
-            if (!read.Validation.IsUsable || read.Data.Rows.Count == 0) continue;
-            var row = read.Data.Rows[0];
-            foreach (DataColumn column in read.Data.Columns)
-            {
-                if (column.ColumnName == "ID") continue;
-                var id = TryParseLeadingHexByte(column.ColumnName);
-                if (id == null) continue;
-                var name = Convert.ToString(row[column.ColumnName], CultureInfo.InvariantCulture) ?? string.Empty;
-                name = SanitizeItemEffectText(name);
-                if (!string.IsNullOrWhiteSpace(name)) result[id.Value] = name;
-            }
-        }
-        return result;
-    }
+        => _itemEffectNameReader.ReadBaseNames(project, tables);
 
     private IReadOnlyDictionary<int, string> BuildItemEffectNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
@@ -9202,23 +10153,6 @@ public sealed class MainForm : Form
         }
 
         return result;
-    }
-
-    private static int? TryParseLeadingHexByte(string value)
-    {
-        var token = new string(value.TakeWhile(Uri.IsHexDigit).ToArray());
-        return token.Length == 0
-            ? null
-            : int.TryParse(token, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id)
-                ? id
-                : null;
-    }
-
-    private static string SanitizeItemEffectText(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        var chars = value.Where(ch => !char.IsControl(ch)).ToArray();
-        return new string(chars).Trim();
     }
 
     private string GetItemEffectName(int effectId)
@@ -9935,6 +10869,806 @@ public sealed class MainForm : Form
         return saves;
     }
 
+    private void OpenShopEditor()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        SelectTabPageByText("商店编辑");
+        LoadShopEditor();
+    }
+
+    private void LoadShopEditor()
+    {
+        if (_project == null) return;
+        if (_tables.Count == 0)
+        {
+            ReloadCurrentProject();
+            if (_tables.Count == 0) return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            _currentShopEditorData = BuildShopEditorData(_project, _tables);
+            _shopEditorGrid.DataSource = _currentShopEditorData;
+            ConfigureShopEditorGrid();
+            _saveShopEditorButton.Enabled = true;
+            _shopEditorInfoBox.Text = BuildShopEditorSummary(_currentShopEditorData);
+            ShowSelectedShopEditorCell();
+            SetStatus($"商店编辑读取完成：{_currentShopEditorData.Rows.Count} 行");
+        }
+        catch (Exception ex)
+        {
+            _shopEditorInfoBox.Text = ex.ToString();
+            Log("读取商店编辑失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取商店编辑失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private DataTable BuildShopEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        _shopCampaignNameRead = _tableReader.Read(project, FindTable(tables, "6.5-8 战役名称"), tables);
+        _shopDataRead = _tableReader.Read(project, FindTable(tables, "6.5-8-1 商店数据"), tables);
+        if (!_shopCampaignNameRead.Validation.IsUsable || !_shopDataRead.Validation.IsUsable)
+        {
+            throw new InvalidOperationException("战役名称表或商店数据表有不可读取项，请先查看数据表诊断。");
+        }
+
+        _shopEditorPersonNames = BuildIdNameLookup(project, tables, "6.5-0 人物");
+        _shopEditorItemInfos = BuildShopItemInfoLookup(project, tables);
+        _shopEditorItemNames = _shopEditorItemInfos.ToDictionary(pair => pair.Key, pair => pair.Value.Name);
+
+        var output = new DataTable("商店编辑");
+        output.Columns.Add("ID", typeof(int));
+        output.Columns.Add("槽位类型", typeof(string));
+        output.Columns.Add("关卡名称", typeof(string));
+        foreach (DataColumn column in _shopDataRead.Data.Columns)
+        {
+            if (column.ColumnName == "ID") continue;
+            output.Columns.Add(column.ColumnName, column.DataType);
+            if (column.ColumnName == "开关仓库人物") output.Columns.Add("开关仓库人物名", typeof(string));
+            if (column.ColumnName == "买卖物品人物") output.Columns.Add("买卖物品人物名", typeof(string));
+        }
+        output.Columns.Add("装备摘要", typeof(string));
+        output.Columns.Add("道具摘要", typeof(string));
+
+        var rowCount = Math.Max(_shopCampaignNameRead.Data.Rows.Count, _shopDataRead.Data.Rows.Count);
+        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
+        {
+            var row = output.NewRow();
+            row["ID"] = rowIndex;
+            row["槽位类型"] = rowIndex < _shopCampaignNameRead.Data.Rows.Count ? "普通关卡" : "扩展商店槽";
+            row["关卡名称"] = rowIndex < _shopCampaignNameRead.Data.Rows.Count
+                ? Convert.ToString(_shopCampaignNameRead.Data.Rows[rowIndex]["名称"], CultureInfo.InvariantCulture) ?? string.Empty
+                : string.Empty;
+
+            if (rowIndex < _shopDataRead.Data.Rows.Count)
+            {
+                foreach (DataColumn column in _shopDataRead.Data.Columns)
+                {
+                    if (column.ColumnName == "ID") continue;
+                    row[column.ColumnName] = _shopDataRead.Data.Rows[rowIndex][column.ColumnName];
+                }
+            }
+            else
+            {
+                foreach (DataColumn column in _shopDataRead.Data.Columns)
+                {
+                    if (column.ColumnName == "ID") continue;
+                    row[column.ColumnName] = column.DataType == typeof(string) ? string.Empty : 0;
+                }
+            }
+
+            RefreshShopDerivedCells(row);
+            output.Rows.Add(row);
+        }
+
+        output.AcceptChanges();
+        foreach (DataColumn column in output.Columns)
+        {
+            column.ReadOnly = column.ColumnName is "ID" or "槽位类型";
+        }
+        return output;
+    }
+
+    private IReadOnlyDictionary<int, ShopItemInfo> BuildShopItemInfoLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var lookup = new Dictionary<int, ShopItemInfo>
+        {
+            [255] = new ShopItemInfo(255, "空槽", "空槽", "无", 0, "无", "无", string.Empty)
+        };
+
+        var boundary = ResolveItemCategoryBoundary(project);
+        var itemSegments = new[]
+        {
+            (_tableReader.Read(project, FindTable(tables, "6.5-1 物品（0-103）"), tables), _tableReader.Read(project, FindTable(tables, "6.5-1-1 物品说明（0-103）"), tables)),
+            (_tableReader.Read(project, FindTable(tables, "6.5-2 物品（104-255）"), tables), _tableReader.Read(project, FindTable(tables, "6.5-2-1 物品说明（104-255）"), tables))
+        };
+
+        foreach (var (itemRead, descriptionRead) in itemSegments)
+        {
+            if (!itemRead.Validation.IsUsable || !itemRead.Data.Columns.Contains("名称")) continue;
+            foreach (DataRow row in itemRead.Data.Rows)
+            {
+                var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+                var name = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+                var typeId = row.Table.Columns.Contains("类型") ? Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture) : 0;
+                var price = row.Table.Columns.Contains("价格（/100）") ? Convert.ToInt32(row["价格（/100）"], CultureInfo.InvariantCulture) : 0;
+                var effectId = row.Table.Columns.Contains("装备特效号") ? Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture) : 0;
+                var effectValue = row.Table.Columns.Contains("装备特效号-效果值") ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture) : 0;
+                var growth = row.Table.Columns.Contains("升级能力成长") ? Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture) : 0;
+                var catalog = row.Table.Columns.Contains("宝物图鉴") ? Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture) : 0;
+                var category = GetItemMajorCategory(id, boundary.DefenseStartId, boundary.AccessoryStartId);
+                var typeText = ItemTypeCatalogService.BuildDescription(typeId, category, catalog);
+                var effectName = BuildItemEffectNameDisplay(category, typeId, effectId);
+                var effectHint = ItemEffectInterpretationService.BuildEffectHint(category, typeId, effectId, effectName, effectValue, growth);
+                var description = TryFindRowById(descriptionRead.Data, id) is { } descriptionRow
+                    ? Convert.ToString(descriptionRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty
+                    : string.Empty;
+                lookup[id] = new ShopItemInfo(id, name, category, typeText, price, effectName, effectHint, description);
+            }
+        }
+        return lookup;
+    }
+
+    private void ConfigureShopEditorGrid()
+    {
+        if (_currentShopEditorData == null) return;
+        _shopEditorGrid.ReadOnly = false;
+        ReplaceShopItemSlotColumnsWithCombo();
+        ConfigureShopBatchControls();
+        foreach (DataGridViewColumn column in _shopEditorGrid.Columns)
+        {
+            column.ReadOnly = IsShopReadOnlyColumn(column.DataPropertyName);
+            column.ToolTipText = BuildShopColumnAnnotation(column.DataPropertyName);
+            column.HeaderText = BuildShopColumnHeader(column.DataPropertyName);
+            column.SortMode = DataGridViewColumnSortMode.Automatic;
+
+            column.Width = column.DataPropertyName switch
+            {
+                "ID" => 58,
+                "槽位类型" => 96,
+                "关卡名称" => 180,
+                "开关仓库人物" or "买卖物品人物" => 92,
+                "开关仓库人物名" or "买卖物品人物名" => 130,
+                "装备摘要" or "道具摘要" => 260,
+                _ when IsShopItemSlotColumn(column.DataPropertyName) => 180,
+                _ => 100
+            };
+
+            if (column.ReadOnly)
+            {
+                column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+            }
+        }
+
+        RefreshShopEditorRowStyles();
+    }
+
+    private void ReplaceShopItemSlotColumnsWithCombo()
+    {
+        if (_currentShopEditorData == null) return;
+        var lookup = BuildShopItemLookupTable(includeEmpty: true);
+        foreach (var columnName in _currentShopEditorData.Columns
+                     .Cast<DataColumn>()
+                     .Select(column => column.ColumnName)
+                     .Where(IsShopItemSlotColumn)
+                     .ToList())
+        {
+            if (!_shopEditorGrid.Columns.Contains(columnName)) continue;
+            if (_shopEditorGrid.Columns[columnName] is DataGridViewComboBoxColumn) continue;
+
+            var old = _shopEditorGrid.Columns[columnName];
+            var index = old.Index;
+            _shopEditorGrid.Columns.Remove(old);
+            var combo = new DataGridViewComboBoxColumn
+            {
+                Name = columnName,
+                DataPropertyName = columnName,
+                DataSource = lookup.Copy(),
+                ValueMember = "ID",
+                DisplayMember = "显示",
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox,
+                FlatStyle = FlatStyle.Flat,
+                SortMode = DataGridViewColumnSortMode.Automatic,
+                Width = 180
+            };
+            _shopEditorGrid.Columns.Insert(index, combo);
+        }
+    }
+
+    private DataTable BuildShopItemLookupTable(bool includeEmpty)
+    {
+        var lookup = new DataTable("ShopItemLookup");
+        lookup.Columns.Add("ID", typeof(int));
+        lookup.Columns.Add("显示", typeof(string));
+        foreach (var item in _shopEditorItemInfos.Values
+                     .Where(item => includeEmpty || item.Id != 255)
+                     .OrderBy(item => item.Id == 255 ? -1 : item.Id))
+        {
+            lookup.Rows.Add(item.Id, item.DisplayName);
+        }
+        return lookup;
+    }
+
+    private void ConfigureShopBatchControls()
+    {
+        if (_currentShopEditorData == null) return;
+        var slotLookup = new DataTable("ShopSlotLookup");
+        slotLookup.Columns.Add("列名", typeof(string));
+        slotLookup.Columns.Add("显示", typeof(string));
+        slotLookup.Rows.Add("装备1-16", "装备1-16");
+        slotLookup.Rows.Add("道具17-32", "道具17-32");
+        slotLookup.Rows.Add("全部物品槽", "全部物品槽");
+        foreach (var columnName in _currentShopEditorData.Columns
+                     .Cast<DataColumn>()
+                     .Select(column => column.ColumnName)
+                     .Where(IsShopItemSlotColumn)
+                     .OrderBy(GetShopSlotSortKey))
+        {
+            slotLookup.Rows.Add(columnName, BuildShopSlotDisplayName(columnName));
+        }
+
+        _shopBatchSlotCombo.DataSource = slotLookup;
+        _shopBatchSlotCombo.ValueMember = "列名";
+        _shopBatchSlotCombo.DisplayMember = "显示";
+
+        _shopBatchSetItemCombo.DataSource = BuildShopItemLookupTable(includeEmpty: true);
+        _shopBatchSetItemCombo.ValueMember = "ID";
+        _shopBatchSetItemCombo.DisplayMember = "显示";
+        _shopBatchFindItemCombo.DataSource = BuildShopItemLookupTable(includeEmpty: true);
+        _shopBatchFindItemCombo.ValueMember = "ID";
+        _shopBatchFindItemCombo.DisplayMember = "显示";
+        _shopBatchReplaceItemCombo.DataSource = BuildShopItemLookupTable(includeEmpty: true);
+        _shopBatchReplaceItemCombo.ValueMember = "ID";
+        _shopBatchReplaceItemCombo.DisplayMember = "显示";
+
+        _shopBatchSetButton.Enabled = true;
+        _shopBatchClearButton.Enabled = true;
+        _shopBatchReplaceButton.Enabled = true;
+    }
+
+    private static bool IsShopReadOnlyColumn(string columnName)
+        => columnName is "ID" or "槽位类型" or "开关仓库人物名" or "买卖物品人物名" or "装备摘要" or "道具摘要";
+
+    private bool IsShopRawColumn(string columnName)
+        => _shopDataRead?.Data.Columns.Contains(columnName) == true && columnName != "ID";
+
+    private bool IsShopPersonColumn(string columnName)
+        => columnName is "开关仓库人物" or "买卖物品人物";
+
+    private bool IsShopItemSlotColumn(string columnName)
+        => IsShopRawColumn(columnName) && !IsShopPersonColumn(columnName);
+
+    private static int GetShopSlotSortKey(string columnName)
+        => TryGetShopSlotNumber(columnName, out var slot) ? slot : int.MaxValue;
+
+    private static bool TryGetShopSlotNumber(string columnName, out int slot)
+    {
+        var text = columnName;
+        if (text.StartsWith("装备", StringComparison.Ordinal)) text = text[2..];
+        if (text.StartsWith("道具", StringComparison.Ordinal)) text = text[2..];
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out slot) && slot is >= 1 and <= 32;
+    }
+
+    private static string BuildShopSlotDisplayName(string columnName)
+        => TryGetShopSlotNumber(columnName, out var slot) ? BuildShopSlotDisplayName(slot) : columnName;
+
+    private static string BuildShopSlotDisplayName(int slot)
+        => slot <= 16 ? $"装备{slot}" : $"道具{slot}";
+
+    private string BuildShopColumnHeader(string columnName)
+    {
+        return columnName switch
+        {
+            "ID" => "ID\n关卡/商店编号",
+            "槽位类型" => "槽位类型\n普通/扩展",
+            "关卡名称" => "关卡名称\n6.5-8 战役名称",
+            "开关仓库人物名" or "买卖物品人物名" => columnName + "\n人物名预览",
+            "装备摘要" => "装备摘要\n非空槽预览",
+            "道具摘要" => "道具摘要\n非空槽预览",
+            _ when IsShopPersonColumn(columnName) => columnName + "\n人物编号",
+            _ when TryGetShopSlotNumber(columnName, out var slot) => $"{BuildShopSlotDisplayName(slot)}\n{(slot <= 16 ? "装备槽" : "道具槽")} {slot}",
+            _ => columnName
+        };
+    }
+
+    private string BuildShopColumnAnnotation(string columnName)
+    {
+        if (columnName == "ID") return "商店/关卡编号。普通关卡名称只在 6.5-8 战役名称表已有范围内写回。";
+        if (columnName == "槽位类型") return "普通关卡来自战役名称表；扩展商店槽来自商店数据表的额外行，当前没有对应战役名称写回位置。";
+        if (columnName == "关卡名称") return "写入 6.5-8 战役名称 / Imsg.e5，固定 200 字节 GBK 容量。";
+        if (columnName == "开关仓库人物") return "2 字节人物编号，通常用于控制仓库/商店打开角色；255/65535 可作为空或不指定候选，仍需实机验证。";
+        if (columnName == "买卖物品人物") return "2 字节人物编号，通常用于控制买卖物品角色；255/65535 可作为空或不指定候选，仍需实机验证。";
+        if (columnName is "开关仓库人物名" or "买卖物品人物名") return "只读预览列，根据人物表名称解析当前人物编号。";
+        if (columnName == "装备摘要") return "只读预览列，汇总装备 1-16 中非 255 的物品槽。";
+        if (columnName == "道具摘要") return "只读预览列，汇总道具 17-32 中非 255 的物品槽。";
+        if (IsShopItemSlotColumn(columnName))
+        {
+            return "1 字节物品编号，通常引用 6.5 物品表；255 常作为空槽候选。下拉项显示编号、名称、大类和类型说明；选中单元格后下方显示价格、特效和物品说明。修改后建议同步检查物品价格、图标、说明和实机商店显示。";
+        }
+
+        return string.Empty;
+    }
+
+    private static string BuildShopEditorSummary(DataTable data)
+    {
+        var named = data.Rows.Cast<DataRow>().Count(row => !string.IsNullOrWhiteSpace(Convert.ToString(row["关卡名称"], CultureInfo.InvariantCulture)));
+        var normal = data.Rows.Cast<DataRow>().Count(row => string.Equals(Convert.ToString(row["槽位类型"], CultureInfo.InvariantCulture), "普通关卡", StringComparison.Ordinal));
+        var activeRows = data.Rows.Cast<DataRow>().Count(row => CountShopNonEmptyItemSlots(row) > 0);
+        return
+            $"商店编辑已读取：商店槽 {data.Rows.Count} 行，普通关卡 {normal} 行，已命名 {named} 行，有物品槽 {activeRows} 行。\r\n" +
+            "来源表：6.5-8 战役名称（Imsg.e5）与 6.5-8-1 商店数据（Data.e5）。\r\n" +
+            "保存会分别写回关卡名称和商店属性，保存前自动备份，保存后重新读取校验。";
+    }
+
+    private static int CountShopNonEmptyItemSlots(DataRow row)
+    {
+        var count = 0;
+        foreach (DataColumn column in row.Table.Columns)
+        {
+            if (!TryGetShopSlotNumber(column.ColumnName, out _)) continue;
+            if (!int.TryParse(Convert.ToString(row[column], CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)) continue;
+            if (id != 255) count++;
+        }
+        return count;
+    }
+
+    private void ApplyShopEditorFilter()
+    {
+        if (_currentShopEditorData == null) return;
+        var keyword = _shopEditorSearchBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            _currentShopEditorData.DefaultView.RowFilter = string.Empty;
+            SetStatus("商店编辑筛选已清除");
+            RefreshShopEditorRowStyles();
+            return;
+        }
+
+        var escaped = EscapeDataViewLikeValue(keyword);
+        var filters = _currentShopEditorData.Columns
+            .Cast<DataColumn>()
+            .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '*{escaped}*'");
+        _currentShopEditorData.DefaultView.RowFilter = string.Join(" OR ", filters);
+        SetStatus($"商店编辑筛选：{_currentShopEditorData.DefaultView.Count}/{_currentShopEditorData.Rows.Count}");
+        RefreshShopEditorRowStyles();
+    }
+
+    private void ClearShopEditorFilter()
+    {
+        _shopEditorSearchBox.Clear();
+        if (_currentShopEditorData != null) _currentShopEditorData.DefaultView.RowFilter = string.Empty;
+        SetStatus("商店编辑筛选已清除");
+        RefreshShopEditorRowStyles();
+    }
+
+    private void ApplyShopBatchSet()
+    {
+        if (!TryGetSelectedShopBatchItem(_shopBatchSetItemCombo, out var itemId)) return;
+        ApplyShopBatchUpdate(
+            $"批量填入 {BuildShopItemName(itemId)}",
+            (_, columnName) => itemId,
+            onlyWhenMatches: null);
+    }
+
+    private void ApplyShopBatchClear()
+    {
+        ApplyShopBatchUpdate("批量清空为空槽", (_, _) => 255, onlyWhenMatches: null);
+    }
+
+    private void ApplyShopBatchReplace()
+    {
+        if (!TryGetSelectedShopBatchItem(_shopBatchFindItemCombo, out var findId)) return;
+        if (!TryGetSelectedShopBatchItem(_shopBatchReplaceItemCombo, out var replaceId)) return;
+        ApplyShopBatchUpdate(
+            $"批量替换 {BuildShopItemName(findId)} -> {BuildShopItemName(replaceId)}",
+            (_, _) => replaceId,
+            onlyWhenMatches: findId);
+    }
+
+    private bool TryGetSelectedShopBatchItem(ComboBox combo, out int itemId)
+    {
+        itemId = 255;
+        if (combo.SelectedValue == null ||
+            !int.TryParse(Convert.ToString(combo.SelectedValue, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out itemId))
+        {
+            MessageBox.Show(this, "请先选择一个物品候选。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return false;
+        }
+        return true;
+    }
+
+    private void ApplyShopBatchUpdate(string actionName, Func<DataRow, string, int> valueFactory, int? onlyWhenMatches)
+    {
+        if (_currentShopEditorData == null) return;
+        _shopEditorGrid.EndEdit();
+        var rows = GetShopBatchTargetRows();
+        var columns = GetShopBatchTargetColumns();
+        if (rows.Count == 0 || columns.Count == 0)
+        {
+            MessageBox.Show(this, "当前批量范围没有可修改的商店物品槽。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var changed = 0;
+        foreach (var row in rows)
+        {
+            foreach (var columnName in columns)
+            {
+                if (!row.Table.Columns.Contains(columnName)) continue;
+                var current = Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture);
+                if (onlyWhenMatches.HasValue && current != onlyWhenMatches.Value) continue;
+                var next = valueFactory(row, columnName);
+                if (current == next) continue;
+                row[columnName] = next;
+                changed++;
+            }
+            RefreshShopDerivedCells(row);
+        }
+
+        RefreshShopEditorRowStyles();
+        ShowSelectedShopEditorCell();
+        SetStatus($"{actionName}：修改 {changed} 个槽位，需点击“保存商店”写回");
+    }
+
+    private List<DataRow> GetShopBatchTargetRows()
+    {
+        if (_currentShopEditorData == null) return new List<DataRow>();
+        var scope = Convert.ToString(_shopBatchScopeCombo.SelectedItem, CultureInfo.InvariantCulture) ?? "当前筛选行";
+        if (scope == "选中行")
+        {
+            var rows = _shopEditorGrid.SelectedRows
+                .Cast<DataGridViewRow>()
+                .Concat(_shopEditorGrid.SelectedCells.Cast<DataGridViewCell>().Select(cell => cell.OwningRow))
+                .Where(row => row != null && !row.IsNewRow)
+                .Select(TryGetDataRow)
+                .Where(row => row != null)
+                .Cast<DataRow>()
+                .Distinct()
+                .ToList();
+            if (rows.Count == 0 && _shopEditorGrid.CurrentRow != null && TryGetDataRow(_shopEditorGrid.CurrentRow) is { } currentRow)
+            {
+                rows.Add(currentRow);
+            }
+            return rows;
+        }
+
+        if (scope == "全部行")
+        {
+            return _currentShopEditorData.Rows.Cast<DataRow>().ToList();
+        }
+
+        return _currentShopEditorData.DefaultView
+            .Cast<DataRowView>()
+            .Select(view => view.Row)
+            .ToList();
+    }
+
+    private List<string> GetShopBatchTargetColumns()
+    {
+        if (_currentShopEditorData == null) return new List<string>();
+        var selected = Convert.ToString(_shopBatchSlotCombo.SelectedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        return _currentShopEditorData.Columns
+            .Cast<DataColumn>()
+            .Select(column => column.ColumnName)
+            .Where(IsShopItemSlotColumn)
+            .Where(columnName => selected switch
+            {
+                "装备1-16" => TryGetShopSlotNumber(columnName, out var slot) && slot <= 16,
+                "道具17-32" => TryGetShopSlotNumber(columnName, out var slot) && slot >= 17,
+                "全部物品槽" => true,
+                _ => string.Equals(columnName, selected, StringComparison.Ordinal)
+            })
+            .OrderBy(GetShopSlotSortKey)
+            .ToList();
+    }
+
+    private void RefreshShopEditorRowStyles()
+    {
+        foreach (DataGridViewRow row in _shopEditorGrid.Rows)
+        {
+            RefreshShopEditorRowStyle(row.Index);
+        }
+    }
+
+    private void RefreshShopEditorRowStyle(int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= _shopEditorGrid.Rows.Count) return;
+        var gridRow = _shopEditorGrid.Rows[rowIndex];
+        var dataRow = TryGetDataRow(gridRow);
+        if (dataRow == null) return;
+
+        gridRow.DefaultCellStyle.BackColor = IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
+        var id = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+        if (_shopCampaignNameRead != null && id >= _shopCampaignNameRead.Data.Rows.Count && gridRow.Cells["关卡名称"] is { } nameCell)
+        {
+            nameCell.ReadOnly = true;
+            nameCell.Style.BackColor = Color.FromArgb(245, 245, 245);
+        }
+
+        foreach (DataGridViewCell cell in gridRow.Cells)
+        {
+            if (!IsShopItemSlotColumn(cell.OwningColumn.DataPropertyName)) continue;
+            var text = Convert.ToString(cell.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+            cell.Style.BackColor = text == "255" ? Color.FromArgb(248, 248, 248) : Color.Empty;
+        }
+    }
+
+    private void ShowSelectedShopEditorCell()
+    {
+        if (_currentShopEditorData == null || _shopEditorGrid.CurrentCell == null) return;
+        var cell = _shopEditorGrid.CurrentCell;
+        var columnName = _shopEditorGrid.Columns[cell.ColumnIndex].DataPropertyName;
+        var row = _shopEditorGrid.Rows[cell.RowIndex];
+        var dataRow = TryGetDataRow(row);
+        if (dataRow == null) return;
+
+        var id = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+        var title = Convert.ToString(dataRow["关卡名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+        var value = Convert.ToString(cell.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var extra = columnName switch
+        {
+            "关卡名称" => $"\r\nGBK 字节：{EncodingService.GetGbkByteCount(value)}/{GetShopCampaignNameCapacity()}",
+            "开关仓库人物" or "买卖物品人物" => $"\r\n人物预览：{BuildShopPersonName(ParseIntOrDefault(value, -1))}",
+            _ when IsShopItemSlotColumn(columnName) => "\r\n" + BuildShopItemDetailText(ParseIntOrDefault(value, -1)),
+            _ => string.Empty
+        };
+
+        _shopEditorInfoBox.Text =
+            $"商店：ID={id}    关卡名称={title}    类型={dataRow["槽位类型"]}\r\n" +
+            $"字段：{columnName}    当前值：{value}{extra}\r\n\r\n" +
+            BuildShopColumnAnnotation(columnName) +
+            "\r\n\r\n当前商店摘要：\r\n" +
+            $"开关仓库人物：{dataRow["开关仓库人物"]} / {dataRow["开关仓库人物名"]}\r\n" +
+            $"买卖物品人物：{dataRow["买卖物品人物"]} / {dataRow["买卖物品人物名"]}\r\n" +
+            $"装备：{dataRow["装备摘要"]}\r\n" +
+            $"道具：{dataRow["道具摘要"]}";
+    }
+
+    private int GetShopCampaignNameCapacity()
+    {
+        return _shopCampaignNameRead?.Table.Fields.FirstOrDefault(field => field.ColumnName == "名称")?.Size ?? 200;
+    }
+
+    private static int ParseIntOrDefault(string value, int fallback)
+        => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
+
+    private string BuildShopPersonName(int id)
+    {
+        if (id is 255 or 65535) return "无/不指定";
+        return _shopEditorPersonNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : $"{id}：未找到人物名";
+    }
+
+    private string BuildShopItemName(int id)
+    {
+        if (_shopEditorItemInfos.TryGetValue(id, out var item) && !string.IsNullOrWhiteSpace(item.Name))
+        {
+            return item.Name;
+        }
+
+        if (id == 255) return "空槽";
+        return _shopEditorItemNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : $"{id}：未找到物品名";
+    }
+
+    private string BuildShopItemDetailText(int id)
+    {
+        if (!_shopEditorItemInfos.TryGetValue(id, out var item))
+        {
+            return $"物品预览：{id} 未在 6.5 物品表中找到。";
+        }
+
+        if (id == 255)
+        {
+            return "物品预览：255 / 空槽。";
+        }
+
+        return
+            $"物品预览：{item.Id} / {item.Name}\r\n" +
+            $"大类：{item.Category}\r\n" +
+            $"类型：{item.TypeDescription}\r\n" +
+            $"价格字段：{item.PriceUnit}（游戏内价格单位沿用原表定义）\r\n" +
+            $"特效：{item.EffectName}\r\n" +
+            $"特效说明：{item.EffectHint}\r\n" +
+            $"物品说明：{TrimPreview(item.Description)}";
+    }
+
+    private void RefreshShopDerivedCells(DataRow row)
+    {
+        row["开关仓库人物名"] = BuildShopPersonName(Convert.ToInt32(row["开关仓库人物"], CultureInfo.InvariantCulture));
+        row["买卖物品人物名"] = BuildShopPersonName(Convert.ToInt32(row["买卖物品人物"], CultureInfo.InvariantCulture));
+        row["装备摘要"] = BuildShopSlotSummary(row, equipmentSlots: true);
+        row["道具摘要"] = BuildShopSlotSummary(row, equipmentSlots: false);
+    }
+
+    private string BuildShopSlotSummary(DataRow row, bool equipmentSlots)
+    {
+        var parts = new List<string>();
+        foreach (DataColumn column in row.Table.Columns)
+        {
+            if (!TryGetShopSlotNumber(column.ColumnName, out var slot)) continue;
+            if ((slot <= 16) != equipmentSlots) continue;
+            var itemId = Convert.ToInt32(row[column.ColumnName], CultureInfo.InvariantCulture);
+            if (itemId == 255) continue;
+            parts.Add($"{BuildShopSlotDisplayName(slot)}:{itemId}-{BuildShopItemName(itemId)}");
+            if (parts.Count >= 8) break;
+        }
+
+        return parts.Count == 0 ? "无" : string.Join("，", parts);
+    }
+
+    private void UpdateShopEditorDerivedCells(int rowIndex, int columnIndex)
+    {
+        if (_currentShopEditorData == null || rowIndex < 0 || rowIndex >= _shopEditorGrid.Rows.Count || columnIndex < 0) return;
+        var row = TryGetDataRow(_shopEditorGrid.Rows[rowIndex]);
+        if (row == null) return;
+        var columnName = _shopEditorGrid.Columns[columnIndex].DataPropertyName;
+        if (IsShopPersonColumn(columnName) || IsShopItemSlotColumn(columnName))
+        {
+            RefreshShopDerivedCells(row);
+        }
+    }
+
+    private void ValidateShopEditorCell(DataGridViewCellValidatingEventArgs e)
+    {
+        if (_shopEditorGrid.ReadOnly || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        var column = _shopEditorGrid.Columns[e.ColumnIndex];
+        if (column.ReadOnly) return;
+        var columnName = column.DataPropertyName;
+        var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        string? error = null;
+
+        if (columnName == "关卡名称")
+        {
+            var row = TryGetDataRow(_shopEditorGrid.Rows[e.RowIndex]);
+            var id = row == null ? e.RowIndex : Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+            if (_shopCampaignNameRead != null && id >= _shopCampaignNameRead.Data.Rows.Count && !string.IsNullOrWhiteSpace(value))
+            {
+                error = "扩展商店槽没有对应的战役名称写回位置，请只修改商店属性。";
+            }
+            else
+            {
+                var bytes = EncodingService.GetGbkByteCount(value);
+                var capacity = GetShopCampaignNameCapacity();
+                if (bytes > capacity) error = $"关卡名称超长：GBK {bytes} 字节，容量 {capacity} 字节。";
+            }
+        }
+        else if (IsShopPersonColumn(columnName))
+        {
+            error = TryParseInteger(value, 0, ushort.MaxValue, columnName);
+        }
+        else if (IsShopItemSlotColumn(columnName))
+        {
+            error = column is DataGridViewComboBoxColumn
+                ? null
+                : TryParseInteger(value, 0, byte.MaxValue, columnName);
+        }
+
+        _shopEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
+        if (error == null) return;
+        e.Cancel = true;
+        _shopEditorInfoBox.Text = error;
+        SetStatus(error);
+    }
+
+    private void SaveShopEditor()
+    {
+        if (_project == null || _currentShopEditorData == null || _shopCampaignNameRead == null || _shopDataRead == null) return;
+
+        _shopEditorGrid.EndEdit();
+        if (_currentShopEditorData.GetChanges() == null)
+        {
+            MessageBox.Show(this, "商店编辑没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var preview = BuildShopEditorChangePreview(_currentShopEditorData, maxItems: 60);
+        if (MessageBox.Show(this,
+                $"即将保存商店编辑到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Imsg.e5/Data.e5，保存后会重新读取校验。是否继续？",
+                "确认保存商店编辑",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var saves = SaveShopEditorData(_project, _currentShopEditorData);
+            LoadShopEditor();
+            var changedBytes = saves.Sum(x => x.ChangedBytes);
+            Log($"已保存商店编辑：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) Log("商店编辑备份：" + save.BackupPath);
+            SetStatus($"商店编辑保存完成并已复读：变化 {changedBytes} 字节");
+            MessageBox.Show(this,
+                $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
+                "保存完成",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            Log("保存商店编辑失败：" + ex);
+            MessageBox.Show(this, ex.Message, "保存商店编辑失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<TableSaveResult> SaveShopEditorData(CczProject project, DataTable shopEditorData)
+    {
+        if (_shopCampaignNameRead == null || _shopDataRead == null) return Array.Empty<TableSaveResult>();
+        foreach (DataRow shopRow in shopEditorData.Rows)
+        {
+            if (shopRow.RowState != DataRowState.Modified) continue;
+            var id = Convert.ToInt32(shopRow["ID"], CultureInfo.InvariantCulture);
+
+            if (id < _shopCampaignNameRead.Data.Rows.Count && IsRoleColumnChanged(shopRow, "关卡名称"))
+            {
+                FindRowById(_shopCampaignNameRead.Data, id)["名称"] = shopRow["关卡名称", DataRowVersion.Current];
+            }
+
+            if (id >= _shopDataRead.Data.Rows.Count) continue;
+            var rawRow = FindRowById(_shopDataRead.Data, id);
+            foreach (DataColumn column in _shopDataRead.Data.Columns)
+            {
+                if (column.ColumnName == "ID" || !shopEditorData.Columns.Contains(column.ColumnName)) continue;
+                if (!IsRoleColumnChanged(shopRow, column.ColumnName)) continue;
+                rawRow[column.ColumnName] = shopRow[column.ColumnName, DataRowVersion.Current];
+            }
+        }
+
+        var saves = new List<TableSaveResult>();
+        if (_shopCampaignNameRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _shopCampaignNameRead.Table, _shopCampaignNameRead.Data));
+        if (_shopDataRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _shopDataRead.Table, _shopDataRead.Data));
+        return saves;
+    }
+
+    private string BuildShopEditorChangePreview(DataTable data, int maxItems)
+    {
+        var previewColumns = data.Columns
+            .Cast<DataColumn>()
+            .Where(column => column.ColumnName == "关卡名称" || IsShopRawColumn(column.ColumnName))
+            .ToList();
+        var lines = new List<string>();
+        var total = 0;
+        foreach (DataRow row in data.Rows)
+        {
+            if (row.RowState != DataRowState.Modified) continue;
+            var id = Convert.ToString(row["ID"], CultureInfo.InvariantCulture) ?? string.Empty;
+            foreach (var column in previewColumns)
+            {
+                if (!IsRoleColumnChanged(row, column.ColumnName)) continue;
+                var originalText = Convert.ToString(row[column.ColumnName, DataRowVersion.Original], CultureInfo.InvariantCulture) ?? string.Empty;
+                var currentText = Convert.ToString(row[column.ColumnName, DataRowVersion.Current], CultureInfo.InvariantCulture) ?? string.Empty;
+                total++;
+                if (lines.Count < maxItems)
+                {
+                    lines.Add($"ID={id} {column.ColumnName}: {TrimPreview(originalText)} -> {TrimPreview(currentText)}");
+                }
+            }
+        }
+
+        if (total == 0) return "未发现可写字段变更。";
+        if (total > lines.Count) lines.Add($"……另有 {total - lines.Count} 项变更未显示。");
+        return string.Join("\r\n", lines);
+    }
+
     private void LoadJobTerrainEditor()
     {
         if (_project == null) return;
@@ -10261,6 +11995,635 @@ public sealed class MainForm : Form
         if (_jobTerrainPowerRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobTerrainPowerRead.Table, _jobTerrainPowerRead.Data));
         if (_jobMoveCostRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobMoveCostRead.Table, _jobMoveCostRead.Data));
         return saves;
+    }
+
+    private void LoadJobStrategyEditor()
+    {
+        if (_project == null) return;
+        if (_tables.Count == 0)
+        {
+            ReloadCurrentProject();
+            if (_tables.Count == 0) return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            _currentJobStrategyData = BuildJobStrategyEditorData(_project, _tables);
+            _jobStrategyEditorGrid.DataSource = _currentJobStrategyData;
+            ConfigureJobStrategyGrid();
+            _saveJobStrategyEditorButton.Enabled = true;
+            _jobStrategyEditorInfoBox.Text = BuildJobStrategySummary(_currentJobStrategyData);
+            ShowSelectedJobStrategyCell();
+            SetStatus($"兵种策略读取完成：{_currentJobStrategyData.Rows.Count} 个策略");
+        }
+        catch (Exception ex)
+        {
+            _jobStrategyEditorInfoBox.Text = ex.ToString();
+            Log("读取兵种策略失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取兵种策略失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private DataTable BuildJobStrategyEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        _jobStrategyRead = _tableReader.Read(project, FindTable(tables, "6.5-5 策略"), tables);
+        _jobStrategyCompanionReads.Clear();
+        foreach (var companion in JobStrategyCompanionColumns)
+        {
+            _jobStrategyCompanionReads[companion.ColumnName] = _tableReader.Read(project, FindTable(tables, companion.TableName), tables);
+        }
+
+        _jobStrategyJobNames = BuildIdNameLookup(project, tables, "6.5-4 详细兵种");
+        (_jobStrategyConfiguredMagicCount, _jobStrategyConfiguredMagicSource) = ResolveStrategyMagicCount(project);
+        if (!_jobStrategyRead.Validation.IsUsable || _jobStrategyCompanionReads.Values.Any(read => !read.Validation.IsUsable))
+        {
+            throw new InvalidOperationException("策略主表或 EKD5 策略附表有不可读取项，请先查看数据表诊断。");
+        }
+
+        var output = new DataTable("兵种策略");
+        output.Columns.Add("ID", typeof(int));
+        foreach (var columnName in JobStrategyPrimaryColumns)
+        {
+            output.Columns.Add(columnName, columnName == "名称" ? typeof(string) : typeof(int));
+        }
+
+        foreach (var companion in JobStrategyCompanionColumns)
+        {
+            output.Columns.Add(companion.ColumnName, typeof(int));
+        }
+
+        foreach (var jobColumn in GetJobStrategyLearningSourceColumns(_jobStrategyRead.Data))
+        {
+            output.Columns.Add(BuildJobStrategyLearningColumnName(jobColumn), typeof(int));
+        }
+
+        output.Columns.Add("可学摘要", typeof(string));
+
+        for (var i = 0; i < _jobStrategyRead.Data.Rows.Count; i++)
+        {
+            var strategyRow = _jobStrategyRead.Data.Rows[i];
+            var id = Convert.ToInt32(strategyRow["ID"], CultureInfo.InvariantCulture);
+            var row = output.NewRow();
+            row["ID"] = id;
+            foreach (var columnName in JobStrategyPrimaryColumns)
+            {
+                row[columnName] = strategyRow[columnName];
+            }
+
+            foreach (var companion in JobStrategyCompanionColumns)
+            {
+                var companionData = _jobStrategyCompanionReads[companion.ColumnName].Data;
+                var companionRow = FindRowById(companionData, id);
+                row[companion.ColumnName] = companionRow["内容"];
+            }
+
+            foreach (var jobColumn in GetJobStrategyLearningSourceColumns(_jobStrategyRead.Data))
+            {
+                row[BuildJobStrategyLearningColumnName(jobColumn)] = strategyRow[jobColumn];
+            }
+
+            row["可学摘要"] = BuildJobStrategyLearningSummary(row);
+            output.Rows.Add(row);
+        }
+
+        output.AcceptChanges();
+        output.Columns["ID"]!.ReadOnly = true;
+        output.Columns["可学摘要"]!.ReadOnly = true;
+        return output;
+    }
+
+    private static IReadOnlyList<string> GetJobStrategyLearningSourceColumns(DataTable strategyData)
+        => strategyData.Columns
+            .Cast<DataColumn>()
+            .Select(column => column.ColumnName)
+            .Where(static name => int.TryParse(name, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) && id is >= 0 and <= 79)
+            .OrderBy(static name => int.Parse(name, CultureInfo.InvariantCulture))
+            .ToList();
+
+    private static string BuildJobStrategyLearningColumnName(string jobIdColumnName) => JobStrategyLearningPrefix + jobIdColumnName;
+
+    private static bool TryGetJobStrategyLearningSourceColumn(string columnName, out string sourceColumnName)
+    {
+        if (columnName.StartsWith(JobStrategyLearningPrefix, StringComparison.Ordinal) &&
+            int.TryParse(columnName[JobStrategyLearningPrefix.Length..], NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        {
+            sourceColumnName = columnName[JobStrategyLearningPrefix.Length..];
+            return true;
+        }
+
+        sourceColumnName = string.Empty;
+        return false;
+    }
+
+    private void ConfigureJobStrategyGrid()
+    {
+        if (_currentJobStrategyData == null) return;
+        _jobStrategyEditorGrid.ReadOnly = false;
+        ConfigureJobStrategyComboColumn("策略类型", JobStrategyTypeNames, "未命名策略类型");
+        ConfigureJobStrategyComboColumn("施展对象", JobStrategyTargetNames, "施展对象");
+        foreach (DataGridViewColumn column in _jobStrategyEditorGrid.Columns)
+        {
+            column.ReadOnly = column.DataPropertyName is "ID" or "可学摘要";
+            column.ToolTipText = BuildJobStrategyColumnAnnotation(column.DataPropertyName);
+            column.HeaderText = BuildJobStrategyColumnHeader(column.DataPropertyName);
+            if (column.DataPropertyName == "名称") column.Width = 110;
+            if (column.DataPropertyName == "可学摘要") column.Width = 300;
+            if (column.ReadOnly)
+            {
+                column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+            }
+            else if (TryGetJobStrategyLearningSourceColumn(column.DataPropertyName, out _))
+            {
+                column.MinimumWidth = Math.Max(column.MinimumWidth, 92);
+                column.Width = Math.Max(column.Width, 92);
+                column.DefaultCellStyle.BackColor = Color.FromArgb(244, 250, 255);
+            }
+            else if (JobStrategyCompanionColumns.Any(x => x.ColumnName == column.DataPropertyName))
+            {
+                column.DefaultCellStyle.BackColor = Color.FromArgb(250, 248, 239);
+            }
+        }
+
+        RefreshJobStrategyRowStyles();
+    }
+
+    private void ConfigureJobStrategyComboColumn(string columnName, IReadOnlyDictionary<int, string> knownNames, string fallbackLabel)
+    {
+        if (_currentJobStrategyData == null || !_jobStrategyEditorGrid.Columns.Contains(columnName)) return;
+        var existing = _jobStrategyEditorGrid.Columns[columnName];
+        if (existing is DataGridViewComboBoxColumn) return;
+        var index = existing.Index;
+        var width = existing.Width;
+        _jobStrategyEditorGrid.Columns.Remove(existing);
+
+        var values = knownNames.Keys
+            .Concat(_currentJobStrategyData.Rows.Cast<DataRow>().Select(row => Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture)))
+            .Distinct()
+            .OrderBy(static value => value)
+            .Select(value => new JobStrategyComboItem(value, knownNames.TryGetValue(value, out var name) ? name : $"{fallbackLabel}{value}"))
+            .ToList();
+
+        var combo = new DataGridViewComboBoxColumn
+        {
+            Name = columnName,
+            DataPropertyName = columnName,
+            HeaderText = BuildJobStrategyColumnHeader(columnName),
+            ToolTipText = BuildJobStrategyColumnAnnotation(columnName),
+            DataSource = values,
+            ValueMember = nameof(JobStrategyComboItem.Value),
+            DisplayMember = nameof(JobStrategyComboItem.Text),
+            FlatStyle = FlatStyle.Flat,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+            Width = Math.Max(width, 120)
+        };
+        _jobStrategyEditorGrid.Columns.Insert(index, combo);
+    }
+
+    private string BuildJobStrategyColumnHeader(string columnName)
+    {
+        if (columnName == "ID") return "ID\n策略编号";
+        if (columnName == "名称") return "策略名称\n11B";
+        if (TryGetJobStrategyLearningSourceColumn(columnName, out var jobIdText) &&
+            int.TryParse(jobIdText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var jobId))
+        {
+            return $"{jobId:D2}:{BuildJobStrategyLearningHeaderName(jobId)}\n学会等级";
+        }
+
+        return columnName switch
+        {
+            "可学摘要" => "可学摘要\n只读",
+            "AI策略（战场）" => "AI策略（战场）",
+            "AI策略（练武）" => "AI策略（练武）",
+            _ => columnName
+        };
+    }
+
+    private string BuildJobStrategyColumnAnnotation(string columnName)
+    {
+        if (columnName == "ID") return "策略编号。策略主表、说明表和 EKD5 策略附表按这个编号逐行对齐。";
+        if (columnName == "名称") return "策略名称，写入 6.5-5 策略 / Data.e5；固定 11 字节 GBK 容量。";
+        if (columnName == "可学摘要") return "只读摘要：列出当前策略中学会等级不为 0 的详细兵种。0 表示该兵种不能学习。";
+        if (columnName == "策略类型") return "策略实际效果类型，写入 6.5-5 策略 / Data.e5。下拉项按 6.5 样本策略名反推为中文候选，保存仍写入原始编号。注意它不是右侧“学会策略/效果索引”的七类复选。";
+        if (columnName == "施展对象") return "策略可施展对象，写入 6.5-5 策略 / Data.e5。旧形象指定器可见候选包括敌方、我方/气合类、全屏气合类；修改后需实机验证目标选择。";
+        if (columnName == "施法范围") return "策略施法目标选择范围，写入 6.5-5 策略 / Data.e5；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。";
+        if (columnName == "穿透范围") return "策略效果范围/穿透模板，写入 6.5-5 策略 / Data.e5；选择该字段会按字段值+1 从 E5\\Effarea.e5 预览范围图。";
+        if (columnName == "策略图标") return "策略图标编号，写入 6.5-5 策略 / Data.e5；选择该字段会按编号从 Mgcicon.dll 预览候选图标。";
+        if (TryGetJobStrategyLearningSourceColumn(columnName, out var sourceColumnName) &&
+            int.TryParse(sourceColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out var jobId))
+        {
+            return $"详细兵种 {jobId:D2}：{BuildJobStrategyJobName(jobId)} 学会当前策略的等级，写入 6.5-5 策略主表的兵种列；0 表示无法学习。";
+        }
+
+        var primaryField = _jobStrategyRead?.Table.Fields.FirstOrDefault(f => f.ColumnName == columnName);
+        if (primaryField != null && _jobStrategyRead != null)
+        {
+            return _fieldAnnotationService.BuildFieldAnnotation(_jobStrategyRead.Table, primaryField);
+        }
+
+        var companion = JobStrategyCompanionColumns.FirstOrDefault(x => x.ColumnName == columnName);
+        if (!string.IsNullOrWhiteSpace(companion.TableName))
+        {
+            return columnName switch
+            {
+                "小动画" => "策略第一段动画/主动画编号，写入 6.5-5-2 策略动画1 / Ekd5.exe；对应截图中的“小动画”。",
+                "大动画" => "策略第二段动画/附加动画编号，写入 6.5-5-3 策略动画2 / Ekd5.exe；对应截图中的“大动画”。",
+                "是否伤血" => "策略伤害类型/是否伤血候选，写入 6.5-5-4 策略伤害类型 / Ekd5.exe；语义需结合实机验证。",
+                "伤害系数" => "策略伤害比例/倍率参数，写入 6.5-5-5 策略伤害比例 / Ekd5.exe。",
+                "命中上限" => "策略命中率参数，写入 6.5-5-6 策略命中率 / Ekd5.exe；旧界面标为“命中上限”。",
+                "效果索引" => "策略学习/AI 分类位掩码，写入 6.5-5-7 学会策略 / Ekd5.exe；常见位：1 四系、2 降能力、4 妨碍、8 补给、0x10 升能力、0x20 气候、0x40 绝、0x80 四神。",
+                "AI策略（战场）" => "战场 AI 策略限制候选，写入 6.5-5-8 战场AI策略限制 / Ekd5.exe。",
+                "AI策略（练武）" => "练武场 AI 策略限制候选，写入 6.5-5-9 练武场AI策略限制 / Ekd5.exe。",
+                _ => $"写入 {companion.TableName} / Ekd5.exe 的同 ID 单字节字段。"
+            };
+        }
+
+        return columnName;
+    }
+
+    private string BuildJobStrategyJobName(int jobId)
+    {
+        return _jobStrategyJobNames.TryGetValue(jobId, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : $"{jobId}：未找到兵种名";
+    }
+
+    private string BuildJobStrategyLearningHeaderName(int jobId)
+    {
+        return _jobStrategyJobNames.TryGetValue(jobId, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : "未找到兵种名";
+    }
+
+    private string BuildJobStrategyLearningSummary(DataRow row)
+    {
+        var parts = new List<string>();
+        foreach (DataColumn column in row.Table.Columns)
+        {
+            if (!TryGetJobStrategyLearningSourceColumn(column.ColumnName, out var jobIdText)) continue;
+            var level = Convert.ToInt32(row[column.ColumnName], CultureInfo.InvariantCulture);
+            if (level <= 0) continue;
+            var jobId = int.Parse(jobIdText, CultureInfo.InvariantCulture);
+            parts.Add($"{BuildJobStrategyJobName(jobId)} {level}级");
+        }
+
+        return parts.Count == 0 ? "无可学兵种" : string.Join("，", parts);
+    }
+
+    private void UpdateJobStrategyDerivedCells(int rowIndex, int columnIndex)
+    {
+        if (rowIndex < 0 || columnIndex < 0) return;
+        if (!TryGetJobStrategyLearningSourceColumn(_jobStrategyEditorGrid.Columns[columnIndex].DataPropertyName, out _)) return;
+        var row = TryGetDataRow(_jobStrategyEditorGrid.Rows[rowIndex]);
+        if (row == null) return;
+        row["可学摘要"] = BuildJobStrategyLearningSummary(row);
+    }
+
+    private static string BuildJobStrategySummary(DataTable data)
+    {
+        var named = data.Rows.Cast<DataRow>().Count(row => !string.IsNullOrWhiteSpace(Convert.ToString(row["名称"], CultureInfo.InvariantCulture)));
+        var learningColumns = data.Columns.Cast<DataColumn>().Count(column => TryGetJobStrategyLearningSourceColumn(column.ColumnName, out _));
+        return
+            $"兵种策略已读取：策略 {data.Rows.Count} 行，已命名 {named}，兵种学会等级列 {learningColumns} 个。\r\n" +
+            "来源表：6.5-5 策略（基础属性 + 80 个兵种学会等级）、6.5-5-2 至 6.5-5-9 策略附表。\r\n" +
+            "保存会写回 Data.e5 与 Ekd5.exe，保存前自动备份，保存后重新读取校验。";
+    }
+
+    private void ApplyJobStrategyFilter()
+    {
+        if (_currentJobStrategyData == null) return;
+        var keyword = _jobStrategyEditorSearchBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            _currentJobStrategyData.DefaultView.RowFilter = string.Empty;
+            SetStatus("兵种策略筛选已清除");
+            return;
+        }
+
+        var escaped = EscapeDataViewLikeValue(keyword);
+        var filters = _currentJobStrategyData.Columns
+            .Cast<DataColumn>()
+            .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '*{escaped}*'");
+        _currentJobStrategyData.DefaultView.RowFilter = string.Join(" OR ", filters);
+        SetStatus($"兵种策略筛选：{_currentJobStrategyData.DefaultView.Count}/{_currentJobStrategyData.Rows.Count}");
+    }
+
+    private void ClearJobStrategyFilter()
+    {
+        _jobStrategyEditorSearchBox.Clear();
+        if (_currentJobStrategyData != null) _currentJobStrategyData.DefaultView.RowFilter = string.Empty;
+        SetStatus("兵种策略筛选已清除");
+    }
+
+    private void RefreshJobStrategyRowStyles()
+    {
+        foreach (DataGridViewRow row in _jobStrategyEditorGrid.Rows)
+        {
+            RefreshJobStrategyRowStyle(row.Index);
+        }
+    }
+
+    private void RefreshJobStrategyRowStyle(int rowIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= _jobStrategyEditorGrid.Rows.Count) return;
+        var dataRow = TryGetDataRow(_jobStrategyEditorGrid.Rows[rowIndex]);
+        if (dataRow == null) return;
+        _jobStrategyEditorGrid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
+    }
+
+    private void ShowSelectedJobStrategyCell()
+    {
+        if (_currentJobStrategyData == null || _jobStrategyEditorGrid.CurrentCell == null) return;
+        var cell = _jobStrategyEditorGrid.CurrentCell;
+        var columnName = _jobStrategyEditorGrid.Columns[cell.ColumnIndex].DataPropertyName;
+        var row = _jobStrategyEditorGrid.Rows[cell.RowIndex];
+        var id = row.Cells["ID"].Value;
+        var name = row.Cells["名称"].Value;
+        var value = cell.Value;
+        var formattedValue = FormatJobStrategyCellValue(columnName, value);
+        var extra = columnName == "名称"
+            ? $"\r\nGBK 字节：{EncodingService.GetGbkByteCount(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty)}/11"
+            : string.Empty;
+        var summary = Convert.ToString(row.Cells["可学摘要"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var magicInfo = _jobStrategyConfiguredMagicCount > 0
+            ? $"\r\n形象指定器 SMagic={_jobStrategyConfiguredMagicCount}；来源：{_jobStrategyConfiguredMagicSource}"
+            : string.Empty;
+        _jobStrategyEditorInfoBox.Text =
+            $"策略：ID={id}    名称={name}\r\n" +
+            $"字段：{columnName}    当前值：{formattedValue}{extra}\r\n" +
+            $"可学摘要：{summary}{magicInfo}\r\n\r\n" +
+            BuildJobStrategyColumnAnnotation(columnName);
+        UpdateJobStrategyPreview(row, columnName);
+    }
+
+    private static string FormatJobStrategyCellValue(string columnName, object? value)
+    {
+        if (!TryConvertToInt(value, out var number)) return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+        return columnName switch
+        {
+            "策略类型" => JobStrategyTypeNames.TryGetValue(number, out var typeName) ? typeName : $"未命名策略类型{number}",
+            "施展对象" => JobStrategyTargetNames.TryGetValue(number, out var targetName) ? targetName : $"施展对象{number}",
+            "效果索引" => $"{number}（{BuildJobStrategyEffectMaskText(number)}）",
+            _ => number.ToString(CultureInfo.InvariantCulture)
+        };
+    }
+
+    private void UpdateJobStrategyPreview(DataGridViewRow row, string columnName)
+    {
+        if (_project == null)
+        {
+            ClearJobStrategyPreview("请先打开 MOD 项目。");
+            return;
+        }
+
+        var rawValue = row.Cells[columnName].Value;
+        if (!TryConvertToInt(rawValue, out var fieldValue))
+        {
+            ClearJobStrategyPreview($"{columnName} 字段不是整数：{Convert.ToString(rawValue, CultureInfo.InvariantCulture)}");
+            return;
+        }
+
+        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        switch (columnName)
+        {
+            case "施法范围":
+            {
+                var result = _attackAreaPreviewService.BuildPreview(_project, "攻击范围", fieldValue);
+                SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
+                _jobStrategyPreviewInfoBox.Text =
+                    $"策略 ID={id}  名称={name}\r\n" +
+                    $"字段=施法范围  值={fieldValue}\r\n" +
+                    result.Message + "\r\n" +
+                    $"资源路径：{result.SourcePath}";
+                return;
+            }
+            case "穿透范围":
+            {
+                var result = _attackAreaPreviewService.BuildPreview(_project, "穿透范围", fieldValue);
+                SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
+                _jobStrategyPreviewInfoBox.Text =
+                    $"策略 ID={id}  名称={name}\r\n" +
+                    $"字段=穿透范围  值={fieldValue}\r\n" +
+                    result.Message + "\r\n" +
+                    $"资源路径：{result.SourcePath}";
+                return;
+            }
+            case "策略图标":
+            {
+                var result = _itemIconPreviewService.BuildPreview(_project, fieldValue, JobStrategyIconResourceFileName, "策略图标");
+                SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
+                _jobStrategyPreviewInfoBox.Text =
+                    $"策略 ID={id}  名称={name}\r\n" +
+                    $"策略图标字段={fieldValue}\r\n" +
+                    result.Message + "\r\n" +
+                    $"资源路径：{result.SourcePath}";
+                return;
+            }
+            case "小动画":
+            case "大动画":
+            {
+                var result = _strategyAnimationPreviewService.BuildPreview(_project, fieldValue);
+                SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
+                _jobStrategyPreviewInfoBox.Text =
+                    $"策略 ID={id}  名称={name}\r\n" +
+                    $"字段={columnName}  值={fieldValue}\r\n" +
+                    result.Message + "\r\n" +
+                    $"资源路径：{result.SourcePath}";
+                return;
+            }
+            default:
+                ClearJobStrategyPreview("选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示右侧预览。");
+                return;
+        }
+    }
+
+    private void ClearJobStrategyPreview(string message)
+    {
+        SetPictureBoxImage(_jobStrategyPreviewBox, null);
+        _jobStrategyPreviewInfoBox.Text = message;
+    }
+
+    private static bool TryConvertToInt(object? value, out int number)
+    {
+        switch (value)
+        {
+            case null:
+                number = 0;
+                return false;
+            case int intValue:
+                number = intValue;
+                return true;
+            case byte byteValue:
+                number = byteValue;
+                return true;
+            case short shortValue:
+                number = shortValue;
+                return true;
+            default:
+                return int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out number);
+        }
+    }
+
+    private static string BuildJobStrategyEffectMaskText(int value)
+    {
+        var parts = new List<string>();
+        if ((value & 0x01) != 0) parts.Add("四系");
+        if ((value & 0x02) != 0) parts.Add("降能力");
+        if ((value & 0x04) != 0) parts.Add("妨碍");
+        if ((value & 0x08) != 0) parts.Add("补给");
+        if ((value & 0x10) != 0) parts.Add("升能力");
+        if ((value & 0x20) != 0) parts.Add("气候");
+        if ((value & 0x40) != 0) parts.Add("绝");
+        if ((value & 0x80) != 0) parts.Add("四神");
+        return parts.Count == 0 ? "无分类位" : string.Join("、", parts);
+    }
+
+    private void ValidateJobStrategyCell(DataGridViewCellValidatingEventArgs e)
+    {
+        if (_jobStrategyEditorGrid.ReadOnly || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        var column = _jobStrategyEditorGrid.Columns[e.ColumnIndex];
+        if (column.ReadOnly) return;
+        var columnName = column.DataPropertyName;
+        if (column is DataGridViewComboBoxColumn) return;
+        var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        string? error = null;
+        if (columnName == "名称")
+        {
+            var bytes = EncodingService.GetGbkByteCount(value);
+            if (bytes > 11) error = $"策略名称超长：GBK {bytes} 字节，容量 11 字节。";
+        }
+        else if (JobStrategyPrimaryColumns.Contains(columnName) ||
+                 JobStrategyCompanionColumns.Any(x => x.ColumnName == columnName) ||
+                 TryGetJobStrategyLearningSourceColumn(columnName, out _))
+        {
+            error = TryParseInteger(value, 0, byte.MaxValue, columnName);
+        }
+
+        _jobStrategyEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
+        if (error == null) return;
+        e.Cancel = true;
+        _jobStrategyEditorInfoBox.Text = error;
+        SetStatus(error);
+    }
+
+    private void SaveJobStrategyEditor()
+    {
+        if (_project == null || _currentJobStrategyData == null || _jobStrategyRead == null) return;
+
+        _jobStrategyEditorGrid.EndEdit();
+        if (_currentJobStrategyData.GetChanges() == null)
+        {
+            MessageBox.Show(this, "兵种策略没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var preview = BuildChangePreview(_currentJobStrategyData, maxItems: 80);
+        if (MessageBox.Show(this,
+                $"即将保存兵种策略到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Data.e5/Ekd5.exe，保存后会重新读取校验。是否继续？",
+                "确认保存兵种策略",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);
+            LoadJobStrategyEditor();
+            var changedBytes = saves.Sum(x => x.ChangedBytes);
+            Log($"已保存兵种策略：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) Log("兵种策略备份：" + save.BackupPath);
+            SetStatus($"兵种策略保存完成并已复读：变化 {changedBytes} 字节");
+            MessageBox.Show(this,
+                $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
+                "保存完成",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            Log("保存兵种策略失败：" + ex);
+            MessageBox.Show(this, ex.Message, "保存兵种策略失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<TableSaveResult> SaveJobStrategyEditorData(CczProject project, DataTable strategyData)
+    {
+        if (_jobStrategyRead == null) return Array.Empty<TableSaveResult>();
+        foreach (DataRow editorRow in strategyData.Rows)
+        {
+            if (editorRow.RowState != DataRowState.Modified) continue;
+            var id = Convert.ToInt32(editorRow["ID"], CultureInfo.InvariantCulture);
+            var strategyRow = FindRowById(_jobStrategyRead.Data, id);
+
+            foreach (var columnName in JobStrategyPrimaryColumns)
+            {
+                if (IsRoleColumnChanged(editorRow, columnName)) strategyRow[columnName] = editorRow[columnName, DataRowVersion.Current];
+            }
+
+            foreach (DataColumn column in strategyData.Columns)
+            {
+                if (!TryGetJobStrategyLearningSourceColumn(column.ColumnName, out var sourceColumnName)) continue;
+                if (!IsRoleColumnChanged(editorRow, column.ColumnName)) continue;
+                strategyRow[sourceColumnName] = editorRow[column.ColumnName, DataRowVersion.Current];
+            }
+
+            foreach (var companion in JobStrategyCompanionColumns)
+            {
+                if (!IsRoleColumnChanged(editorRow, companion.ColumnName)) continue;
+                var companionRead = _jobStrategyCompanionReads[companion.ColumnName];
+                var companionRow = FindRowById(companionRead.Data, id);
+                companionRow["内容"] = editorRow[companion.ColumnName, DataRowVersion.Current];
+            }
+        }
+
+        var saves = new List<TableSaveResult>();
+        if (_jobStrategyRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobStrategyRead.Table, _jobStrategyRead.Data));
+        foreach (var companion in JobStrategyCompanionColumns)
+        {
+            var read = _jobStrategyCompanionReads[companion.ColumnName];
+            if (read.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, read.Table, read.Data));
+        }
+
+        return saves;
+    }
+
+    private static (int Count, string Source) ResolveStrategyMagicCount(CczProject project)
+    {
+        var path = !string.IsNullOrWhiteSpace(project.ImageAssignerSystemIniPath) && File.Exists(project.ImageAssignerSystemIniPath)
+            ? project.ImageAssignerSystemIniPath
+            : ProjectDetector.FindPortableFile(
+                project,
+                "System.ini",
+                Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
+                Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
+        if (path != null && File.Exists(path))
+        {
+            foreach (var rawLine in File.ReadLines(path, EncodingService.Gbk))
+            {
+                var line = rawLine.Split(';')[0].Trim();
+                if (line.StartsWith("SMagic=", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(line["SMagic=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    return (parsed, path);
+                }
+            }
+
+            return (0, path);
+        }
+
+        return (0, "B形象指定器 System.ini 未找到");
     }
 
     private void LoadJobMatrixEditor()
@@ -10856,8 +13219,22 @@ public sealed class MainForm : Form
             return;
         }
 
-        SelectTabPageByText("形象设定");
+        SelectTabPageByText("图片处理");
+        SelectTabPageByText("人物R/S指定");
         LoadImageAssignments();
+    }
+
+    private void OpenCoreImageResources()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        SelectTabPageByText("图片处理");
+        SelectTabPageByText("图片资源");
+        LoadImageResources();
     }
 
     private bool SelectDataTableCell(string tableName, string targetRowId, string fieldName)
@@ -11177,6 +13554,11 @@ public sealed class MainForm : Form
 
     private static bool SelectTabPageByText(Control root, string text)
     {
+        if (text.Equals("形象设定", StringComparison.Ordinal))
+        {
+            text = "图片处理";
+        }
+
         foreach (Control control in root.Controls)
         {
             if (control is TabControl tabs)
@@ -11283,6 +13665,26 @@ public sealed class MainForm : Form
                 $"{resource.Category}：{resource.Name}",
                 "从游戏资源索引页抓取。",
                 $"路径：{resource.Path}\r\n格式：{resource.FormatHint}\r\n用途：\r\n替换/验证记录：");
+        }
+
+        if (IsCurrentTab("图片资源") && _imageResourceEntryGrid.CurrentRow?.DataBoundItem is ImageResourceEntryInfo imageEntry)
+        {
+            return (
+                "图片资源",
+                $"{imageEntry.FileName}#Image={imageEntry.ImageNumber}",
+                $"{imageEntry.ResourceName} 图 #{imageEntry.ImageNumber}",
+                "从图片处理页抓取；E5 图片条目可按 0x110 索引单条替换，DLL 图标当前只读。",
+                $"文件：{imageEntry.Path}\r\n图号：{imageEntry.ImageNumber}\r\n用途候选：{imageEntry.Usage}\r\n格式：{imageEntry.Kind}\r\n索引：0x{imageEntry.IndexOffset:X} offset=0x{imageEntry.DataOffset:X} stored={imageEntry.StoredLength} decoded={imageEntry.DecodedLength}\r\n替换/实机验证记录：");
+        }
+
+        if (IsCurrentTab("图片资源") && _imageResourceFileGrid.CurrentRow?.DataBoundItem is ImageResourceFileInfo imageFile)
+        {
+            return (
+                "图片资源",
+                $"{imageFile.FileName}",
+                imageFile.DisplayName,
+                "从图片处理页抓取；文件级用途和安全边界记录。",
+                $"文件：{imageFile.Path}\r\n分类：{imageFile.Category}\r\n用途：{imageFile.Usage}\r\n状态：{imageFile.Status}\r\n安全边界：{imageFile.SafetyNote}\r\n研究记录：");
         }
 
         if (IsCurrentTab("EEX资源探针") && _eexEntryProbeGrid.CurrentRow?.DataBoundItem is EexEntryProbeRow eexEntry)
@@ -11402,6 +13804,384 @@ public sealed class MainForm : Form
             index = _creatorNoteScopeCombo.Items.Count - 1;
         }
         _creatorNoteScopeCombo.SelectedIndex = Math.Max(0, index);
+    }
+
+    private void LoadImageResources()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            _imageResourceCatalogService.ClearCache();
+            _currentImageResourceFiles = _imageResourceCatalogService.BuildCatalog(_project);
+            PopulateImageResourceCategoryFilter();
+            BindImageResourceFiles(_currentImageResourceFiles);
+            SetPictureBoxImage(_imageResourcePreviewBox, null);
+            _imageResourceEntryInfoBox.Clear();
+            var indexed = _currentImageResourceFiles.Count(x => x.SupportsE5Index);
+            var replaceable = _currentImageResourceFiles.Count(x => x.CanReplace);
+            var previewable = _currentImageResourceFiles.Count(x => x.SupportsPreview);
+            _imageResourceInfoBox.Text =
+                $"图片资源已读取：文件 {_currentImageResourceFiles.Count} 个，可预览 {previewable} 个，可读取 0x110 E5 图片索引 {indexed} 个，可单条替换 {replaceable} 个。\r\n" +
+                "覆盖：角色头像、R/S形象、道具/策略图标、攻击/穿透范围、策略动画、Logo/Mmap/Tr/U_select/Gate/Weather 等图片资源；战场地图底图不在此模块。\r\n" +
+                "别名兼容：efffare.e5 -> Effarea.e5；gete.e5 -> Gate.e5；warther.e5 -> Weather.e5。";
+            Log($"已读取图片资源目录：{_currentImageResourceFiles.Count} 个文件。");
+            SetStatus("图片资源读取完成");
+        }
+        catch (Exception ex)
+        {
+            _imageResourceInfoBox.Text = ex.ToString();
+            Log("图片资源读取失败：" + ex);
+            MessageBox.Show(this, ex.Message, "图片资源读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void PopulateImageResourceCategoryFilter()
+    {
+        var previous = Convert.ToString(_imageResourceCategoryFilterCombo.SelectedItem, CultureInfo.InvariantCulture);
+        _imageResourceCategoryFilterCombo.Items.Clear();
+        _imageResourceCategoryFilterCombo.Items.Add("全部");
+        foreach (var category in _currentImageResourceFiles.Select(x => x.Category).Distinct().OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase))
+        {
+            _imageResourceCategoryFilterCombo.Items.Add(category);
+        }
+
+        SelectComboValueOrFirst(_imageResourceCategoryFilterCombo, previous);
+    }
+
+    private void ApplyImageResourceFilter()
+    {
+        if (_currentImageResourceFiles.Count == 0) return;
+        var category = Convert.ToString(_imageResourceCategoryFilterCombo.SelectedItem, CultureInfo.InvariantCulture) ?? "全部";
+        var keyword = _imageResourceSearchBox.Text.Trim();
+        var filtered = _currentImageResourceFiles.Where(item =>
+            (category == "全部" || item.Category.Equals(category, StringComparison.Ordinal)) &&
+            (string.IsNullOrWhiteSpace(keyword) || ImageResourceFileMatchesKeyword(item, keyword)))
+            .ToList();
+        BindImageResourceFiles(filtered);
+        SetStatus($"图片资源筛选：{filtered.Count}/{_currentImageResourceFiles.Count}");
+    }
+
+    private void ClearImageResourceFilter()
+    {
+        _imageResourceSearchBox.Clear();
+        if (_imageResourceCategoryFilterCombo.Items.Count > 0) _imageResourceCategoryFilterCombo.SelectedIndex = 0;
+        BindImageResourceFiles(_currentImageResourceFiles);
+        SetStatus("已显示全部图片资源");
+    }
+
+    private static bool ImageResourceFileMatchesKeyword(ImageResourceFileInfo item, string keyword)
+        => item.DisplayName.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+           item.FileName.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+           item.Aliases.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+           item.Usage.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+           item.Status.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
+           item.KindSummary.Contains(keyword, StringComparison.CurrentCultureIgnoreCase);
+
+    private void BindImageResourceFiles(IEnumerable<ImageResourceFileInfo> rows)
+    {
+        _imageResourceFileGrid.DataSource = new BindingList<ImageResourceFileInfo>(rows.ToList());
+        ConfigureImageResourceFileGrid();
+        _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();
+        _imageResourceEntryGrid.DataSource = null;
+        SetPictureBoxImage(_imageResourcePreviewBox, null);
+        _imageResourceEntryInfoBox.Clear();
+    }
+
+    private void ConfigureImageResourceFileGrid()
+    {
+        foreach (DataGridViewColumn column in _imageResourceFileGrid.Columns)
+        {
+            column.ReadOnly = true;
+            if (column.DataPropertyName is nameof(ImageResourceFileInfo.Path)
+                or nameof(ImageResourceFileInfo.RelativePath)
+                or nameof(ImageResourceFileInfo.SafetyNote)
+                or nameof(ImageResourceFileInfo.Usage))
+            {
+                column.Visible = false;
+            }
+
+            column.HeaderText = column.DataPropertyName switch
+            {
+                nameof(ImageResourceFileInfo.Category) => "分类",
+                nameof(ImageResourceFileInfo.DisplayName) => "资源",
+                nameof(ImageResourceFileInfo.FileName) => "文件",
+                nameof(ImageResourceFileInfo.Aliases) => "别名",
+                nameof(ImageResourceFileInfo.Exists) => "存在",
+                nameof(ImageResourceFileInfo.SizeBytes) => "大小",
+                nameof(ImageResourceFileInfo.EntryCount) => "条目",
+                nameof(ImageResourceFileInfo.SupportsE5Index) => "E5索引",
+                nameof(ImageResourceFileInfo.SupportsPreview) => "可预览",
+                nameof(ImageResourceFileInfo.CanReplace) => "可替换",
+                nameof(ImageResourceFileInfo.ResourceFormat) => "类型",
+                nameof(ImageResourceFileInfo.KindSummary) => "格式",
+                nameof(ImageResourceFileInfo.Status) => "状态",
+                _ => column.HeaderText
+            };
+        }
+    }
+
+    private void ConfigureImageResourceEntryGrid()
+    {
+        foreach (DataGridViewColumn column in _imageResourceEntryGrid.Columns)
+        {
+            column.ReadOnly = true;
+            if (column.DataPropertyName is nameof(ImageResourceEntryInfo.Path)
+                or nameof(ImageResourceEntryInfo.ResourceKey)
+                or nameof(ImageResourceEntryInfo.Category)
+                or nameof(ImageResourceEntryInfo.ResourceName)
+                or nameof(ImageResourceEntryInfo.FileName)
+                or nameof(ImageResourceEntryInfo.CanReplace))
+            {
+                column.Visible = false;
+            }
+
+            column.HeaderText = column.DataPropertyName switch
+            {
+                nameof(ImageResourceEntryInfo.ImageNumber) => "编号",
+                nameof(ImageResourceEntryInfo.IndexOffset) => "索引偏移",
+                nameof(ImageResourceEntryInfo.DataOffset) => "数据偏移",
+                nameof(ImageResourceEntryInfo.StoredLength) => "存储",
+                nameof(ImageResourceEntryInfo.DecodedLength) => "解码",
+                nameof(ImageResourceEntryInfo.IsCompressed) => "压缩",
+                nameof(ImageResourceEntryInfo.Kind) => "格式",
+                nameof(ImageResourceEntryInfo.Usage) => "用途候选",
+                _ => column.HeaderText
+            };
+        }
+    }
+
+    private ImageResourceFileInfo? GetSelectedImageResourceFile()
+    {
+        if (_imageResourceFileGrid.CurrentRow?.DataBoundItem is ImageResourceFileInfo current) return current;
+        if (_imageResourceFileGrid.SelectedRows.Count > 0 && _imageResourceFileGrid.SelectedRows[0].DataBoundItem is ImageResourceFileInfo selected) return selected;
+        return null;
+    }
+
+    private ImageResourceEntryInfo? GetSelectedImageResourceEntry()
+    {
+        if (_imageResourceEntryGrid.CurrentRow?.DataBoundItem is ImageResourceEntryInfo current) return current;
+        if (_imageResourceEntryGrid.SelectedRows.Count > 0 && _imageResourceEntryGrid.SelectedRows[0].DataBoundItem is ImageResourceEntryInfo selected) return selected;
+        return null;
+    }
+
+    private void ShowSelectedImageResourceFile()
+    {
+        if (_project == null) return;
+        var item = GetSelectedImageResourceFile();
+        if (item == null) return;
+
+        _currentImageResourceEntries = _imageResourceCatalogService.ReadEntries(item);
+        _imageResourceEntryGrid.DataSource = new BindingList<ImageResourceEntryInfo>(_currentImageResourceEntries.ToList());
+        ConfigureImageResourceEntryGrid();
+        SetPictureBoxImage(_imageResourcePreviewBox, null);
+        _imageResourceInfoBox.Text =
+            $"资源：{item.DisplayName}\r\n" +
+            $"分类：{item.Category}    文件：{item.FileName}    别名：{(string.IsNullOrWhiteSpace(item.Aliases) ? "无" : item.Aliases)}\r\n" +
+            $"用途：{item.Usage}\r\n" +
+            $"状态：{item.Status}    条目：{item.EntryCount}    类型：{item.ResourceFormat}    格式：{(string.IsNullOrWhiteSpace(item.KindSummary) ? "未识别" : item.KindSummary)}\r\n" +
+            $"路径：{item.Path}\r\n" +
+            $"安全边界：{item.SafetyNote}";
+        _imageResourceEntryInfoBox.Text = item.SupportsPreview
+            ? item.SupportsE5Index
+                ? "选择下方编号可预览；替换只更新选中的单个 0x110 E5 索引条目。"
+                : "选择下方编号可预览；DLL 图标当前只读，不开放替换。"
+            : "当前文件没有可读取/预览的图片条目，暂不开放条目替换。";
+        SetStatus($"图片资源：{item.DisplayName}");
+    }
+
+    private void ShowSelectedImageResourceEntry()
+    {
+        if (_project == null) return;
+        var entry = GetSelectedImageResourceEntry();
+        if (entry == null) return;
+
+        Bitmap? bitmap = null;
+        try
+        {
+            bitmap = _imageResourceCatalogService.RenderEntryPreview(_project, entry);
+        }
+        catch (Exception ex)
+        {
+            Log("图片资源条目预览失败：" + ex);
+        }
+
+        SetPictureBoxImage(_imageResourcePreviewBox, bitmap);
+        _imageResourceEntryInfoBox.Text = entry.Kind.Equals("DLL图标", StringComparison.OrdinalIgnoreCase)
+            ? $"{entry.ResourceName}  编号 #{entry.ImageNumber}\r\n" +
+              $"用途候选：{entry.Usage}\r\n" +
+              $"来源：{entry.FileName}\r\n" +
+              $"路径：{entry.Path}\r\n" +
+              (bitmap == null
+                  ? "预览：已生成编号条目，但 DLL 图标解析/渲染失败。"
+                  : "预览：已复用宝物/策略图标预览服务按字段编号渲染。")
+            : $"{entry.ResourceName}  图号 #{entry.ImageNumber}\r\n" +
+              $"用途候选：{entry.Usage}\r\n" +
+              $"索引偏移：0x{entry.IndexOffset:X}    数据偏移：0x{entry.DataOffset:X}\r\n" +
+              $"大小：stored={entry.StoredLength:N0}    decoded={entry.DecodedLength:N0}    格式={entry.Kind}    压缩={entry.IsCompressed}\r\n" +
+              $"路径：{entry.Path}\r\n" +
+              (bitmap == null
+                  ? "预览：条目存在，但不是当前可直接解码/渲染的 BMP/JPG/PNG/已知 RAW 帧。"
+                  : "预览：已按 E5 条目内容渲染。");
+        SetStatus($"图片条目：{entry.FileName} #{entry.ImageNumber}");
+    }
+
+    private void OpenSelectedImageResourceLocation()
+    {
+        var item = GetSelectedImageResourceFile();
+        if (item == null)
+        {
+            MessageBox.Show(this, "请先选择一个图片资源文件。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        OpenFileLocation(File.Exists(item.Path) ? item.Path : Path.GetDirectoryName(item.Path) ?? item.Path);
+    }
+
+    private void ImportOrReplaceSelectedImageResourceEntry(bool restoreMode)
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var entry = GetSelectedImageResourceEntry();
+        if (entry == null)
+        {
+            MessageBox.Show(this, "请先选择一个 E5 图片条目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!entry.CanReplace)
+        {
+            MessageBox.Show(this, "当前资源不开放直接替换。请先确认该资源的写回规则。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var target = new E5ImageReplacementTarget(
+            1,
+            entry.Category,
+            $"{entry.ResourceName} #{entry.ImageNumber}",
+            entry.Path,
+            entry.ImageNumber,
+            entry.IndexOffset,
+            entry.DataOffset,
+            entry.StoredLength,
+            entry.Kind,
+            entry.Usage);
+
+        string sourcePath;
+        E5ImageReplacePreviewResult preview;
+        if (restoreMode)
+        {
+            var backupRoot = Path.Combine(_project.GameRoot, "_CCZModStudio_Backups");
+            using var dialog = new OpenFileDialog
+            {
+                Title = $"选择包含图 #{entry.ImageNumber} 的备份 E5 文件",
+                InitialDirectory = Directory.Exists(backupRoot) ? backupRoot : _project.GameRoot,
+                Filter = "E5 文件 (*.e5)|*.e5|所有文件 (*.*)|*.*",
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            sourcePath = dialog.FileName;
+
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                preview = _e5ImageReplaceService.PreviewReplacementFromEntry(_project, entry.Path, entry.ImageNumber, sourcePath);
+            }
+            catch (Exception ex)
+            {
+                Log("图片资源 E5 还原预览失败：" + ex);
+                MessageBox.Show(this, ex.Message, "E5 还原预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+        else
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Title = $"选择导入到 {entry.FileName} 图 #{entry.ImageNumber} 的图片",
+                Filter = "图片条目 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|所有文件 (*.*)|*.*",
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            sourcePath = dialog.FileName;
+
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                preview = _e5ImageReplaceService.PreviewReplacement(_project, entry.Path, entry.ImageNumber, sourcePath);
+            }
+            catch (Exception ex)
+            {
+                Log("图片资源 E5 替换预览失败：" + ex);
+                MessageBox.Show(this, ex.Message, "E5 替换预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+
+        var previewText = BuildE5ImageReplacePreviewText(target, preview, restoreMode);
+        _imageResourceEntryInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会先备份目标 E5 文件，再写入该单个图片条目。是否继续？",
+                restoreMode ? "确认还原 E5 图片条目" : "确认替换 E5 图片条目",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = restoreMode
+                ? _e5ImageReplaceService.ReplaceFromEntry(_project, entry.Path, entry.ImageNumber, sourcePath)
+                : _e5ImageReplaceService.Replace(_project, entry.Path, entry.ImageNumber, sourcePath);
+            _imageResourceCatalogService.ClearCache();
+            LoadImageResources();
+            _imageResourceEntryInfoBox.Text = BuildE5ImageReplaceResultText(result);
+            Log($"图片资源 E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}");
+            SetStatus(restoreMode ? "图片资源 E5 条目还原完成" : "图片资源 E5 条目替换完成");
+        }
+        catch (Exception ex)
+        {
+            Log("图片资源 E5 条目写入失败：" + ex);
+            MessageBox.Show(this, ex.Message, restoreMode ? "E5 还原失败" : "E5 替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void ExportImageResourceEntriesCsv()
+    {
+        if (_currentImageResourceEntries.Count == 0)
+        {
+            MessageBox.Show(this, "当前没有可导出的图片条目。请先读取图片资源并选择一个 E5 文件。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        ExportGridItemsCsv<ImageResourceEntryInfo>(_imageResourceEntryGrid, "导出图片资源条目", "图片资源E5条目.csv", "ImageResourceEntries", "图片资源E5条目");
     }
 
     private void LoadImageAssignments()
@@ -15919,6 +18699,9 @@ public sealed class MainForm : Form
             _scriptDetailBox.Text = rows.Count > 0
                 ? $"\u5df2\u8bfb\u53d6\u5267\u672c\u7d22\u5f15\uff1a{rows.Count} \u4e2a\u3002\u8bf7\u5728\u4e0a\u65b9\u4e0b\u62c9\u6846\u9009\u62e9\u8981\u7f16\u8f91/\u67e5\u770b\u7684 R/S eex \u5267\u672c\uff1b\u9009\u62e9\u540e\u4f1a\u540e\u53f0\u89e3\u6790\u547d\u4ee4\u6811\u548c\u6587\u672c\u3002"
                 : "\u5267\u672c\u5236\u4f5c\uff1a\u6ca1\u6709\u627e\u5230 R/S eex \u5267\u672c\u6587\u4ef6\u3002";
+            _scriptPreviewBox.Text = rows.Count > 0
+                ? $"剧本列表：{rows.Count} 个\r\n选择上方剧本后加载事件树。"
+                : "未找到 R/S eex 剧本文件。";
             _scriptHeaderLabel.Text = $"字典：{(_currentSceneStringDocument == null ? "未加载" : "已加载")}    剧本：未选择    列表：{rows.Count}";
             SetStatus($"\u5267\u672c\u5236\u4f5c\uff1a\u5df2\u8bfb\u53d6\u5267\u672c\u7d22\u5f15 {rows.Count} \u4e2a");
         }
@@ -16043,6 +18826,7 @@ public sealed class MainForm : Form
                 else
                 {
                     _scriptDetailBox.Text = BuildScriptOverview(_currentScriptStructure, _currentScriptTextEntries);
+                    _scriptPreviewBox.Text = BuildScriptOverviewPreview(_currentScriptStructure, _currentScriptTextEntries);
                 }
             }
             finally
@@ -16102,6 +18886,9 @@ public sealed class MainForm : Form
             _scriptDetailBox.Text = rows.Count > 0
                 ? $"\u5df2\u8bfb\u53d6\u5267\u672c\u7d22\u5f15\uff1a{rows.Count} \u4e2a\u3002\u8bf7\u5728\u4e0a\u65b9\u4e0b\u62c9\u6846\u9009\u62e9\u8981\u7f16\u8f91/\u67e5\u770b\u7684 R/S eex \u5267\u672c\u3002"
                 : "\u5267\u672c\u5236\u4f5c\uff1a\u6ca1\u6709\u627e\u5230 R/S eex \u5267\u672c\u6587\u4ef6\u3002";
+            _scriptPreviewBox.Text = rows.Count > 0
+                ? $"剧本列表：{rows.Count} 个\r\n选择上方剧本后加载事件树。"
+                : "未找到 R/S eex 剧本文件。";
             SetStatus($"\u5267\u672c\u5236\u4f5c\uff1a\u5df2\u8bfb\u53d6\u5267\u672c\u7d22\u5f15 {rows.Count} \u4e2a");
         }
         catch (Exception ex)
@@ -16178,6 +18965,7 @@ public sealed class MainForm : Form
             _previewPasteScriptCommandButton.Enabled = _scriptCommandClipboardItem != null;
             UpdateScriptStructureEditButtons();
             _scriptDetailBox.Text = BuildScriptOverview(_currentScriptStructure, _currentScriptTextEntries);
+            _scriptPreviewBox.Text = BuildScriptOverviewPreview(_currentScriptStructure, _currentScriptTextEntries);
             SetStatus($"剧本制作：{scenario.FileName}");
         }
         catch (Exception ex)
@@ -16209,6 +18997,7 @@ public sealed class MainForm : Form
             _legacyScriptTextByOffset.Clear();
             _legacyScriptTextEntryByOffset.Clear();
             _scriptTree.Nodes.Clear();
+            _scriptPreviewBox.Text = "选择剧本后显示当前对象。";
             _scriptCommandGrid.DataSource = null;
             _scriptParameterGrid.DataSource = null;
             ClearLegacyScriptParameterEditor();
@@ -18619,6 +21408,7 @@ public sealed class MainForm : Form
             }
             _scriptTextEditorBox.Clear();
             UpdateScriptTextCapacityLabel();
+            _scriptPreviewBox.Text = BuildScriptObjectPreview(row, rows, textRows, parameterRows);
             _scriptDetailBox.Text = BuildScriptRowDetail(row);
             if (row.NodeType == "Command候选")
             {
@@ -18675,6 +21465,7 @@ public sealed class MainForm : Form
                 SelectScriptTextEntry(text, showSelection: false);
             });
             _scriptTextEditorBox.Text = text.Text;
+            _scriptPreviewBox.Text = BuildScriptTextPreview(text, commandRows);
             _scriptDetailBox.Text = BuildScriptTextDetail(text);
             UpdateScriptTextCapacityLabel();
             SetLastCreatorNoteContext(
@@ -18691,6 +21482,9 @@ public sealed class MainForm : Form
             _selectedScriptCommandRow = null;
             _selectedScriptTextEntry = null;
             _scriptTextEditorBox.Clear();
+            _scriptPreviewBox.Text = _currentScriptStructure == null
+                ? "选择剧本后显示当前对象。"
+                : BuildScriptOverviewPreview(_currentScriptStructure, _currentScriptTextEntries);
             UpdateScriptTextCapacityLabel();
             UpdateScriptStructureEditButtons();
         }
@@ -18705,6 +21499,94 @@ public sealed class MainForm : Form
             "Section候选" => _currentScriptStructure.Rows.Where(x => x.SceneIndex == row.SceneIndex && x.SectionIndex == row.SectionIndex).ToList(),
             _ => new[] { row }
         };
+    }
+
+    private string BuildScriptOverviewPreview(ScenarioStructureProbeResult structure, IReadOnlyList<ScenarioTextEntry> texts)
+    {
+        var mode = _currentLegacyScriptDocument != null ? "旧版完整树" : "兼容探针";
+        return
+            $"{structure.FileName}    {mode}\r\n" +
+            $"Scene {structure.SceneCount}    Section {structure.SectionCount}    Command {structure.CommandCandidateCount}    文本 {texts.Count}\r\n" +
+            "右键事件树可新增、插入、删除、编辑文本或记录备注。";
+    }
+
+    private string BuildScriptObjectPreview(
+        ScenarioStructureRow owner,
+        IReadOnlyList<ScenarioStructureRow> commandRows,
+        IReadOnlyList<ScenarioTextEntry> textRows,
+        IReadOnlyList<ScenarioCommandParameterRow> parameterRows)
+    {
+        if (owner.NodeType == "Command候选")
+        {
+            return BuildScriptCommandPreview(owner, parameterRows, textRows);
+        }
+
+        var nodeName = owner.NodeType == "Section候选"
+            ? $"Scene {owner.SceneIndex} / Section {owner.SectionIndex}"
+            : $"Scene {owner.SceneIndex}";
+        var commandPreview = commandRows.Count == 0
+            ? "无命令"
+            : string.Join("\r\n", commandRows.Take(8).Select(row => $"{row.CommandIndex:000} {row.CommandIdHex} {row.CommandName}"));
+        var textPreview = textRows.Count == 0
+            ? "无文本"
+            : string.Join("\r\n", textRows.Take(6).Select(text => $"{text.OffsetHex} {TrimSingleLine(text.Text, 40)}"));
+        return
+            $"{nodeName}\r\n" +
+            $"命令：{commandRows.Count}    文本：{textRows.Count}\r\n\r\n" +
+            $"命令预览：\r\n{commandPreview}\r\n\r\n" +
+            $"文本预览：\r\n{textPreview}";
+    }
+
+    private string BuildScriptCommandPreview(
+        ScenarioStructureRow row,
+        IReadOnlyList<ScenarioCommandParameterRow> parameterRows,
+        IReadOnlyList<ScenarioTextEntry> textRows)
+    {
+        var values = TryGetLegacyScriptCommand(row, out var legacyCommand)
+            ? BuildLegacyCommandValueTokens(legacyCommand, includeFullText: true)
+            : BuildScenarioStructureValueTokens(row);
+        var valuePreview = values.Count == 0
+            ? "无参数"
+            : string.Join("\r\n", values.Take(10));
+        var editState = TryGetLegacyScriptCommand(row, out var editableCommand)
+            ? BuildLegacyScriptCommandEditState(editableCommand)
+            : "兼容探针：只开放已确认文本短写。";
+        var textPreview = textRows.Count == 0
+            ? "无文本"
+            : string.Join("\r\n", textRows.Take(4).Select(text => $"{text.OffsetHex} {TrimSingleLine(text.Text, 44)}"));
+        return
+            $"{row.CommandIndex:000} {row.CommandIdHex} {row.CommandName}\r\n" +
+            $"Scene {row.SceneIndex} / Section {row.SectionIndex} / {row.OffsetHex}\r\n" +
+            $"{editState}\r\n\r\n" +
+            $"参数：\r\n{valuePreview}\r\n\r\n" +
+            $"关联文本：\r\n{textPreview}";
+    }
+
+    private string BuildScriptTextPreview(ScenarioTextEntry text, IReadOnlyList<ScenarioStructureRow> commandRows)
+    {
+        var bytes = EncodingService.GetGbkByteCount(_scriptTextEditorBox.Text);
+        var commandPreview = commandRows.Count == 0
+            ? "未找到关联命令"
+            : string.Join("\r\n", commandRows.Take(6).Select(row => $"{row.CommandIndex:000} {row.CommandIdHex} {row.CommandName} {row.OffsetHex}"));
+        var mode = _legacyScriptTextByOffset.ContainsKey(text.Offset)
+            ? "旧版文本参数：可随完整保存扩容"
+            : $"原地文本：GBK {bytes}/{text.ByteLength}";
+        return
+            $"文本 #{text.Index}    {text.OffsetHex}\r\n" +
+            $"{text.Kind}    {mode}\r\n\r\n" +
+            $"{TrimSingleLine(text.Text, 160)}\r\n\r\n" +
+            $"关联命令：\r\n{commandPreview}";
+    }
+
+    private string BuildLegacyScriptCommandEditState(LegacyScenarioCommandNode command)
+    {
+        var parts = new List<string>();
+        parts.Add(CanDeleteLegacyScriptCommand(command, out _) ? "可删除" : "不可删除");
+        parts.Add(CanInsertNearLegacyScriptCommand(command, out _) ? "可前后插入" : "不可前后插入");
+        if (command.ChildBlock != null) parts.Add("可追加到子块");
+        if (command.Parameters.Any(parameter => CanEditLegacyScriptParameter(command, parameter, out _))) parts.Add("可改数值参数");
+        if (command.TextParameters.Any()) parts.Add("含文本参数");
+        return string.Join(" / ", parts);
     }
 
     private IReadOnlyList<ScenarioTextEntry> GetScriptTextsForRows(IReadOnlyList<ScenarioStructureRow> rows, IReadOnlyList<ScenarioTextEntry> texts)
@@ -19307,6 +22189,7 @@ public sealed class MainForm : Form
         if (result.CommandRow != null)
         {
             var parameterRows = BuildScriptParameterRows(result.CommandRow);
+            var textRows = GetScriptTextsForRows(new[] { result.CommandRow }, _currentScriptTextEntries).ToList();
             SuppressScriptSelectionEvents(() =>
             {
                 BindScriptCommandRows(new[] { result.CommandRow });
@@ -19318,6 +22201,7 @@ public sealed class MainForm : Form
             _selectedScriptTextEntry = null;
             _scriptTextEditorBox.Clear();
             UpdateScriptTextCapacityLabel();
+            _scriptPreviewBox.Text = BuildScriptCommandPreview(result.CommandRow, parameterRows, textRows);
             _scriptDetailBox.Text =
                 (string.IsNullOrWhiteSpace(prefix) ? string.Empty : prefix + "\r\n\r\n") +
                 $"搜索结果：#{result.Index} {result.Kind}\r\n{result.Location}\r\n\r\n" +
@@ -19355,6 +22239,7 @@ public sealed class MainForm : Form
             _selectedScriptCommandRow = null;
             _selectedScriptTextEntry = result.TextEntry;
             _scriptTextEditorBox.Text = result.TextEntry.Text;
+            _scriptPreviewBox.Text = BuildScriptTextPreview(result.TextEntry, relatedRows);
             _scriptDetailBox.Text =
                 (string.IsNullOrWhiteSpace(prefix) ? string.Empty : prefix + "\r\n\r\n") +
                 $"搜索结果：#{result.Index} {result.Kind}\r\n{result.Location}\r\n\r\n" +
@@ -24505,6 +27390,8 @@ public sealed class MainForm : Form
     {
         public override string ToString() => $"0x{Id:X2} {Name}";
     }
+
+    private sealed record JobStrategyComboItem(int Value, string Text);
 
     private sealed record E5ImageReplacementTarget(
         int Index,

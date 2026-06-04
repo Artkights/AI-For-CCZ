@@ -9,6 +9,7 @@ public sealed class TableReferenceLookupService
 {
     private readonly Dictionary<string, DataTable> _tableCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
+    private readonly ItemEffectNameReader _itemEffectNameReader = new();
 
     public string BuildCellReferenceEvidence(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition currentTable, HexFieldDefinition field, object? value, int? rowId = null)
     {
@@ -48,6 +49,11 @@ public sealed class TableReferenceLookupService
         if (rule == null)
         {
             return BuildResourceHint(project, currentTable, field, id);
+        }
+
+        if (rule.Kind == ReferenceRuleKind.None)
+        {
+            return $"\r\n\r\n跨表引用解释：{rule.DisplayName}。\r\n依据：{rule.Reason}\r\n建议：在“角色设定”页查看按引擎规则解析后的实际台词行；不要把当前字段值直接当作台词表 ID。";
         }
 
         if (rule.Kind == ReferenceRuleKind.Item)
@@ -104,6 +110,11 @@ public sealed class TableReferenceLookupService
 
         if (rule != null)
         {
+            if (rule.Kind == ReferenceRuleKind.None)
+            {
+                return $"特殊解释：{rule.DisplayName}。依据：{rule.Reason}";
+            }
+
             return $"跨表引用：通常指向“{rule.TargetTableName}”。依据：{rule.Reason}";
         }
 
@@ -185,6 +196,7 @@ public sealed class TableReferenceLookupService
             ReferenceRuleKind.SingleTable => BuildKnownTableNavigationTarget(project, tables, currentTable, field, sourceValue, sourceRowId, rule.DisplayName, rule.TargetTableName, id, rule.Reason),
             ReferenceRuleKind.Item => BuildItemNavigationTarget(project, tables, currentTable, field, id, sourceValue, sourceRowId, rule.Reason),
             ReferenceRuleKind.EquipmentEffect => BuildEquipmentEffectNavigationTarget(project, tables, currentTable, field, id, sourceValue, sourceRowId, rule.Reason),
+            ReferenceRuleKind.None => BuildUnrecognizedNavigationTarget(currentTable, field, sourceRowId, sourceValue, rule.Reason),
             _ => BuildUnrecognizedNavigationTarget(currentTable, field, sourceRowId, sourceValue, "该字段的引用类型暂不支持导航。")
         };
     }
@@ -246,8 +258,6 @@ public sealed class TableReferenceLookupService
     private static string GetTextRowAlignedTargetTable(string tableName) => tableName switch
     {
         "6.5-0-1 人物列传" => "6.5-0 人物",
-        "6.5-0-2 暴击台词" => "6.5-0 人物",
-        "6.5-0-3 撤退台词" => "6.5-0 人物",
         "6.5-1-1 物品说明（0-103）" => "6.5-1 物品（0-103）",
         "6.5-2-1 物品说明（104-255）" => "6.5-2 物品（104-255）",
         "6.5-4-1 兵种说明" => "6.5-4 详细兵种",
@@ -712,9 +722,12 @@ public sealed class TableReferenceLookupService
         var targetRowId = row != null && data.Columns.Contains("ID")
             ? Convert.ToString(row["ID"], CultureInfo.InvariantCulture) ?? "0"
             : "0";
-        var targetName = row != null && !string.IsNullOrWhiteSpace(targetFieldName)
-            ? Convert.ToString(row[targetFieldName], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty
-            : string.Empty;
+        var baseLookup = BuildBaseEquipmentEffectNameLookup(project, tables);
+        var targetName = baseLookup.TryGetValue(effectId, out var parsedName)
+            ? parsedName
+            : row != null && !string.IsNullOrWhiteSpace(targetFieldName)
+                ? Convert.ToString(row[targetFieldName], CultureInfo.InvariantCulture)?.Trim() ?? string.Empty
+                : string.Empty;
 
         return new TableReferenceNavigationTarget
         {
@@ -746,30 +759,7 @@ public sealed class TableReferenceLookupService
     }
 
     private IReadOnlyDictionary<int, string> BuildBaseEquipmentEffectNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
-    {
-        var result = new Dictionary<int, string>();
-        foreach (var tableName in new[] { "6.5-1-2 装备特效名称（1A-57）", "6.5-1-3 装备特效名称（58-7F）" })
-        {
-            var table = tables.FirstOrDefault(x => x.TableName == tableName);
-            if (table == null) continue;
-
-            var data = ReadTable(project, table, tables);
-            if (data.Rows.Count == 0) continue;
-            var row = data.Rows[0];
-
-            foreach (DataColumn column in data.Columns)
-            {
-                if (column.ColumnName == "ID") continue;
-                if (!TryParseLeadingHexId(column.ColumnName, out var effectId)) continue;
-
-                var effectName = SanitizeEquipmentEffectText(Convert.ToString(row[column], CultureInfo.InvariantCulture) ?? string.Empty);
-                if (string.IsNullOrWhiteSpace(effectName)) continue;
-                result[effectId] = effectName;
-            }
-        }
-
-        return result;
-    }
+        => _itemEffectNameReader.ReadBaseNames(project, tables);
 
     private static string BuildProjectEquipmentEffectDisplayName(IEnumerable<ItemEffectCatalogEntry> entries)
     {
@@ -787,12 +777,6 @@ public sealed class TableReferenceLookupService
             .Select(entry => entry.Description?.Trim() ?? string.Empty)
             .Where(text => !string.IsNullOrWhiteSpace(text))
             .Distinct(StringComparer.CurrentCulture));
-    }
-
-    private static string SanitizeEquipmentEffectText(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        return new string(value.Where(ch => !char.IsControl(ch)).ToArray()).Trim();
     }
 
     private static TableReferenceNavigationTarget BuildUnrecognizedNavigationTarget(
@@ -844,8 +828,8 @@ public sealed class TableReferenceLookupService
         var tableName = currentTable.TableName;
         var name = field.ColumnName;
 
-        if (name == "撤退台词") return new ReferenceRule(ReferenceRuleKind.SingleTable, "6.5-0-3 撤退台词", "撤退台词编号", "人物表字段名直接指向撤退台词表。");
-        if (name == "暴击台词") return new ReferenceRule(ReferenceRuleKind.SingleTable, "6.5-0-2 暴击台词", "暴击台词编号", "人物表字段名直接指向暴击台词表。");
+        if (name == "撤退台词") return new ReferenceRule(ReferenceRuleKind.None, string.Empty, "撤退台词兼容字段", "6.5 撤退台词实际按人物行 ID 对齐 49 行撤退台词表；人物表字段值不应直接当文本行号跳转。");
+        if (name == "暴击台词") return new ReferenceRule(ReferenceRuleKind.None, string.Empty, "暴击台词类型号", "暴击台词字段是普通暴击类型号；特殊人物由 Ekd5.exe @ 0x89C30 的 21 组表决定，普通类型按 21+类型*3 取三条随机台词。");
         if (name == "职业" || name == "兵种") return new ReferenceRule(ReferenceRuleKind.SingleTable, "6.5-4 详细兵种", "职业/详细兵种编号", "职业、兵种字段通常引用详细兵种表。");
         if (name == "装备特效号") return new ReferenceRule(ReferenceRuleKind.EquipmentEffect, string.Empty, "装备特效号", "装备特效号通常优先引用项目侧宝物特效目录，未命中时再回退到基础装备特效名称表。");
         if (name.Contains("武将", StringComparison.Ordinal) || name is "开关仓库人物" or "买卖物品人物")
@@ -963,6 +947,7 @@ public sealed class TableReferenceLookupService
 
     private enum ReferenceRuleKind
     {
+        None,
         SingleTable,
         Item,
         EquipmentEffect
