@@ -137,6 +137,32 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReadScenarioCommandTemplate(command, game_root);
 
     [McpServerTool]
+    [Description("List Hexzmap terrain blocks resolved from Map/Mxxx.jpg dimensions. Read-only.")]
+    public object list_hexzmap_blocks(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional keyword across map id, map image name, offsets, terrain names, and annotation.")]
+        string? keyword = null,
+        [Description("When true, return only blocks whose segment length matches the map grid and can be written by the dedicated Hexzmap writer.")]
+        bool editable_only = false,
+        [Description("Maximum blocks to return. Defaults to 200; capped at 1000.")]
+        int limit = 200)
+        => runtime.ListHexzmapBlocks(game_root, keyword, editable_only, limit);
+
+    [McpServerTool]
+    [Description("Read one Hexzmap terrain block and optional cell matrix by map id, for example M000. Read-only.")]
+    public object read_hexzmap_block(
+        [Description("Map ID, for example M000.")]
+        string map_id,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Whether to include terrain cell rows. Defaults to true.")]
+        bool include_cells = true,
+        [Description("Maximum cell rows to return when include_cells is true. Defaults to 120; capped at 500.")]
+        int max_rows = 120)
+        => runtime.ReadHexzmapBlock(game_root, map_id, include_cells, max_rows);
+
+    [McpServerTool]
     [Description("Write scenario text entries in place. Text must fit the original GBK byte capacity.")]
     public object write_scenario_texts(
         [Description("Project-relative scenario path, for example RS/R_00.eex.")]

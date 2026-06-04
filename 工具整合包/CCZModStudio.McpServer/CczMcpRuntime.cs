@@ -46,6 +46,7 @@ public sealed class CczMcpRuntime
     private readonly LegacyScenarioReader _legacyScenarioReader = new();
     private readonly HexzmapProbeReader _hexzmapProbeReader = new();
     private readonly HexzmapEditorService _hexzmapEditor = new();
+    private readonly MaterialLibraryIndexer _materialLibraryIndexer = new();
     private readonly MapImageReplaceService _mapImageReplace = new();
     private readonly E5ImageReplaceService _e5ImageReplace = new();
     private readonly ResourceReplaceService _resourceReplace = new();
@@ -414,6 +415,72 @@ public sealed class CczMcpRuntime
             save.EntriesWritten,
             save.ChangedBytes,
             RelativePath = normalizedRelative
+        };
+    }
+
+    public object ListHexzmapBlocks(string? gameRoot, string? keyword, bool editableOnly, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var terrainLookup = BuildTerrainNameLookup(project);
+        var probe = _hexzmapProbeReader.Read(project, terrainLookup);
+        var effectiveLimit = NormalizeLimit(limit, 200, 1000);
+        var filtered = probe.Blocks
+            .Where(block => !editableOnly || block.CanEdit)
+            .Where(block => MatchesHexzmapBlockKeyword(block, keyword))
+            .ToList();
+
+        return new
+        {
+            project.GameRoot,
+            HexzmapPath = probe.Path,
+            probe.Magic,
+            probe.MagicValid,
+            probe.PayloadOffset,
+            probe.PayloadLength,
+            DirectoryTableOffsetHex = "0x" + probe.DirectoryTableOffset.ToString("X", CultureInfo.InvariantCulture),
+            DirectoryEntryCount = probe.DirectoryEntries.Count,
+            TotalBlocks = filtered.Count,
+            ReturnedBlocks = Math.Min(filtered.Count, effectiveLimit),
+            EditableBlocks = filtered.Count(block => block.CanEdit),
+            TerrainDictionaryCount = terrainLookup.Count,
+            probe.TrailingBytes,
+            Blocks = filtered.Take(effectiveLimit).Select(BuildHexzmapBlockPayload),
+            SafetyNote = "Read-only Hexzmap block listing. Use read_hexzmap_block to inspect cells before write_hexzmap_block."
+        };
+    }
+
+    public object ReadHexzmapBlock(string? gameRoot, string mapId, bool includeCells, int maxRows)
+    {
+        if (string.IsNullOrWhiteSpace(mapId))
+        {
+            throw new InvalidOperationException("map_id is required, for example M000.");
+        }
+
+        var project = LoadProject(gameRoot);
+        var terrainLookup = BuildTerrainNameLookup(project);
+        var probe = _hexzmapProbeReader.Read(project, terrainLookup);
+        var block = probe.Blocks.FirstOrDefault(x => x.MapId.Equals(mapId.Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Hexzmap block {mapId} was not found.");
+        var cells = _hexzmapProbeReader.GetBlockCells(probe, block);
+        var effectiveMaxRows = NormalizeLimit(maxRows, 120, 500);
+        var cellRows = includeCells
+            ? BuildHexzmapCellRows(cells, block.Width, terrainLookup, effectiveMaxRows)
+            : Array.Empty<object>();
+
+        return new
+        {
+            project.GameRoot,
+            HexzmapPath = probe.Path,
+            Block = BuildHexzmapBlockPayload(block),
+            CellCount = cells.Length,
+            ExpectedCellCount = block.Width * block.Height,
+            IncludeCells = includeCells,
+            MaxRows = effectiveMaxRows,
+            ReturnedRows = includeCells ? Math.Min(block.Height, effectiveMaxRows) : 0,
+            RowsTruncated = includeCells && block.Height > effectiveMaxRows,
+            TopTerrains = BuildHexzmapTerrainCounts(cells, terrainLookup),
+            Rows = cellRows,
+            SafetyNote = "Read-only Hexzmap cells. Bounds are x=0..width-1 and y=0..height-1; write_hexzmap_block still enforces write_mode, version guard, backup, and reread verification."
         };
     }
 
@@ -944,6 +1011,127 @@ public sealed class CczMcpRuntime
         return columns.Any(column =>
             Convert.ToString(row[column], CultureInfo.InvariantCulture)?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true);
     }
+
+    private IReadOnlyDictionary<byte, string> BuildTerrainNameLookup(CczProject project)
+    {
+        try
+        {
+            return HexzmapProbeReader.BuildTerrainNameLookup(_materialLibraryIndexer.Index(project));
+        }
+        catch
+        {
+            return new Dictionary<byte, string>();
+        }
+    }
+
+    private static bool MatchesHexzmapBlockKeyword(HexzmapBlockInfo block, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        return block.MapId.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.MapImageName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.OffsetHex.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.DominantTerrainName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.TopTerrainIds.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.TopTerrainNames.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.UnknownTerrainIds.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               block.Annotation.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static object BuildHexzmapBlockPayload(HexzmapBlockInfo block)
+        => new
+        {
+            block.Index,
+            block.MapId,
+            block.MapImageName,
+            block.MapImageExists,
+            block.MapPixelWidth,
+            block.MapPixelHeight,
+            block.Width,
+            block.Height,
+            block.BytesRead,
+            block.CanEdit,
+            block.OffsetHex,
+            block.DataOffset,
+            block.SegmentOffset,
+            SegmentOffsetHex = "0x" + block.SegmentOffset.ToString("X", CultureInfo.InvariantCulture),
+            block.SegmentLength,
+            block.UniqueTerrainCount,
+            block.DominantTerrainId,
+            DominantTerrainHex = "0x" + block.DominantTerrainId.ToString("X2", CultureInfo.InvariantCulture),
+            block.DominantTerrainName,
+            block.DominantTerrainCount,
+            block.TopTerrainIds,
+            block.TopTerrainNames,
+            block.KnownTerrainCount,
+            block.UnknownTerrainIds,
+            block.Annotation
+        };
+
+    private static IReadOnlyList<object> BuildHexzmapTerrainCounts(byte[] cells, IReadOnlyDictionary<byte, string> terrainLookup)
+    {
+        var total = Math.Max(1, cells.Length);
+        return cells
+            .GroupBy(value => value)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Take(16)
+            .Select(group => new
+            {
+                TerrainId = (int)group.Key,
+                TerrainHex = "0x" + group.Key.ToString("X2", CultureInfo.InvariantCulture),
+                TerrainName = ResolveTerrainName(terrainLookup, group.Key),
+                Count = group.Count(),
+                Percent = Math.Round(group.Count() * 100.0 / total, 2)
+            })
+            .Cast<object>()
+            .ToList();
+    }
+
+    private static IReadOnlyList<object> BuildHexzmapCellRows(
+        byte[] cells,
+        int width,
+        IReadOnlyDictionary<byte, string> terrainLookup,
+        int maxRows)
+    {
+        if (cells.Length == 0 || width <= 0 || maxRows <= 0) return Array.Empty<object>();
+
+        var height = (int)Math.Ceiling(cells.Length / (double)width);
+        var rows = new List<object>();
+        for (var y = 0; y < Math.Min(height, maxRows); y++)
+        {
+            var start = y * width;
+            var count = Math.Min(width, cells.Length - start);
+            if (count <= 0) break;
+            var row = cells.AsSpan(start, count).ToArray();
+            rows.Add(new
+            {
+                Y = y,
+                TerrainIds = row.Select(value => (int)value).ToArray(),
+                TerrainHex = row.Select(value => "0x" + value.ToString("X2", CultureInfo.InvariantCulture)).ToArray(),
+                TerrainSummary = BuildHexzmapRowTerrainSummary(row, terrainLookup)
+            });
+        }
+
+        return rows;
+    }
+
+    private static string BuildHexzmapRowTerrainSummary(byte[] row, IReadOnlyDictionary<byte, string> terrainLookup)
+        => string.Join(" / ", row
+            .GroupBy(value => value)
+            .OrderByDescending(group => group.Count())
+            .ThenBy(group => group.Key)
+            .Take(8)
+            .Select(group =>
+            {
+                var name = ResolveTerrainName(terrainLookup, group.Key);
+                var label = string.IsNullOrWhiteSpace(name)
+                    ? "0x" + group.Key.ToString("X2", CultureInfo.InvariantCulture)
+                    : "0x" + group.Key.ToString("X2", CultureInfo.InvariantCulture) + "(" + name + ")";
+                return label + ":" + group.Count().ToString(CultureInfo.InvariantCulture);
+            }));
+
+    private static string ResolveTerrainName(IReadOnlyDictionary<byte, string> terrainLookup, byte terrainId)
+        => terrainLookup.TryGetValue(terrainId, out var name) ? name : string.Empty;
 
     private static object ConvertJsonValue(JsonElement value)
     {
