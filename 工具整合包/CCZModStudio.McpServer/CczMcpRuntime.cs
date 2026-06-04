@@ -1,5 +1,6 @@
 using System.Data;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using CCZModStudio.Core;
 using CCZModStudio.Formats;
@@ -50,6 +51,8 @@ public sealed class CczMcpRuntime
     private readonly MapImageReplaceService _mapImageReplace = new();
     private readonly E5ImageReplaceService _e5ImageReplace = new();
     private readonly ResourceReplaceService _resourceReplace = new();
+    private readonly GameResourceIndexer _gameResourceIndexer = new();
+    private readonly ResourceDiagnosticService _resourceDiagnosticService = new();
     private readonly ProjectAuditService _projectAudit = new();
     private readonly BackupManager _backupManager = new();
     private readonly TestCopyDiffService _testCopyDiff = new();
@@ -634,6 +637,58 @@ public sealed class CczMcpRuntime
             result.FormatCheckSummary,
             result.FormatWarnings,
             result.RiskSummary
+        };
+    }
+
+    public object ListProjectResources(string? gameRoot, string? category, string? keyword, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var resources = _gameResourceIndexer.Index(project);
+        var effectiveLimit = NormalizeLimit(limit, 200, 5000);
+        var filtered = resources
+            .Where(item => MatchesResourceCategory(item, category))
+            .Where(item => MatchesResourceKeyword(item, keyword))
+            .ToList();
+
+        return new
+        {
+            project.GameRoot,
+            TotalResources = filtered.Count,
+            ReturnedResources = Math.Min(filtered.Count, effectiveLimit),
+            CategoryCounts = resources
+                .GroupBy(item => item.Category)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new { Category = group.Key, Count = group.Count() }),
+            Resources = filtered.Take(effectiveLimit).Select(item => BuildResourceIndexPayload(project, item)),
+            SafetyNote = "Read-only resource index. Use dedicated write tools for tables, scenario text, Hexzmap, Map images, and E5 image entries; use replace_resource only for non-core resources."
+        };
+    }
+
+    public object RunResourceDiagnostics(string? gameRoot, string? severity, string? category, string? keyword, bool writeReport, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var resources = _gameResourceIndexer.Index(project);
+        var diagnostics = _resourceDiagnosticService.Analyze(resources);
+        var effectiveLimit = NormalizeLimit(limit, 200, 2000);
+        var filtered = diagnostics
+            .Where(item => MatchesResourceDiagnosticSeverity(item, severity))
+            .Where(item => string.IsNullOrWhiteSpace(category) || item.Category.Contains(category, StringComparison.OrdinalIgnoreCase))
+            .Where(item => MatchesResourceDiagnosticKeyword(item, keyword))
+            .ToList();
+        var reportPath = writeReport ? WriteResourceDiagnosticReport(project, filtered) : null;
+
+        return new
+        {
+            project.GameRoot,
+            ReportPath = reportPath,
+            TotalItems = filtered.Count,
+            ReturnedItems = Math.Min(filtered.Count, effectiveLimit),
+            ErrorCount = diagnostics.Count(item => item.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)),
+            WarningCount = diagnostics.Count(item => item.Severity.Equals("Warn", StringComparison.OrdinalIgnoreCase)),
+            InfoCount = diagnostics.Count(item => item.Severity.Equals("Info", StringComparison.OrdinalIgnoreCase)),
+            Categories = diagnostics.Select(item => item.Category).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList(),
+            Items = filtered.Take(effectiveLimit).Select(BuildResourceDiagnosticPayload),
+            SafetyNote = "Read-only resource diagnostics. Findings identify missing, duplicate, naming, format, and map-dimension risks before replacement or release."
         };
     }
 
@@ -1387,6 +1442,153 @@ public sealed class CczMcpRuntime
             item.SafetyNote
         };
 
+    private static bool MatchesResourceCategory(ResourceIndexItem item, string? category)
+    {
+        if (string.IsNullOrWhiteSpace(category)) return true;
+        return item.Category.Contains(category.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesResourceKeyword(ResourceIndexItem item, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        keyword = keyword.Trim();
+        return item.Category.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Id.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Extension.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Magic.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.FormatHint.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Annotation.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Path.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static object BuildResourceIndexPayload(CczProject project, ResourceIndexItem item)
+        => new
+        {
+            item.Category,
+            item.Id,
+            item.Name,
+            item.Extension,
+            item.SizeBytes,
+            item.Magic,
+            item.FormatHint,
+            item.Width,
+            item.Height,
+            item.GridWidth,
+            item.GridHeight,
+            item.GridCellCount,
+            item.Annotation,
+            RelativePath = TryNormalizeProjectRelativePath(project, item.Path),
+            item.Path
+        };
+
+    private static bool MatchesResourceDiagnosticSeverity(ResourceDiagnosticItem item, string? severity)
+    {
+        if (string.IsNullOrWhiteSpace(severity)) return true;
+        var filters = severity
+            .Split(new[] { ',', ';', '/', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeSeverity)
+            .Where(x => x.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return filters.Count == 0 ||
+               filters.Contains("All") ||
+               filters.Contains(NormalizeSeverity(item.Severity));
+    }
+
+    private static string NormalizeSeverity(string value)
+    {
+        value = value.Trim();
+        if (value.Equals("All", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("全部", StringComparison.OrdinalIgnoreCase))
+        {
+            return "All";
+        }
+
+        if (value.Equals("Warning", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("Warn", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("警告", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Warn";
+        }
+
+        if (value.Equals("Error", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("错误", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Error";
+        }
+
+        if (value.Equals("Info", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("Information", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("信息", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Info";
+        }
+
+        return value;
+    }
+
+    private static bool MatchesResourceDiagnosticKeyword(ResourceDiagnosticItem item, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        keyword = keyword.Trim();
+        return item.Severity.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Category.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Rule.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Id.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Status.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Detail.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Suggestion.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               item.Path.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static object BuildResourceDiagnosticPayload(ResourceDiagnosticItem item)
+        => new
+        {
+            item.Severity,
+            item.Category,
+            item.Rule,
+            item.Id,
+            item.Name,
+            item.Status,
+            item.Detail,
+            item.Suggestion,
+            item.Path
+        };
+
+    private static string WriteResourceDiagnosticReport(CczProject project, IReadOnlyList<ResourceDiagnosticItem> items)
+    {
+        var reportRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Reports");
+        Directory.CreateDirectory(reportRoot);
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        var reportPath = Path.Combine(reportRoot, $"{stamp}_ResourceDiagnostics.txt");
+        var lines = new List<string>
+        {
+            "CCZModStudio Resource Diagnostics",
+            "CreatedAt=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            "GameRoot=" + project.GameRoot,
+            string.Empty,
+            "Severity\tCategory\tRule\tId\tName\tStatus\tDetail\tSuggestion\tPath"
+        };
+        lines.AddRange(items.Select(item => string.Join('\t',
+            SanitizeReportField(item.Severity),
+            SanitizeReportField(item.Category),
+            SanitizeReportField(item.Rule),
+            SanitizeReportField(item.Id),
+            SanitizeReportField(item.Name),
+            SanitizeReportField(item.Status),
+            SanitizeReportField(item.Detail),
+            SanitizeReportField(item.Suggestion),
+            SanitizeReportField(item.Path))));
+        File.WriteAllLines(reportPath, lines, Encoding.UTF8);
+        return reportPath;
+    }
+
+    private static string SanitizeReportField(string value) =>
+        value.Replace('\t', ' ')
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
+
     private static string FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
@@ -1441,6 +1643,28 @@ public sealed class CczMcpRuntime
     private static string NormalizeProjectRelativePath(CczProject project, string fullPath)
         => Path.GetRelativePath(project.GameRoot, fullPath)
             .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+
+    private static string TryNormalizeProjectRelativePath(CczProject project, string fullPath)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath)) return string.Empty;
+        try
+        {
+            var normalized = Path.GetFullPath(fullPath);
+            var root = Path.GetFullPath(project.GameRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var rootWithSlash = root + Path.DirectorySeparatorChar;
+            if (!normalized.Equals(root, StringComparison.OrdinalIgnoreCase) &&
+                !normalized.StartsWith(rootWithSlash, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return NormalizeProjectRelativePath(project, normalized);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 
     private static string ResolveExternalFile(CczProject project, string path)
     {

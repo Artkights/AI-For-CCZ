@@ -245,6 +245,36 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceE5ImageEntry(game_root, target_relative_path, image_number, replacement_path, write_mode, source_image_number);
 
     [McpServerTool]
+    [Description("List indexed project resources such as E5, Map, RS eex, E5S, WAV, and MP3 files. Read-only.")]
+    public object list_project_resources(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional category filter, for example 地图图片, E5资源, R剧本EEX, S剧本EEX, WAV音效.")]
+        string? category = null,
+        [Description("Optional keyword across file name, id, category, format hint, annotation, and path.")]
+        string? keyword = null,
+        [Description("Maximum resources to return. Defaults to 200; capped at 5000.")]
+        int limit = 200)
+        => runtime.ListProjectResources(game_root, category, keyword, limit);
+
+    [McpServerTool]
+    [Description("Run read-only project resource diagnostics before replacement or release.")]
+    public object run_resource_diagnostics(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional severity filter: Error, Warn, Info, or comma-separated values.")]
+        string? severity = null,
+        [Description("Optional category filter, for example 地图图片 or R剧本EEX.")]
+        string? category = null,
+        [Description("Optional keyword across diagnostic fields.")]
+        string? keyword = null,
+        [Description("Write a UTF-8 resource diagnostic report under CCZModStudio_Reports.")]
+        bool write_report = false,
+        [Description("Maximum diagnostic items to return. Defaults to 200; capped at 2000.")]
+        int limit = 200)
+        => runtime.RunResourceDiagnostics(game_root, severity, category, keyword, write_report, limit);
+
+    [McpServerTool]
     [Description("Replace a non-core project resource file. Core files must use dedicated tools.")]
     public object replace_resource(
         [Description("Project-relative target resource path.")]

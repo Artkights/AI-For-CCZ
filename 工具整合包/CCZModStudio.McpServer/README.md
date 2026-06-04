@@ -27,7 +27,7 @@ The server writes MCP JSON-RPC messages on stdout. Do not add diagnostic console
 - Project workflow: `detect_project`, `audit_project`, `create_test_copy`, `diff_test_copy`, `create_release_copy`.
 - Data editing: `list_tables`, `read_table`, `write_table_rows`.
 - Scenario structure, text, and command knowledge: `list_scenario_files`, `read_scenario_commands`, `search_scenario_scripts`, `read_scenario_texts`, `write_scenario_texts`, `list_scenario_command_templates`, `read_scenario_command_template`.
-- Map and resources: `list_hexzmap_blocks`, `read_hexzmap_block`, `write_hexzmap_block`, `replace_map_image`, `replace_resource`.
+- Map and resources: `list_project_resources`, `run_resource_diagnostics`, `list_hexzmap_blocks`, `read_hexzmap_block`, `write_hexzmap_block`, `replace_map_image`, `replace_resource`.
 - E5 image entries: `list_e5_image_entries`, `preview_e5_image_replace`, `replace_e5_image_entry`.
 - Knowledge base: `list_knowledge_entries`, `search_knowledge_entries`, `read_knowledge_entry`.
 
