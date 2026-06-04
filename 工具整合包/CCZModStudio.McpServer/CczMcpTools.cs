@@ -326,6 +326,60 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.CreateReleaseCopy(game_root);
 
     [McpServerTool]
+    [Description("List project-side creator notes used to track design intent, risks, TODOs, rollback points, and verification. Read-only.")]
+    public object list_creator_notes(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional scope filter, for example 资源诊断, R/S命令, Hexzmap地形块, 全局项目.")]
+        string? scope = null,
+        [Description("Optional keyword across title, content, tags, target key, source hint, and scope.")]
+        string? keyword = null,
+        [Description("Maximum notes to return. Defaults to 100; capped at 1000.")]
+        int limit = 100)
+        => runtime.ListCreatorNotes(game_root, scope, keyword, limit);
+
+    [McpServerTool]
+    [Description("Create or update a project-side creator note. Writes only CCZModStudio_Notes, never game files.")]
+    public object upsert_creator_note(
+        [Description("Required note content. Use it to record intent, evidence, risk, rollback point, or real-game verification result.")]
+        string content,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional existing note id. Omit to create a new note.")]
+        string? id = null,
+        [Description("Optional note scope, for example 资源诊断, R/S命令, Hexzmap地形块, 全局项目.")]
+        string? scope = "全局项目",
+        [Description("Optional stable target key, for example 资源诊断#分类=地图图片#规则=连续编号缺口#编号=Map#对象=M000.jpg.")]
+        string? target_key = "",
+        [Description("Optional note title. Defaults from scope and target key.")]
+        string? title = "",
+        [Description("Optional comma-separated tags such as 风险,待办,已验证.")]
+        string? tags = "",
+        [Description("Optional source hint, for example MCP, 实机测试, 旧工具截图.")]
+        string? source_hint = "MCP")
+        => runtime.UpsertCreatorNote(game_root, id, scope, target_key, title, content, tags, source_hint);
+
+    [McpServerTool]
+    [Description("Delete a project-side creator note by id. Writes only CCZModStudio_Notes, never game files.")]
+    public object delete_creator_note(
+        [Description("Creator note id to delete.")]
+        string id,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.DeleteCreatorNote(game_root, id);
+
+    [McpServerTool]
+    [Description("Export project-side creator notes to CSV under CCZModStudio_Exports/CreatorNotes.")]
+    public object export_creator_notes_csv(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional scope filter.")]
+        string? scope = null,
+        [Description("Optional keyword filter.")]
+        string? keyword = null)
+        => runtime.ExportCreatorNotesCsv(game_root, scope, keyword);
+
+    [McpServerTool]
     [Description("List CCZModStudio local knowledge-base markdown files.")]
     public object list_knowledge_entries()
         => runtime.ListKnowledgeEntries();

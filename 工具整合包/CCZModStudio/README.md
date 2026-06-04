@@ -310,3 +310,7 @@ dotnet run --project .\CCZModStudio.SmokeTests\CCZModStudio.SmokeTests.csproj --
 勾选“地形画笔”后可直接在地图底图上点击/拖拽修改地形格；撤销/重做与 `地形编辑` 页共用，点击“保存地形层”会写回当前 Hexzmap 块，保存前自动备份，保存后复读校验。新增“替换底图”可写入当前 `Map\Mxxx.jpg`，只接受 JPG/JPEG 整文件替换，保存前备份原图，保存后校验尺寸与 SHA256，并生成 `地图底图替换` 结构化报告。
 
 Smoke 写入验证新增 `VERIFY_MAP_IMAGE_REPLACE` 和 `VERIFY_MAP_IMAGE_RESTORE`，确认地图底图替换、备份、复读和报告可用。
+
+## 2026-06-04 更新：MCP 制作留痕入口
+
+本地 MCP Server 已接入创作者备注服务，支持无头调用 `list_creator_notes`、`upsert_creator_note`、`delete_creator_note`、`export_creator_notes_csv`。这些工具用于记录修改意图、风险、回滚点、待办和实机验证结论，只读写 `CCZModStudio_Notes` 与 `CCZModStudio_Exports/CreatorNotes`，不修改任何游戏文件，也不会进入发布副本。

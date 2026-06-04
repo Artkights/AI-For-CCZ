@@ -59,6 +59,8 @@ public sealed class CczMcpRuntime
     private readonly ReleasePackageService _releasePackage = new();
     private readonly SceneStringParser _sceneStringParser = new();
     private readonly ScenarioCommandParameterTemplateService _scenarioCommandTemplates = new();
+    private readonly CreatorNoteService _creatorNoteService = new();
+    private readonly CreatorNoteNavigationService _creatorNoteNavigationService = new();
 
     public object DetectProject(string? gameRoot)
     {
@@ -809,6 +811,105 @@ public sealed class CczMcpRuntime
         };
     }
 
+    public object ListCreatorNotes(string? gameRoot, string? scope, string? keyword, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var notes = _creatorNoteService.Load(project);
+        var effectiveLimit = NormalizeLimit(limit, 100, 1000);
+        var filtered = notes
+            .Where(note => string.IsNullOrWhiteSpace(scope) || note.Scope.Contains(scope, StringComparison.OrdinalIgnoreCase))
+            .Where(note => string.IsNullOrWhiteSpace(keyword) || MatchesCreatorNoteKeyword(note, keyword))
+            .ToList();
+
+        return new
+        {
+            project.GameRoot,
+            StorePath = _creatorNoteService.GetStorePath(project),
+            TotalNotes = filtered.Count,
+            ReturnedNotes = Math.Min(filtered.Count, effectiveLimit),
+            ScopeCounts = notes
+                .GroupBy(note => note.Scope)
+                .OrderByDescending(group => group.Count())
+                .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new { Scope = group.Key, Count = group.Count() }),
+            Summary = _creatorNoteService.BuildSummary(project, notes),
+            Notes = filtered.Take(effectiveLimit).Select(BuildCreatorNotePayload),
+            SafetyNote = "Creator notes are project-side JSON records under CCZModStudio_Notes. They do not modify game files and are excluded from release copies."
+        };
+    }
+
+    public object UpsertCreatorNote(
+        string? gameRoot,
+        string? id,
+        string? scope,
+        string? targetKey,
+        string? title,
+        string content,
+        string? tags,
+        string? sourceHint)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new InvalidOperationException("content is required for a creator note.");
+        }
+
+        var project = LoadProject(gameRoot);
+        var saved = _creatorNoteService.Upsert(project, new CreatorNote
+        {
+            Id = id ?? string.Empty,
+            Scope = scope ?? "全局项目",
+            TargetKey = targetKey ?? string.Empty,
+            Title = title ?? string.Empty,
+            Content = content,
+            Tags = tags ?? string.Empty,
+            SourceHint = sourceHint ?? "MCP"
+        });
+
+        return new
+        {
+            project.GameRoot,
+            StorePath = _creatorNoteService.GetStorePath(project),
+            Note = BuildCreatorNotePayload(saved),
+            SafetyNote = "Saved under CCZModStudio_Notes with JSON backup on overwrite; no game files were modified."
+        };
+    }
+
+    public object DeleteCreatorNote(string? gameRoot, string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new InvalidOperationException("id is required.");
+        }
+
+        var project = LoadProject(gameRoot);
+        var removed = _creatorNoteService.Delete(project, id);
+        return new
+        {
+            project.GameRoot,
+            StorePath = _creatorNoteService.GetStorePath(project),
+            Id = id,
+            Removed = removed,
+            SafetyNote = "Deletion only updates the project-side creator notes JSON under CCZModStudio_Notes."
+        };
+    }
+
+    public object ExportCreatorNotesCsv(string? gameRoot, string? scope, string? keyword)
+    {
+        var project = LoadProject(gameRoot);
+        var notes = _creatorNoteService.Load(project)
+            .Where(note => string.IsNullOrWhiteSpace(scope) || note.Scope.Contains(scope, StringComparison.OrdinalIgnoreCase))
+            .Where(note => string.IsNullOrWhiteSpace(keyword) || MatchesCreatorNoteKeyword(note, keyword))
+            .ToList();
+        var path = _creatorNoteService.ExportCsv(project, notes);
+        return new
+        {
+            project.GameRoot,
+            ExportPath = path,
+            ExportedNotes = notes.Count,
+            SafetyNote = "CSV export is written under CCZModStudio_Exports/CreatorNotes and does not modify game files."
+        };
+    }
+
     public object ListKnowledgeEntries()
     {
         var root = FindKnowledgeRoot();
@@ -1555,6 +1656,63 @@ public sealed class CczMcpRuntime
             item.Suggestion,
             item.Path
         };
+
+    private static bool MatchesCreatorNoteKeyword(CreatorNote note, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        keyword = keyword.Trim();
+        return ContainsIgnoreCase(note.Id, keyword) ||
+               ContainsIgnoreCase(note.ProjectName, keyword) ||
+               ContainsIgnoreCase(note.Scope, keyword) ||
+               ContainsIgnoreCase(note.TargetKey, keyword) ||
+               ContainsIgnoreCase(note.Title, keyword) ||
+               ContainsIgnoreCase(note.Content, keyword) ||
+               ContainsIgnoreCase(note.Tags, keyword) ||
+               ContainsIgnoreCase(note.SourceHint, keyword);
+    }
+
+    private static bool ContainsIgnoreCase(string? value, string keyword)
+        => value?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true;
+
+    private object BuildCreatorNotePayload(CreatorNote note)
+    {
+        var target = _creatorNoteNavigationService.Parse(note);
+        return new
+        {
+            note.Id,
+            note.ProjectName,
+            note.Scope,
+            note.TargetKey,
+            note.Title,
+            Content = TrimForMcp(note.Content, 1200),
+            note.Tags,
+            note.SourceHint,
+            CreatedAt = note.CreatedAtText,
+            UpdatedAt = note.UpdatedAtText,
+            note.SafetyNote,
+            Navigation = new
+            {
+                target.IsRecognized,
+                target.Kind,
+                target.DisplayText,
+                target.FileName,
+                target.MapId,
+                target.OffsetHex,
+                target.Category,
+                target.Name,
+                target.Rule,
+                target.Id,
+                target.TableName,
+                target.RowId,
+                target.FieldName,
+                target.RelativePath,
+                target.SceneIndex,
+                target.SectionIndex,
+                target.CommandIndex,
+                target.TextIndex
+            }
+        };
+    }
 
     private static string WriteResourceDiagnosticReport(CczProject project, IReadOnlyList<ResourceDiagnosticItem> items)
     {
