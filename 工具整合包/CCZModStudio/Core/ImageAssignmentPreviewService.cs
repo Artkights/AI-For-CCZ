@@ -130,6 +130,58 @@ public sealed class ImageAssignmentPreviewService
         return TryLoadMappedE5Image(project, prefix, id, jobId, sFactionSlot, out _);
     }
 
+    public Bitmap? TryRenderBattlefieldMoveIdleFrame(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int factionSlot,
+        string direction,
+        int framePhase,
+        out string detail)
+        => TryRenderBattlefieldMoveIdleFrame(project, sImageId, jobId, factionSlot, direction, framePhase, "初级", out detail);
+
+    public Bitmap? TryRenderBattlefieldMoveIdleFrame(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int factionSlot,
+        string direction,
+        int framePhase,
+        string levelMode,
+        out string detail)
+    {
+        detail = string.Empty;
+        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId, factionSlot);
+        if (mapping.ImageNumbers.Count == 0)
+        {
+            detail = mapping.Detail;
+            return null;
+        }
+
+        var levelStageIndex = GetBattlefieldLevelStageIndex(levelMode);
+        var imageStageIndex = mapping.ImageNumbers.Count >= 3
+            ? Math.Clamp(levelStageIndex, 0, 2)
+            : 0;
+        var imageNumber = mapping.ImageNumbers[imageStageIndex];
+        var normalizedLevelMode = NormalizeBattlefieldLevelMode(levelMode);
+        var normalizedDirection = NormalizeBattlefieldDirection(direction);
+        var phase = Math.Abs(framePhase) % 2;
+        var frameIndex = normalizedDirection switch
+        {
+            "上" => 2 + phase,
+            "左" => 4 + phase,
+            "右" => 4 + phase,
+            _ => phase
+        };
+        var flipHorizontal = normalizedDirection == "右";
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
+        var frame = TryRenderE5EntryFrameAt(project, path, imageNumber, 48, 48, frameIndex, flipHorizontal, out var readDetail);
+        detail = frame == null
+            ? $"{mapping.ShortText} {normalizedLevelMode} -> Unit_mov.e5 #{imageNumber} 待机{normalizedDirection} 第{phase + 1}帧未读取：{readDetail}"
+            : $"{mapping.ShortText} {normalizedLevelMode} -> Unit_mov.e5 #{imageNumber} 待机{normalizedDirection} 第{phase + 1}帧";
+        return frame;
+    }
+
     private static void DrawCenteredImage(Graphics g, Image image, Rectangle rect, Pen borderPen)
     {
         using var back = new SolidBrush(Color.FromArgb(16, 18, 20));
@@ -266,6 +318,76 @@ public sealed class ImageAssignmentPreviewService
 
         detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
         return null;
+    }
+
+    private Bitmap? TryRenderE5EntryFrameAt(
+        CczProject project,
+        string path,
+        int imageNumber,
+        int rawWidth,
+        int frameHeight,
+        int frameIndex,
+        bool flipHorizontal,
+        out string detail)
+    {
+        if (!File.Exists(path))
+        {
+            detail = "文件不存在";
+            return null;
+        }
+
+        var entries = GetE5ImageIndex(path);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+        {
+            detail = $"索引越界 #{imageNumber}/{entries.Count}";
+            return null;
+        }
+
+        var entry = entries[imageNumber - 1];
+        var bytes = TryReadEntryBytes(path, entry, out var readDetail);
+        if (bytes == null)
+        {
+            detail = readDetail;
+            return null;
+        }
+
+        Bitmap? strip = null;
+        using var decoded = TryDecodeStandardImage(bytes);
+        if (decoded != null)
+        {
+            strip = new Bitmap(decoded);
+            detail = $"{entry.Kind}{BuildEntryLocationText(entry)}";
+        }
+        else if (LooksLikeRawIndexedStrip(bytes, rawWidth, frameHeight))
+        {
+            var rawPalette = LoadRawPalette(project);
+            strip = TryRenderRawIndexedStripBitmap(bytes, rawWidth, frameHeight, rawPalette.Colors, rawPalette.Mode, out var paletteMode);
+            detail = $"{paletteMode}{BuildEntryLocationText(entry)}";
+        }
+        else
+        {
+            detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
+            return null;
+        }
+
+        using (strip)
+        {
+            if (strip == null)
+            {
+                detail = $"未能解码{BuildEntryLocationText(entry)}";
+                return null;
+            }
+
+            var frameCount = Math.Max(1, strip.Height / Math.Max(1, frameHeight));
+            var safeIndex = Math.Clamp(frameIndex, 0, frameCount - 1);
+            var frame = CropFrame(strip, safeIndex * frameHeight, frameHeight);
+            if (flipHorizontal)
+            {
+                frame.RotateFlip(RotateFlipType.RotateNoneFlipX);
+            }
+
+            return frame;
+        }
     }
 
     private IReadOnlyList<E5ImageEntry> GetE5ImageIndex(string path)
@@ -489,13 +611,19 @@ public sealed class ImageAssignmentPreviewService
 
     private static Bitmap? TryRenderRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, string paletteSourceMode, out string paletteMode)
     {
+        using var strip = TryRenderRawIndexedStripBitmap(bytes, rawWidth, frameHeight, palette, paletteSourceMode, out paletteMode);
+        return strip == null ? null : CropRepresentativeFrame(strip, frameHeight);
+    }
+
+    private static Bitmap? TryRenderRawIndexedStripBitmap(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, string paletteSourceMode, out string paletteMode)
+    {
         paletteMode = palette.Count >= 256 ? paletteSourceMode : "RAW grayscale";
         if (rawWidth <= 0 || frameHeight <= 0) return null;
         var rawLength = bytes.Length - (bytes.Length % rawWidth);
         if (rawLength < rawWidth * frameHeight) return null;
 
         var rawHeight = rawLength / rawWidth;
-        using var strip = new Bitmap(rawWidth, rawHeight, PixelFormat.Format32bppArgb);
+        var strip = new Bitmap(rawWidth, rawHeight, PixelFormat.Format32bppArgb);
         for (var y = 0; y < rawHeight; y++)
         {
             for (var x = 0; x < rawWidth; x++)
@@ -515,8 +643,33 @@ public sealed class ImageAssignmentPreviewService
             }
         }
 
-        return CropRepresentativeFrame(strip, frameHeight);
+        return strip;
     }
+
+    private static string NormalizeBattlefieldDirection(string direction)
+        => direction switch
+        {
+            "上" => "上",
+            "左" => "左",
+            "右" => "右",
+            _ => "下"
+        };
+
+    private static string NormalizeBattlefieldLevelMode(string levelMode)
+        => levelMode switch
+        {
+            "中级" => "中级",
+            "高级" => "高级",
+            _ => "初级"
+        };
+
+    private static int GetBattlefieldLevelStageIndex(string levelMode)
+        => NormalizeBattlefieldLevelMode(levelMode) switch
+        {
+            "中级" => 1,
+            "高级" => 2,
+            _ => 0
+        };
 
     private RawPalette LoadRawPalette(CczProject project)
     {

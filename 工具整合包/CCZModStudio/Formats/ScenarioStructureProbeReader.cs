@@ -404,8 +404,10 @@ public sealed class ScenarioStructureProbeReader
         var longCharCount = 0;
         var variableBlockIndex = 0;
 
-        foreach (var ins in instructions)
+        var instructionCount = GetLegacyInstructionCount(commandId);
+        for (var instructionIndex = 0; instructionIndex < instructionCount; instructionIndex++)
         {
+            var ins = GetLegacyInstructionAt(commandId, instructions, instructionIndex);
             if (ins == -1) break;
 
             if (cursor + 2 > sectionBytes.Length) return null;
@@ -498,6 +500,22 @@ public sealed class ScenarioStructureProbeReader
         => commandId >= 0
            && commandId < LegacyCommandCanOpenSubEvent.Length
            && LegacyCommandCanOpenSubEvent[commandId] != 0;
+
+    private static int GetLegacyInstructionCount(int commandId)
+        => commandId switch
+        {
+            0x46 => 11 * 20,
+            0x47 => 12 * 80,
+            _ => LegacyCommandInstructions[commandId].Length
+        };
+
+    private static int GetLegacyInstructionAt(int commandId, IReadOnlyList<int> instructions, int index)
+        => commandId switch
+        {
+            0x46 => instructions[index % 11],
+            0x47 => instructions[index % 12],
+            _ => instructions[index]
+        };
 
     private static string ResolveCommandName(SceneStringDocument dictionary, int id)
         => dictionary.Commands.FirstOrDefault(command => command.Id == id)?.Name ?? $"命令 0x{id:X2}";

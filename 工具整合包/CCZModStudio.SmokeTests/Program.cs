@@ -3,6 +3,7 @@ using CCZModStudio.Formats;
 using CCZModStudio.Models;
 using CCZModStudio;
 using System.Data;
+using System.Drawing;
 using System.Globalization;
 using System.Text;
 using System.Windows.Forms;
@@ -2605,6 +2606,18 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
 
         var battlefieldCoordinateCandidate = battlefieldDocs[0].UnitCandidates.FirstOrDefault(candidate => BattlefieldEditorService.TryExtractFirstCoordinate(candidate, out _, out _))
                                             ?? battlefieldDocs[0].UnitCandidates.First();
+        var battlefieldDeploymentCategories = battlefieldDocs
+            .SelectMany(document => document.UnitCandidates)
+            .Select(candidate => candidate.Category)
+            .Where(category => category is "我军出场" or "友军出场" or "敌军出场")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(category => category, StringComparer.Ordinal)
+            .ToList();
+        if (battlefieldDeploymentCategories.Count == 0)
+        {
+            throw new InvalidOperationException("Battlefield editor did not split any 0x46/0x47/0x4B deployment records.");
+        }
+
         var battlefieldLegacyDocument = new LegacyScenarioReader().Read(battlefieldDocs[0].Scenario.Path, sceneDoc);
         var battlefieldLinkedCommand = FindLegacyBattlefieldCommand(battlefieldLegacyDocument, battlefieldCoordinateCandidate);
         if (battlefieldLinkedCommand == null)
@@ -2612,7 +2625,7 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
             throw new InvalidOperationException($"Battlefield candidate cannot be located in legacy script tree: {battlefieldDocs[0].Scenario.FileName} {battlefieldCoordinateCandidate.TargetKey}");
         }
 
-        Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")}");
+        Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")}");
     }
     else
     {
@@ -2698,6 +2711,50 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
         {
             throw new InvalidOperationException("S=253 按紧凑映射会指向 Unit图557，当前 Unit 索引表应严格越界而不是回退旧直读。");
         }
+    }
+    using (var battlefieldStageLow = previewService.TryRenderBattlefieldMoveIdleFrame(project, 1, null, 1, "下", 0, "初级", out var battlefieldStageLowDetail))
+    using (var battlefieldStageMid = previewService.TryRenderBattlefieldMoveIdleFrame(project, 1, null, 1, "下", 0, "中级", out var battlefieldStageMidDetail))
+    using (var battlefieldStageHigh = previewService.TryRenderBattlefieldMoveIdleFrame(project, 1, null, 1, "下", 0, "高级", out var battlefieldStageHighDetail))
+    using (var battlefieldDownIdle = previewService.TryRenderBattlefieldMoveIdleFrame(project, indexedSId, null, 1, "下", 0, out var battlefieldDownDetail))
+    using (var battlefieldLeftIdle = previewService.TryRenderBattlefieldMoveIdleFrame(project, indexedSId, null, 1, "左", 1, out var battlefieldLeftDetail))
+    using (var battlefieldRightIdle = previewService.TryRenderBattlefieldMoveIdleFrame(project, indexedSId, null, 1, "右", 1, out var battlefieldRightDetail))
+    {
+        if (battlefieldStageLow == null || battlefieldStageMid == null || battlefieldStageHigh == null)
+        {
+            throw new InvalidOperationException($"三转战场待机帧生成失败：low={battlefieldStageLowDetail} mid={battlefieldStageMidDetail} high={battlefieldStageHighDetail}");
+        }
+
+        if (!battlefieldStageLowDetail.Contains("#241", StringComparison.Ordinal) ||
+            !battlefieldStageMidDetail.Contains("#242", StringComparison.Ordinal) ||
+            !battlefieldStageHighDetail.Contains("#243", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"三转 S 形象没有按初/中/高级选择 Unit 图：low={battlefieldStageLowDetail} mid={battlefieldStageMidDetail} high={battlefieldStageHighDetail}");
+        }
+
+        if (battlefieldDownIdle == null || battlefieldLeftIdle == null || battlefieldRightIdle == null)
+        {
+            throw new InvalidOperationException($"战场 Unit_mov.e5 待机帧生成失败：down={battlefieldDownDetail} left={battlefieldLeftDetail} right={battlefieldRightDetail}");
+        }
+
+        if (battlefieldDownIdle.Size != new Size(48, 48) ||
+            battlefieldLeftIdle.Size != new Size(48, 48) ||
+            battlefieldRightIdle.Size != new Size(48, 48))
+        {
+            throw new InvalidOperationException($"战场 Unit_mov.e5 待机帧尺寸错误：down={battlefieldDownIdle.Size} left={battlefieldLeftIdle.Size} right={battlefieldRightIdle.Size}");
+        }
+
+        var transparentPixels = CountTransparentPixels(battlefieldDownIdle);
+        if (transparentPixels < 64)
+        {
+            throw new InvalidOperationException($"战场 Unit_mov.e5 待机帧透明背景不足：transparent={transparentPixels}");
+        }
+
+        if (!AreHorizontalMirrors(battlefieldLeftIdle, battlefieldRightIdle))
+        {
+            throw new InvalidOperationException("战场 Unit_mov.e5 右向待机帧没有按左向帧水平翻转。");
+        }
+
+        Console.WriteLine($"BATTLEFIELD_IDLE_PREVIEW S={indexedSId} down={battlefieldDownIdle.Width}x{battlefieldDownIdle.Height} transparent={transparentPixels} detail={battlefieldDownDetail} stage={battlefieldStageLowDetail}|{battlefieldStageMidDetail}|{battlefieldStageHighDetail}");
     }
     var legacyCompressedGameRoot = Path.Combine(project.WorkspaceRoot, "基底", "三国之召唤猛将6.4（60关版）基底");
     if (File.Exists(Path.Combine(legacyCompressedGameRoot, "Unit_mov.e5")))
@@ -4396,6 +4453,44 @@ static int CountColorfulPixels(System.Drawing.Bitmap bitmap)
     }
 
     return count;
+}
+
+static int CountTransparentPixels(System.Drawing.Bitmap bitmap)
+{
+    var count = 0;
+    for (var y = 0; y < bitmap.Height; y++)
+    {
+        for (var x = 0; x < bitmap.Width; x++)
+        {
+            if (bitmap.GetPixel(x, y).A == 0)
+            {
+                count++;
+            }
+        }
+    }
+
+    return count;
+}
+
+static bool AreHorizontalMirrors(System.Drawing.Bitmap left, System.Drawing.Bitmap right)
+{
+    if (left.Width != right.Width || left.Height != right.Height)
+    {
+        return false;
+    }
+
+    for (var y = 0; y < left.Height; y++)
+    {
+        for (var x = 0; x < left.Width; x++)
+        {
+            if (left.GetPixel(x, y).ToArgb() != right.GetPixel(left.Width - 1 - x, y).ToArgb())
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 static void AssertSMapping(int sImageId, int? jobId, int factionSlot, params int[] expected)

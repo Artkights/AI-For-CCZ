@@ -10,5 +10,20 @@ public sealed class BattlefieldUnitReview
     public string ReviewStatus { get; set; } = string.Empty;
     public string CreatorMemo { get; set; } = string.Empty;
     public string UpdatedAtText { get; set; } = string.Empty;
-    public string SafetyNote { get; set; } = "项目侧战场核对备注：不写入游戏文件，不参与发布封包。";
+    public bool IsPlacement { get; set; }
+    public int PersonId { get; set; } = -1;
+    public string UnitName { get; set; } = string.Empty;
+    public int? JobId { get; set; }
+    public string JobName { get; set; } = string.Empty;
+    public int SImageId { get; set; }
+    public int RImageId { get; set; }
+    public string Faction { get; set; } = string.Empty;
+    public int LevelOffset { get; set; }
+    public string LevelMode { get; set; } = string.Empty;
+    public string AiMode { get; set; } = string.Empty;
+    public bool Hidden { get; set; }
+    public string Direction { get; set; } = string.Empty;
+    public int GridX { get; set; } = -1;
+    public int GridY { get; set; } = -1;
+    public string SafetyNote { get; set; } = "项目侧战场核对/布阵备注：保存到 CCZModStudio_Notes，不写入游戏文件，不参与发布封包。";
 }

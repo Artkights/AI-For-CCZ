@@ -253,6 +253,8 @@ public sealed class BattlefieldEditorService
             CommandName = row.CommandName,
             RoleHint = BuildRoleHint(row),
             ParameterPreview = row.ParameterPreview,
+            RawContextWordsHex = row.RawContextWordsHex,
+            LegacyParameterLayout = row.LegacyParameterLayout,
             CommandTemplateHint = row.CommandTemplateHint,
             ReferenceHint = row.ReferenceHint,
             Annotation = BuildCommandAnnotation(row)
@@ -319,15 +321,15 @@ public sealed class BattlefieldEditorService
     private static string BuildLegacyBattlefieldRawWords(LegacyScenarioCommandNode command)
     {
         var words = new List<string> { command.CommandId.ToString("X4", CultureInfo.InvariantCulture) };
-        foreach (var parameter in command.Parameters.Take(16))
+        foreach (var parameter in command.Parameters)
         {
             if (parameter.Kind == LegacyScenarioParameterKind.Word16)
             {
-                words.Add(parameter.IntValue.ToString("X4", CultureInfo.InvariantCulture));
+                words.Add(unchecked((ushort)parameter.IntValue).ToString("X4", CultureInfo.InvariantCulture));
             }
             else if (parameter.Kind == LegacyScenarioParameterKind.VariableArray)
             {
-                words.AddRange(parameter.Values.Take(8).Select(value => value.ToString("X4", CultureInfo.InvariantCulture)));
+                words.AddRange(parameter.Values.Select(value => unchecked((ushort)value).ToString("X4", CultureInfo.InvariantCulture)));
             }
         }
 
@@ -392,23 +394,16 @@ public sealed class BattlefieldEditorService
         var rows = new List<BattlefieldUnitCandidate>();
         foreach (var command in commands)
         {
+            var deploymentRecords = BuildDeploymentRecordCandidates(command, rows.Count);
+            if (deploymentRecords.Count > 0)
+            {
+                rows.AddRange(deploymentRecords);
+                continue;
+            }
+
             if (!LooksLikeUnitCandidate(command)) continue;
 
-            rows.Add(new BattlefieldUnitCandidate
-            {
-                Index = rows.Count + 1,
-                Category = BuildUnitCategory(command),
-                SourceCommand = $"{command.CommandIdHex} {command.CommandName}",
-                SceneSection = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Cmd {command.CommandIndex}",
-                OffsetHex = command.OffsetHex,
-                PersonHint = BuildPersonHint(command),
-                CoordinateHint = BuildCoordinateHint(command),
-                FactionHint = BuildFactionHint(command),
-                AiHint = BuildAiHint(command),
-                LevelOrStateHint = BuildLevelOrStateHint(command),
-                Annotation = BuildUnitAnnotation(command),
-                TargetKey = BuildUnitTargetKey(command)
-            });
+            rows.Add(BuildGeneralUnitCandidate(command, rows.Count + 1));
         }
 
         return rows;
@@ -416,6 +411,174 @@ public sealed class BattlefieldEditorService
 
     private static string BuildUnitTargetKey(BattlefieldCommandCandidate command)
         => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset={command.OffsetHex};Id={command.CommandIdHex}";
+
+    private static string BuildUnitTargetKey(BattlefieldCommandCandidate command, int recordIndex)
+        => BuildUnitTargetKey(command) + $";Record={recordIndex.ToString(CultureInfo.InvariantCulture)}";
+
+    private static BattlefieldUnitCandidate BuildGeneralUnitCandidate(BattlefieldCommandCandidate command, int index)
+        => new()
+        {
+            Index = index,
+            Category = BuildUnitCategory(command),
+            SourceCommand = $"{command.CommandIdHex} {command.CommandName}",
+            SceneSection = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Cmd {command.CommandIndex}",
+            OffsetHex = command.OffsetHex,
+            PersonHint = BuildPersonHint(command),
+            CoordinateHint = BuildCoordinateHint(command),
+            FactionHint = BuildFactionHint(command),
+            AiHint = BuildAiHint(command),
+            LevelOrStateHint = BuildLevelOrStateHint(command),
+            Annotation = BuildUnitAnnotation(command),
+            TargetKey = BuildUnitTargetKey(command)
+        };
+
+    private static IReadOnlyList<BattlefieldUnitCandidate> BuildDeploymentRecordCandidates(BattlefieldCommandCandidate command, int existingCount)
+    {
+        var commandId = ParseCommandId(command.CommandIdHex);
+        var definition = commandId switch
+        {
+            0x46 => DeploymentCommandDefinition.Friend,
+            0x47 => DeploymentCommandDefinition.Enemy,
+            0x4B => DeploymentCommandDefinition.Ally,
+            _ => null
+        };
+        if (definition == null) return Array.Empty<BattlefieldUnitCandidate>();
+
+        var words = ExtractCommandWords(command).ToList();
+        if (words.Count == 0) return Array.Empty<BattlefieldUnitCandidate>();
+
+        var rows = new List<BattlefieldUnitCandidate>();
+        for (var recordIndex = 0; recordIndex < definition.RecordCount; recordIndex++)
+        {
+            var start = recordIndex * definition.GroupSize;
+            if (start + definition.GroupSize > words.Count) break;
+            var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
+            if (definition.SkipBlankRecords && LooksLikeBlankDeploymentRecord(recordWords)) continue;
+
+            rows.Add(BuildDeploymentRecordCandidate(command, definition, recordIndex, recordWords, existingCount + rows.Count + 1));
+        }
+
+        return rows;
+    }
+
+    private static BattlefieldUnitCandidate BuildDeploymentRecordCandidate(
+        BattlefieldCommandCandidate command,
+        DeploymentCommandDefinition definition,
+        int recordIndex,
+        IReadOnlyList<int> words,
+        int index)
+    {
+        var slotLabel = definition.RecordCount == 1
+            ? "单条"
+            : $"第 {(recordIndex + 1).ToString(CultureInfo.InvariantCulture)} 条";
+        var sourceCommand = $"{command.CommandIdHex} {command.CommandName} {slotLabel}";
+        var sceneSection = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Cmd {command.CommandIndex} / {slotLabel}";
+
+        return new BattlefieldUnitCandidate
+        {
+            Index = index,
+            Category = definition.Category,
+            SourceCommand = sourceCommand,
+            SceneSection = sceneSection,
+            OffsetHex = command.OffsetHex,
+            PersonHint = BuildDeploymentPersonHint(definition, words),
+            CoordinateHint = BuildDeploymentCoordinateHint(definition, words),
+            FactionHint = definition.FactionHint,
+            AiHint = BuildDeploymentAiHint(definition, words),
+            LevelOrStateHint = BuildDeploymentLevelOrStateHint(definition, words),
+            Annotation = BuildDeploymentAnnotation(command, definition, recordIndex, words),
+            TargetKey = BuildUnitTargetKey(command, recordIndex)
+        };
+    }
+
+    private static bool LooksLikeBlankDeploymentRecord(IReadOnlyList<int> words)
+    {
+        if (words.Count == 0) return true;
+        if (words.All(value => value == 0)) return true;
+        return words[0] is 0 or -1 && words.Skip(1).All(value => value == 0);
+    }
+
+    private static string BuildDeploymentPersonHint(DeploymentCommandDefinition definition, IReadOnlyList<int> words)
+    {
+        var value = GetWordOrDefault(words, definition.PersonIndex);
+        var role = definition.Category.Replace("出场", "人物/部队", StringComparison.Ordinal);
+        return $"{role}槽{definition.PersonIndex + 1}：{FormatScriptValue(value)}";
+    }
+
+    private static string BuildDeploymentCoordinateHint(DeploymentCommandDefinition definition, IReadOnlyList<int> words)
+    {
+        if (definition.XIndex < 0 || definition.YIndex < 0) return "该命令没有直接坐标槽；需结合出场位/战前选择核对。";
+        var x = GetWordOrDefault(words, definition.XIndex);
+        var y = GetWordOrDefault(words, definition.YIndex);
+        var slotText = $"X槽{definition.XIndex + 1}={FormatScriptValue(x)}，Y槽{definition.YIndex + 1}={FormatScriptValue(y)}";
+        if (x >= 0 && y >= 0 && x <= 60 && y <= 60)
+        {
+            return $"坐标候选：({x},{y})；{slotText}";
+        }
+
+        if (x < 0 || y < 0)
+        {
+            return $"坐标候选含整型变量：({FormatScriptValue(x)},{FormatScriptValue(y)})；6.5 坐标负数按整型变量引用处理。";
+        }
+
+        return $"坐标槽候选：({FormatScriptValue(x)},{FormatScriptValue(y)})；{slotText}；超出常规地图范围，请结合 58/无效坐标技巧或旧工具核对。";
+    }
+
+    private static string BuildDeploymentAiHint(DeploymentCommandDefinition definition, IReadOnlyList<int> words)
+    {
+        if (definition.AiIndex < 0) return "无直接 AI 方针槽。";
+        var value = GetWordOrDefault(words, definition.AiIndex);
+        var text = value switch
+        {
+            0 => "被动/默认",
+            1 => "主动候选",
+            2 => "坚守候选",
+            3 => "攻击指定对象候选",
+            4 => "到指定点候选",
+            5 => "跟随候选",
+            6 => "撤离/逃到指定点候选",
+            _ => "需旧工具核对"
+        };
+        return $"AI/方针槽{definition.AiIndex + 1}：{FormatScriptValue(value)}（{text}）";
+    }
+
+    private static string BuildDeploymentLevelOrStateHint(DeploymentCommandDefinition definition, IReadOnlyList<int> words)
+    {
+        var parts = new List<string>();
+        foreach (var index in definition.StateIndexes)
+        {
+            if (index < 0 || index >= words.Count) continue;
+            parts.Add($"槽{index + 1}={FormatScriptValue(words[index])}");
+        }
+
+        return parts.Count == 0
+            ? "无直接等级/状态槽。"
+            : "等级/状态/装备候选：" + string.Join(" / ", parts);
+    }
+
+    private static string BuildDeploymentAnnotation(
+        BattlefieldCommandCandidate command,
+        DeploymentCommandDefinition definition,
+        int recordIndex,
+        IReadOnlyList<int> words)
+    {
+        var slotLabel = definition.RecordCount == 1
+            ? "单条出场记录"
+            : $"第 {(recordIndex + 1).ToString(CultureInfo.InvariantCulture)}/{definition.RecordCount.ToString(CultureInfo.InvariantCulture)} 条出场记录";
+        return $"{definition.Category}：来源 {command.SourceCommandText()}，位置 {command.OffsetHex}，{slotLabel}。旧源码确认本命令按 {definition.GroupSize} 个 16 位参数为一组" +
+               (definition.RecordCount > 1 ? $"循环 {definition.RecordCount} 组" : string.Empty) +
+               $"；当前按槽位候选展示，不直接写回坐标/AI/等级。原始槽值：{string.Join(' ', words.Select(FormatScriptValue))}。";
+    }
+
+    private static int GetWordOrDefault(IReadOnlyList<int> words, int index)
+        => index >= 0 && index < words.Count ? words[index] : 0;
+
+    private static int ParseCommandId(string commandIdHex)
+    {
+        var text = commandIdHex.Trim();
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) text = text[2..];
+        return int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value) ? value : -1;
+    }
 
     private static bool LooksLikeUnitCandidate(BattlefieldCommandCandidate command)
     {
@@ -534,6 +697,35 @@ public sealed class BattlefieldEditorService
         }
     }
 
+    private static IEnumerable<int> ExtractCommandWords(BattlefieldCommandCandidate command)
+    {
+        var raw = command.RawContextWordsHex ?? string.Empty;
+        var values = new List<int>();
+        foreach (Match match in Regex.Matches(raw, @"(?<![0-9A-Fa-f])[0-9A-Fa-f]{4}(?![0-9A-Fa-f])"))
+        {
+            if (!int.TryParse(match.Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value)) continue;
+            values.Add(value > 60000 && value <= 65536 ? value - 65536 : value);
+        }
+
+        if (values.Count > 1 && ParseCommandId(command.CommandIdHex) == values[0])
+        {
+            return values.Skip(1);
+        }
+
+        if (values.Count > 0) return values;
+        return ExtractPreviewWords(command).Select(value => value > 60000 && value <= 65536 ? value - 65536 : value);
+    }
+
+    private static string FormatScriptValue(int value)
+    {
+        if (value < 0)
+        {
+            return $"{value.ToString(CultureInfo.InvariantCulture)}(整型变量{Math.Abs(value).ToString(CultureInfo.InvariantCulture)})";
+        }
+
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
     private static bool ContainsAny(string text, params string[] keywords)
         => keywords.Any(keyword => text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
@@ -566,6 +758,62 @@ public sealed class BattlefieldEditorService
             ? "未在关卡地图联动中找到同名关卡"
             : $"联动 {mapLink.MapId}，状态 {mapLink.Status}，主地形 {mapLink.DominantTerrain}";
         return $"战场制作文档：{scenario.FileName}。{titleStatus}；{conditionStatus}；{mapStatus}；战场命令候选 {candidateCount} 条，出场/坐标候选 {unitCandidateCount} 条。已知文本支持原地短写回，未知 R/S eex 命令结构保留原样。";
+    }
+
+    private sealed class DeploymentCommandDefinition
+    {
+        public static readonly DeploymentCommandDefinition Friend = new()
+        {
+            Category = "友军出场",
+            FactionHint = "阵营候选：友军",
+            GroupSize = 11,
+            RecordCount = 20,
+            PersonIndex = 0,
+            XIndex = 1,
+            YIndex = 2,
+            AiIndex = 7,
+            StateIndexes = [3, 4, 5, 6, 8, 9, 10],
+            SkipBlankRecords = true
+        };
+
+        public static readonly DeploymentCommandDefinition Enemy = new()
+        {
+            Category = "敌军出场",
+            FactionHint = "阵营候选：敌军",
+            GroupSize = 12,
+            RecordCount = 80,
+            PersonIndex = 0,
+            XIndex = 1,
+            YIndex = 2,
+            AiIndex = 8,
+            StateIndexes = [3, 4, 5, 6, 7, 9, 10, 11],
+            SkipBlankRecords = true
+        };
+
+        public static readonly DeploymentCommandDefinition Ally = new()
+        {
+            Category = "我军出场",
+            FactionHint = "阵营候选：我军",
+            GroupSize = 5,
+            RecordCount = 1,
+            PersonIndex = 0,
+            XIndex = 1,
+            YIndex = 2,
+            AiIndex = -1,
+            StateIndexes = [3, 4],
+            SkipBlankRecords = false
+        };
+
+        public string Category { get; init; } = string.Empty;
+        public string FactionHint { get; init; } = string.Empty;
+        public int GroupSize { get; init; }
+        public int RecordCount { get; init; }
+        public int PersonIndex { get; init; }
+        public int XIndex { get; init; }
+        public int YIndex { get; init; }
+        public int AiIndex { get; init; }
+        public IReadOnlyList<int> StateIndexes { get; init; } = Array.Empty<int>();
+        public bool SkipBlankRecords { get; init; }
     }
 }
 

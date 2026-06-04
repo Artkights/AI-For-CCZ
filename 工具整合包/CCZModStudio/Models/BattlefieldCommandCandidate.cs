@@ -11,6 +11,8 @@ public sealed class BattlefieldCommandCandidate
     public string CommandName { get; init; } = string.Empty;
     public string RoleHint { get; init; } = string.Empty;
     public string ParameterPreview { get; init; } = string.Empty;
+    public string RawContextWordsHex { get; init; } = string.Empty;
+    public string LegacyParameterLayout { get; init; } = string.Empty;
     public string CommandTemplateHint { get; init; } = string.Empty;
     public string ReferenceHint { get; init; } = string.Empty;
     public string Annotation { get; init; } = string.Empty;
