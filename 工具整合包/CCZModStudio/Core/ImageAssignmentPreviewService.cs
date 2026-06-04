@@ -22,6 +22,11 @@ public sealed class ImageAssignmentPreviewService
     private readonly Dictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<Color>? _tsbPaletteCache;
 
+    public void ClearCache()
+    {
+        _e5ImageIndexCache.Clear();
+    }
+
     public Bitmap RenderResourcePreview(CczProject project, string prefix, int id, string personName, int? faceId = null)
     {
         prefix = NormalizePrefix(prefix);

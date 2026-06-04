@@ -14,6 +14,7 @@ var migrationSmokeOnly = args.Contains("--migration-smoke", StringComparer.Ordin
 var legacyE5sSmokeOnly = args.Contains("--legacy-e5s-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScenarioDepthSmokeOnly = args.Contains("--legacy-scenario-depth-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScriptEditSmokeOnly = args.Contains("--legacy-script-edit-smoke", StringComparer.OrdinalIgnoreCase);
+var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyAllSmoke = args.Contains("--legacy-all-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
@@ -65,6 +66,12 @@ if (legacyScenarioDepthSmokeOnly)
 if (legacyScriptEditSmokeOnly)
 {
     RunLegacyScriptEditSmoke(project);
+    return;
+}
+
+if (e5ImageReplaceSmokeOnly)
+{
+    RunE5ImageReplaceSmoke(project);
     return;
 }
 
@@ -359,6 +366,22 @@ var row0SId = Convert.ToInt32(imageAssignments.Rows[0]["S\u5f62\u8c61\u7f16\u53f
 var row0FaceId = imageAssignments.Columns.Contains("头像编号")
     ? Convert.ToInt32(imageAssignments.Rows[0]["头像编号"], CultureInfo.InvariantCulture)
     : 0;
+var e5ImageReplaceService = new E5ImageReplaceService();
+var unitMovPath = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
+var unitMovEntries = e5ImageReplaceService.ReadIndex(unitMovPath);
+if (unitMovEntries.Count < 556)
+{
+    throw new InvalidOperationException($"Unit_mov.e5 0x110 图片索引表条目不足，预期至少 556，实际 {unitMovEntries.Count}。");
+}
+var e5ReplacePreview = e5ImageReplaceService.PreviewReplacementFromEntry(project, unitMovPath, 554, unitMovPath);
+if (e5ReplacePreview.ImageNumber != 554 ||
+    e5ReplacePreview.OldSizeBytes <= 0 ||
+    e5ReplacePreview.NewSizeBytes <= 0 ||
+    e5ReplacePreview.IndexOffset <= 0)
+{
+    throw new InvalidOperationException("E5 图片条目替换预览验证失败。");
+}
+Console.WriteLine($"E5_IMAGE_REPLACE_PREVIEW file={Path.GetFileName(unitMovPath)} entries={unitMovEntries.Count} image=554 kind={e5ReplacePreview.OldKind}->{e5ReplacePreview.NewKind} placement={e5ReplacePreview.Placement}");
 var imagePreviewService = new ImageAssignmentPreviewService();
 using (var preview = imagePreviewService.RenderResourcePreview(project, "R", row0RId, "\u66f9\u64cd", row0FaceId))
 {
@@ -1553,6 +1576,13 @@ if (enableWriteTest)
         throw new FileNotFoundException("写入烟雾测试需要 M000.jpg 地图图片。", mapTargetSource);
     }
 
+    var unitMovSource = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
+    if (!File.Exists(unitMovSource))
+    {
+        throw new FileNotFoundException("写入烟测需要 Unit_mov.e5。", unitMovSource);
+    }
+    File.Copy(unitMovSource, Path.Combine(smokeRoot, "Unit_mov.e5"), overwrite: false);
+
     var wavSource = Directory.Exists(Path.Combine(project.GameRoot, "WAV"))
         ? Directory.GetFiles(Path.Combine(project.GameRoot, "WAV"), "*.wav").OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase).FirstOrDefault()
         : null;
@@ -2043,6 +2073,38 @@ if (enableWriteTest)
     Console.WriteLine($"STRUCTURED_REPORT resource={Path.GetFileName(resourceReplace.ReportJsonPath)}");
     Console.WriteLine("VERIFY_RESOURCE_REPLACE OK");
 
+    var e5WriteService = new E5ImageReplaceService();
+    var e5ReplaceTarget = Path.Combine(testProject.GameRoot, "Unit_mov.e5");
+    var e5ReplacementPng = Path.Combine(smokeRoot, "Smoke_E5_Replacement.png");
+    using (var bitmap = new System.Drawing.Bitmap(12, 12, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+    {
+        using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+        graphics.Clear(System.Drawing.Color.Transparent);
+        using var redBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 220, 32, 64));
+        using var blueBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 32, 96, 220));
+        graphics.FillRectangle(redBrush, 1, 1, 5, 10);
+        graphics.FillRectangle(blueBrush, 6, 1, 5, 10);
+        bitmap.Save(e5ReplacementPng, System.Drawing.Imaging.ImageFormat.Png);
+    }
+    var e5WritePreview = e5WriteService.PreviewReplacement(testProject, e5ReplaceTarget, 554, e5ReplacementPng);
+    if (e5WritePreview.ImageNumber != 554 ||
+        e5WritePreview.NewKind != "PNG" ||
+        e5WritePreview.NewSizeBytes != new FileInfo(e5ReplacementPng).Length ||
+        string.IsNullOrWhiteSpace(e5WritePreview.RiskSummary))
+    {
+        throw new InvalidOperationException("E5 图片条目替换写入预览验证失败。");
+    }
+    var e5Write = e5WriteService.Replace(testProject, e5ReplaceTarget, 554, e5ReplacementPng);
+    if (!File.Exists(e5Write.BackupPath) ||
+        !File.Exists(e5Write.ReportPath) ||
+        !File.Exists(e5Write.ReportJsonPath) ||
+        !File.ReadAllText(e5Write.ReportJsonPath).Contains("E5图片条目替换", StringComparison.Ordinal) ||
+        !e5WriteService.ReadEntryBytes(e5ReplaceTarget, 554).SequenceEqual(File.ReadAllBytes(e5ReplacementPng)))
+    {
+        throw new InvalidOperationException("E5 图片条目替换写入/复读/报告验证失败。");
+    }
+    Console.WriteLine($"VERIFY_E5_IMAGE_REPLACE OK target={Path.GetFileName(e5Write.TargetPath)} image={e5Write.ImageNumber} kind={e5Write.OldKind}->{e5Write.NewKind} backup={Path.GetFileName(e5Write.BackupPath)} json={Path.GetFileName(e5Write.ReportJsonPath)}");
+
     var diffService = new TestCopyDiffService();
     var diffItems = diffService.Analyze(testProject);
     Console.WriteLine($"DIFF items={diffItems.Count} modified={diffItems.Count(x => x.Status == "已修改")} added={diffItems.Count(x => x.Status == "新增")} missing={diffItems.Count(x => x.Status == "缺失")}");
@@ -2526,6 +2588,22 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
     AssertSMapping(250, null, 1, 554);
     AssertSMapping(252, null, 1, 556);
     AssertSMapping(253, null, 1, 557);
+    var e5ImageReplaceService = new E5ImageReplaceService();
+    var unitMovPath = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
+    var unitMovEntries = e5ImageReplaceService.ReadIndex(unitMovPath);
+    if (unitMovEntries.Count < 556)
+    {
+        throw new InvalidOperationException($"Unit_mov.e5 0x110 图片索引表条目不足，预期至少 556，实际 {unitMovEntries.Count}。");
+    }
+    var e5ReplacePreview = e5ImageReplaceService.PreviewReplacementFromEntry(project, unitMovPath, 554, unitMovPath);
+    if (e5ReplacePreview.ImageNumber != 554 ||
+        e5ReplacePreview.OldSizeBytes <= 0 ||
+        e5ReplacePreview.NewSizeBytes <= 0 ||
+        e5ReplacePreview.IndexOffset <= 0)
+    {
+        throw new InvalidOperationException("E5 图片条目替换预览验证失败。");
+    }
+    Console.WriteLine($"E5_IMAGE_REPLACE_PREVIEW file={Path.GetFileName(unitMovPath)} entries={unitMovEntries.Count} image=554 kind={e5ReplacePreview.OldKind}->{e5ReplacePreview.NewKind} placement={e5ReplacePreview.Placement}");
     var indexedSPreviewRow = imageAssignments.Rows.Cast<DataRow>()
         .FirstOrDefault(row => Convert.ToInt32(row["S形象编号"], CultureInfo.InvariantCulture) == 250);
     var indexedSId = indexedSPreviewRow == null
@@ -3023,6 +3101,73 @@ static void ReindexLegacyScriptEditCommands(
             ReindexLegacyScriptEditCommands(command.ChildBlock.Commands, ref commandIndex, ref ordinal);
         }
     }
+}
+
+static void RunE5ImageReplaceSmoke(CczProject project)
+{
+    var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "E5ImageReplaceSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+    Directory.CreateDirectory(smokeRoot);
+    foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5", "Hexzmap.e5" })
+    {
+        var source = Path.Combine(project.GameRoot, coreFile);
+        if (File.Exists(source))
+        {
+            File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+        }
+    }
+
+    var unitMovSource = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
+    if (!File.Exists(unitMovSource))
+    {
+        throw new FileNotFoundException("E5 图片条目替换烟测需要 Unit_mov.e5。", unitMovSource);
+    }
+
+    var unitMovTarget = Path.Combine(smokeRoot, "Unit_mov.e5");
+    File.Copy(unitMovSource, unitMovTarget, overwrite: false);
+    File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+        $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=E5 image replace smoke\r\n");
+
+    var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+    var service = new E5ImageReplaceService();
+    var entries = service.ReadIndex(unitMovTarget);
+    if (entries.Count < 554)
+    {
+        throw new InvalidOperationException($"Unit_mov.e5 图片索引表条目不足，无法替换 #554：entries={entries.Count}。");
+    }
+
+    var replacementPng = Path.Combine(smokeRoot, "Smoke_E5_Replacement.png");
+    using (var bitmap = new System.Drawing.Bitmap(12, 12, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+    {
+        using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+        graphics.Clear(System.Drawing.Color.Transparent);
+        using var redBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 220, 32, 64));
+        using var blueBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 32, 96, 220));
+        graphics.FillRectangle(redBrush, 1, 1, 5, 10);
+        graphics.FillRectangle(blueBrush, 6, 1, 5, 10);
+        bitmap.Save(replacementPng, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    var preview = service.PreviewReplacement(testProject, unitMovTarget, 554, replacementPng);
+    if (preview.ImageNumber != 554 ||
+        preview.OldSizeBytes <= 0 ||
+        preview.NewKind != "PNG" ||
+        preview.SourceWidth != 12 ||
+        preview.SourceHeight != 12)
+    {
+        throw new InvalidOperationException("E5 图片条目替换预览断言失败。");
+    }
+
+    var result = service.Replace(testProject, unitMovTarget, 554, replacementPng);
+    if (!File.Exists(result.BackupPath) ||
+        !File.Exists(result.ReportPath) ||
+        !File.Exists(result.ReportJsonPath) ||
+        !File.ReadAllText(result.ReportJsonPath).Contains("E5图片条目替换", StringComparison.Ordinal) ||
+        !service.ReadEntryBytes(unitMovTarget, 554).SequenceEqual(File.ReadAllBytes(replacementPng)))
+    {
+        throw new InvalidOperationException("E5 图片条目替换写入、复读或报告断言失败。");
+    }
+
+    Console.WriteLine($"E5_IMAGE_REPLACE_SMOKE OK target={Path.GetFileName(result.TargetPath)} image={result.ImageNumber} kind={result.OldKind}->{result.NewKind} size={result.OldSizeBytes}->{result.NewSizeBytes} backup={Path.GetFileName(result.BackupPath)} json={Path.GetFileName(result.ReportJsonPath)}");
 }
 
 static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)

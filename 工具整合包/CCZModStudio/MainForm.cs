@@ -39,6 +39,7 @@ public sealed class MainForm : Form
     private readonly ScenarioCommandClipboardService _scenarioCommandClipboardService = new();
     private readonly ScenarioScriptSearchService _scenarioScriptSearchService = new();
     private readonly ResourceReplaceService _resourceReplaceService = new();
+    private readonly E5ImageReplaceService _e5ImageReplaceService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
     private readonly FieldAnnotationService _fieldAnnotationService = new();
@@ -242,6 +243,7 @@ public sealed class MainForm : Form
     private readonly Button _loadRoleEditorButton = new();
     private readonly Button _saveRoleEditorButton = new();
     private readonly Button _openRoleInTableEditorButton = new();
+    private readonly Button _openRolePersonalEffectButton = new();
     private readonly Button _filterRoleEditorButton = new();
     private readonly Button _clearRoleEditorFilterButton = new();
     private readonly Button _saveRoleTextDetailButton = new();
@@ -1248,9 +1250,9 @@ public sealed class MainForm : Form
         _clearImageAssignmentFilterButton.Enabled = false;
         _locateImageResourceButton.Text = "\u5b9a\u4f4d\u9009\u4e2d\u8d44\u6e90";
         _locateImageResourceButton.AutoSize = true;
-        _replaceImageResourceButton.Text = "导入/替换E5(待实现)";
+        _replaceImageResourceButton.Text = "导入/替换E5";
         _replaceImageResourceButton.AutoSize = true;
-        _restoreImageResourceButton.Text = "还原E5(待实现)";
+        _restoreImageResourceButton.Text = "还原E5条目";
         _restoreImageResourceButton.AutoSize = true;
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
         _exportMissingImageResourcesButton.AutoSize = true;
@@ -2806,6 +2808,8 @@ public sealed class MainForm : Form
         _saveRoleEditorButton.Enabled = false;
         _openRoleInTableEditorButton.Text = "打开通用人物表";
         _openRoleInTableEditorButton.AutoSize = true;
+        _openRolePersonalEffectButton.Text = "个人特效";
+        _openRolePersonalEffectButton.AutoSize = true;
         _roleEditorSearchBox.Width = 180;
         _roleEditorSearchBox.PlaceholderText = "姓名/编号/职业/形象";
         _filterRoleEditorButton.Text = "筛选";
@@ -2817,6 +2821,7 @@ public sealed class MainForm : Form
             _loadRoleEditorButton,
             _saveRoleEditorButton,
             _openRoleInTableEditorButton,
+            _openRolePersonalEffectButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _roleEditorSearchBox,
             _filterRoleEditorButton,
@@ -4311,6 +4316,7 @@ public sealed class MainForm : Form
         _saveRoleEditorButton.Click += (_, _) => SaveRoleEditor();
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
+        _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
         _filterRoleEditorButton.Click += (_, _) => ApplyRoleEditorFilter();
         _clearRoleEditorFilterButton.Click += (_, _) => ClearRoleEditorFilter();
         _roleEditorSearchBox.KeyDown += (_, e) =>
@@ -8606,6 +8612,11 @@ public sealed class MainForm : Form
         LoadJobEditor();
     }
 
+    private void OpenRolePersonalEffectEditor()
+    {
+        SelectTabPageByText("兵种特效");
+    }
+
     private void LoadJobEditor()
     {
         if (_project == null) return;
@@ -8651,13 +8662,13 @@ public sealed class MainForm : Form
         var output = new DataTable("兵种设定");
         output.Columns.Add("ID", typeof(int));
         output.Columns.Add("名称", typeof(string));
-        output.Columns.Add("介绍", typeof(string));
         foreach (DataColumn column in _jobGrowthRead.Data.Columns)
         {
             if (column.ColumnName is "ID" or "名称") continue;
             output.Columns.Add(column.ColumnName, column.DataType);
         }
         output.Columns.Add("穿透", typeof(int));
+        output.Columns.Add("介绍", typeof(string));
 
         var count = Math.Min(_jobNameRead.Data.Rows.Count, Math.Min(_jobDescriptionRead.Data.Rows.Count, Math.Min(_jobGrowthRead.Data.Rows.Count, _jobPierceRead.Data.Rows.Count)));
         for (var i = 0; i < count; i++)
@@ -8665,13 +8676,13 @@ public sealed class MainForm : Form
             var row = output.NewRow();
             row["ID"] = Convert.ToInt32(_jobNameRead.Data.Rows[i]["ID"], CultureInfo.InvariantCulture);
             row["名称"] = Convert.ToString(_jobNameRead.Data.Rows[i]["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
-            row["介绍"] = Convert.ToString(_jobDescriptionRead.Data.Rows[i]["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
             foreach (DataColumn column in _jobGrowthRead.Data.Columns)
             {
                 if (column.ColumnName is "ID" or "名称") continue;
                 row[column.ColumnName] = _jobGrowthRead.Data.Rows[i][column.ColumnName];
             }
             row["穿透"] = _jobPierceRead.Data.Rows[i]["穿透"];
+            row["介绍"] = Convert.ToString(_jobDescriptionRead.Data.Rows[i]["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
             output.Rows.Add(row);
         }
 
@@ -11643,15 +11654,301 @@ public sealed class MainForm : Form
 
     private void ImportOrReplaceSelectedImageResource(bool restoreMode)
     {
-        MessageBox.Show(this,
-            "人物 R/S 形象本体已按教程修正为 Pmapobj.e5 与 Unit_atk/mov/spc.e5。\r\n\r\n当前工具尚未确认这些 E5 封包的图片重排/重封包写入格式，因此已停止原先把 RS\\R_XX.eex / S_XX.eex 当作人物图像整文件替换的流程。\r\n\r\n后续需要先完成 Pmapobj.e5、Unit_*.e5 的封包解码与回写验证，再开放真正的导入/替换。",
-            restoreMode ? "E5 还原暂未开放" : "E5 导入/替换暂未开放",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
 
-        // NOTE: 旧版逻辑会把 RS\\R_XX.eex / RS\\S_XX.eex 当作人物形象整文件替换，
-        // 这与当前已确认的人物 R/S 形象来源(Pmapobj.e5 / Unit_*.e5)冲突，
-        // 且 E5 封包写回格式尚未验证，因此暂不开放写入。
+        var row = GetSelectedImageAssignmentRow();
+        if (row == null)
+        {
+            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var prefix = GetPreferredImageResourcePrefix();
+        if (!TryGetImageResourceId(row, prefix, out var id))
+        {
+            MessageBox.Show(this, $"无法读取 {prefix} 形象编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var targets = BuildE5ImageReplacementTargets(row, prefix, id);
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this,
+                $"当前 {prefix}={id} 没有可替换的有效 E5 图片条目。\r\n请确认 Pmapobj.e5 / Unit_*.e5 已存在，且映射图号没有超过索引表条目数。",
+                "没有可替换条目",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        var target = SelectE5ImageReplacementTarget(targets, restoreMode);
+        if (target == null) return;
+
+        string sourcePath;
+        E5ImageReplacePreviewResult preview;
+        if (restoreMode)
+        {
+            var backupRoot = Path.Combine(_project.GameRoot, "_CCZModStudio_Backups");
+            using var dialog = new OpenFileDialog
+            {
+                Title = $"选择包含图 #{target.ImageNumber} 的备份 E5 文件",
+                InitialDirectory = Directory.Exists(backupRoot) ? backupRoot : _project.GameRoot,
+                Filter = "E5 文件 (*.e5)|*.e5|所有文件 (*.*)|*.*",
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            sourcePath = dialog.FileName;
+
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                preview = _e5ImageReplaceService.PreviewReplacementFromEntry(_project, target.FilePath, target.ImageNumber, sourcePath);
+            }
+            catch (Exception ex)
+            {
+                Log("E5 条目还原预览失败：" + ex);
+                MessageBox.Show(this, ex.Message, "E5 还原预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+        else
+        {
+            using var dialog = new OpenFileDialog
+            {
+                Title = $"选择导入到 {Path.GetFileName(target.FilePath)} 图 #{target.ImageNumber} 的图片",
+                Filter = "图片条目 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|所有文件 (*.*)|*.*",
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            sourcePath = dialog.FileName;
+
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                preview = _e5ImageReplaceService.PreviewReplacement(_project, target.FilePath, target.ImageNumber, sourcePath);
+            }
+            catch (Exception ex)
+            {
+                Log("E5 条目替换预览失败：" + ex);
+                MessageBox.Show(this, ex.Message, "E5 替换预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+
+        var previewText = BuildE5ImageReplacePreviewText(target, preview, restoreMode);
+        _imageAssignmentInfoBox.Text = previewText;
+        Log($"E5 条目{(restoreMode ? "还原" : "替换")}预览：{preview.TargetRelativePath} #{preview.ImageNumber} <- {preview.SourcePath}");
+
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会先备份目标 E5 文件，再写入该单个图片条目。是否继续？",
+                restoreMode ? "确认还原 E5 图片条目" : "确认替换 E5 图片条目",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = restoreMode
+                ? _e5ImageReplaceService.ReplaceFromEntry(_project, target.FilePath, target.ImageNumber, sourcePath)
+                : _e5ImageReplaceService.Replace(_project, target.FilePath, target.ImageNumber, sourcePath);
+            _imageAssignmentPreviewService.ClearCache();
+            ShowSelectedImageAssignmentDetail();
+            _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildE5ImageReplaceResultText(result));
+            Log($"E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}，备份 {result.BackupPath}，结构化报告 {result.ReportJsonPath}");
+            SetStatus(restoreMode ? "E5 图片条目还原完成" : "E5 图片条目替换完成");
+        }
+        catch (Exception ex)
+        {
+            Log("E5 条目写入失败：" + ex);
+            MessageBox.Show(this, ex.Message, restoreMode ? "E5 还原失败" : "E5 替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<E5ImageReplacementTarget> BuildE5ImageReplacementTargets(DataRow row, string prefix, int id)
+    {
+        if (_project == null) return Array.Empty<E5ImageReplacementTarget>();
+        var result = new List<E5ImageReplacementTarget>();
+
+        if (prefix == "R")
+        {
+            if (id < 0) return result;
+            var path = CharacterImageResourceService.ResolveGameFile(_project, "Pmapobj.e5");
+            AddE5ImageReplacementTarget(result, "R正面", "R", path, checked(id * 2 + 1), $"R={id} 正面图");
+            AddE5ImageReplacementTarget(result, "R反面", "R", path, checked(id * 2 + 2), $"R={id} 反面图");
+            return result;
+        }
+
+        var jobId = row.Table.Columns.Contains("职业") ? Convert.ToInt32(row["职业"], CultureInfo.InvariantCulture) : (int?)null;
+        var sFactionSlot = GetImageAssignmentSPreviewFactionSlot();
+        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(id, jobId, sFactionSlot);
+        var unitFiles = new[]
+        {
+            ("移动", "Unit_mov.e5"),
+            ("攻击", "Unit_atk.e5"),
+            ("特技", "Unit_spc.e5")
+        };
+
+        foreach (var imageNumber in mapping.ImageNumbers)
+        {
+            foreach (var (action, fileName) in unitFiles)
+            {
+                var path = CharacterImageResourceService.ResolveGameFile(_project, fileName);
+                AddE5ImageReplacementTarget(result, $"{action}#{imageNumber}", "S", path, imageNumber, $"S={id} -> Unit 图 #{imageNumber} {action}");
+            }
+        }
+
+        return result;
+    }
+
+    private void AddE5ImageReplacementTarget(List<E5ImageReplacementTarget> result, string label, string prefix, string path, int imageNumber, string detail)
+    {
+        if (!File.Exists(path)) return;
+        var entries = _e5ImageReplaceService.ReadIndex(path);
+        if (imageNumber <= 0 || imageNumber > entries.Count) return;
+        var entry = entries[imageNumber - 1];
+        result.Add(new E5ImageReplacementTarget(
+            result.Count + 1,
+            prefix,
+            label,
+            path,
+            imageNumber,
+            entry.IndexOffset,
+            entry.DataOffset,
+            entry.Length,
+            entry.Kind,
+            $"{detail}；index=0x{entry.IndexOffset:X}；offset=0x{entry.DataOffset:X}；size={entry.Length:N0}；kind={entry.Kind}"));
+    }
+
+    private E5ImageReplacementTarget? SelectE5ImageReplacementTarget(IReadOnlyList<E5ImageReplacementTarget> targets, bool restoreMode)
+    {
+        if (targets.Count == 1) return targets[0];
+
+        using var dialog = new Form
+        {
+            Text = restoreMode ? "选择要还原的 E5 图片条目" : "选择要替换的 E5 图片条目",
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = true,
+            ShowInTaskbar = false,
+            Width = 980,
+            Height = 520,
+            MinimumSize = new Size(760, 420)
+        };
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1,
+            Padding = new Padding(10)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(layout);
+
+        layout.Controls.Add(new Label
+        {
+            Text = "请选择一个具体 E5 文件和图号。工具只会替换这一条索引，不会自动猜测其它动作帧。",
+            AutoSize = true,
+            Padding = new Padding(0, 0, 0, 8)
+        }, 0, 0);
+
+        var table = new DataTable();
+        table.Columns.Add("序号", typeof(int));
+        table.Columns.Add("条目", typeof(string));
+        table.Columns.Add("E5文件", typeof(string));
+        table.Columns.Add("图号", typeof(int));
+        table.Columns.Add("格式", typeof(string));
+        table.Columns.Add("大小", typeof(int));
+        table.Columns.Add("说明", typeof(string));
+        foreach (var target in targets)
+        {
+            table.Rows.Add(target.Index, target.Label, Path.GetFileName(target.FilePath), target.ImageNumber, target.Kind, target.OldSizeBytes, target.Detail);
+        }
+
+        var grid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            DataSource = table
+        };
+        layout.Controls.Add(grid, 0, 1);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.RightToLeft,
+            Padding = new Padding(0, 8, 0, 0)
+        };
+        var okButton = new Button { Text = "选择", DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(96, 32) };
+        var cancelButton = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true, MinimumSize = new Size(96, 32) };
+        buttons.Controls.Add(okButton);
+        buttons.Controls.Add(cancelButton);
+        layout.Controls.Add(buttons, 0, 2);
+        dialog.AcceptButton = okButton;
+        dialog.CancelButton = cancelButton;
+
+        if (grid.Rows.Count > 0)
+        {
+            grid.Rows[0].Selected = true;
+            grid.CurrentCell = grid.Rows[0].Cells[0];
+        }
+
+        if (dialog.ShowDialog(this) != DialogResult.OK) return null;
+        if (grid.CurrentRow == null) return null;
+        var selectedTargetIndex = Convert.ToInt32(grid.CurrentRow.Cells["序号"].Value, CultureInfo.InvariantCulture);
+        return targets.FirstOrDefault(target => target.Index == selectedTargetIndex);
+    }
+
+    private static string BuildE5ImageReplacePreviewText(E5ImageReplacementTarget target, E5ImageReplacePreviewResult preview, bool restoreMode)
+    {
+        var sourceSize = preview.SourceWidth.HasValue ? $"{preview.SourceWidth}x{preview.SourceHeight}" : "原始帧条/未知尺寸";
+        return
+            $"E5 图片条目{(restoreMode ? "还原" : "替换")}预览：{target.Label}\r\n" +
+            $"目标：{preview.TargetRelativePath}    图号：#{preview.ImageNumber}\r\n" +
+            $"来源：{preview.SourcePath}\r\n" +
+            $"索引偏移：0x{preview.IndexOffset:X}    数据偏移：0x{preview.OldDataOffset:X} -> 0x{preview.NewDataOffset:X}\r\n" +
+            $"条目大小：{preview.OldSizeBytes:N0} -> {preview.NewSizeBytes:N0} 字节    格式：{preview.OldKind} -> {preview.NewKind}    来源尺寸：{sourceSize}\r\n" +
+            $"文件大小：{preview.OldFileSizeBytes:N0} -> {preview.NewFileSizeBytes:N0} 字节（{FormatSignedBytes(preview.FileSizeDeltaBytes)}）\r\n" +
+            $"写入方式：{preview.Placement}    改动估算：{preview.ChangedBytesEstimate:N0} 字节\r\n" +
+            $"SHA256：{ShortSha256(preview.OldFileSha256)} -> {ShortSha256(preview.NewFileSha256)}    来源：{ShortSha256(preview.SourceSha256)}\r\n" +
+            $"格式提示：{(preview.FormatWarnings.Count == 0 ? "无" : string.Join("；", preview.FormatWarnings))}\r\n" +
+            $"风险提示：{preview.RiskSummary}\r\n" +
+            "说明：只更新 0x110 索引表中的指定图号，不重排其它图片条目。";
+    }
+
+    private static string BuildE5ImageReplaceResultText(E5ImageReplaceResult result)
+    {
+        return
+            $"E5 图片条目写入完成：{result.TargetRelativePath} #{result.ImageNumber}\r\n" +
+            $"条目：offset=0x{result.OldDataOffset:X}/size={result.OldSizeBytes:N0}/{result.OldKind} -> offset=0x{result.NewDataOffset:X}/size={result.NewSizeBytes:N0}/{result.NewKind}\r\n" +
+            $"写入方式：{result.Placement}    文件大小变化：{FormatSignedBytes(result.FileSizeDeltaBytes)}    改动估算：{result.ChangedBytesEstimate:N0} 字节\r\n" +
+            $"备份：{result.BackupPath}\r\n报告：{result.ReportPath}\r\n结构化报告：{result.ReportJsonPath}";
     }
 
     private void ExportMissingImageResourceReport()
@@ -24119,6 +24416,18 @@ public sealed class MainForm : Form
     {
         public override string ToString() => $"0x{Id:X2} {Name}";
     }
+
+    private sealed record E5ImageReplacementTarget(
+        int Index,
+        string Prefix,
+        string Label,
+        string FilePath,
+        int ImageNumber,
+        int IndexOffset,
+        int OldDataOffset,
+        int OldSizeBytes,
+        string Kind,
+        string Detail);
 }
 
 
