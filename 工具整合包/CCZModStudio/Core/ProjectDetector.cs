@@ -8,8 +8,10 @@ public sealed class ProjectDetector
 
     public static string FindSceneDictionaryPath(string workspaceRoot)
     {
-        var roots = BuildSearchRoots(workspaceRoot, Environment.CurrentDirectory, AppContext.BaseDirectory);
-        return FindSceneDictionaryPathInRoots(roots) ?? BuildSceneDictionaryCandidates(NormalizeDirectory(workspaceRoot)).First();
+        var roots = BuildSearchRoots(workspaceRoot);
+        return FindSceneDictionaryPathInRoots(roots) ??
+               FindBuiltInLegacyFile(Path.Combine("a新剧本编辑器v0.23", "CczString.ini")) ??
+               BuildSceneDictionaryCandidates(NormalizeDirectory(workspaceRoot)).First();
     }
 
     public static string FindSceneDictionaryPath(CczProject project)
@@ -19,18 +21,22 @@ public sealed class ProjectDetector
             return project.SceneDictionaryPath;
         }
 
-        var roots = BuildSearchRoots(project.WorkspaceRoot, project.GameRoot, Path.GetDirectoryName(project.HexTableXmlPath), Environment.CurrentDirectory, AppContext.BaseDirectory);
-        return FindSceneDictionaryPathInRoots(roots) ?? BuildSceneDictionaryCandidates(project.WorkspaceRoot).First();
+        var roots = BuildProjectResourceRoots(project);
+        return FindSceneDictionaryPathInRoots(roots) ??
+               FindBuiltInLegacyFile(Path.Combine("a新剧本编辑器v0.23", "CczString.ini")) ??
+               BuildSceneDictionaryCandidates(project.WorkspaceRoot).First();
     }
 
     public static string BuildMissingHexTableMessage(CczProject project)
     {
         var lines = new List<string>
         {
-            "找不到 HexTable.xml。跨设备迁移后，请确认旧 CczRSX 配置仍随项目一起复制，或把 HexTable.xml 放到以下任一结构：",
+            "找不到项目内 HexTable.xml，且工具内置备份也不可用。跨设备迁移后，请把 HexTable.xml 放到当前项目的以下任一结构，或确认工具内置备份未被删除：",
             "- <工作区>\\老版游戏制作工具\\CczRSX 6.5\\ConfigTable\\HexTable.xml",
             "- <工作区>\\CczRSX 6.5\\ConfigTable\\HexTable.xml",
             "- <游戏目录或工作区>\\ConfigTable\\HexTable.xml",
+            "- <游戏目录或工作区>\\HexTable.xml",
+            "- <工具目录>\\ConfigTable\\HexTable.xml（内置备份）",
             "",
             "当前解析结果：",
             "WorkspaceRoot=" + project.WorkspaceRoot,
@@ -50,8 +56,9 @@ public sealed class ProjectDetector
 
     public static string? FindPortableDirectory(string workspaceRoot, string directoryName, params string[] relativeCandidates)
     {
-        var roots = BuildSearchRoots(workspaceRoot, Environment.CurrentDirectory, AppContext.BaseDirectory);
-        return FindPortableDirectoryInRoots(roots, directoryName, relativeCandidates);
+        var roots = BuildSearchRoots(workspaceRoot);
+        return FindPortableDirectoryInRoots(roots, directoryName, relativeCandidates) ??
+               FindBuiltInLegacyDirectory(directoryName, relativeCandidates);
     }
 
     public static string? FindPortableDirectory(CczProject project, string directoryName, params string[] relativeCandidates)
@@ -62,8 +69,9 @@ public sealed class ProjectDetector
             return known;
         }
 
-        var roots = BuildSearchRoots(project.WorkspaceRoot, project.GameRoot, Path.GetDirectoryName(project.HexTableXmlPath), Environment.CurrentDirectory, AppContext.BaseDirectory);
-        return FindPortableDirectoryInRoots(roots, directoryName, relativeCandidates);
+        var roots = BuildProjectResourceRoots(project);
+        return FindPortableDirectoryInRoots(roots, directoryName, relativeCandidates) ??
+               FindBuiltInLegacyDirectory(directoryName, relativeCandidates);
     }
 
     public static string? FindPortableFile(CczProject project, string fileName, params string[] relativeCandidates)
@@ -75,8 +83,9 @@ public sealed class ProjectDetector
             return project.ImageAssignerSystemIniPath;
         }
 
-        var roots = BuildSearchRoots(project.WorkspaceRoot, project.GameRoot, Path.GetDirectoryName(project.HexTableXmlPath), Environment.CurrentDirectory, AppContext.BaseDirectory);
-        return FindPortableFileInRoots(roots, fileName, relativeCandidates);
+        var roots = BuildProjectResourceRoots(project);
+        return FindPortableFileInRoots(roots, fileName, relativeCandidates) ??
+               FindBuiltInLegacyFile(relativeCandidates);
     }
 
     public CczProject DetectDefaultProject()
@@ -86,11 +95,9 @@ public sealed class ProjectDetector
         diagnostics.Add("SearchRoots=" + string.Join(" | ", roots.Take(10)));
 
         var gameRoot = FindGameRootInRoots(roots);
-        var hexTable = FindHexTableInRoots(roots);
-        var workspace = ResolveWorkspaceRoot(gameRoot, hexTable, roots.FirstOrDefault() ?? Environment.CurrentDirectory);
-
+        var workspace = ResolveWorkspaceRoot(gameRoot, roots.FirstOrDefault() ?? Environment.CurrentDirectory);
         gameRoot ??= ResolveDefaultGameRoot(workspace);
-        hexTable ??= BuildHexTableCandidates(workspace).First();
+        var hexTable = ResolveHexTablePath(workspace, gameRoot, diagnostics);
 
         diagnostics.Add("ResolvedWorkspace=" + workspace);
         diagnostics.Add("ResolvedGameRoot=" + gameRoot);
@@ -106,9 +113,8 @@ public sealed class ProjectDetector
         var roots = BuildSearchRoots(gameRoot, Environment.CurrentDirectory, AppContext.BaseDirectory);
         diagnostics.Add("SearchRoots=" + string.Join(" | ", roots.Take(10)));
 
-        var hexTable = FindHexTableInRoots(roots);
-        var workspace = ResolveWorkspaceRoot(gameRoot, hexTable, roots.FirstOrDefault() ?? Environment.CurrentDirectory);
-        hexTable ??= BuildHexTableCandidates(workspace).First();
+        var workspace = ResolveWorkspaceRoot(gameRoot, roots.FirstOrDefault() ?? Environment.CurrentDirectory);
+        var hexTable = ResolveHexTablePath(workspace, gameRoot, diagnostics);
 
         diagnostics.Add("ResolvedWorkspace=" + workspace);
         diagnostics.Add("ResolvedGameRoot=" + gameRoot);
@@ -119,34 +125,50 @@ public sealed class ProjectDetector
 
     private static CczProject CreateProject(string workspace, string gameRoot, string hexTable, IReadOnlyList<string> roots, List<string> diagnostics)
     {
-        var sceneDictionary = FindSceneDictionaryPathInRoots(roots) ?? BuildSceneDictionaryCandidates(workspace).First();
+        var projectResourceRoots = BuildCurrentProjectRoots(workspace, gameRoot);
+        var sceneDictionary = FindSceneDictionaryPathInRoots(projectResourceRoots) ??
+                              FindBuiltInLegacyFile(Path.Combine("a新剧本编辑器v0.23", "CczString.ini")) ??
+                              BuildSceneDictionaryCandidates(workspace).First();
         var sceneEditorDirectory = FindPortableDirectoryInRoots(
-            roots,
+            projectResourceRoots,
             "a新剧本编辑器v0.23",
-            new[] { Path.Combine("老版游戏制作工具", "a新剧本编辑器v0.23"), "a新剧本编辑器v0.23" });
+            new[] { Path.Combine("老版游戏制作工具", "a新剧本编辑器v0.23"), "a新剧本编辑器v0.23" }) ??
+            FindBuiltInLegacyDirectory(
+                "a新剧本编辑器v0.23",
+                new[] { Path.Combine("老版游戏制作工具", "a新剧本编辑器v0.23"), "a新剧本编辑器v0.23" });
         var imageAssignerDirectory = FindPortableDirectoryInRoots(
-            roots,
+            projectResourceRoots,
             "形象指定器6.5",
             new[]
             {
                 Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5"),
                 Path.Combine("B形象指定器", "形象指定器6.5")
-            });
+            }) ??
+            FindBuiltInLegacyDirectory(
+                "形象指定器6.5",
+                new[]
+                {
+                    Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5"),
+                    Path.Combine("B形象指定器", "形象指定器6.5")
+                });
         var imageAssignerSystemIni = imageAssignerDirectory == null ? null : Path.Combine(imageAssignerDirectory, "System.ini");
         if (imageAssignerSystemIni == null || !File.Exists(imageAssignerSystemIni))
         {
             imageAssignerSystemIni = FindPortableFileInRoots(
-                roots,
+                projectResourceRoots,
                 "System.ini",
                 new[]
                 {
                     Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
                     Path.Combine("B形象指定器", "形象指定器6.5", "System.ini")
-                });
+                }) ??
+                FindBuiltInLegacyFile(
+                    Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
+                    Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
         }
 
         var materialLibraryRoot = FindPortableDirectoryInRoots(
-            roots,
+            projectResourceRoots,
             "素材库",
             new[]
             {
@@ -154,8 +176,20 @@ public sealed class ProjectDetector
                 Path.Combine("老版游戏制作工具", "普罗-综合工具v0.3", "素材库"),
                 Path.Combine("老版游戏制作工具", "素材库"),
                 "素材库"
-            });
-        var patchConfigRoot = FindPortableDirectoryInRoots(roots, "普罗-搬运 注入", new[] { "普罗-搬运 注入" });
+            }) ??
+            FindBuiltInLegacyDirectory(
+                "素材库",
+                new[]
+                {
+                    Path.Combine("普罗-综合工具v0.3", "素材库"),
+                    Path.Combine("老版游戏制作工具", "普罗-综合工具v0.3", "素材库"),
+                    Path.Combine("老版游戏制作工具", "素材库"),
+                    "素材库"
+                });
+        var patchConfigRoot = FindPortableDirectoryInRoots(projectResourceRoots, "普罗-搬运 注入", new[] { "普罗-搬运 注入" }) ??
+                              FindBuiltInLegacyDirectory("普罗-搬运 注入", new[] { "普罗-搬运 注入" });
+
+        diagnostics.Add("ProjectResourceRoots=" + string.Join(" | ", projectResourceRoots));
 
         diagnostics.Add("ResolvedSceneDictionary=" + sceneDictionary);
         diagnostics.Add("ResolvedSceneEditorDirectory=" + (sceneEditorDirectory ?? "<missing>"));
@@ -212,27 +246,13 @@ public sealed class ProjectDetector
         return null;
     }
 
-    private static string ResolveWorkspaceRoot(string? gameRoot, string? hexTable, string fallback)
+    private static string ResolveWorkspaceRoot(string? gameRoot, string fallback)
     {
-        if (!string.IsNullOrWhiteSpace(gameRoot) && !string.IsNullOrWhiteSpace(hexTable))
-        {
-            var common = FindCommonAncestor(gameRoot, hexTable);
-            if (!string.IsNullOrWhiteSpace(common) && !IsDriveRoot(common))
-            {
-                return common;
-            }
-        }
-
         if (!string.IsNullOrWhiteSpace(gameRoot))
         {
             var gameWorkspace = FindWorkspaceRootAroundGameRoot(gameRoot);
             if (gameWorkspace != null) return gameWorkspace;
             return Directory.GetParent(gameRoot)?.FullName ?? gameRoot;
-        }
-
-        if (!string.IsNullOrWhiteSpace(hexTable))
-        {
-            return FindWorkspaceRootAroundHexTable(hexTable) ?? Directory.GetParent(hexTable)?.FullName ?? fallback;
         }
 
         return NormalizeDirectory(fallback);
@@ -248,33 +268,6 @@ public sealed class ProjectDetector
                 Directory.Exists(Path.Combine(dir.FullName, "老版游戏制作工具")))
             {
                 return dir.FullName;
-            }
-
-            dir = dir.Parent;
-        }
-
-        return null;
-    }
-
-    private static string? FindWorkspaceRootAroundHexTable(string hexTable)
-    {
-        var dir = Directory.GetParent(hexTable);
-        while (dir != null)
-        {
-            if (dir.Name.Equals("老版游戏制作工具", StringComparison.OrdinalIgnoreCase))
-            {
-                return dir.Parent?.FullName;
-            }
-
-            if (dir.Name.Equals("CczRSX 6.5", StringComparison.OrdinalIgnoreCase))
-            {
-                var parent = dir.Parent;
-                if (parent?.Name.Equals("老版游戏制作工具", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    return parent.Parent?.FullName;
-                }
-
-                return parent?.FullName;
             }
 
             dir = dir.Parent;
@@ -347,25 +340,49 @@ public sealed class ProjectDetector
         };
     }
 
-    private static string? FindHexTableInRoots(IReadOnlyList<string> roots)
+    private static string ResolveHexTablePath(string workspace, string gameRoot, List<string> diagnostics)
     {
-        foreach (var root in roots)
+        var projectRoots = BuildCurrentProjectRoots(workspace, gameRoot);
+        diagnostics.Add("HexTableProjectRoots=" + string.Join(" | ", projectRoots));
+
+        var projectHexTable = FindHexTableInProjectRoots(projectRoots);
+        if (projectHexTable != null)
         {
-            var direct = BuildHexTableCandidates(root).FirstOrDefault(File.Exists);
-            if (direct != null) return Path.GetFullPath(direct);
+            diagnostics.Add("ResolvedHexTableSource=Project");
+            return projectHexTable;
         }
 
-        var matches = new List<string>();
-        foreach (var root in roots.Where(Directory.Exists).Where(root => !IsDriveRoot(root)))
+        var builtInHexTable = FindBuiltInHexTableBackup();
+        if (builtInHexTable != null)
         {
-            matches.AddRange(EnumerateFilesLimited(root, "HexTable.xml", MaxRecursiveSearchDepth));
+            diagnostics.Add("ResolvedHexTableSource=BuiltInBackup");
+            return builtInHexTable;
         }
 
-        return matches
+        diagnostics.Add("ResolvedHexTableSource=Missing");
+        return BuildHexTableCandidates(gameRoot).Concat(BuildHexTableCandidates(workspace)).First();
+    }
+
+    private static IReadOnlyList<string> BuildCurrentProjectRoots(string workspace, string gameRoot)
+    {
+        return new[] { gameRoot, workspace }
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(NormalizeDirectory)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(ScoreHexTable)
-            .ThenBy(path => path.Length)
-            .FirstOrDefault();
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> BuildProjectResourceRoots(CczProject project) =>
+        BuildCurrentProjectRoots(project.WorkspaceRoot, project.GameRoot);
+
+    private static string? FindHexTableInProjectRoots(IReadOnlyList<string> roots)
+    {
+        foreach (var candidate in roots.SelectMany(BuildHexTableCandidates))
+        {
+            if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<string> BuildHexTableCandidates(string workspace)
@@ -380,16 +397,91 @@ public sealed class ProjectDetector
         };
     }
 
-    private static int ScoreHexTable(string path)
+    private static string? FindBuiltInHexTableBackup()
     {
-        var score = 0;
-        if (path.Contains("老版游戏制作工具", StringComparison.OrdinalIgnoreCase)) score += 100;
-        if (path.Contains("CczRSX 6.5", StringComparison.OrdinalIgnoreCase)) score += 80;
-        if (path.Contains("ConfigTable", StringComparison.OrdinalIgnoreCase)) score += 60;
-        if (path.Contains("TestCopies", StringComparison.OrdinalIgnoreCase)) score -= 20;
-        if (path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)) score -= 40;
-        if (path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)) score -= 40;
-        return score;
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "ConfigTable", "HexTable.xml"),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "ConfigTable", "HexTable.xml"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "ConfigTable", "HexTable.xml"))
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static string? FindBuiltInLegacyFile(params string[] relativeCandidates)
+    {
+        foreach (var root in BuildBuiltInLegacyResourceRoots())
+        {
+            foreach (var relative in relativeCandidates)
+            {
+                var candidate = BuildPortableCandidate(root, StripLegacyToolPrefix(relative));
+                if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindBuiltInLegacyDirectory(string directoryName, IReadOnlyList<string> relativeCandidates)
+    {
+        foreach (var root in BuildBuiltInLegacyResourceRoots())
+        {
+            foreach (var relative in relativeCandidates)
+            {
+                var candidate = BuildPortableCandidate(root, StripLegacyToolPrefix(relative));
+                if (Directory.Exists(candidate)) return Path.GetFullPath(candidate);
+            }
+
+            var directMatches = Directory.Exists(root)
+                ? EnumerateDirectoriesLimited(root, MaxRecursiveSearchDepth)
+                    .Where(path => IsDirectoryName(path, directoryName))
+                    .OrderByDescending(path => ScorePortablePath(path, relativeCandidates))
+                    .ThenBy(path => path.Length)
+                    .ToList()
+                : new List<string>();
+            var found = directMatches.FirstOrDefault();
+            if (found != null) return Path.GetFullPath(found);
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> BuildBuiltInLegacyResourceRoots()
+    {
+        return new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "LegacyResources"),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "LegacyResources"),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "LegacyResources"))
+        }
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    }
+
+    private static string StripLegacyToolPrefix(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return relativePath;
+        if (Path.IsPathRooted(relativePath)) return relativePath;
+
+        var prefixes = new[]
+        {
+            "老版游戏制作工具",
+            "鑰佺増娓告垙鍒朵綔宸ュ叿"
+        };
+
+        foreach (var prefix in prefixes)
+        {
+            if (relativePath.Equals(prefix, StringComparison.OrdinalIgnoreCase)) return string.Empty;
+            if (relativePath.StartsWith(prefix + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                relativePath.StartsWith(prefix + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return relativePath[(prefix.Length + 1)..];
+            }
+        }
+
+        return relativePath;
     }
 
     private static string? FindSceneDictionaryPathInRoots(IReadOnlyList<string> roots)
@@ -637,55 +729,6 @@ public sealed class ProjectDetector
         {
             return true;
         }
-    }
-
-    private static string? FindCommonAncestor(string left, string right)
-    {
-        try
-        {
-            left = Path.GetFullPath(left);
-            right = Path.GetFullPath(right);
-        }
-        catch
-        {
-            return null;
-        }
-
-        var leftParts = SplitPath(left);
-        var rightParts = SplitPath(right);
-        var count = Math.Min(leftParts.Count, rightParts.Count);
-        var common = new List<string>();
-
-        for (var i = 0; i < count; i++)
-        {
-            if (!leftParts[i].Equals(rightParts[i], StringComparison.OrdinalIgnoreCase)) break;
-            common.Add(leftParts[i]);
-        }
-
-        if (common.Count == 0) return null;
-        var root = Path.GetPathRoot(left);
-        if (root == null) return null;
-        if (common.Count == 1 && common[0].Equals(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
-        {
-            return root;
-        }
-
-        var combinedParts = new[] { root }.Concat(common.Skip(1)).ToArray();
-        return Path.Combine(combinedParts);
-    }
-
-    private static List<string> SplitPath(string path)
-    {
-        var root = Path.GetPathRoot(path);
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(root))
-        {
-            parts.Add(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            path = path[root.Length..];
-        }
-
-        parts.AddRange(path.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries));
-        return parts;
     }
 
     private static bool IsDriveRoot(string path)

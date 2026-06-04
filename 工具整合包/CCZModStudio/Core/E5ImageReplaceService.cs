@@ -11,6 +11,8 @@ public sealed class E5ImageReplaceService
 {
     private const int E5ImageIndexOffset = 0x110;
     private const int E5ImageIndexEntrySize = 12;
+    private const int LsHeaderLength = 16;
+    private const int LsDictionaryLength = 256;
     private static readonly byte[] PngMagic = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
     private readonly WriteOperationReportService _reportService = new();
 
@@ -31,9 +33,7 @@ public sealed class E5ImageReplaceService
         }
 
         var entry = entries[imageNumber - 1];
-        var bytes = new byte[entry.Length];
-        Buffer.BlockCopy(data, entry.DataOffset, bytes, 0, bytes.Length);
-        return bytes;
+        return ReadEntryBytes(data, entry);
     }
 
     public E5ImageReplacePreviewResult PreviewReplacement(CczProject project, string targetPath, int imageNumber, string sourcePath)
@@ -88,8 +88,7 @@ public sealed class E5ImageReplaceService
                 $"E5 写入后复读失败：索引项不匹配。预期 offset=0x{preview.NewDataOffset:X}, size={preview.NewSizeBytes}；实际 offset=0x{writtenEntry.DataOffset:X}, size={writtenEntry.Length}。");
         }
 
-        var writtenBytes = new byte[writtenEntry.Length];
-        Buffer.BlockCopy(writtenData, writtenEntry.DataOffset, writtenBytes, 0, writtenBytes.Length);
+        var writtenBytes = ReadEntryBytes(writtenData, writtenEntry);
         if (!writtenBytes.SequenceEqual(sourceBytes))
         {
             throw new InvalidOperationException("E5 写入后复读失败：目标条目字节与来源字节不一致。");
@@ -154,7 +153,7 @@ public sealed class E5ImageReplaceService
 
         var sourceInfo = ValidateReplacementBytes(sourceBytes);
         var entry = entries[imageNumber - 1];
-        var newOffset = sourceBytes.Length <= entry.Length ? entry.DataOffset : oldFileBytes.Length;
+        var newOffset = sourceBytes.Length <= entry.StoredLength ? entry.DataOffset : oldFileBytes.Length;
         if ((uint)newOffset != newOffset || (uint)sourceBytes.Length != sourceBytes.Length)
         {
             throw new InvalidOperationException("E5 条目偏移或图片长度超过 32 位索引可表达范围，已拒绝写入。");
@@ -193,30 +192,150 @@ public sealed class E5ImageReplaceService
     private static IReadOnlyList<E5ImageEntryInfo> ReadIndex(byte[] data)
     {
         var result = new List<E5ImageEntryInfo>();
+        uint firstDataOffset = 0;
         for (var indexOffset = E5ImageIndexOffset; indexOffset + E5ImageIndexEntrySize <= data.Length; indexOffset += E5ImageIndexEntrySize)
         {
-            var sizeA = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset, 4));
-            var sizeB = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset + 4, 4));
-            var dataOffset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset + 8, 4));
-            if (sizeA == 0 ||
-                sizeA != sizeB ||
-                dataOffset >= data.Length ||
-                sizeB > data.Length - dataOffset)
+            if (firstDataOffset > 0 && indexOffset >= firstDataOffset)
             {
                 break;
             }
 
+            var storedSize = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset, 4));
+            var decodedSize = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset + 4, 4));
+            var dataOffset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset + 8, 4));
+            if (storedSize == 0 ||
+                decodedSize == 0 ||
+                dataOffset >= data.Length ||
+                storedSize > data.Length - dataOffset ||
+                storedSize > int.MaxValue ||
+                decodedSize > int.MaxValue)
+            {
+                break;
+            }
+
+            if (firstDataOffset == 0)
+            {
+                firstDataOffset = dataOffset;
+            }
+
+            var compressed = storedSize != decodedSize;
             result.Add(new E5ImageEntryInfo
             {
                 ImageNumber = result.Count + 1,
                 IndexOffset = indexOffset,
                 DataOffset = checked((int)dataOffset),
-                Length = checked((int)sizeB),
-                Kind = DetectKind(data.AsSpan(checked((int)dataOffset), checked((int)sizeB)))
+                Length = checked((int)storedSize),
+                StoredLength = checked((int)storedSize),
+                DecodedLength = checked((int)decodedSize),
+                Kind = compressed
+                    ? "LS12"
+                    : DetectKind(data.AsSpan(checked((int)dataOffset), checked((int)storedSize)))
             });
         }
 
         return result;
+    }
+
+    private static byte[] ReadEntryBytes(byte[] data, E5ImageEntryInfo entry)
+    {
+        var storedBytes = new byte[entry.StoredLength];
+        Buffer.BlockCopy(data, entry.DataOffset, storedBytes, 0, storedBytes.Length);
+        if (!entry.IsCompressed)
+        {
+            return storedBytes;
+        }
+
+        if (data.Length < LsHeaderLength + LsDictionaryLength)
+        {
+            throw new InvalidOperationException("E5 压缩条目解码失败：文件缺少 LS 字典。");
+        }
+
+        var dictionary = new byte[LsDictionaryLength];
+        Buffer.BlockCopy(data, LsHeaderLength, dictionary, 0, dictionary.Length);
+        if (!TryDecodeLsEntry(dictionary, storedBytes, entry.DecodedLength, out var decoded))
+        {
+            throw new InvalidOperationException($"E5 压缩条目解码失败：图号 #{entry.ImageNumber}。");
+        }
+
+        return decoded;
+    }
+
+    private static bool TryDecodeLsEntry(byte[] dictionary, byte[] encoded, int decodedLength, out byte[] decoded)
+    {
+        decoded = new byte[decodedLength];
+        if (encoded.Length == decodedLength)
+        {
+            Buffer.BlockCopy(encoded, 0, decoded, 0, decodedLength);
+            return true;
+        }
+
+        var inputIndex = 0;
+        var bitPosition = 7;
+        var outputIndex = 0;
+        var backDistance = 0;
+
+        while (outputIndex < decodedLength)
+        {
+            if (inputIndex >= encoded.Length) return false;
+
+            uint code = 0;
+            var bitLength = 0;
+            int bitSet;
+            do
+            {
+                bitSet = (encoded[inputIndex] >> bitPosition) & 0x01;
+                code = (code << 1) | (uint)bitSet;
+                bitLength++;
+                bitPosition--;
+                if (bitPosition < 0)
+                {
+                    bitPosition = 7;
+                    inputIndex++;
+                }
+            } while (bitSet != 0);
+
+            uint mask = 0;
+            while (bitLength-- > 0)
+            {
+                if (inputIndex >= encoded.Length) return false;
+                bitSet = (encoded[inputIndex] >> bitPosition) & 0x01;
+                mask = (mask << 1) | (uint)bitSet;
+                bitPosition--;
+                if (bitPosition < 0)
+                {
+                    bitPosition = 7;
+                    inputIndex++;
+                }
+            }
+
+            code += mask;
+            if (backDistance == 0 && code >= LsDictionaryLength)
+            {
+                backDistance = checked((int)(code - LsDictionaryLength));
+                if (backDistance == 0) return false;
+                continue;
+            }
+
+            if (backDistance == 0)
+            {
+                if (code >= LsDictionaryLength) return false;
+                decoded[outputIndex++] = dictionary[(int)code];
+                continue;
+            }
+
+            var copyCount = checked((int)code + 3);
+            while (copyCount-- > 0)
+            {
+                if (outputIndex >= decodedLength) return false;
+                var sourceIndex = outputIndex - backDistance;
+                if (sourceIndex < 0) return false;
+                decoded[outputIndex++] = decoded[sourceIndex];
+            }
+
+            backDistance = 0;
+        }
+
+        return true;
     }
 
     private static ReplacementSourceInfo ValidateReplacementBytes(byte[] bytes)
@@ -288,6 +407,11 @@ public sealed class E5ImageReplaceService
         if (!string.Equals(entry.Kind, sourceInfo.Kind, StringComparison.OrdinalIgnoreCase))
         {
             warnings.Add($"图片条目格式会从 {entry.Kind} 变为 {sourceInfo.Kind}；请确认游戏可读取该格式。");
+        }
+
+        if (entry.IsCompressed)
+        {
+            warnings.Add($"目标条目原为 LS12 压缩载荷，stored={entry.StoredLength:N0} decoded={entry.DecodedLength:N0}；写入后会转为未压缩条目。");
         }
 
         if (sourceInfo.Kind == "RAW")

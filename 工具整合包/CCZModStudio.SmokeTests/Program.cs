@@ -278,7 +278,8 @@ foreach (var item in unusable)
     Console.WriteLine("  UNUSABLE " + item);
 }
 
-var patchPath = Path.Combine(project.WorkspaceRoot, "普罗-搬运 注入", "6.4bug修复补丁.txt");
+var patchRoot = ProjectDetector.FindPortableDirectory(project, "普罗-搬运 注入", "普罗-搬运 注入");
+var patchPath = Path.Combine(patchRoot ?? string.Empty, "6.4bug修复补丁.txt");
 PatchDocument? patchDocument = null;
 if (File.Exists(patchPath))
 {
@@ -300,7 +301,7 @@ else
 var moveParser = new BatchMoveParser();
 foreach (var moveFile in new[] { "63搬运64data.txt", "63搬运64exe.txt", "63搬运64imsg.txt" })
 {
-    var movePath = Path.Combine(project.WorkspaceRoot, "普罗-搬运 注入", moveFile);
+    var movePath = Path.Combine(patchRoot ?? string.Empty, moveFile);
     if (!File.Exists(movePath))
     {
         Console.WriteLine("MOVE skipped: file not found " + movePath);
@@ -2303,7 +2304,12 @@ static void RunLegacyE5sSmoke(CczProject project)
         throw new InvalidOperationException("未找到 SV\\*.E5S；E5S 兼容检查无法运行。");
     }
 
-    var configPath = Path.Combine(project.WorkspaceRoot, "B形象指定器", "形象指定器6.5", "System.ini");
+    var configPath = ProjectDetector.FindPortableFile(
+        project,
+        "System.ini",
+        Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
+        Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"))
+        ?? string.Empty;
     var countSvText = ReadIniValue(configPath, "CountSV") ?? "未找到";
     Console.WriteLine($"LEGACY_E5S_CONFIG CountSV={countSvText} source={configPath}");
     if (!string.Equals(countSvText, "900", StringComparison.OrdinalIgnoreCase))
@@ -2641,6 +2647,30 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
         {
             throw new InvalidOperationException("S=253 按紧凑映射会指向 Unit图557，当前 Unit 索引表应严格越界而不是回退旧直读。");
         }
+    }
+    var legacyCompressedGameRoot = Path.Combine(project.WorkspaceRoot, "基底", "三国之召唤猛将6.4（60关版）基底");
+    if (File.Exists(Path.Combine(legacyCompressedGameRoot, "Unit_mov.e5")))
+    {
+        var legacyCompressedProject = new ProjectDetector().CreateProjectFromGameRoot(legacyCompressedGameRoot);
+        var legacyCompressedEntries = e5ImageReplaceService.ReadIndex(CharacterImageResourceService.ResolveGameFile(legacyCompressedProject, "Unit_mov.e5"));
+        if (legacyCompressedEntries.Count < 72 || !legacyCompressedEntries[63].IsCompressed)
+        {
+            throw new InvalidOperationException($"Legacy compressed Unit_mov.e5 index should include compressed entry #64; entries={legacyCompressedEntries.Count} compressed64={legacyCompressedEntries.ElementAtOrDefault(63)?.IsCompressed}");
+        }
+
+        using var legacyCompressedPreview = previewService.TryRenderCharacterResourceImage(legacyCompressedProject, "S", 0, 21, 1);
+        if (legacyCompressedPreview == null)
+        {
+            throw new InvalidOperationException("Legacy compressed Unit_mov.e5 entry #64 should render after LS12 decode.");
+        }
+
+        var legacyCompressedColorPixels = CountColorfulPixels(legacyCompressedPreview);
+        if (legacyCompressedColorPixels < 48)
+        {
+            throw new InvalidOperationException($"Legacy compressed Unit preview is still blank or grayscale. colorPixels={legacyCompressedColorPixels}");
+        }
+
+        Console.WriteLine($"RS_LEGACY_COMPRESSED_PREVIEW game={Path.GetFileName(legacyCompressedGameRoot)} colorPixels={legacyCompressedColorPixels}");
     }
     var previewPng = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RS_R00_FacePreview_{Guid.NewGuid():N}.png");
     Directory.CreateDirectory(Path.GetDirectoryName(previewPng)!);

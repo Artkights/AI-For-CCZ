@@ -16,6 +16,14 @@
     <Content Include="Assets\Palettes\tsb">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\ConfigTable\HexTable.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>ConfigTable\HexTable.xml</TargetPath>
+    </Content>
+    <Content Include="Assets\LegacyResources\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>LegacyResources\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
   </ItemGroup>
 
 </Project>

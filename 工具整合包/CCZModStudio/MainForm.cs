@@ -83,6 +83,7 @@ public sealed class MainForm : Form
     private readonly BattlefieldUnitReviewService _battlefieldUnitReviewService = new();
     private readonly ItemIconPreviewService _itemIconPreviewService = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
+    private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
 
     private CczProject? _project;
     private IReadOnlyList<HexTableDefinition> _tables = Array.Empty<HexTableDefinition>();
@@ -262,6 +263,8 @@ public sealed class MainForm : Form
     private readonly Button _clearJobEditorFilterButton = new();
     private readonly TextBox _jobEditorSearchBox = new();
     private readonly DataGridView _jobEditorGrid = new();
+    private readonly PictureBox _jobAreaPreviewBox = new();
+    private readonly TextBox _jobAreaPreviewInfoBox = new();
     private readonly TextBox _jobEditorInfoBox = new();
     private readonly Button _loadJobTerrainButton = new();
     private readonly Button _saveJobTerrainButton = new();
@@ -3078,12 +3081,46 @@ public sealed class MainForm : Form
         });
         layout.Controls.Add(toolbar, 0, 0);
 
+        var detailBody = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 1,
+            ColumnCount = 2
+        };
+        detailBody.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        detailBody.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260));
+        layout.Controls.Add(detailBody, 0, 1);
+
         _jobEditorGrid.Dock = DockStyle.Fill;
         _jobEditorGrid.AllowUserToAddRows = false;
         _jobEditorGrid.AllowUserToDeleteRows = false;
         _jobEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        layout.Controls.Add(_jobEditorGrid, 0, 1);
+        detailBody.Controls.Add(_jobEditorGrid, 0, 0);
+
+        var previewPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1,
+            Padding = new Padding(8, 0, 0, 0)
+        };
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 210));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        previewPanel.Controls.Add(new Label { Text = "范围预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
+        _jobAreaPreviewBox.Dock = DockStyle.Fill;
+        _jobAreaPreviewBox.SizeMode = PictureBoxSizeMode.CenterImage;
+        _jobAreaPreviewBox.BackColor = Color.White;
+        previewPanel.Controls.Add(_jobAreaPreviewBox, 0, 1);
+        _jobAreaPreviewInfoBox.Dock = DockStyle.Fill;
+        _jobAreaPreviewInfoBox.Multiline = true;
+        _jobAreaPreviewInfoBox.ReadOnly = true;
+        _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
+        _jobAreaPreviewInfoBox.WordWrap = true;
+        _jobAreaPreviewInfoBox.Text = "读取兵种后，选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。";
+        previewPanel.Controls.Add(_jobAreaPreviewInfoBox, 0, 2);
+        detailBody.Controls.Add(previewPanel, 1, 0);
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
         _jobEditorInfoBox.Multiline = true;
@@ -4346,7 +4383,11 @@ public sealed class MainForm : Form
         };
         _jobEditorGrid.SelectionChanged += (_, _) => ShowSelectedJobEditorCell();
         _jobEditorGrid.CellValidating += (_, e) => ValidateJobEditorCell(e);
-        _jobEditorGrid.CellEndEdit += (_, e) => RefreshJobEditorRowStyle(e.RowIndex);
+        _jobEditorGrid.CellEndEdit += (_, e) =>
+        {
+            RefreshJobEditorRowStyle(e.RowIndex);
+            ShowSelectedJobEditorCell();
+        };
         _loadItemEditorButton.Click += (_, _) => LoadItemEditor();
         _saveItemEditorButton.Click += (_, _) => SaveItemEditor();
         _openItemEffectCatalogButton.Click += (_, _) => OpenItemEffectCatalogEditor();
@@ -4762,6 +4803,7 @@ public sealed class MainForm : Form
     private void LoadProject(CczProject project)
     {
         _project = project;
+        _attackAreaPreviewService.ClearCache();
         var mode = project.IsTestCopy ? "测试副本：允许保存" : "当前项目：允许保存";
         _projectLabel.Text = $"项目：{project.Name}    模式：{mode}    GameRoot：{project.GameRoot}    HexTable：{project.HexTableXmlPath}";
         _fileGrid.DataSource = new BindingList<ProjectFileStatus>(project.GetFileStatuses().ToList());
@@ -4792,6 +4834,7 @@ public sealed class MainForm : Form
         _jobEditorGrid.DataSource = null;
         _saveJobEditorButton.Enabled = false;
         _jobEditorInfoBox.Text = "兵种设定：读取后可编辑详细兵种名称、说明、成长参数和穿透。";
+        ClearJobAreaPreview("兵种设定：读取后选择“攻击范围”或“穿透”单元格可显示右侧范围图。");
         _currentJobTerrainData = null;
         _jobSeriesRead = null;
         _jobTerrainPowerRead = null;
@@ -8634,6 +8677,7 @@ public sealed class MainForm : Form
             ConfigureJobEditorGrid();
             _saveJobEditorButton.Enabled = true;
             _jobEditorInfoBox.Text = BuildJobEditorSummary(_currentJobEditorData);
+            ShowSelectedJobEditorCell();
             SetStatus($"兵种设定读取完成：{_currentJobEditorData.Rows.Count} 行");
         }
         catch (Exception ex)
@@ -8732,6 +8776,8 @@ public sealed class MainForm : Form
     {
         if (columnName == "ID") return "详细兵种编号，用于人物职业、兵种说明、成长、穿透等表按 ID 对齐。";
         if (columnName == "介绍") return "兵种说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。";
+        if (columnName == "攻击范围") return "兵种普通攻击距离/目标选择范围，写入 6.5-4-2 兵种成长；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。建议修改后进战场验证可选格。";
+        if (columnName == "穿透") return "兵种普通攻击穿透模板，写入 6.5-4-3 兵种穿透；选择该字段会按字段值+1 从 E5\\Effarea.e5 预览穿透图。0 通常是不穿透，扩展值需实机验证。";
         if (_jobGrowthRead?.Table.Fields.FirstOrDefault(f => f.ColumnName == columnName) is { } growthField)
         {
             return _fieldAnnotationService.BuildFieldAnnotation(_jobGrowthRead.Table, growthField);
@@ -8815,6 +8861,46 @@ public sealed class MainForm : Form
             $"兵种：ID={id}    名称={name}\r\n" +
             $"字段：{columnName}    当前值：{value}{extra}\r\n\r\n" +
             BuildJobColumnAnnotation(columnName);
+        UpdateJobAreaPreview(row, columnName);
+    }
+
+    private void UpdateJobAreaPreview(DataGridViewRow row, string columnName)
+    {
+        if (_project == null)
+        {
+            ClearJobAreaPreview("请先打开 MOD 项目。");
+            return;
+        }
+
+        if (columnName is not ("攻击范围" or "穿透"))
+        {
+            ClearJobAreaPreview("选择“攻击范围”或“穿透”单元格可显示右侧范围图。");
+            return;
+        }
+
+        var rawValue = row.Cells[columnName].Value;
+        var text = Convert.ToString(rawValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fieldValue))
+        {
+            ClearJobAreaPreview($"{columnName} 字段不是整数：{text}");
+            return;
+        }
+
+        var result = _attackAreaPreviewService.BuildPreview(_project, columnName, fieldValue);
+        SetPictureBoxImage(_jobAreaPreviewBox, result.Bitmap);
+        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        _jobAreaPreviewInfoBox.Text =
+            $"兵种 ID={id}  名称={name}\r\n" +
+            $"字段={columnName}  值={fieldValue}\r\n" +
+            result.Message + "\r\n" +
+            $"资源路径：{result.SourcePath}";
+    }
+
+    private void ClearJobAreaPreview(string message)
+    {
+        SetPictureBoxImage(_jobAreaPreviewBox, null);
+        _jobAreaPreviewInfoBox.Text = message;
     }
 
     private void ValidateJobEditorCell(DataGridViewCellValidatingEventArgs e)
@@ -11825,6 +11911,9 @@ public sealed class MainForm : Form
         var entries = _e5ImageReplaceService.ReadIndex(path);
         if (imageNumber <= 0 || imageNumber > entries.Count) return;
         var entry = entries[imageNumber - 1];
+        var sizeText = entry.IsCompressed
+            ? $"stored={entry.StoredLength:N0} / decoded={entry.DecodedLength:N0}"
+            : $"size={entry.Length:N0}";
         result.Add(new E5ImageReplacementTarget(
             result.Count + 1,
             prefix,
@@ -11835,7 +11924,7 @@ public sealed class MainForm : Form
             entry.DataOffset,
             entry.Length,
             entry.Kind,
-            $"{detail}；index=0x{entry.IndexOffset:X}；offset=0x{entry.DataOffset:X}；size={entry.Length:N0}；kind={entry.Kind}"));
+            $"{detail}；index=0x{entry.IndexOffset:X}；offset=0x{entry.DataOffset:X}；{sizeText}；kind={entry.Kind}"));
     }
 
     private E5ImageReplacementTarget? SelectE5ImageReplacementTarget(IReadOnlyList<E5ImageReplacementTarget> targets, bool restoreMode)
@@ -12365,7 +12454,7 @@ public sealed class MainForm : Form
         var path = _project == null ? ProjectDetector.FindSceneDictionaryPath(workspace) : ProjectDetector.FindSceneDictionaryPath(_project);
         if (!File.Exists(path))
         {
-            var message = "找不到 CczString.ini：" + path + "\r\n\r\n跨设备迁移时，请把旧版 a新剧本编辑器v0.23 目录随工具包一起复制，或把 CczString.ini 放回该目录。";
+            var message = "找不到 CczString.ini：" + path + "\r\n\r\n请把 CczString.ini 放到当前项目的 a新剧本编辑器v0.23 目录，或确认工具内置 LegacyResources 备份未被删除。";
             _sceneDictionaryInfoBox.Text = message;
             Log("剧本字典未找到：" + path);
             if (showMessages)
@@ -15865,7 +15954,7 @@ public sealed class MainForm : Form
             var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
             if (dictionary == null)
             {
-                MessageBox.Show(this, $"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}\r\n\r\n无法按传统命令名生成剧本树。跨设备迁移时，请把旧版 a新剧本编辑器v0.23 目录随工具包一起复制。", "缺少剧本字典", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, $"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}\r\n\r\n无法按传统命令名生成剧本树。请把字典放到当前项目的 a新剧本编辑器v0.23 目录，或确认工具内置 LegacyResources 备份未被删除。", "缺少剧本字典", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             PopulateScriptNewCommandCombo(dictionary);
@@ -16040,7 +16129,7 @@ public sealed class MainForm : Form
             var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
             if (dictionary == null)
             {
-                MessageBox.Show(this, $"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}\r\n\r\n无法按传统命令名生成剧本树。跨设备迁移时，请把旧版 a新剧本编辑器v0.23 目录随工具包一起复制。", "缺少剧本字典", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, $"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}\r\n\r\n无法按传统命令名生成剧本树。请把字典放到当前项目的 a新剧本编辑器v0.23 目录，或确认工具内置 LegacyResources 备份未被删除。", "缺少剧本字典", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             PopulateScriptNewCommandCombo(dictionary);

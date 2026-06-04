@@ -19,12 +19,15 @@ public sealed class ImageAssignmentPreviewService
     private const int PreviewHeight = 300;
     private const int E5ImageIndexOffset = 0x110;
     private const int E5ImageIndexEntrySize = 12;
+    private const int LsHeaderLength = 16;
+    private const int LsDictionaryLength = 256;
     private readonly Dictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
-    private IReadOnlyList<Color>? _tsbPaletteCache;
+    private readonly Dictionary<string, RawPalette> _rawPaletteCache = new(StringComparer.OrdinalIgnoreCase);
 
     public void ClearCache()
     {
         _e5ImageIndexCache.Clear();
+        _rawPaletteCache.Clear();
     }
 
     public Bitmap RenderResourcePreview(CczProject project, string prefix, int id, string personName, int? faceId = null)
@@ -237,26 +240,31 @@ public sealed class ImageAssignmentPreviewService
         }
 
         var entry = entries[imageNumber - 1];
-        var bytes = ReadEntryBytes(path, entry);
+        var bytes = TryReadEntryBytes(path, entry, out var readDetail);
+        if (bytes == null)
+        {
+            detail = readDetail;
+            return null;
+        }
         using var decoded = TryDecodeStandardImage(bytes);
         if (decoded != null)
         {
-            detail = $"{entry.Kind} offset=0x{entry.Offset:X} size={entry.Length:N0}";
+            detail = $"{entry.Kind}{BuildEntryLocationText(entry)}";
             return CropRepresentativeFrame(decoded, frameHeight);
         }
 
-        if (bytes.Length > 0 && bytes[0] == 0)
+        if (LooksLikeRawIndexedStrip(bytes, rawWidth, frameHeight))
         {
-            var rawPalette = LoadTsbPalette(project);
-            var raw = TryRenderRawIndexedStrip(bytes, rawWidth, frameHeight, rawPalette, out var paletteMode);
+            var rawPalette = LoadRawPalette(project);
+            var raw = TryRenderRawIndexedStrip(bytes, rawWidth, frameHeight, rawPalette.Colors, rawPalette.Mode, out var paletteMode);
             if (raw != null)
             {
-                detail = $"{paletteMode} offset=0x{entry.Offset:X} size={entry.Length:N0}";
+                detail = $"{paletteMode}{BuildEntryLocationText(entry)}";
                 return raw;
             }
         }
 
-        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}";
+        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
         return null;
     }
 
@@ -272,37 +280,170 @@ public sealed class ImageAssignmentPreviewService
 
         var data = File.ReadAllBytes(path);
         var result = new List<E5ImageEntry>();
+        uint firstDataOffset = 0;
         for (var offset = E5ImageIndexOffset; offset + E5ImageIndexEntrySize <= data.Length; offset += E5ImageIndexEntrySize)
         {
-            var sizeA = ReadBigEndianUInt32(data, offset);
-            var sizeB = ReadBigEndianUInt32(data, offset + 4);
-            var imageOffset = ReadBigEndianUInt32(data, offset + 8);
-            if (sizeA == 0 ||
-                sizeA != sizeB ||
-                imageOffset >= data.Length ||
-                sizeB > data.Length - imageOffset)
+            if (firstDataOffset > 0 && offset >= firstDataOffset)
             {
                 break;
             }
 
+            var storedSize = ReadBigEndianUInt32(data, offset);
+            var decodedSize = ReadBigEndianUInt32(data, offset + 4);
+            var imageOffset = ReadBigEndianUInt32(data, offset + 8);
+            if (storedSize == 0 ||
+                decodedSize == 0 ||
+                imageOffset >= data.Length ||
+                storedSize > data.Length - imageOffset ||
+                storedSize > int.MaxValue ||
+                decodedSize > int.MaxValue)
+            {
+                break;
+            }
+
+            if (firstDataOffset == 0)
+            {
+                firstDataOffset = imageOffset;
+            }
+
+            var compressed = storedSize != decodedSize;
             result.Add(new E5ImageEntry(
                 result.Count + 1,
                 checked((int)imageOffset),
-                checked((int)sizeB),
-                DetectE5ImageKind(data, checked((int)imageOffset), checked((int)sizeB))));
+                checked((int)storedSize),
+                checked((int)decodedSize),
+                compressed
+                    ? "LS12"
+                    : DetectE5ImageKind(data, checked((int)imageOffset), checked((int)storedSize))));
         }
 
         _e5ImageIndexCache[path] = result;
         return result;
     }
 
-    private static byte[] ReadEntryBytes(string path, E5ImageEntry entry)
+    private static byte[]? TryReadEntryBytes(string path, E5ImageEntry entry, out string detail)
     {
-        var bytes = new byte[entry.Length];
+        detail = string.Empty;
+        var bytes = new byte[entry.StoredLength];
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         stream.Position = entry.Offset;
         stream.ReadExactly(bytes);
-        return bytes;
+
+        if (!entry.IsCompressed)
+        {
+            return bytes;
+        }
+
+        var dictionary = ReadLsDictionary(path);
+        if (dictionary == null)
+        {
+            detail = $"LS12 decode failed: dictionary missing{BuildEntryLocationText(entry)}";
+            return null;
+        }
+
+        if (!TryDecodeLsEntry(dictionary, bytes, entry.DecodedLength, out var decoded))
+        {
+            detail = $"LS12 decode failed{BuildEntryLocationText(entry)}";
+            return null;
+        }
+
+        return decoded;
+    }
+
+    private static byte[]? ReadLsDictionary(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (stream.Length < LsHeaderLength + LsDictionaryLength) return null;
+
+        var dictionary = new byte[LsDictionaryLength];
+        stream.Position = LsHeaderLength;
+        stream.ReadExactly(dictionary);
+        return dictionary;
+    }
+
+    private static bool TryDecodeLsEntry(byte[] dictionary, byte[] encoded, int decodedLength, out byte[] decoded)
+    {
+        decoded = new byte[decodedLength];
+        if (encoded.Length == decodedLength)
+        {
+            Buffer.BlockCopy(encoded, 0, decoded, 0, decodedLength);
+            return true;
+        }
+
+        var inputIndex = 0;
+        var bitPosition = 7;
+        var outputIndex = 0;
+        var backDistance = 0;
+
+        while (outputIndex < decodedLength)
+        {
+            if (inputIndex >= encoded.Length) return false;
+
+            uint code = 0;
+            var bitLength = 0;
+            int bitSet;
+            do
+            {
+                bitSet = (encoded[inputIndex] >> bitPosition) & 0x01;
+                code = (code << 1) | (uint)bitSet;
+                bitLength++;
+                bitPosition--;
+                if (bitPosition < 0)
+                {
+                    bitPosition = 7;
+                    inputIndex++;
+                }
+            } while (bitSet != 0);
+
+            uint mask = 0;
+            while (bitLength-- > 0)
+            {
+                if (inputIndex >= encoded.Length) return false;
+                bitSet = (encoded[inputIndex] >> bitPosition) & 0x01;
+                mask = (mask << 1) | (uint)bitSet;
+                bitPosition--;
+                if (bitPosition < 0)
+                {
+                    bitPosition = 7;
+                    inputIndex++;
+                }
+            }
+
+            code += mask;
+            if (backDistance == 0 && code >= LsDictionaryLength)
+            {
+                backDistance = checked((int)(code - LsDictionaryLength));
+                if (backDistance == 0) return false;
+                continue;
+            }
+
+            if (backDistance == 0)
+            {
+                if (code >= LsDictionaryLength) return false;
+                decoded[outputIndex++] = dictionary[(int)code];
+                continue;
+            }
+
+            var copyCount = checked((int)code + 3);
+            while (copyCount-- > 0)
+            {
+                if (outputIndex >= decodedLength) return false;
+                var sourceIndex = outputIndex - backDistance;
+                if (sourceIndex < 0) return false;
+                decoded[outputIndex++] = decoded[sourceIndex];
+            }
+
+            backDistance = 0;
+        }
+
+        return true;
+    }
+
+    private static string BuildEntryLocationText(E5ImageEntry entry)
+    {
+        return entry.IsCompressed
+            ? $" offset=0x{entry.Offset:X} stored={entry.StoredLength:N0} decoded={entry.DecodedLength:N0}"
+            : $" offset=0x{entry.Offset:X} size={entry.DecodedLength:N0}";
     }
 
     private static Bitmap? TryDecodeStandardImage(byte[] bytes)
@@ -339,9 +480,16 @@ public sealed class ImageAssignmentPreviewService
         return $"0x{data[offset]:X2}";
     }
 
-    private static Bitmap? TryRenderRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, out string paletteMode)
+    private static bool LooksLikeRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight)
     {
-        paletteMode = palette.Count >= 256 ? "RAW+TSB" : "RAW灰度";
+        if (rawWidth <= 0 || frameHeight <= 0) return false;
+        var rawLength = bytes.Length - (bytes.Length % rawWidth);
+        return rawLength >= rawWidth * frameHeight;
+    }
+
+    private static Bitmap? TryRenderRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, string paletteSourceMode, out string paletteMode)
+    {
+        paletteMode = palette.Count >= 256 ? paletteSourceMode : "RAW grayscale";
         if (rawWidth <= 0 || frameHeight <= 0) return null;
         var rawLength = bytes.Length - (bytes.Length % rawWidth);
         if (rawLength < rawWidth * frameHeight) return null;
@@ -370,21 +518,72 @@ public sealed class ImageAssignmentPreviewService
         return CropRepresentativeFrame(strip, frameHeight);
     }
 
-    private IReadOnlyList<Color> LoadTsbPalette(CczProject project)
+    private RawPalette LoadRawPalette(CczProject project)
     {
-        if (_tsbPaletteCache != null) return _tsbPaletteCache;
-        var path = ResolveTsbPalettePath(project);
-        if (path == null)
+        var spaletPath = ResolveLocalSpaletPath(project);
+        if (spaletPath != null)
         {
-            _tsbPaletteCache = Array.Empty<Color>();
-            return _tsbPaletteCache;
+            var key = "spalet:" + Path.GetFullPath(spaletPath);
+            if (_rawPaletteCache.TryGetValue(key, out var cached)) return cached;
+
+            var colors = TryLoadSpaletPalette(spaletPath);
+            if (colors.Count >= 256)
+            {
+                var palette = new RawPalette(colors, "RAW+Spalet.e5", spaletPath);
+                _rawPaletteCache[key] = palette;
+                return palette;
+            }
         }
 
+        var cleanPath = ResolveCleanPalettePath(project);
+        if (cleanPath != null)
+        {
+            var key = "clean:" + Path.GetFullPath(cleanPath);
+            if (_rawPaletteCache.TryGetValue(key, out var cached)) return cached;
+
+            var colors = LoadCleanPalette(cleanPath);
+            if (colors.Count >= 256)
+            {
+                var palette = new RawPalette(colors, "RAW+clean palette", cleanPath);
+                _rawPaletteCache[key] = palette;
+                return palette;
+            }
+        }
+
+        return new RawPalette(Array.Empty<Color>(), "RAW grayscale", string.Empty);
+    }
+
+    private IReadOnlyList<Color> TryLoadSpaletPalette(string path)
+    {
+        foreach (var entry in GetE5ImageIndex(path))
+        {
+            if (entry.DecodedLength < 256 * 3) continue;
+
+            var bytes = TryReadEntryBytes(path, entry, out _);
+            if (bytes == null || bytes.Length < 256 * 3) continue;
+
+            var colors = new Color[256];
+            for (var i = 0; i < colors.Length; i++)
+            {
+                var offset = i * 3;
+                var b = bytes[offset];
+                var r = bytes[offset + 1];
+                var g = bytes[offset + 2];
+                colors[i] = Color.FromArgb(255, r, g, b);
+            }
+
+            return colors;
+        }
+
+        return Array.Empty<Color>();
+    }
+
+    private static IReadOnlyList<Color> LoadCleanPalette(string path)
+    {
         var bytes = File.ReadAllBytes(path);
         if (bytes.Length < 256 * 4)
         {
-            _tsbPaletteCache = Array.Empty<Color>();
-            return _tsbPaletteCache;
+            return Array.Empty<Color>();
         }
 
         var colors = new Color[256];
@@ -397,17 +596,28 @@ public sealed class ImageAssignmentPreviewService
             colors[i] = Color.FromArgb(255, r, g, b);
         }
 
-        _tsbPaletteCache = colors;
-        return _tsbPaletteCache;
+        return colors;
     }
 
-    private static string? ResolveTsbPalettePath(CczProject project)
+    private static string? ResolveLocalSpaletPath(CczProject project)
+    {
+        var candidates = new[]
+        {
+            Path.Combine(project.GameRoot, "Spalet.e5"),
+            Path.Combine(project.GameRoot, "E5", "Spalet.e5"),
+            Path.Combine(Directory.GetParent(project.GameRoot)?.FullName ?? project.WorkspaceRoot, "E5", "Spalet.e5")
+        };
+
+        return candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= E5ImageIndexOffset + E5ImageIndexEntrySize);
+    }
+
+    private static string? ResolveCleanPalettePath(CczProject project)
     {
         var candidates = new[]
         {
             Path.Combine(AppContext.BaseDirectory, "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "老版游戏制作工具", "普罗-综合工具v0.3", "tsb")
+            Path.Combine(project.WorkspaceRoot, "\u5de5\u5177\u6574\u5408\u5305", "CCZModStudio", "Assets", "Palettes", "tsb"),
+            Path.Combine(project.WorkspaceRoot, "\u8001\u7248\u6e38\u620f\u5236\u4f5c\u5de5\u5177", "\u666e\u7f57-\u7efc\u5408\u5de5\u5177v0.3", "tsb")
         };
 
         return candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4);
@@ -830,15 +1040,21 @@ public sealed class ImageAssignmentPreviewService
         }
 
         var entry = entries[imageNumber - 1];
-        var bytes = ReadEntryBytes(path, entry);
+        var bytes = TryReadEntryBytes(path, entry, out var readDetail);
+        if (bytes == null)
+        {
+            detail = readDetail;
+            return null;
+        }
+
         var image = TryDecodeStandardImage(bytes);
         if (image != null)
         {
-            detail = $"{entry.Kind} offset=0x{entry.Offset:X} size={entry.Length:N0}";
+            detail = $"{entry.Kind}{BuildEntryLocationText(entry)}";
             return image;
         }
 
-        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}";
+        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
         return null;
     }
 
@@ -913,7 +1129,12 @@ public sealed class ImageAssignmentPreviewService
 
     private static readonly byte[] PngMagic = { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
 
-    private sealed record E5ImageEntry(int Number, int Offset, int Length, string Kind);
+    private sealed record E5ImageEntry(int Number, int Offset, int StoredLength, int DecodedLength, string Kind)
+    {
+        public bool IsCompressed => StoredLength != DecodedLength;
+    }
+
+    private sealed record RawPalette(IReadOnlyList<Color> Colors, string Mode, string Path);
 
     private sealed record UnitPreviewSpec(string FileName, int RawWidth, int FrameHeight, string Label);
 

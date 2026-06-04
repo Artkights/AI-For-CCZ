@@ -18,4 +18,15 @@
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\CCZModStudio\Assets\ConfigTable\HexTable.xml" Link="Assets\ConfigTable\HexTable.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>ConfigTable\HexTable.xml</TargetPath>
+    </Content>
+    <Content Include="..\CCZModStudio\Assets\LegacyResources\**\*" LinkBase="Assets\LegacyResources">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>LegacyResources\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+
 </Project>
