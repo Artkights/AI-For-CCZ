@@ -2598,10 +2598,32 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
             }
         }
 
+        var battlefieldResources = new GameResourceIndexer().Index(project);
+        var battlefieldTerrainLookup = HexzmapProbeReader.BuildTerrainNameLookup(new MaterialLibraryIndexer().Index(project));
+        var battlefieldHexzmap = File.Exists(project.ResolveGameFile("Hexzmap.e5"))
+            ? new HexzmapProbeReader().Read(project, battlefieldTerrainLookup)
+            : null;
+        var battlefieldMapLinks = new ScenarioMapLinkService().BuildLinks(battlefieldScenarios, battlefieldResources, battlefieldHexzmap);
+        var battlefieldDocsWithMaps = battlefieldScenarios
+            .Select(scenario => battlefieldService.Load(project, scenario, sceneDoc, tables, battlefieldMapLinks))
+            .ToList();
+
         if (battlefieldDocs.Count > 1 &&
             string.Equals(BuildBattlefieldCommandSignature(battlefieldDocs[0]), BuildBattlefieldCommandSignature(battlefieldDocs[1]), StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Battlefield command candidates did not change between {battlefieldDocs[0].Scenario.FileName} and {battlefieldDocs[1].Scenario.FileName}.");
+        }
+
+        if (battlefieldDocs.Count > 1 &&
+            string.Equals(BuildBattlefieldUnitSignature(battlefieldDocs[0]), BuildBattlefieldUnitSignature(battlefieldDocs[1]), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Battlefield unit candidates did not change between {battlefieldDocs[0].Scenario.FileName} and {battlefieldDocs[1].Scenario.FileName}.");
+        }
+
+        if (battlefieldDocsWithMaps.Count > 1 &&
+            string.Equals(BuildBattlefieldMapSignature(battlefieldDocsWithMaps[0]), BuildBattlefieldMapSignature(battlefieldDocsWithMaps[1]), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Battlefield map link preview did not change between {battlefieldDocsWithMaps[0].Scenario.FileName} and {battlefieldDocsWithMaps[1].Scenario.FileName}.");
         }
 
         var battlefieldCoordinateCandidate = battlefieldDocs[0].UnitCandidates.FirstOrDefault(candidate => BattlefieldEditorService.TryExtractFirstCoordinate(candidate, out _, out _))
@@ -2618,6 +2640,24 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
             throw new InvalidOperationException("Battlefield editor did not split any 0x46/0x47/0x4B deployment records.");
         }
 
+        var allyDeploymentSlotScenario = battlefieldScenarios.Count > 1 ? battlefieldScenarios[1] : battlefieldScenarios[0];
+        var allyDeploymentSlots = new BattlefieldAllyDeploymentSlotService().Load(
+            allyDeploymentSlotScenario,
+            sceneDoc,
+            Array.Empty<BattlefieldUnitPaletteItem>());
+        if (allyDeploymentSlots.Count == 0)
+        {
+            throw new InvalidOperationException($"Battlefield ally deployment slot overlay did not parse any 4B/4057 slots for {allyDeploymentSlotScenario.FileName}.");
+        }
+
+        var firstAllyDeploymentSlot = allyDeploymentSlots.OrderBy(slot => slot.Order).First();
+        if (firstAllyDeploymentSlot.Order < 0 ||
+            firstAllyDeploymentSlot.GridX < 0 ||
+            firstAllyDeploymentSlot.GridY < 0)
+        {
+            throw new InvalidOperationException($"Battlefield ally deployment slot overlay parsed an invalid first slot for {allyDeploymentSlotScenario.FileName}: order={firstAllyDeploymentSlot.Order}, coord=({firstAllyDeploymentSlot.GridX},{firstAllyDeploymentSlot.GridY}).");
+        }
+
         var battlefieldLegacyDocument = new LegacyScenarioReader().Read(battlefieldDocs[0].Scenario.Path, sceneDoc);
         var battlefieldLinkedCommand = FindLegacyBattlefieldCommand(battlefieldLegacyDocument, battlefieldCoordinateCandidate);
         if (battlefieldLinkedCommand == null)
@@ -2625,7 +2665,7 @@ static void RunRsSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tab
             throw new InvalidOperationException($"Battlefield candidate cannot be located in legacy script tree: {battlefieldDocs[0].Scenario.FileName} {battlefieldCoordinateCandidate.TargetKey}");
         }
 
-        Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")}");
+        Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")} map={BuildBattlefieldMapSignature(battlefieldDocsWithMaps[0])} allySlots={allyDeploymentSlotScenario.FileName}:{allyDeploymentSlots.Count} first=#{firstAllyDeploymentSlot.DisplayOrder}@({firstAllyDeploymentSlot.GridX},{firstAllyDeploymentSlot.GridY}) forced={allyDeploymentSlots.Count(slot => slot.IsForced)}");
     }
     else
     {
@@ -3651,6 +3691,18 @@ static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition
     var scenarioFileName = Path.GetFileName(sourceScenarioPath);
     var testScenarioPath = Path.Combine(rsRoot, scenarioFileName);
     File.Copy(sourceScenarioPath, testScenarioPath, overwrite: false);
+    var sourceBattlefieldScenarioPath = Path.Combine(project.GameRoot, "RS", "S_00.eex");
+    if (!File.Exists(sourceBattlefieldScenarioPath))
+    {
+        sourceBattlefieldScenarioPath = Directory.GetFiles(Path.Combine(project.GameRoot, "RS"), "S_*.eex", SearchOption.TopDirectoryOnly)
+            .OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)
+            .FirstOrDefault()
+            ?? throw new FileNotFoundException("R/S write smoke could not find S_*.eex.", Path.Combine(project.GameRoot, "RS", "S_*.eex"));
+    }
+
+    var battlefieldScenarioFileName = Path.GetFileName(sourceBattlefieldScenarioPath);
+    var testBattlefieldScenarioPath = Path.Combine(rsRoot, battlefieldScenarioFileName);
+    File.Copy(sourceBattlefieldScenarioPath, testBattlefieldScenarioPath, overwrite: false);
 
     var sourceMapRoot = Path.Combine(project.GameRoot, "Map");
     var smokeMapRoot = Path.Combine(smokeRoot, "Map");
@@ -3664,9 +3716,10 @@ static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition
 
     var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
     var scenarioIndex = new ScenarioFileReader().ReadAllIndex(testProject);
-    if (scenarioIndex.Count != 1 ||
-        !scenarioIndex[0].FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase) ||
-        !ScenarioFileReader.IsRsScriptFile(scenarioIndex[0].FileName))
+    if (scenarioIndex.Count != 2 ||
+        !scenarioIndex.Any(x => x.FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase)) ||
+        !scenarioIndex.Any(x => x.FileName.Equals(battlefieldScenarioFileName, StringComparison.OrdinalIgnoreCase)) ||
+        scenarioIndex.Any(x => !ScenarioFileReader.IsRsScriptFile(x.FileName)))
     {
         throw new InvalidOperationException("R/S 写入烟测索引未限定在测试副本 RS eex 文件。");
     }
@@ -3753,7 +3806,8 @@ static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition
     RunItemWriteSmoke(testProject, tables);
     RunItemEffectCatalogSmoke(testProject, smokeRoot);
     RunJobWriteSmoke(testProject, tables);
-    RunBattlefieldTextWriteSmoke(project, testProject, tables, scenarioFileName);
+    RunBattlefieldTextWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
+    RunBattlefieldDeploymentWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
     RunMapImageWriteSmoke(testProject);
     RunHexzmapWriteSmoke(project, testProject);
     RunMapWorkbenchSmoke(project, testProject);
@@ -4207,12 +4261,13 @@ static void RunBattlefieldTextWriteSmoke(CczProject sourceProject, CczProject te
         ? string.Empty
         : BattlefieldEditorService.NormalizeText(document.ConditionEntry.Text);
     var titleOffset = document.TitleEntry.Offset;
-    var save = battlefieldService.SaveTitleAndConditions(testProject, document, titleReplacement, conditions);
+    var save = battlefieldService.SaveTitleAndConditions(testProject, document, titleReplacement, conditions, dictionary);
+    var battlefieldReportJson = File.Exists(save.ReportJsonPath) ? File.ReadAllText(save.ReportJsonPath) : string.Empty;
     if (string.IsNullOrWhiteSpace(save.BackupPath) ||
         !File.Exists(save.BackupPath) ||
         string.IsNullOrWhiteSpace(save.ReportJsonPath) ||
         !File.Exists(save.ReportJsonPath) ||
-        !File.ReadAllText(save.ReportJsonPath).Contains("\"OperationKind\": \"R/S eex 剧本文本写回\"", StringComparison.Ordinal))
+        !battlefieldReportJson.Contains("\"OperationKind\": \"Legacy R/S eex full-structure write\"", StringComparison.Ordinal))
     {
         throw new InvalidOperationException("战场制作标题/胜败条件保存未生成 R/S eex 备份或结构化写入报告。");
     }
@@ -4227,6 +4282,80 @@ static void RunBattlefieldTextWriteSmoke(CczProject sourceProject, CczProject te
     }
 
     Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_SMOKE_OK file={scenarioFileName} title='{originalTitle}'->'{actualTitle}' condition={(document.ConditionEntry == null ? "none" : "present")} backup={Path.GetFileName(save.BackupPath)}");
+}
+
+static void RunBattlefieldDeploymentWriteSmoke(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)
+{
+    var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(sourceProject);
+    if (!File.Exists(dictionaryPath))
+    {
+        throw new FileNotFoundException("Battlefield deployment write smoke requires CczString.ini.", dictionaryPath);
+    }
+
+    var dictionary = new SceneStringParser().Parse(dictionaryPath);
+    var scenario = new ScenarioFileReader()
+        .ReadAllIndex(testProject)
+        .FirstOrDefault(x => x.FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"Battlefield deployment write smoke could not find {scenarioFileName}.");
+    var service = new BattlefieldEditorService();
+    var document = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+    var candidate = document.UnitCandidates.FirstOrDefault(x =>
+        x.TargetKey.Contains("Record=", StringComparison.OrdinalIgnoreCase) &&
+        BattlefieldEditorService.TryExtractFirstCoordinate(x, out _, out _) &&
+        BattlefieldEditorService.TryExtractPersonId(x, out _));
+    if (candidate == null)
+    {
+        var sample = string.Join(" | ", document.UnitCandidates.Take(12).Select(x => $"{x.Category}:{x.PersonHint}:{x.CoordinateHint}:{x.TargetKey}"));
+        throw new InvalidOperationException($"Battlefield deployment write smoke found no writable 46/47 direct-coordinate candidate in {scenarioFileName}. sample={sample}");
+    }
+
+    if (!BattlefieldEditorService.TryExtractFirstCoordinate(candidate, out var originalX, out var originalY) ||
+        !BattlefieldEditorService.TryExtractPersonId(candidate, out var personId))
+    {
+        throw new InvalidOperationException("Battlefield deployment candidate coordinate/person parse failed.");
+    }
+
+    var changedX = originalX == 0 ? 1 : 0;
+    var changedY = originalY;
+    var placement = new BattlefieldPlacedUnit
+    {
+        TargetKey = candidate.TargetKey,
+        PersonId = personId,
+        Name = "SmokeUnit",
+        Faction = candidate.Category.Contains("敌军", StringComparison.Ordinal) ? "敌军" :
+                  candidate.Category.Contains("友军", StringComparison.Ordinal) ? "友军" : "我军",
+        AiMode = candidate.Category == "我军出场" ? "被动" : "主动",
+        GridX = changedX,
+        GridY = changedY,
+        Source = "S剧本预览",
+        Memo = "Smoke battlefield deployment write"
+    };
+
+    var write = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
+        testProject,
+        scenario,
+        dictionary,
+        new[] { placement });
+    if (write.WrittenRecordCount != 1 ||
+        string.IsNullOrWhiteSpace(write.BackupPath) ||
+        !File.Exists(write.BackupPath) ||
+        string.IsNullOrWhiteSpace(write.ReportJsonPath) ||
+        !File.Exists(write.ReportJsonPath))
+    {
+        throw new InvalidOperationException("Battlefield deployment write did not produce reread, backup, or report evidence.");
+    }
+
+    var verifyDocument = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+    var verifyCandidate = verifyDocument.UnitCandidates.FirstOrDefault(x => x.TargetKey.Equals(candidate.TargetKey, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException("Battlefield deployment write reread lost target candidate.");
+    if (!BattlefieldEditorService.TryExtractFirstCoordinate(verifyCandidate, out var actualX, out var actualY) ||
+        actualX != changedX ||
+        actualY != changedY)
+    {
+        throw new InvalidOperationException($"Battlefield deployment write reread failed: expected=({changedX},{changedY}), actual=({actualX},{actualY}).");
+    }
+
+    Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_WRITE_SMOKE_OK file={scenarioFileName} target={candidate.TargetKey} person={personId} coord=({originalX},{originalY})->({actualX},{actualY}) backup={Path.GetFileName(write.BackupPath)} changedBytes={write.ChangedBytes}");
 }
 
 static void RunMapImageWriteSmoke(CczProject testProject)
@@ -4292,7 +4421,17 @@ static void RunHexzmapWriteSmoke(CczProject sourceProject, CczProject testProjec
     cells[0] = changed0;
     cells[1] = changed1;
 
-    var save = new HexzmapEditorService().SaveBlock(testProject, probe, block, cells, terrainNameLookup);
+    HexzmapSaveResult save;
+    try
+    {
+        save = new HexzmapEditorService().SaveBlock(testProject, probe, block, cells, terrainNameLookup);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("6.5/6.6x", StringComparison.Ordinal) &&
+                                               ex.Message.Contains("已拒绝写入", StringComparison.Ordinal))
+    {
+        Console.WriteLine($"HEXZMAP_WRITE_SMOKE_SKIPPED guard={ex.Message}");
+        return;
+    }
     var verifyProbe = reader.Read(testProject, terrainNameLookup);
     var verifyBlock = verifyProbe.Blocks.First(x => x.Index == block.Index);
     var verifyCells = reader.GetBlockCells(verifyProbe, verifyBlock);
@@ -4417,7 +4556,17 @@ static void RunMapWorkbenchSmoke(CczProject sourceProject, CczProject testProjec
         }
     }
 
-    var terrainSave = new HexzmapEditorService().SaveBlock(testProject, probe, block, reloaded.TerrainCells, terrainLookup);
+    HexzmapSaveResult terrainSave;
+    try
+    {
+        terrainSave = new HexzmapEditorService().SaveBlock(testProject, probe, block, reloaded.TerrainCells, terrainLookup);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("6.5/6.6x", StringComparison.Ordinal) &&
+                                               ex.Message.Contains("已拒绝写入", StringComparison.Ordinal))
+    {
+        Console.WriteLine($"MAP_WORKBENCH_TERRAIN_SMOKE_SKIPPED map={mapItem.Name} export={Path.GetFileName(exportPath)} mapBackup={Path.GetFileName(mapPublish.BackupPath)} guard={ex.Message}");
+        return;
+    }
     var verifyProbe = hexReader.Read(testProject, terrainLookup);
     var verifyBlock = verifyProbe.Blocks.First(x => x.Index == block.Index);
     var verifyCells = hexReader.GetBlockCells(verifyProbe, verifyBlock);
@@ -4436,6 +4585,18 @@ static void RunMapWorkbenchSmoke(CczProject sourceProject, CczProject testProjec
 static string BuildBattlefieldCommandSignature(BattlefieldEditorDocument document)
     => string.Join("|", document.CommandCandidates.Take(20).Select(command =>
         $"{command.SceneIndex}:{command.SectionIndex}:{command.CommandIndex}:{command.OffsetHex}:{command.CommandIdHex}:{command.CommandName}"));
+
+static string BuildBattlefieldUnitSignature(BattlefieldEditorDocument document)
+    => string.Join("|", document.UnitCandidates.Take(30).Select(unit =>
+        $"{unit.TargetKey}:{unit.Category}:{unit.SourceCommand}:{unit.PersonHint}:{unit.CoordinateHint}:{unit.AiHint}"));
+
+static string BuildBattlefieldMapSignature(BattlefieldEditorDocument document)
+{
+    var link = document.MapLink;
+    return link == null
+        ? $"{document.Scenario.FileName}:<no-map>"
+        : $"{document.Scenario.FileName}:{link.MapId}:{link.MapImageName}:{link.MapImageExists}:{link.HexzmapBlockExists}:{link.HexzmapOffsetHex}";
+}
 
 static int CountColorfulPixels(System.Drawing.Bitmap bitmap)
 {

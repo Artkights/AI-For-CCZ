@@ -10,6 +10,7 @@ public sealed class BattlefieldEditorService
     private readonly ScenarioTextReader _textReader = new();
     private readonly ScenarioStructureProbeReader _structureReader = new();
     private readonly LegacyScenarioReader _legacyReader = new();
+    private readonly LegacyScenarioWriter _legacyWriter = new();
 
     public BattlefieldEditorDocument Load(
         CczProject project,
@@ -47,8 +48,14 @@ public sealed class BattlefieldEditorService
         CczProject project,
         BattlefieldEditorDocument document,
         string title,
-        string conditions)
+        string conditions,
+        SceneStringDocument? dictionary = null)
     {
+        if (ScenarioFileReader.IsRsScriptFile(document.Scenario.FileName) && dictionary != null)
+        {
+            return SaveTitleAndConditionsWithLegacyTree(project, document, title, conditions, dictionary);
+        }
+
         var entries = new List<ScenarioTextEntry>();
         if (document.TitleEntry != null)
         {
@@ -74,6 +81,57 @@ public sealed class BattlefieldEditorService
             "战场制作页保存标题/胜败条件前自动备份");
     }
 
+    private ScenarioTextSaveResult SaveTitleAndConditionsWithLegacyTree(
+        CczProject project,
+        BattlefieldEditorDocument document,
+        string title,
+        string conditions,
+        SceneStringDocument dictionary)
+    {
+        var legacyDocument = _legacyReader.Read(document.Scenario.Path, dictionary);
+        var changed = 0;
+        if (document.TitleEntry != null)
+        {
+            var parameter = FindLegacyTextParameter(legacyDocument, document.TitleEntry.Offset)
+                ?? throw new InvalidOperationException($"未能在旧版 S 剧本树中定位标题文本参数：{document.TitleEntry.OffsetHex}。");
+            parameter.Text = NormalizeText(title);
+            changed++;
+        }
+
+        if (document.ConditionEntry != null)
+        {
+            var parameter = FindLegacyTextParameter(legacyDocument, document.ConditionEntry.Offset)
+                ?? throw new InvalidOperationException($"未能在旧版 S 剧本树中定位胜败条件文本参数：{document.ConditionEntry.OffsetHex}。");
+            parameter.Text = NormalizeText(conditions);
+            changed++;
+        }
+
+        if (changed == 0)
+        {
+            throw new InvalidOperationException("当前关卡没有可安全写回的标题或胜败条件文本。");
+        }
+
+        var result = _legacyWriter.Save(
+            project,
+            BuildScenarioRelativePath(document.Scenario),
+            legacyDocument,
+            dictionary,
+            "战场制作页标题/胜败条件完整结构保存");
+        return new ScenarioTextSaveResult
+        {
+            FilePath = result.FilePath,
+            BackupPath = result.BackupPath,
+            ReportJsonPath = result.ReportJsonPath,
+            EntriesWritten = changed,
+            ChangedBytes = result.ChangedBytes
+        };
+    }
+
+    private static LegacyScenarioCommandParameter? FindLegacyTextParameter(LegacyScenarioDocument document, int offset)
+        => document
+            .EnumerateCommands()
+            .SelectMany(command => command.TextParameters)
+            .FirstOrDefault(parameter => parameter.FileOffset == offset);
 
     private static string BuildScenarioRelativePath(ScenarioFileInfo scenario)
     {
@@ -117,6 +175,26 @@ public sealed class BattlefieldEditorService
         if (!int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out x)) return false;
         if (!int.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out y)) return false;
         return x >= 0 && y >= 0;
+    }
+
+    public static bool TryExtractPersonId(BattlefieldUnitCandidate candidate, out int personId)
+        => TryExtractPersonId(candidate.PersonHint, out personId);
+
+    public static bool TryExtractPersonId(string text, out int personId)
+    {
+        personId = 0;
+        text ??= string.Empty;
+        var colon = Math.Max(text.LastIndexOf('：'), text.LastIndexOf(':'));
+        var valueText = colon >= 0 && colon + 1 < text.Length ? text[(colon + 1)..] : text;
+        var match = Regex.Match(valueText, @"-?\d+");
+        if (!match.Success ||
+            !int.TryParse(match.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out personId) ||
+            personId < 0)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     public static ScenarioStructureRow? FindScriptCommandForCandidate(IEnumerable<ScenarioStructureRow> rows, BattlefieldUnitCandidate candidate)
@@ -327,6 +405,10 @@ public sealed class BattlefieldEditorService
             {
                 words.Add(unchecked((ushort)parameter.IntValue).ToString("X4", CultureInfo.InvariantCulture));
             }
+            else if (parameter.Kind == LegacyScenarioParameterKind.Dword32)
+            {
+                words.Add(unchecked((uint)parameter.IntValue).ToString("X8", CultureInfo.InvariantCulture));
+            }
             else if (parameter.Kind == LegacyScenarioParameterKind.VariableArray)
             {
                 words.AddRange(parameter.Values.Select(value => unchecked((ushort)value).ToString("X4", CultureInfo.InvariantCulture)));
@@ -501,6 +583,11 @@ public sealed class BattlefieldEditorService
     private static string BuildDeploymentPersonHint(DeploymentCommandDefinition definition, IReadOnlyList<int> words)
     {
         var value = GetWordOrDefault(words, definition.PersonIndex);
+        if (ReferenceEquals(definition, DeploymentCommandDefinition.Ally))
+        {
+            return $"我军出战顺序：{FormatScriptValue(value)}（地图标注显示为第 {Math.Max(0, value + 1).ToString(CultureInfo.InvariantCulture)} 位）";
+        }
+
         var role = definition.Category.Replace("出场", "人物/部队", StringComparison.Ordinal);
         return $"{role}槽{definition.PersonIndex + 1}：{FormatScriptValue(value)}";
     }
@@ -511,6 +598,13 @@ public sealed class BattlefieldEditorService
         var x = GetWordOrDefault(words, definition.XIndex);
         var y = GetWordOrDefault(words, definition.YIndex);
         var slotText = $"X槽{definition.XIndex + 1}={FormatScriptValue(x)}，Y槽{definition.YIndex + 1}={FormatScriptValue(y)}";
+        if (ReferenceEquals(definition, DeploymentCommandDefinition.Ally))
+        {
+            return x >= 0 && y >= 0
+                ? $"我军候选出战位：({x},{y})；{slotText}；用于地图候选标记，不作为 46/47 直接摆放写回。"
+                : $"我军候选出战位含整型变量：({FormatScriptValue(x)},{FormatScriptValue(y)})；6.5 坐标负数按整型变量引用处理。";
+        }
+
         if (x >= 0 && y >= 0 && x <= 60 && y <= 60)
         {
             return $"坐标候选：({x},{y})；{slotText}";
@@ -565,7 +659,7 @@ public sealed class BattlefieldEditorService
         var slotLabel = definition.RecordCount == 1
             ? "单条出场记录"
             : $"第 {(recordIndex + 1).ToString(CultureInfo.InvariantCulture)}/{definition.RecordCount.ToString(CultureInfo.InvariantCulture)} 条出场记录";
-        return $"{definition.Category}：来源 {command.SourceCommandText()}，位置 {command.OffsetHex}，{slotLabel}。旧源码确认本命令按 {definition.GroupSize} 个 16 位参数为一组" +
+        return $"{definition.Category}：来源 {command.SourceCommandText()}，位置 {command.OffsetHex}，{slotLabel}。旧源码确认本命令按 {definition.GroupSize} 个逻辑参数为一组" +
                (definition.RecordCount > 1 ? $"循环 {definition.RecordCount} 组" : string.Empty) +
                $"；当前按槽位候选展示，不直接写回坐标/AI/等级。原始槽值：{string.Join(' ', words.Select(FormatScriptValue))}。";
     }
@@ -701,10 +795,17 @@ public sealed class BattlefieldEditorService
     {
         var raw = command.RawContextWordsHex ?? string.Empty;
         var values = new List<int>();
-        foreach (Match match in Regex.Matches(raw, @"(?<![0-9A-Fa-f])[0-9A-Fa-f]{4}(?![0-9A-Fa-f])"))
+        foreach (Match match in Regex.Matches(raw, @"(?<![0-9A-Fa-f])[0-9A-Fa-f]{4}(?:[0-9A-Fa-f]{4})?(?![0-9A-Fa-f])"))
         {
-            if (!int.TryParse(match.Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value)) continue;
-            values.Add(value > 60000 && value <= 65536 ? value - 65536 : value);
+            if (!long.TryParse(match.Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value)) continue;
+            if (match.Value.Length > 4)
+            {
+                values.Add(value > int.MaxValue ? unchecked((int)(uint)value) : (int)value);
+            }
+            else
+            {
+                values.Add(value > 60000 && value <= 65536 ? (int)value - 65536 : (int)value);
+            }
         }
 
         if (values.Count > 1 && ParseCommandId(command.CommandIdHex) == values[0])
@@ -769,10 +870,10 @@ public sealed class BattlefieldEditorService
             GroupSize = 11,
             RecordCount = 20,
             PersonIndex = 0,
-            XIndex = 1,
-            YIndex = 2,
+            XIndex = 2,
+            YIndex = 3,
             AiIndex = 7,
-            StateIndexes = [3, 4, 5, 6, 8, 9, 10],
+            StateIndexes = [1, 4, 5, 6, 8, 9, 10],
             SkipBlankRecords = true
         };
 
@@ -783,10 +884,10 @@ public sealed class BattlefieldEditorService
             GroupSize = 12,
             RecordCount = 80,
             PersonIndex = 0,
-            XIndex = 1,
-            YIndex = 2,
+            XIndex = 3,
+            YIndex = 4,
             AiIndex = 8,
-            StateIndexes = [3, 4, 5, 6, 7, 9, 10, 11],
+            StateIndexes = [1, 2, 5, 6, 7, 9, 10, 11],
             SkipBlankRecords = true
         };
 

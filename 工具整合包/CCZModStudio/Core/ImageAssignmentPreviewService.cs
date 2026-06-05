@@ -130,6 +130,63 @@ public sealed class ImageAssignmentPreviewService
         return TryLoadMappedE5Image(project, prefix, id, jobId, sFactionSlot, out _);
     }
 
+    public Bitmap? TryRenderRSceneFrame(CczProject project, int rImageId, string facing, int stanceGroup, out string detail)
+    {
+        detail = string.Empty;
+        if (rImageId < 0)
+        {
+            detail = $"R 形象编号 {rImageId} 无效。";
+            return null;
+        }
+
+        var imageNumber = checked(rImageId * 2 + 1);
+        var normalizedFacing = NormalizeRSceneFacing(facing);
+        var safeStanceGroup = Math.Clamp(stanceGroup, 0, 4);
+        var frameIndex = ResolveRSceneFrameIndex(normalizedFacing, safeStanceGroup);
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        var frame = TryRenderE5EntryFrameAt(
+            project,
+            path,
+            imageNumber,
+            RawPreviewSpecs.PmapObjWidth,
+            RawPreviewSpecs.PmapObjFrameHeight,
+            frameIndex,
+            normalizedFacing == "右",
+            out var readDetail);
+        detail = frame == null
+            ? $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 方向={normalizedFacing} 站姿组={safeStanceGroup} 帧={frameIndex} 未读取：{readDetail}"
+            : $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 方向={normalizedFacing} 站姿组={safeStanceGroup} 帧={frameIndex}";
+        return frame;
+    }
+
+    public Bitmap? TryRenderRSceneFrameByIndex(CczProject project, int rImageId, int frameIndex, string facing, out string detail)
+    {
+        detail = string.Empty;
+        if (rImageId < 0)
+        {
+            detail = $"R 形象编号 {rImageId} 无效。";
+            return null;
+        }
+
+        var imageNumber = checked(rImageId * 2 + 1);
+        var normalizedFacing = NormalizeRSceneFacing(facing);
+        var safeFrameIndex = Math.Clamp(frameIndex, 0, 19);
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        var frame = TryRenderE5EntryFrameAt(
+            project,
+            path,
+            imageNumber,
+            RawPreviewSpecs.PmapObjWidth,
+            RawPreviewSpecs.PmapObjFrameHeight,
+            safeFrameIndex,
+            normalizedFacing == "右",
+            out var readDetail);
+        detail = frame == null
+            ? $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 动作帧={safeFrameIndex} 方向={normalizedFacing} 未读取：{readDetail}"
+            : $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 动作帧={safeFrameIndex} 方向={normalizedFacing}";
+        return frame;
+    }
+
     public Bitmap? TryRenderBattlefieldMoveIdleFrame(
         CczProject project,
         int sImageId,
@@ -804,14 +861,21 @@ public sealed class ImageAssignmentPreviewService
 
     private static Bitmap CropFrame(Bitmap strip, int y, int frameHeight)
     {
-        var height = Math.Min(frameHeight, strip.Height - y);
+        if (strip.Width <= 0 || strip.Height <= 0)
+        {
+            return new Bitmap(1, 1, PixelFormat.Format32bppArgb);
+        }
+
+        var safeY = Math.Clamp(y, 0, Math.Max(0, strip.Height - 1));
+        var height = Math.Min(frameHeight, strip.Height - safeY);
         if (height <= 0) height = Math.Min(frameHeight, strip.Height);
+        height = Math.Max(1, height);
         var frame = new Bitmap(strip.Width, height, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(frame))
         {
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = PixelOffsetMode.Half;
-            g.DrawImage(strip, new Rectangle(0, 0, frame.Width, frame.Height), new Rectangle(0, y, frame.Width, frame.Height), GraphicsUnit.Pixel);
+            g.DrawImage(strip, new Rectangle(0, 0, frame.Width, frame.Height), new Rectangle(0, safeY, frame.Width, frame.Height), GraphicsUnit.Pixel);
         }
 
         ApplyMagentaTransparency(frame);
@@ -1278,6 +1342,26 @@ public sealed class ImageAssignmentPreviewService
     {
         if (prefix.Equals("S", StringComparison.OrdinalIgnoreCase)) return "S";
         return "R";
+    }
+
+    private static string NormalizeRSceneFacing(string facing)
+        => facing switch
+        {
+            "上" => "上",
+            "左" => "左",
+            "右" => "右",
+            _ => "下"
+        };
+
+    private static int ResolveRSceneFrameIndex(string facing, int stanceGroup)
+    {
+        var directionSlot = facing switch
+        {
+            "上" => 1,
+            "左" or "右" => 2,
+            _ => 0
+        };
+        return Math.Clamp(stanceGroup * 4 + directionSlot, 0, 19);
     }
 
     private static readonly byte[] PngMagic = { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
