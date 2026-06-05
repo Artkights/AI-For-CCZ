@@ -16,7 +16,14 @@ namespace CCZModStudio;
 public sealed class MainForm : Form
 {
     private const string UiLayoutSettingsFileName = "ui-layout.json";
-    private const int UiLayoutSettingsVersion = 1;
+    private const int UiLayoutSettingsVersion = 2;
+    private const int DefaultWindowWidth = 1280;
+    private const int DefaultWindowHeight = 820;
+    private const int MinimumWindowWidth = 900;
+    private const int MinimumWindowHeight = 560;
+    private const int AbsoluteMinimumWindowWidth = 640;
+    private const int AbsoluteMinimumWindowHeight = 420;
+    private const int WindowScreenMargin = 24;
     private const int ScriptCommandGridMaxRows = 800;
     private const int ScriptLegacyTreeCommandNodeLimitPerSection = 20000;
     private const int ScriptLegacyTreeMaxNestedDepth = 64;
@@ -939,10 +946,11 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "CCZModStudio 6.5 - V0.6 集成原型";
-        Width = 1280;
-        Height = 820;
-        StartPosition = FormStartPosition.CenterScreen;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScroll = true;
         Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        StartPosition = FormStartPosition.CenterScreen;
+        ApplyAdaptiveDefaultWindowLayout();
 
         EncodingService.EnsureCodePages();
         LoadUiLayoutSettings();
@@ -1224,7 +1232,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _writeAuditReportButton.Text = "导出体检报告";
         _writeAuditReportButton.AutoSize = true;
@@ -1265,7 +1273,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _analyzeProjectDiffButton.Text = "生成测试副本差异";
         _analyzeProjectDiffButton.AutoSize = true;
@@ -1340,7 +1348,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadBackupHistoryButton.Text = "读取备份历史";
         _loadBackupHistoryButton.AutoSize = true;
@@ -1544,7 +1552,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadImageResourcesButton.Text = "读取图片资源";
         _loadImageResourcesButton.AutoSize = true;
@@ -1657,7 +1665,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadImageAssignmentsButton.Text = "读取人物R/S";
         _loadImageAssignmentsButton.AutoSize = true;
@@ -1816,7 +1824,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _patchPathBox.Width = 470;
         _patchPathBox.ReadOnly = true;
@@ -1879,7 +1887,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _movePathBox.Width = 560;
         _movePathBox.ReadOnly = true;
@@ -1933,7 +1941,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadSceneDictionaryButton.Text = "读取 CczString.ini";
         _loadSceneDictionaryButton.AutoSize = true;
@@ -1989,7 +1997,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _indexMaterialLibraryButton.Text = "索引普罗素材库";
         _indexMaterialLibraryButton.AutoSize = true;
@@ -2041,7 +2049,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _indexGameResourcesButton.Text = "索引游戏资源";
         _indexGameResourcesButton.AutoSize = true;
@@ -2201,7 +2209,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadEexArchivesButton.Text = "读取 RS/Map .eex";
         _loadEexArchivesButton.AutoSize = true;
@@ -2370,7 +2378,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadScenarioFilesButton.Text = "读取 RS/*.eex";
         _loadScenarioFilesButton.AutoSize = true;
@@ -2692,7 +2700,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadLsResourcesButton.Text = "读取 Ls/E5 资源";
         _loadLsResourcesButton.AutoSize = true;
@@ -2791,7 +2799,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         _loadHexzmapProbeButton.Text = "读取 Hexzmap.e5";
         _loadHexzmapProbeButton.AutoSize = true;
@@ -5397,6 +5405,92 @@ public sealed class MainForm : Form
         return panel;
     }
 
+    private void ApplyAdaptiveDefaultWindowLayout()
+    {
+        var workingArea = GetPreferredWorkingArea();
+        MinimumSize = GetAdaptiveMinimumWindowSize(workingArea);
+        Size = GetAdaptiveSize(new Size(DefaultWindowWidth, DefaultWindowHeight), MinimumSize, workingArea);
+    }
+
+    private void ApplyAdaptiveDialogSizing(Form dialog, Size preferredSize, Size requestedMinimumSize)
+    {
+        var ownerBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        var workingArea = GetBestWorkingArea(ownerBounds);
+        var minimumSize = GetAdaptiveMinimumSize(requestedMinimumSize, workingArea);
+
+        dialog.AutoScaleMode = AutoScaleMode.Dpi;
+        dialog.AutoScroll = true;
+        dialog.Font = Font;
+        dialog.MinimumSize = minimumSize;
+        dialog.Size = GetAdaptiveSize(preferredSize, minimumSize, workingArea);
+    }
+
+    private static Rectangle GetPreferredWorkingArea()
+        => Screen.FromPoint(Cursor.Position).WorkingArea;
+
+    private static Rectangle GetBestWorkingArea(Rectangle bounds)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return GetPreferredWorkingArea();
+        }
+
+        return Screen.FromRectangle(bounds).WorkingArea;
+    }
+
+    private static Size GetAdaptiveMinimumWindowSize(Rectangle workingArea)
+        => GetAdaptiveMinimumSize(new Size(MinimumWindowWidth, MinimumWindowHeight), workingArea);
+
+    private static Size GetAdaptiveMinimumSize(Size requestedMinimumSize, Rectangle workingArea)
+    {
+        var maxSize = GetMaxWindowSize(workingArea);
+        return new Size(
+            Math.Min(Math.Max(requestedMinimumSize.Width, AbsoluteMinimumWindowWidth), maxSize.Width),
+            Math.Min(Math.Max(requestedMinimumSize.Height, AbsoluteMinimumWindowHeight), maxSize.Height));
+    }
+
+    private static Size GetAdaptiveSize(Size preferredSize, Size minimumSize, Rectangle workingArea)
+    {
+        var maxSize = GetMaxWindowSize(workingArea);
+        var maxWidth = Math.Max(minimumSize.Width, maxSize.Width);
+        var maxHeight = Math.Max(minimumSize.Height, maxSize.Height);
+        return new Size(
+            Math.Clamp(preferredSize.Width, minimumSize.Width, maxWidth),
+            Math.Clamp(preferredSize.Height, minimumSize.Height, maxHeight));
+    }
+
+    private static Size GetMaxWindowSize(Rectangle workingArea)
+    {
+        var horizontalMargin = Math.Min(WindowScreenMargin * 2, Math.Max(0, workingArea.Width - 1));
+        var verticalMargin = Math.Min(WindowScreenMargin * 2, Math.Max(0, workingArea.Height - 1));
+        return new Size(
+            Math.Max(1, workingArea.Width - horizontalMargin),
+            Math.Max(1, workingArea.Height - verticalMargin));
+    }
+
+    private static Rectangle FitBoundsIntoWorkingArea(Rectangle bounds, Rectangle workingArea)
+    {
+        var minimumSize = GetAdaptiveMinimumWindowSize(workingArea);
+        var size = GetAdaptiveSize(bounds.Size, minimumSize, workingArea);
+        var left = bounds.Left;
+        var top = bounds.Top;
+
+        if (left + size.Width > workingArea.Right)
+        {
+            left = workingArea.Right - size.Width;
+        }
+
+        if (top + size.Height > workingArea.Bottom)
+        {
+            top = workingArea.Bottom - size.Height;
+        }
+
+        left = Math.Max(workingArea.Left, left);
+        top = Math.Max(workingArea.Top, top);
+
+        return new Rectangle(new Point(left, top), size);
+    }
+
     private SplitContainer CreateResizableSplit(
         string layoutKey,
         Orientation orientation,
@@ -5601,15 +5695,10 @@ public sealed class MainForm : Form
             _uiLayoutSettings.WindowTop,
             _uiLayoutSettings.WindowWidth,
             _uiLayoutSettings.WindowHeight);
-        if (Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(savedBounds)))
-        {
-            StartPosition = FormStartPosition.Manual;
-            Bounds = savedBounds;
-        }
-        else
-        {
-            Size = savedBounds.Size;
-        }
+        var workingArea = GetBestWorkingArea(savedBounds);
+        MinimumSize = GetAdaptiveMinimumWindowSize(workingArea);
+        StartPosition = FormStartPosition.Manual;
+        Bounds = FitBoundsIntoWorkingArea(savedBounds, workingArea);
 
         if (_uiLayoutSettings.WindowMaximized)
         {
@@ -10848,11 +10937,10 @@ public sealed class MainForm : Form
         {
             Text = "宝物特效",
             StartPosition = FormStartPosition.CenterParent,
-            Width = 980,
-            Height = 680,
             MinimizeBox = false,
             MaximizeBox = true
         };
+        ApplyAdaptiveDialogSizing(dialog, new Size(980, 680), new Size(760, 480));
 
         var layout = new TableLayoutPanel
         {
@@ -15368,11 +15456,9 @@ public sealed class MainForm : Form
             StartPosition = FormStartPosition.CenterParent,
             MinimizeBox = false,
             MaximizeBox = true,
-            ShowInTaskbar = false,
-            Width = 980,
-            Height = 520,
-            MinimumSize = new Size(760, 420)
+            ShowInTaskbar = false
         };
+        ApplyAdaptiveDialogSizing(dialog, new Size(980, 520), new Size(760, 420));
 
         var layout = new TableLayoutPanel
         {
@@ -16406,11 +16492,9 @@ public sealed class MainForm : Form
             StartPosition = FormStartPosition.CenterParent,
             MinimizeBox = false,
             MaximizeBox = true,
-            ShowInTaskbar = false,
-            Width = 1100,
-            Height = 760,
-            MinimumSize = new Size(840, 560)
+            ShowInTaskbar = false
         };
+        ApplyAdaptiveDialogSizing(dialog, new Size(1100, 760), new Size(840, 560));
 
         var layout = new TableLayoutPanel
         {
