@@ -89,6 +89,8 @@ public sealed class ScenarioCommandReferenceNavigationService
         var personNames = LoadNameMap(project, tables, "6.5-0 人物");
         var strategyNames = LoadNameMap(project, tables, "6.5-5 策略");
         var itemNames = LoadItemNameMap(project, tables);
+        var personTableName = ResolveTableNameOrFallback(tables, "6.5-0 人物");
+        var strategyTableName = ResolveTableNameOrFallback(tables, "6.5-5 策略");
 
         foreach (var value in words.Distinct().Where(value => value >= 0))
         {
@@ -100,7 +102,7 @@ public sealed class ScenarioCommandReferenceNavigationService
                     "人物",
                     value,
                     personName,
-                    "6.5-0 人物",
+                    personTableName,
                     "名称",
                     "参数值命中人物主表 ID，可能是出场、对话、测试、单挑或剧情对象。"));
             }
@@ -115,7 +117,7 @@ public sealed class ScenarioCommandReferenceNavigationService
                     item.Name,
                     item.TableName,
                     "名称",
-                    "参数值命中 6.5 物品表 ID，可能是获得、检查、商店、装备或奖励对象。"));
+                    "参数值命中 6.X 物品表 ID，可能是获得、检查、商店、装备或奖励对象。"));
             }
 
             if (strategyNames.TryGetValue(value, out var strategyName))
@@ -126,7 +128,7 @@ public sealed class ScenarioCommandReferenceNavigationService
                     "策略",
                     value,
                     strategyName,
-                    "6.5-5 策略",
+                    strategyTableName,
                     "名称",
                     "参数值命中策略主表 ID，可能是策略演出、AI、教学或效果相关对象。"));
             }
@@ -272,8 +274,7 @@ public sealed class ScenarioCommandReferenceNavigationService
     {
         try
         {
-            var table = tables.FirstOrDefault(item => item.TableName == tableName);
-            if (table == null) return new Dictionary<int, string>();
+            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return new Dictionary<int, string>();
             var data = ReadTable(project, tables, table);
             if (!data.Columns.Contains("ID")) return new Dictionary<int, string>();
             var nameColumn = data.Columns.Contains("名称")
@@ -302,16 +303,19 @@ public sealed class ScenarioCommandReferenceNavigationService
     private IReadOnlyDictionary<int, ItemReference> LoadItemNameMap(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var result = new Dictionary<int, ItemReference>();
-        foreach (var tableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
         {
-            foreach (var pair in LoadNameMap(project, tables, tableName))
+            foreach (var pair in LoadNameMap(project, tables, table.TableName))
             {
-                result[pair.Key] = new ItemReference(tableName, pair.Value);
+                result[pair.Key] = new ItemReference(table.TableName, pair.Value);
             }
         }
 
         return result;
     }
+
+    private static string ResolveTableNameOrFallback(IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.TryResolve(tables, tableName, out var table) ? table.TableName : tableName;
 
     private DataTable ReadTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition table)
     {

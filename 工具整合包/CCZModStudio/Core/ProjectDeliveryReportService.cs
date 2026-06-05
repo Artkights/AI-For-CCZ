@@ -57,7 +57,7 @@ public sealed class ProjectDeliveryReportService
         builder.AppendLine($"- 项目目录：`{project.GameRoot}`");
         builder.AppendLine($"- 工作区：`{project.WorkspaceRoot}`");
         builder.AppendLine($"- HexTable：`{project.HexTableXmlPath}`");
-        builder.AppendLine($"- 当前模式：{(project.IsTestCopy ? "测试副本（允许安全写入）" : "原始目录（只读保护）")}");
+        builder.AppendLine($"- 当前模式：{(project.IsTestCopy ? "测试副本（可写，可做差异对比）" : "当前项目（可写）")}");
         builder.AppendLine();
 
         AppendCoreFiles(builder, project);
@@ -116,7 +116,7 @@ public sealed class ProjectDeliveryReportService
         builder.AppendLine();
         if (!project.IsTestCopy)
         {
-            builder.AppendLine("当前打开的是原始目录，未生成测试副本差异。发布前应先创建测试副本、在测试副本写入并对比原始目录。");
+            builder.AppendLine("当前目录不是测试副本，未生成“测试副本 vs 原始项目”的差异摘要。当前项目仍可直接发布副本；如需文件级对比，请先创建测试副本。");
             builder.AppendLine();
             return;
         }
@@ -494,7 +494,7 @@ public sealed class ProjectDeliveryReportService
 
         builder.AppendLine("## 7. 发布前检查清单");
         builder.AppendLine();
-        builder.AppendLine($"- [{(project.IsTestCopy ? "x" : " ")}] 当前目录是测试副本，而不是原始目录。");
+        builder.AppendLine($"- [{(project.IsTestCopy || string.IsNullOrWhiteSpace(diffError) ? "x" : " ")}] 当前目录可写；如需差异对比，已使用测试副本或明确跳过。");
         builder.AppendLine($"- [{(errors == 0 ? "x" : " ")}] 项目体检没有 Error 级阻断项。");
         builder.AppendLine($"- [{(resourceErrors == 0 ? "x" : " ")}] 资源诊断没有 Error 级阻断项。");
         builder.AppendLine($"- [{(namedRsMissing == 0 ? "x" : " ")}] 已命名人物没有缺失 R/S 形象资源。");
@@ -513,7 +513,7 @@ public sealed class ProjectDeliveryReportService
         builder.AppendLine("## 8. 安全边界");
         builder.AppendLine();
         builder.AppendLine("- 本报告只是汇总和导出，不会修改任何游戏文件。");
-        builder.AppendLine("- 已知表格、R/S eex 短文本、补丁、整文件资源替换必须继续遵守“测试副本写入、自动备份、结构化报告、可回滚”。");
+        builder.AppendLine("- 已知表格、R/S eex 短文本、补丁、整文件资源替换必须继续遵守“自动备份、复读校验或结构化报告、可回滚”。");
         builder.AppendLine("- EEX/Ls/E5 内部重封包、完整 R/S eex 命令树写回仍属于未完成格式研究，报告中出现的候选解释不能作为直接写入依据。");
         builder.AppendLine();
     }

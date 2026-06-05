@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "cczmodstudio": {
+      "command": "dotnet",
+      "args": [
+        "<TOOL_ROOT>\\CCZModStudio.McpServer\\bin\\Debug\\net8.0-windows\\CCZModStudio.McpServer.dll"
+      ],
+      "env": {
+        "CCZMODSTUDIO_TOOL_ROOT": "<TOOL_ROOT>",
+        "CCZMODSTUDIO_GAME_ROOT": "<GAME_ROOT>"
+      }
+    }
+  }
+}

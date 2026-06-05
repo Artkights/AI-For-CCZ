@@ -128,8 +128,7 @@ public sealed class HexTableReader
     {
         if (_indexCache.TryGetValue(indexTableName, out var cached)) return cached;
 
-        var indexDefinition = allTables.FirstOrDefault(t => t.TableName == indexTableName);
-        if (indexDefinition == null) return null;
+        if (!HexTableNameResolver.TryResolve(allTables, indexTableName, out var indexDefinition)) return null;
 
         var validation = Validate(project, indexDefinition);
         if (!validation.IsUsable) return null;

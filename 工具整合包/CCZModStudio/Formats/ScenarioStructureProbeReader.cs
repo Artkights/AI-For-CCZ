@@ -713,9 +713,9 @@ public sealed class ScenarioStructureProbeReader
 
             var reader = new HexTableReader();
             var items = new Dictionary<int, string>();
-            foreach (var itemTableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+            foreach (var itemTable in HexTableNameResolver.ResolveItemTables(tables))
             {
-                foreach (var pair in LoadNameMap(project, tables, reader, itemTableName))
+                foreach (var pair in LoadNameMap(project, tables, reader, itemTable.TableName))
                 {
                     items[pair.Key] = pair.Value;
                 }
@@ -734,8 +734,7 @@ public sealed class ScenarioStructureProbeReader
         {
             try
             {
-                var table = tables.FirstOrDefault(t => t.TableName == tableName);
-                if (table == null) return new Dictionary<int, string>();
+                if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return new Dictionary<int, string>();
                 var result = reader.Read(project, table, tables);
                 if (!result.Validation.IsUsable || !result.Data.Columns.Contains("ID")) return new Dictionary<int, string>();
 

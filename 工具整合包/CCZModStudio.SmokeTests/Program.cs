@@ -15,6 +15,7 @@ var migrationSmokeOnly = args.Contains("--migration-smoke", StringComparer.Ordin
 var legacyE5sSmokeOnly = args.Contains("--legacy-e5s-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScenarioDepthSmokeOnly = args.Contains("--legacy-scenario-depth-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScriptEditSmokeOnly = args.Contains("--legacy-script-edit-smoke", StringComparer.OrdinalIgnoreCase);
+var legacyMfcDialogSmokeOnly = args.Contains("--legacy-mfc-dialog-smoke", StringComparer.OrdinalIgnoreCase);
 var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCase);
 var jobStrategyWriteSmokeOnly = args.Contains("--job-strategy-write-smoke", StringComparer.OrdinalIgnoreCase);
@@ -69,6 +70,12 @@ if (legacyScenarioDepthSmokeOnly)
 if (legacyScriptEditSmokeOnly)
 {
     RunLegacyScriptEditSmoke(project);
+    return;
+}
+
+if (legacyMfcDialogSmokeOnly)
+{
+    RunLegacyMfcDialogSmoke(project, tables);
     return;
 }
 

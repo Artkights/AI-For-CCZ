@@ -267,13 +267,12 @@ public sealed class ScenarioStructureNodeDetailService
 
         var reader = new HexTableReader();
         var itemNames = new Dictionary<int, string>();
-        foreach (var pair in LoadNameMap(project, tables, reader, "6.5-1 物品（0-103）"))
+        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
         {
-            itemNames[pair.Key] = pair.Value;
-        }
-        foreach (var pair in LoadNameMap(project, tables, reader, "6.5-2 物品（104-255）"))
-        {
-            itemNames[pair.Key] = pair.Value;
+            foreach (var pair in LoadNameMap(project, tables, reader, table.TableName))
+            {
+                itemNames[pair.Key] = pair.Value;
+            }
         }
 
         return new NameLookups(
@@ -286,8 +285,7 @@ public sealed class ScenarioStructureNodeDetailService
     {
         try
         {
-            var table = tables.FirstOrDefault(item => item.TableName == tableName);
-            if (table == null) return new Dictionary<int, string>();
+            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return new Dictionary<int, string>();
             var read = reader.Read(project, table, tables);
             if (!read.Validation.IsUsable || !read.Data.Columns.Contains("ID")) return new Dictionary<int, string>();
             var nameColumn = read.Data.Columns.Contains("名称")

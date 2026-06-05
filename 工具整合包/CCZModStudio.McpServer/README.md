@@ -22,6 +22,28 @@ CCZMODSTUDIO_GAME_ROOT=<game-root>
 
 The server writes MCP JSON-RPC messages on stdout. Do not add diagnostic console output to stdout.
 
+## Client Config
+
+Recommended local entry:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP配置\start-ccz-mcp.ps1"
+```
+
+Generate Codex, Claude Desktop, and generic `mcpServers` snippets:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP配置\generate-mcp-config.ps1" -Build
+```
+
+Validate stdio startup and tool registration:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP配置\validate-mcp-config.ps1"
+```
+
+Generated files are written under `MCP配置\_generated` and are intentionally ignored by Git because they contain machine-local absolute paths. Source-controlled templates live in `MCP配置\templates`; detailed setup notes are in `MCP配置\README.md`.
+
 ## Tool Groups
 
 - Project workflow: `detect_project`, `audit_project`, `create_test_copy`, `diff_test_copy`, `create_release_copy`.
@@ -32,5 +54,5 @@ The server writes MCP JSON-RPC messages on stdout. Do not add diagnostic console
 - Creator notes: `list_creator_notes`, `upsert_creator_note`, `delete_creator_note`, `export_creator_notes_csv`.
 - Knowledge base: `list_knowledge_entries`, `search_knowledge_entries`, `read_knowledge_entry`.
 
-High-risk writes continue to use the shared service layer for backups, reread verification, structured reports, and version guards. `create_test_copy` refuses nested test copies; release copies must be created from a marked test copy.
+High-risk writes continue to use the shared service layer for backups, reread verification, structured reports, and version guards. `create_test_copy` refuses nested test copies; release copies can be created from the current project or from a marked test copy.
 Creator notes are project-side records under `CCZModStudio_Notes`; CSV exports go under `CCZModStudio_Exports/CreatorNotes`. They are excluded from release copies and never modify game files.

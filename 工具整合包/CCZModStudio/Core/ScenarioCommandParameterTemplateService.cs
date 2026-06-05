@@ -916,7 +916,7 @@ public sealed class ScenarioCommandParameterTemplateService
                 S(3, "成立后跳转", SlotKind.BranchTarget, "条件成立后的流程块候选。")),
 
             T(0x38, "武将能力设定", "用于设置人物能力、HP/MP、等级或战场属性。",
-                "能力类别和目标值会直接影响平衡，必须在测试副本中备份并复读验证。",
+                "能力类别和目标值会直接影响平衡，必须保留备份并复读验证。",
                 S(0, "武将/人物编号", SlotKind.Person, "目标人物候选。"),
                 S(1, "能力类别", SlotKind.AbilityKind, "攻击、防御、精神、HP、等级等能力类别候选。"),
                 S(2, "操作方式", SlotKind.Operation, "赋值、增加、减少等方式候选。"),
@@ -1218,7 +1218,7 @@ public sealed class ScenarioCommandParameterTemplateService
                 S(1, "显示方式", SlotKind.BooleanFlag, "等待/窗口/清屏标志候选。")),
 
             T(0x6A, "Game Over指令", "用于触发 Game Over 或失败结束。",
-                "该命令通常为强终止流程，高风险；需只在测试副本中验证关联条件。",
+                "该命令通常为强终止流程，高风险；需备份并验证关联条件。",
                 S(0, "失败/结束类型", SlotKind.BattleResult, "Game Over 类型或失败原因候选。"),
                 S(1, "显示文本/演出", SlotKind.TextIndex, "失败提示或演出文本候选。")),
 
@@ -1350,13 +1350,12 @@ public sealed class ScenarioCommandParameterTemplateService
 
         var reader = new HexTableReader();
         var itemNames = new Dictionary<int, string>();
-        foreach (var pair in LoadNameMap(project, tables, reader, "6.5-1 物品（0-103）"))
+        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
         {
-            itemNames[pair.Key] = pair.Value;
-        }
-        foreach (var pair in LoadNameMap(project, tables, reader, "6.5-2 物品（104-255）"))
-        {
-            itemNames[pair.Key] = pair.Value;
+            foreach (var pair in LoadNameMap(project, tables, reader, table.TableName))
+            {
+                itemNames[pair.Key] = pair.Value;
+            }
         }
 
         return new NameLookups(
@@ -1369,8 +1368,7 @@ public sealed class ScenarioCommandParameterTemplateService
     {
         try
         {
-            var table = tables.FirstOrDefault(item => item.TableName == tableName);
-            if (table == null) return new Dictionary<int, string>();
+            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return new Dictionary<int, string>();
             var read = reader.Read(project, table, tables);
             if (!read.Validation.IsUsable || !read.Data.Columns.Contains("ID")) return new Dictionary<int, string>();
             var nameColumn = read.Data.Columns.Contains("名称")

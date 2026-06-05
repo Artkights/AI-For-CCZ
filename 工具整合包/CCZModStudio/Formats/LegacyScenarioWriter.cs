@@ -159,7 +159,7 @@ public sealed class LegacyScenarioWriter
 
             var parameter = parameterIndex < command.Parameters.Count ? command.Parameters[parameterIndex] : null;
             parameterIndex++;
-            WriteUInt16(writer, parameter?.Tag ?? layoutCode);
+            WriteUInt16(writer, layoutCode);
 
             switch (layoutCode)
             {

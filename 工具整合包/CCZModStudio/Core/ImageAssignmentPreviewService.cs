@@ -980,7 +980,7 @@ public sealed class ImageAssignmentPreviewService
         sb.AppendLine($"资源路径：{status.Path}");
         sb.AppendLine($"解释：{status.Detail}");
         sb.AppendLine("人物 R/S 编号来源：Ekd5.exe 中的人物 R/S 指定表，不是 E5S 存档信息，也不是 RS\\R_XX.eex / S_XX.eex 人物图像。");
-        sb.AppendLine($"B形象指定器目录：{toolDir ?? "未找到 B形象指定器\\形象指定器6.5"}");
+        sb.AppendLine($"B形象指定器目录：{toolDir ?? "未找到 B形象指定器\\6.X形象指定器"}");
         sb.AppendLine($"B形象指定器配置：FileHead={assignerConfig.GetValueOrDefault("FileHead", "未找到")}，RFileHead={assignerConfig.GetValueOrDefault("RFileHead", "未找到")}，UserPath2={assignerConfig.GetValueOrDefault("UserPath2", "未找到")}");
         sb.AppendLine($"新剧本编辑器配置：RSMax={sceneConfig.GetValueOrDefault("RSMax", "未找到")}，ExePath={sceneConfig.GetValueOrDefault("ExePath", "未找到")}");
 
@@ -1334,6 +1334,8 @@ public sealed class ImageAssignmentPreviewService
         return ProjectDetector.FindPortableDirectory(
             project,
             "形象指定器6.5",
+            Path.Combine("老版游戏制作工具", "B形象指定器", "6.6x形象指定器"),
+            Path.Combine("B形象指定器", "6.6x形象指定器"),
             Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5"),
             Path.Combine("B形象指定器", "形象指定器6.5"));
     }

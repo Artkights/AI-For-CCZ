@@ -395,7 +395,7 @@ public sealed class CczMcpRuntime
         if (updates.Count == 0) throw new InvalidOperationException("updates must contain at least one scenario text update.");
 
         var project = LoadProject(gameRoot);
-        var mode = EnsureWriteMode(project, writeMode);
+        EnsureWriteMode(project, writeMode);
         var filePath = ResolveProjectFile(project, relativePath, mustExist: true);
         EnsureScenarioTargetAllowed(project, filePath);
         var normalizedRelative = NormalizeProjectRelativePath(project, filePath);
@@ -408,9 +408,7 @@ public sealed class CczMcpRuntime
             entry.Text = update.Text ?? string.Empty;
         }
 
-        var save = mode == "test_copy"
-            ? _scenarioTextWriter.SaveInPlaceToTestCopy(project, normalizedRelative, entries)
-            : _scenarioTextWriter.SaveInPlace(project, normalizedRelative, entries, "MCP scenario text write");
+        var save = _scenarioTextWriter.SaveInPlace(project, normalizedRelative, entries, "MCP scenario text write");
 
         return new
         {
@@ -618,14 +616,12 @@ public sealed class CczMcpRuntime
     public object ReplaceResource(string? gameRoot, string targetRelativePath, string replacementPath, string? writeMode, bool requireSameExtension)
     {
         var project = LoadProject(gameRoot);
-        var mode = EnsureWriteMode(project, writeMode);
+        EnsureWriteMode(project, writeMode);
         var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
         EnsureGenericResourceAllowed(project, targetPath);
         var sourcePath = ResolveExternalFile(project, replacementPath);
 
-        var result = mode == "test_copy"
-            ? _resourceReplace.ReplaceInTestCopy(project, targetPath, sourcePath, requireSameExtension)
-            : _resourceReplace.Replace(project, targetPath, sourcePath, requireSameExtension);
+        var result = _resourceReplace.Replace(project, targetPath, sourcePath, requireSameExtension);
 
         return new
         {
@@ -793,7 +789,7 @@ public sealed class CczMcpRuntime
     public object CreateReleaseCopy(string? gameRoot)
     {
         var project = LoadProject(gameRoot);
-        var diffItems = _testCopyDiff.Analyze(project);
+        var diffItems = project.IsTestCopy ? _testCopyDiff.Analyze(project) : Array.Empty<ProjectDiffItem>();
         var progressLines = new List<string>();
         var progress = new Progress<string>(line =>
         {
@@ -1111,11 +1107,7 @@ public sealed class CczMcpRuntime
     }
 
     private static HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string tableName)
-    {
-        return tables.FirstOrDefault(x => x.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase))
-               ?? tables.FirstOrDefault(x => x.TableName.Contains(tableName, StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException($"Table {tableName} was not found.");
-    }
+        => HexTableNameResolver.Resolve(tables, tableName);
 
     private static DataColumn FindColumn(DataTable table, string columnName)
     {

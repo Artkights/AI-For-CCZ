@@ -57,12 +57,12 @@ public sealed class ProjectAuditService
         items.Add(new ProjectAuditItem
         {
             Severity = "Info",
-            Category = "安全模式",
+            Category = "写入模式",
             Name = "保存模式",
             Status = project.IsTestCopy ? "测试副本" : "当前项目",
             Detail = project.IsTestCopy
                 ? "当前目录带 _CCZModStudio_TestCopy.txt 标记；已确认格式可写入，保存前自动备份。"
-                : "当前目录没有测试副本标记；已确认的数据表和 R/S 联动允许直接保存，保存前自动备份。"
+                : "当前目录没有测试副本标记；已确认格式允许直接保存，保存前自动备份。"
         });
     }
 
@@ -79,7 +79,7 @@ public sealed class ProjectAuditService
                     Category = "核心文件",
                     Name = file,
                     Status = "缺失",
-                    Detail = "6.5 核心文件不存在。",
+                    Detail = "核心文件不存在；无法读取对应表，也禁止写入。",
                     Path = path
                 });
                 continue;
@@ -95,7 +95,9 @@ public sealed class ProjectAuditService
                 Category = "核心文件",
                 Name = file,
                 Status = status,
-                Detail = $"实际 {info.Length} 字节，6.5 基准 {expected} 字节，SHA256={ComputeSha256(path)}",
+                Detail = info.Length == expected
+                    ? $"实际 {info.Length} 字节，6.5 基准 {expected} 字节，SHA256={ComputeSha256(path)}"
+                    : $"实际 {info.Length} 字节，6.5 基准 {expected} 字节，SHA256={ComputeSha256(path)}；6.X 读取可继续按 HexTable.xml 校验，写入侧会因非 6.5 基准尺寸被护栏拒绝。",
                 Path = path
             });
         }
@@ -121,9 +123,14 @@ public sealed class ProjectAuditService
 
     private void AddTableChecks(List<ProjectAuditItem> items, CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var enabled65 = tables.Where(t => t.Enabled && t.Version == "6.5").ToList();
+        var enabled6x = tables.Where(t => t.Enabled && HexTableNameResolver.Is6XTable(t)).ToList();
+        var versions = enabled6x
+            .Select(t => string.IsNullOrWhiteSpace(t.Version) ? "未知" : t.Version)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         var unusable = new List<string>();
-        foreach (var table in enabled65)
+        foreach (var table in enabled6x)
         {
             var validation = _tableReader.Validate(project, table);
             if (!validation.IsUsable)
@@ -132,14 +139,20 @@ public sealed class ProjectAuditService
             }
         }
 
+        var severity = enabled6x.Count == 0 || unusable.Count > 0 ? "Error" : "Info";
+        var status = enabled6x.Count == 0
+            ? "没有启用表"
+            : unusable.Count == 0
+                ? "全部可用"
+                : $"{unusable.Count} 个不可用";
         items.Add(new ProjectAuditItem
         {
-            Severity = unusable.Count == 0 ? "Info" : "Error",
+            Severity = severity,
             Category = "表结构",
-            Name = "启用的 6.5 表",
-            Status = unusable.Count == 0 ? "全部可用" : $"{unusable.Count} 个不可用",
+            Name = "启用的 6.X 表",
+            Status = status,
             Detail = unusable.Count == 0
-                ? $"共 {enabled65.Count} 个启用表通过文件存在和偏移范围校验。"
+                ? $"共 {enabled6x.Count} 个启用表通过文件存在和偏移范围校验；版本：{(versions.Count == 0 ? "无" : string.Join("、", versions))}。"
                 : string.Join(" | ", unusable.Take(8)),
             Path = project.HexTableXmlPath
         });

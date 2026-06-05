@@ -85,12 +85,7 @@ public sealed class HexTableParser
     }
 
     private static string DetectVersion(string tableName)
-    {
-        if (tableName.StartsWith("6.5", StringComparison.Ordinal)) return "6.5";
-        if (tableName.StartsWith("6.3", StringComparison.Ordinal)) return "6.3";
-        if (tableName.StartsWith("6.4", StringComparison.Ordinal)) return "6.4";
-        return "未知";
-    }
+        => HexTableNameResolver.DetectVersion(tableName);
 
     private static List<int> TryInferSingleRowStringTableBytes(List<string> columns, List<int> bytes, int rowSize)
     {

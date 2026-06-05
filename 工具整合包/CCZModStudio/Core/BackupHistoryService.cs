@@ -6,7 +6,7 @@ using CCZModStudio.Models;
 namespace CCZModStudio.Core;
 
 /// <summary>
-/// 测试副本备份历史扫描服务。
+/// 项目备份历史扫描服务。
 /// 只读取 _CCZModStudio_Backups，不写入；用于把表格保存、补丁应用、剧本文本写回、资源替换/还原产生的备份整理成时间线。
 /// </summary>
 public sealed partial class BackupHistoryService
@@ -45,19 +45,17 @@ public sealed partial class BackupHistoryService
                 : Path.Combine(project.GameRoot, targetRelative);
             var exists = !string.IsNullOrWhiteSpace(targetPath) && File.Exists(targetPath);
             var sameExtension = exists && Path.GetExtension(targetPath).Equals(Path.GetExtension(backupPath), StringComparison.OrdinalIgnoreCase);
-            var restorable = project.IsTestCopy && exists && sameExtension;
+            var restorable = exists && sameExtension;
             var kind = reportInfo?.Kind ?? InferKind(targetRelative, backupPath);
             var status = restorable
                 ? "可还原"
-                : !project.IsTestCopy
-                    ? "只读：当前不是测试副本"
-                    : string.IsNullOrWhiteSpace(targetRelative)
-                        ? "不可还原：无法识别目标路径"
-                        : !exists
-                            ? "不可还原：目标文件不存在"
-                            : !sameExtension
-                                ? "不可还原：扩展名不一致"
-                                : "不可还原";
+                : string.IsNullOrWhiteSpace(targetRelative)
+                    ? "不可还原：无法识别目标路径"
+                    : !exists
+                        ? "不可还原：目标文件不存在"
+                        : !sameExtension
+                            ? "不可还原：扩展名不一致"
+                            : "不可还原";
 
             var info = new FileInfo(backupPath);
             items.Add(new BackupHistoryItem

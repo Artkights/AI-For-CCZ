@@ -20,32 +20,35 @@ public sealed class ReleasePackageService
 
     private readonly TestCopyDiffService _diffService = new();
 
-    public ReleasePackageResult CreateReleaseCopy(CczProject testProject, IReadOnlyList<ProjectDiffItem>? diffItems = null, IProgress<string>? progress = null)
+    public ReleasePackageResult CreateReleaseCopy(CczProject project, IReadOnlyList<ProjectDiffItem>? diffItems = null, IProgress<string>? progress = null)
     {
-        if (!testProject.IsTestCopy)
+        if (project.IsTestCopy)
         {
-            throw new InvalidOperationException("生成发布副本必须从 CCZModStudio 测试副本执行，禁止直接把原始目录当作发布输入。");
+            diffItems ??= _diffService.Analyze(project);
+        }
+        else
+        {
+            diffItems ??= Array.Empty<ProjectDiffItem>();
         }
 
-        diffItems ??= _diffService.Analyze(testProject);
-        var sourceRoot = _diffService.ReadSourceRoot(testProject);
-        if (string.IsNullOrWhiteSpace(sourceRoot))
+        var sourceRoot = project.IsTestCopy ? _diffService.ReadSourceRoot(project) : project.GameRoot;
+        if (project.IsTestCopy && string.IsNullOrWhiteSpace(sourceRoot))
         {
-            throw new InvalidOperationException("测试副本标记中缺少 Source 路径，无法生成可追溯的发布副本。");
+            throw new InvalidOperationException("测试副本标记中缺少 Source 路径，无法生成带差异来源的发布副本。");
         }
 
-        var releaseRootParent = Path.Combine(testProject.WorkspaceRoot, "CCZModStudio_Releases");
+        var releaseRootParent = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Releases");
         Directory.CreateDirectory(releaseRootParent);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-        var releaseRoot = Path.Combine(releaseRootParent, $"{stamp}_{MakeSafeFileName(testProject.Name)}_Release");
+        var releaseRoot = Path.Combine(releaseRootParent, $"{stamp}_{MakeSafeFileName(project.Name)}_Release");
         Directory.CreateDirectory(releaseRoot);
 
         var filesCopied = 0;
         long bytesCopied = 0;
-        foreach (var sourcePath in Directory.EnumerateFiles(testProject.GameRoot, "*", SearchOption.AllDirectories))
+        foreach (var sourcePath in Directory.EnumerateFiles(project.GameRoot, "*", SearchOption.AllDirectories))
         {
-            if (ShouldIgnore(sourcePath, testProject.GameRoot)) continue;
-            var relative = Path.GetRelativePath(testProject.GameRoot, sourcePath);
+            if (ShouldIgnore(sourcePath, project.GameRoot)) continue;
+            var relative = Path.GetRelativePath(project.GameRoot, sourcePath);
             var targetPath = Path.Combine(releaseRoot, relative);
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             progress?.Report("复制发布文件 " + relative);
@@ -55,7 +58,7 @@ public sealed class ReleasePackageService
         }
 
         var manifestPath = Path.Combine(releaseRoot, "_CCZModStudio_ReleaseManifest.txt");
-        WriteManifest(manifestPath, testProject, sourceRoot, releaseRoot, diffItems, filesCopied, bytesCopied);
+        WriteManifest(manifestPath, project, sourceRoot, releaseRoot, diffItems, filesCopied, bytesCopied);
         filesCopied++;
         bytesCopied += new FileInfo(manifestPath).Length;
 
@@ -74,7 +77,7 @@ public sealed class ReleasePackageService
 
     private static void WriteManifest(
         string manifestPath,
-        CczProject testProject,
+        CczProject project,
         string sourceRoot,
         string releaseRoot,
         IReadOnlyList<ProjectDiffItem> diffItems,
@@ -86,7 +89,8 @@ public sealed class ReleasePackageService
             "CCZModStudio Release Manifest",
             "CreatedAt=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             "SourceRoot=" + sourceRoot,
-            "TestRoot=" + testProject.GameRoot,
+            "InputRoot=" + project.GameRoot,
+            "InputIsTestCopy=" + project.IsTestCopy,
             "ReleaseRoot=" + releaseRoot,
             "FilesCopied=" + filesCopied.ToString(CultureInfo.InvariantCulture),
             "BytesCopied=" + bytesCopied.ToString(CultureInfo.InvariantCulture),
@@ -95,7 +99,9 @@ public sealed class ReleasePackageService
             "AddedItems=" + diffItems.Count(x => x.Status == "新增").ToString(CultureInfo.InvariantCulture),
             "MissingItems=" + diffItems.Count(x => x.Status == "缺失").ToString(CultureInfo.InvariantCulture),
             string.Empty,
-            "说明：本目录由测试副本生成，已排除 _CCZModStudio_TestCopy.txt、备份目录、报告目录和导出目录。",
+            project.IsTestCopy
+                ? "说明：本目录由测试副本生成，已排除 _CCZModStudio_TestCopy.txt、备份目录、报告目录和导出目录。"
+                : "说明：本目录由当前项目生成，已排除备份目录、报告目录、导出目录和测试副本标记。",
             "建议：正式封包前请再次运行游戏实测，并确认缺失项不是误删的发布必需文件。",
             string.Empty,
             "Status\tRelativePath\tSourceSize\tTestSize\tDetail"

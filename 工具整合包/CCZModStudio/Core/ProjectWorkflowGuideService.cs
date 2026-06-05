@@ -78,13 +78,13 @@ public sealed class ProjectWorkflowGuideService
         {
             new WorkflowDashboardItem
             {
-                Area = "安全模式",
-                Level = isTestCopy ? "正常" : "提醒",
-                Value = isTestCopy ? "测试副本" : "原始只读",
+                Area = "写入模式",
+                Level = "正常",
+                Value = isTestCopy ? "测试副本" : "当前项目",
                 Summary = isTestCopy
                     ? "当前项目带有测试副本标记，可在自动备份和报告保护下使用已确认写入功能。"
-                    : "当前打开的是原始目录，工具会保持只读保护。",
-                Suggestion = isTestCopy ? "可以继续编辑；每次写入后请查看差异和备份。" : "请先创建测试副本，再进行任何实际修改。",
+                    : "当前项目可直接使用已确认写入功能；写入前自动备份，写入后复读或生成结构化报告。",
+                Suggestion = isTestCopy ? "可以继续编辑；每次写入后请查看差异和备份。" : "可以直接编辑；若需要发布前对比，可另建测试副本。",
                 RelatedPage = "顶部工具栏 / 测试副本差异/发布",
                 Evidence = project.GameRoot
             },
@@ -106,7 +106,7 @@ public sealed class ProjectWorkflowGuideService
                 Level = auditErrors > 0 ? "风险" : auditWarnings > 0 ? "提醒" : auditItems.Count > 0 ? "正常" : "提醒",
                 Value = auditItems.Count > 0 ? $"错误 {auditErrors} / 警告 {auditWarnings}" : "未运行",
                 Summary = auditItems.Count > 0
-                    ? "项目体检已生成，可用于确认核心文件、偏移护栏和只读/测试副本边界。"
+                    ? "项目体检已生成，可用于确认核心文件、偏移护栏和可写边界。"
                     : "尚未运行项目体检。",
                 Suggestion = auditErrors > 0 ? "先处理红色错误，再继续制作。" : auditItems.Count > 0 ? "保留体检结果作为发布前证据。" : "点击“项目体检”。",
                 RelatedPage = "项目体检/发布检查",
@@ -237,21 +237,21 @@ public sealed class ProjectWorkflowGuideService
                 Status = auditItemCount > 0 ? "已生成体检结果" : hasProject ? "建议执行" : "等待项目",
                 RecommendedAction = "点击“项目体检”，优先处理红色错误和黄色警告；体检报告可留作发布前证据。",
                 RelatedPage = "项目体检/发布检查",
-                WhyItMatters = "体检会检查 6.5 核心文件尺寸、只读/测试副本边界、偏移护栏和常见风险。",
+                WhyItMatters = "体检会检查 6.X 表可读性、6.5 写入核心尺寸、可写边界、偏移护栏和常见风险。",
                 SafetyNote = "项目体检为只读分析，不写入游戏文件。"
             },
             new WorkflowGuideStep
             {
                 StepNo = 3,
-                Stage = "安全",
-                Title = "创建并切换到测试副本",
-                Status = isTestCopy ? "已在测试副本" : hasProject ? "强烈建议" : "等待项目",
+                Stage = "备份",
+                Title = "按需创建测试副本",
+                Status = isTestCopy ? "已在测试副本" : hasProject ? "可选" : "等待项目",
                 RecommendedAction = isTestCopy
-                    ? "当前目录带有 _CCZModStudio_TestCopy.txt 标记，可以进行受保护写入。"
-                    : "点击“创建测试副本”，并在提示中切换到副本后再编辑。",
+                    ? "当前目录带有 _CCZModStudio_TestCopy.txt 标记，可用于发布前差异对比。"
+                    : "如需保留原始目录作对照，可点击“创建测试副本”；当前项目也可直接编辑。",
                 RelatedPage = "顶部工具栏",
-                WhyItMatters = "所有可写功能都应在测试副本里操作，避免直接破坏原始游戏目录。",
-                SafetyNote = "原始目录保持只读；测试副本写入前自动备份并生成报告。"
+                WhyItMatters = "测试副本用于发布前差异对比；实际写入仍依赖自动备份、复读和报告，而不是目录标记。",
+                SafetyNote = "当前项目和测试副本都允许已确认格式写入；未确认结构仍不开放。"
             },
             new WorkflowGuideStep
             {
@@ -259,21 +259,21 @@ public sealed class ProjectWorkflowGuideService
                 Stage = "理解",
                 Title = "读取数据表、字段注释和跨表解释",
                 Status = tableDefinitionCount > 0 ? "可使用" : hasHexTable ? "待读取" : "等待 HexTable",
-                RecommendedAction = "在左侧选择 6.5 数据表，查看中文字段说明、样例值、风险字段、跨表引用和可见列 CSV 导出。",
+                RecommendedAction = "在左侧选择 6.X 数据表，查看中文字段说明、样例值、风险字段、跨表引用和可见列 CSV 导出。",
                 RelatedPage = "数据表编辑",
                 WhyItMatters = "表格是人物、物品、策略、兵种等 MOD 内容的基础；中文注释能降低误改概率。",
-                SafetyNote = "在原始目录下表格只读；只有测试副本且表定义允许时才可保存。"
+                SafetyNote = "读取按当前 HexTable.xml 的 6.X 表定义执行；保存仅在表版本为 6.5 且 6.5 核心尺寸匹配时开放，保存前备份，保存后复读。"
             },
             new WorkflowGuideStep
             {
                 StepNo = 5,
                 Stage = "制作",
                 Title = "安全编辑表格、文本、形象和资源",
-                Status = isTestCopy ? "可编辑" : hasProject ? "只读保护中" : "等待项目",
-                RecommendedAction = "在测试副本中修改表格、SV 短文本、人物 R/S、资源整文件替换；写入后查看备份和结构化报告。",
+                Status = hasProject ? "可编辑" : "等待项目",
+                RecommendedAction = "修改表格、R/S 短文本、人物 R/S、补丁、图片和资源整文件；写入后查看备份和结构化报告。",
                 RelatedPage = "数据表编辑 / R/S eex高级探针 / 人物R/S形象 / 游戏资源索引",
                 WhyItMatters = "创作者常用改动需要可复读、可回滚、可发布，不能只靠手工覆盖文件。",
-                SafetyNote = "EEX、Ls/E5 内部重封包、完整 SV 命令树、Hexzmap 写回仍保持只读研究。"
+                SafetyNote = "EEX、Ls/E5 内部重封包、完整 R/S 命令树、扩容和跨 Section 重排仍未开放。"
             },
             new WorkflowGuideStep
             {
@@ -306,11 +306,11 @@ public sealed class ProjectWorkflowGuideService
                 StepNo = 8,
                 Stage = "发布",
                 Title = "生成发布副本和综合报告",
-                Status = isTestCopy && diffItemCount > 0 ? "可发布前检查" : isTestCopy ? "等待差异" : "等待测试副本",
+                Status = isTestCopy && diffItemCount > 0 ? "可发布前检查" : hasProject ? "可生成发布副本" : "等待项目",
                 RecommendedAction = "确认差异和备份后，生成发布前综合报告；需要交付时再生成干净发布副本。",
                 RelatedPage = "测试副本差异/发布",
                 WhyItMatters = "发布包应排除测试标记、备份、报告、导出和临时目录，降低误交付风险。",
-                SafetyNote = "发布副本从测试副本生成，不会覆盖原始目录。"
+                SafetyNote = "发布副本会复制当前项目并排除备份、报告、导出和测试标记，不覆盖源目录。"
             }
         };
     }
@@ -327,14 +327,14 @@ public sealed class ProjectWorkflowGuideService
         var reminders = dashboardItems?.Count(x => x.Level == "提醒") ?? 0;
         var risky = project.IsTestCopy
             ? "当前是测试副本，可在备份和报告保护下进行已确认格式的写入。"
-            : "当前是原始目录，只读保护中；请先创建测试副本再进行编辑。";
+            : "当前项目可直接写入已确认格式；写入前自动备份，写入后复读或生成报告。";
         return
             $"制作向导：{project.Name}\r\n" +
             $"项目路径：{project.GameRoot}\r\n" +
             $"流程进度：{ready}/{steps.Count} 个步骤已就绪或可执行。\r\n" +
             (dashboardItems == null ? string.Empty : $"工作台提示：风险 {risks} 项，提醒 {reminders} 项。\r\n") +
             $"安全边界：{risky}\r\n" +
-            "建议顺序：项目体检 -> 测试副本 -> 读取/注释 -> 安全编辑 -> 差异/备份 -> 综合报告/发布副本。";
+            "建议顺序：项目体检 -> 读取/注释 -> 编辑 -> 备份/报告 -> 资源诊断 -> 综合报告/发布副本。";
     }
 
     public string BuildActionPlan(CczProject? project, IReadOnlyList<WorkflowDashboardItem> dashboardItems, int maxItems = 5)
@@ -373,7 +373,7 @@ public sealed class ProjectWorkflowGuideService
 
         lines.Add(project.IsTestCopy
             ? "安全提示：当前是测试副本；写入前仍会备份，写入后应复读验证并查看差异。"
-            : "安全提示：当前是原始目录，只读保护中；请先创建测试副本再进行任何实际修改。");
+            : "安全提示：当前项目可写；写入前仍会备份，写入后应复读验证并查看报告。");
         lines.Add("注释提示：处理风险项时建议使用“创作者备注”记录修改意图、证据来源、实机验证结果和回滚点。");
         return string.Join("\r\n", lines);
     }
@@ -422,7 +422,7 @@ public sealed class ProjectWorkflowGuideService
                     TargetArea = "最近报告/发布证据",
                     Action = "重新运行项目体检、资源诊断、差异分析和发布前综合报告。",
                     ExpectedResult = "形成发布前证据链，确认当前版本没有新增风险。",
-                    SafetyNote = project.IsTestCopy ? "发布副本从测试副本生成，不覆盖原始目录。" : "当前仍是原始目录，只读保护中。",
+                    SafetyNote = "发布副本从当前项目生成，不覆盖源目录。",
                     NoteHint = BuildActionNoteHint(creatorNotes, "最近报告/发布证据")
                 }
             };
@@ -466,7 +466,7 @@ public sealed class ProjectWorkflowGuideService
     private static string BuildActionExpectedResult(WorkflowDashboardItem item)
         => item.Area switch
         {
-            "安全模式" => "切换到受保护的测试副本，后续写入都有备份、报告和回滚点。",
+            "写入模式" => "确认当前项目可写，并依靠自动备份、复读和结构化报告保留回滚点。",
             "项目体检" => "定位第一条错误/警告，确认核心文件、偏移护栏和安全边界。",
             "资源诊断" => "定位缺失、编号缺口、格式线索异常或资源引用风险。",
             "创作者备注" => "打开待办/风险备注，补充修改意图、证据和实机验证状态。",
@@ -482,14 +482,14 @@ public sealed class ProjectWorkflowGuideService
     {
         var prefix = project.IsTestCopy
             ? "当前是测试副本；"
-            : "当前是原始目录，只读保护中；";
+            : "当前项目可写；";
         var suffix = item.Area switch
         {
             "EEX/Ls/Hexzmap探针" => "该类格式仍保持只读研究，不开放内部重封包写入。",
             "SV高风险命令" => "完整 SV 命令树写回未开放；修改前请用备注记录证据并实机核对。",
-            "关卡地图联动" => "联动页用于核对资源成套状态，替换资源仍需走测试副本备份流程。",
-            "安全模式" => project.IsTestCopy ? "可继续编辑，但每次写入后要复读验证和查看差异。" : "请先创建测试副本再编辑。",
-            _ => project.IsTestCopy ? "处理后建议刷新差异、备份历史和综合报告。" : "请先创建测试副本再做实际写入。"
+            "关卡地图联动" => "联动页用于核对资源成套状态，替换资源后建议重新生成联动和预览图。",
+            "写入模式" => "可继续编辑，但每次写入后要复读验证和查看备份。",
+            _ => "处理后建议刷新资源诊断、备份历史和综合报告。"
         };
         return prefix + suffix;
     }

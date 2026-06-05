@@ -44,7 +44,7 @@ public sealed class ScenarioMapLinkReportService
         builder.AppendLine($"- 生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"- 项目目录：`{Escape(project.GameRoot)}`");
         builder.AppendLine($"- 工作区：`{Escape(project.WorkspaceRoot)}`");
-        builder.AppendLine($"- 当前模式：{(project.IsTestCopy ? "测试副本（允许受保护写入）" : "原始目录（只读保护）")}");
+        builder.AppendLine($"- 当前模式：{(project.IsTestCopy ? "测试副本（可写，可做差异对比）" : "当前项目（可写）")}");
         builder.AppendLine($"- 报告范围：当前显示 {shown.Count} 行 / 全部 {allLinks.Count} 行");
         builder.AppendLine();
         builder.AppendLine("> 说明：本报告使用同编号候选规则 `SVxxx.E5S -> Map\\Mxxx.jpg/JPG -> Hexzmap Mxxx`，用于制作期排查和留证；它不是完整反汇编证明。报告只写入 `CCZModStudio_Reports`，不修改任何游戏文件。");
@@ -186,7 +186,7 @@ public sealed class ScenarioMapLinkReportService
         builder.AppendLine();
         builder.AppendLine("- 本报告只读分析 SV、Map 和 Hexzmap 的候选关系，不写入 Data/Imsg/Star/Ekd5/SV/EEX/Hexzmap。");
         builder.AppendLine("- Hexzmap 地形格写回、Ls/E5/EEX 解包重封包仍属于未完全确认格式，当前应继续只读研究。");
-        builder.AppendLine("- 真正修改 MOD 时仍应在测试副本中进行，并保留自动备份、结构化写入报告和实机验证记录。");
+        builder.AppendLine("- 真正修改 MOD 时应保留自动备份、结构化写入报告和实机验证记录；需要文件级对比时再创建测试副本。");
         builder.AppendLine();
     }
 

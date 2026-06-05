@@ -77,12 +77,10 @@ public sealed class PatchApplyService
     }
 
     public PatchApplyResult ApplyToTestCopy(CczProject project, PatchDocument document, string targetFileName = "Ekd5.exe")
-    {
-        if (!project.IsTestCopy)
-        {
-            throw new InvalidOperationException("安全限制：当前项目不是测试副本，禁止应用补丁。请先创建并打开 CCZModStudio 测试副本。 ");
-        }
+        => Apply(project, document, targetFileName);
 
+    public PatchApplyResult Apply(CczProject project, PatchDocument document, string targetFileName = "Ekd5.exe")
+    {
         ProjectVersionGuardService.EnsureCoreFileCompatibleForWrite(project, targetFileName);
 
         var preview = Preview(project, document, targetFileName);
@@ -153,7 +151,7 @@ public sealed class PatchApplyService
             AfterSha256 = afterHash,
             ChangedBytes = changedBytes,
             Summary = $"应用补丁到“{targetRelative}”，补丁项 {preview.Rows.Count} 条，写入 {bytesWritten:N0} 字节，实际变化 {changedBytes:N0} 字节。",
-            SafetyNotes = "该报告由测试副本补丁写入流程自动生成。所有补丁项已先完成地址换算、越界检查和预览；写入方式为定长字节覆盖，不插入、不删除、不扩展 EXE。",
+            SafetyNotes = "该报告由补丁写入流程自动生成。所有补丁项已先完成地址换算、越界检查和预览；写入方式为定长字节覆盖，不插入、不删除、不扩展 EXE。",
             FormatCheckSummary = $"补丁预览通过：{preview.Rows.Count} 项，地址类型 {preview.Document.AddressKind}。",
             RiskSummary = "补丁会直接改变目标二进制文件字节；如补丁来源版本不匹配，可能导致游戏异常。必要时可在备份历史/回滚页恢复写入前备份。",
             Changes = preview.Rows.Select(row => new WriteOperationChange

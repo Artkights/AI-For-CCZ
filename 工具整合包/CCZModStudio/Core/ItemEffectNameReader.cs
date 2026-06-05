@@ -1,4 +1,5 @@
 using System.Globalization;
+using CCZModStudio.Formats;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
@@ -10,8 +11,7 @@ public sealed class ItemEffectNameReader
         var result = new Dictionary<int, string>();
         foreach (var tableName in new[] { "6.5-1-2 装备特效名称（1A-57）", "6.5-1-3 装备特效名称（58-7F）" })
         {
-            var table = tables.FirstOrDefault(x => x.TableName == tableName);
-            if (table == null) continue;
+            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) continue;
 
             foreach (var pair in ReadNames(project, table))
             {
@@ -23,7 +23,10 @@ public sealed class ItemEffectNameReader
     }
 
     public static bool IsItemEffectNameTable(HexTableDefinition table)
-        => table.TableName is "6.5-1-2 装备特效名称（1A-57）" or "6.5-1-3 装备特效名称（58-7F）";
+    {
+        var key = HexTableNameResolver.BuildRangeAgnosticSemanticKey(table.TableName);
+        return key is "1-2 装备特效名称" or "1-3 装备特效名称";
+    }
 
     public IReadOnlyDictionary<int, string> ReadNames(CczProject project, HexTableDefinition table)
     {

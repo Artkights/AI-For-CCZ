@@ -6,7 +6,7 @@ using CCZModStudio.Models;
 namespace CCZModStudio.Core;
 
 /// <summary>
-/// 测试副本资源替换服务。
+/// 项目资源替换服务。
 /// 用于 Map/JPG、RS/EEX、WAV、MP3、SV 等已索引文件的“整文件替换”，不尝试重封包未知格式。
 /// </summary>
 public sealed class ResourceReplaceService
@@ -15,11 +15,11 @@ public sealed class ResourceReplaceService
 
     public ResourceReplacePreviewResult PreviewReplacement(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
     {
-        return BuildPreviewData(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: true).ToPreviewResult();
+        return BuildPreviewData(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: false).ToPreviewResult();
     }
 
     public ResourceReplaceResult ReplaceInTestCopy(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
-        => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: true);
+        => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: false);
 
     public ResourceReplaceResult Replace(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
         => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: false);
@@ -76,9 +76,7 @@ public sealed class ResourceReplaceService
             AfterSha256 = preview.NewHash,
             ChangedBytes = preview.ChangedBytes,
             Summary = $"整文件写入资源“{targetRelative}”，来源 {preview.ReplacementPath}，大小变化 {sizeDelta:+#;-#;0} 字节，估算改动 {preview.ChangedBytes:N0} 字节。",
-            SafetyNotes = project.IsTestCopy
-                ? "该报告由测试副本资源整文件替换/还原流程自动生成。原始目录禁止写入；当前不会解析或重封包 EEX/E5/SV 等未知内部结构。"
-                : "该报告由 MCP 正式项目资源整文件替换流程自动生成。保存前已备份目标文件；当前不会解析或重封包 EEX/E5/SV 等未知内部结构。",
+            SafetyNotes = "该报告由项目资源整文件替换/还原流程自动生成。保存前已备份目标文件；当前不会解析或重封包 EEX/E5/SV 等未知内部结构。",
             FormatCheckSummary = preview.FormatCheck.Summary,
             RiskSummary = preview.RiskSummary,
             Changes =
@@ -92,7 +90,7 @@ public sealed class ResourceReplaceService
                     ByteLength = preview.NewBytes.LongLength <= int.MaxValue ? (int)preview.NewBytes.LongLength : null,
                     OldValue = $"旧大小={preview.OldBytes.LongLength:N0} 字节；SHA256={preview.OldHash}",
                     NewValue = $"新大小={preview.NewBytes.LongLength:N0} 字节；SHA256={preview.NewHash}；来源={preview.ReplacementPath}",
-                    Annotation = $"对测试副本资源 {targetRelative} 执行整文件覆盖。格式检查：{preview.FormatCheck.Summary}；格式警告：{warnings}；风险提示：{preview.RiskSummary}"
+                    Annotation = $"对项目资源 {targetRelative} 执行整文件覆盖。格式检查：{preview.FormatCheck.Summary}；格式警告：{warnings}；风险提示：{preview.RiskSummary}"
                 }
             ],
             Metadata =
@@ -112,17 +110,12 @@ public sealed class ResourceReplaceService
 
     private static ReplacementPreviewData BuildPreviewData(CczProject project, string targetPath, string replacementPath, bool requireSameExtension, bool requireTestCopy)
     {
-        if (requireTestCopy && !project.IsTestCopy)
-        {
-            throw new InvalidOperationException("安全限制：当前项目不是测试副本，禁止替换资源。请先创建并打开 CCZModStudio 测试副本。");
-        }
-
         targetPath = Path.GetFullPath(targetPath);
         replacementPath = Path.GetFullPath(replacementPath);
         var gameRoot = Path.GetFullPath(project.GameRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (!targetPath.StartsWith(gameRoot, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("目标资源不在当前测试副本目录内，禁止替换：" + targetPath);
+            throw new InvalidOperationException("目标资源不在当前项目目录内，禁止替换：" + targetPath);
         }
 
         if (!File.Exists(targetPath)) throw new FileNotFoundException("目标资源文件不存在。", targetPath);
@@ -162,7 +155,7 @@ public sealed class ResourceReplaceService
         if (replacementSize != expectedSize)
         {
             throw new InvalidOperationException(
-                $"核心文件整文件替换护栏：{coreName} 属于 6.5 固定偏移核心文件，替换来源尺寸为 {replacementSize} 字节，6.5 基准应为 {expectedSize} 字节。为避免把 6.6x/其他版本文件误替换进测试副本，已拒绝。");
+                $"核心文件整文件替换护栏：{coreName} 属于 6.5 固定偏移核心文件，替换来源尺寸为 {replacementSize} 字节，6.5 基准应为 {expectedSize} 字节。为避免把 6.6x/其他版本文件误替换进当前项目，已拒绝。");
         }
     }
 

@@ -21,7 +21,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ListTables(game_root);
 
     [McpServerTool]
-    [Description("Read rows from a CCZ 6.5 HexTable-backed data table.")]
+    [Description("Read rows from a CCZ 6.X HexTable-backed data table.")]
     public object read_table(
         [Description("HexTable table name. Exact name is preferred; partial names are accepted when unique enough.")]
         string table_name,

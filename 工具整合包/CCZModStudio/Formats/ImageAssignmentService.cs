@@ -112,7 +112,7 @@ public sealed class ImageAssignmentService
     }
 
     private static HexTableDefinition Find(IReadOnlyList<HexTableDefinition> tables, string tableName) =>
-        tables.Single(t => t.TableName == tableName);
+        HexTableNameResolver.Resolve(tables, tableName);
 
     private static IReadOnlyDictionary<int, string> BuildJobNameLookup(DataTable jobs)
     {
@@ -130,6 +130,12 @@ public sealed class ImageAssignmentService
 
     private static void EnsureImageTablesMatchBImageAssigner(HexTableDefinition rTable, HexTableDefinition sTable)
     {
+        if (!string.Equals(rTable.Version, "6.5", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(sTable.Version, "6.5", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         if (!rTable.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
             !sTable.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
             rTable.DataPos != ExpectedRImageOffset ||

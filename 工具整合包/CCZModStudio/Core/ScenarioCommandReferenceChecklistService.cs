@@ -55,7 +55,7 @@ public sealed class ScenarioCommandReferenceChecklistService
         builder.AppendLine($"- 项目目录：`{Escape(project.GameRoot)}`");
         builder.AppendLine($"- 工作区：`{Escape(project.WorkspaceRoot)}`");
         builder.AppendLine($"- 剧本文件：`{Escape(structure.FileName)}`");
-        builder.AppendLine($"- 当前模式：{(project.IsTestCopy ? "测试副本（允许受保护写入）" : "原始目录（只读保护）")}");
+        builder.AppendLine($"- 当前模式：{(project.IsTestCopy ? "测试副本（可写，可做差异对比）" : "当前项目（可写）")}");
         builder.AppendLine($"- 报告范围：命令 {commandRows.Count}/{allCommandRows.Count}，引用候选 {commandTargetCount}，有候选命令 {commandsWithTargets}");
         builder.AppendLine();
         builder.AppendLine("> 安全边界：本清单来自结构草图的固定窗口 16 位词扫描，只用于定位、备注、对照旧工具和实机验证；它不证明完整命令长度，不作为 R/S eex 完整结构写回依据。报告只写入 `CCZModStudio_Reports`，不修改任何游戏文件。");
@@ -198,7 +198,7 @@ public sealed class ScenarioCommandReferenceChecklistService
         builder.AppendLine();
         builder.AppendLine("1. 在工具中选中同一命令行，先用 `命令引用` 下拉框逐项跳转核对。");
         builder.AppendLine("2. 数据表候选：检查 ID、名称、说明、跨表引用是否符合剧情设计。");
-        builder.AppendLine("3. 文本候选：确认 GBK 字节容量，必要时只在测试副本中做原地短写回。");
+        builder.AppendLine("3. 文本候选：确认 GBK 字节容量，必要时使用原地等长/缩短写回。");
         builder.AppendLine("4. 地图/坐标候选：打开关卡地图联动预览，核对 Map 底图与按地图分辨率/48 划分的 Hexzmap 地形格。");
         builder.AppendLine("5. 对无法确认的候选建立创作者备注，记录旧工具截图、实机测试结果和回滚点。");
         builder.AppendLine();

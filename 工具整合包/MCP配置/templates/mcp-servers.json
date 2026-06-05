@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "cczmodstudio": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "<TOOL_ROOT>\\MCP配置\\start-ccz-mcp.ps1",
+        "-GameRoot",
+        "<GAME_ROOT>"
+      ],
+      "env": {
+        "CCZMODSTUDIO_TOOL_ROOT": "<TOOL_ROOT>",
+        "CCZMODSTUDIO_GAME_ROOT": "<GAME_ROOT>"
+      }
+    }
+  }
+}

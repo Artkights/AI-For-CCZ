@@ -1,12 +1,13 @@
 using System.Globalization;
+using CCZModStudio.Formats;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
 
 /// <summary>
-/// 6.5 偏移安全护栏。
-/// 本工具当前所有可写表结构均来自 CczRSX 6.5 的 HexTable.xml，
-/// 因此写入前必须确认目标核心文件仍符合 6.5 基准尺寸，避免把 6.6x 或其他改版文件按 6.5 偏移写坏。
+/// 6.X 读取 / 6.5 写入安全护栏。
+/// 读取侧允许加载 HexTable.xml 中声明的 6.X 表；写入侧仍只开放已验证的 6.5 表和 6.5 基准核心尺寸，
+/// 避免把 6.5 偏移写到 6.6x 或其他改版文件。
 /// </summary>
 public static class ProjectVersionGuardService
 {
@@ -21,9 +22,10 @@ public static class ProjectVersionGuardService
 
     public static IReadOnlyList<ProjectAuditItem> Analyze(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var enabled65Count = tables.Count(t => t.Enabled && t.Version == "6.5");
-        var enabledOtherVersions = tables
-            .Where(t => t.Enabled && !string.Equals(t.Version, "6.5", StringComparison.OrdinalIgnoreCase))
+        var enabled6x = tables.Where(t => t.Enabled && HexTableNameResolver.Is6XVersion(t.Version)).ToList();
+        var enabled65Count = enabled6x.Count(t => t.Version == "6.5");
+        var enabledOtherVersions = enabled6x
+            .Where(t => !string.Equals(t.Version, "6.5", StringComparison.OrdinalIgnoreCase))
             .Select(t => t.Version)
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -43,19 +45,24 @@ public static class ProjectVersionGuardService
 
         var missing = coreStates.Where(x => !x.Exists).ToList();
         var mismatched = coreStates.Where(x => x.Exists && !x.SizeMatches65).ToList();
-        var severity = missing.Count > 0 || mismatched.Count > 0 || enabled65Count == 0 ? "Error" : "Info";
-        var status = severity == "Info"
-            ? enabledOtherVersions.Count > 0
-                ? "6.5 基准通过；非 6.5 表已禁止写入"
-                : "6.5 偏移护栏通过"
-            : "疑似非 6.5 或核心文件不完整";
+        var severity = missing.Count > 0 || enabled6x.Count == 0
+            ? "Error"
+            : mismatched.Count > 0 || enabledOtherVersions.Count > 0
+                ? "Warn"
+                : "Info";
+        var status = severity switch
+        {
+            "Info" => "6.5 读写基准通过",
+            "Warn" => "6.X 可读；非 6.5 写入受保护",
+            _ => "核心文件不完整或缺少 6.X 表定义"
+        };
 
         var detailParts = new List<string>
         {
-            $"启用 6.5 表 {enabled65Count} 个",
+            $"启用 6.X 表 {enabled6x.Count} 个，其中 6.5 表 {enabled65Count} 个",
             enabledOtherVersions.Count == 0
-                ? "未启用其他版本表"
-                : "启用其他版本表：" + string.Join("、", enabledOtherVersions),
+                ? "未启用非 6.5 表"
+                : "启用非 6.5 表：" + string.Join("、", enabledOtherVersions),
             "核心尺寸：" + string.Join("；", coreStates.Select(x => x.Exists
                 ? $"{x.FileName}={x.ActualSize.ToString(CultureInfo.InvariantCulture)}/{x.ExpectedSize.ToString(CultureInfo.InvariantCulture)}{(x.SizeMatches65 ? "(匹配)" : "(不匹配)")}"
                 : $"{x.FileName}=缺失"))
@@ -77,8 +84,8 @@ public static class ProjectVersionGuardService
                 Severity = "Info",
                 Category = "版本/偏移护栏",
                 Name = "写入规则",
-                Status = "当前项目可写 + 自动备份 + 6.5 基准核心文件",
-                Detail = "已确认的数据表和 R/S 联动允许直接保存当前 MOD 项目，写入前自动备份；对 Ekd5.exe/Data.e5/Imsg.e5/Star.e5/Hexzmap.e5 还会检查 6.5 基准尺寸，尺寸不符时拒绝写入。补丁、资源替换、SV 短文本等高风险写入仍按各自模块规则控制。",
+                Status = "6.X 读取；6.5 写入",
+                Detail = "读取侧按当前 HexTable.xml 中的 6.X 表定义工作；写入侧只允许 Version=6.5 且 Ekd5.exe/Data.e5/Imsg.e5/Star.e5/Hexzmap.e5 尺寸匹配 6.5 基准的目标。尺寸不符或表版本不是 6.5 时拒绝写入。补丁、资源替换、SV 短文本等高风险写入仍按各自模块规则控制。",
                 Path = project.GameRoot
             }
         };

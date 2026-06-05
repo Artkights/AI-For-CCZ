@@ -79,33 +79,22 @@ public sealed class TableReferenceLookupService
 
         if (field.ColumnName == "内容")
         {
-            var companion = currentTable.TableName switch
-            {
-                "6.5-5-2 策略动画1" => "策略主表同 ID 的第一段动画/主动画编号。",
-                "6.5-5-3 策略动画2" => "策略主表同 ID 的第二段动画/附加动画编号。",
-                "6.5-5-4 策略伤害类型" => "策略主表同 ID 的伤害类型/公式类别候选。",
-                "6.5-5-5 策略伤害比例" => "策略主表同 ID 的伤害比例/倍率参数候选。",
-                "6.5-5-6 策略命中率" => "策略主表同 ID 的命中率参数候选。",
-                "6.5-5-7 学会策略" => "策略主表同 ID 的学习/可用条件候选。",
-                "6.5-5-8 战场AI策略限制" => "策略主表同 ID 的战场 AI 使用限制候选。",
-                "6.5-5-9 练武场AI策略限制" => "策略主表同 ID 的练武场 AI 使用限制候选。",
-                _ => string.Empty
-            };
+            var companion = GetStrategyCompanionMeaning(currentTable.TableName);
             if (!string.IsNullOrWhiteSpace(companion))
             {
-                return "策略附表行对齐：" + companion;
+                return "策略附表行对齐：策略主表同 ID 的" + companion + "。";
             }
         }
 
         var rule = GetRule(currentTable, field);
         if (rule?.Kind == ReferenceRuleKind.EquipmentEffect)
         {
-            return "跨表引用：宝物页优先读取项目侧 `CCZModStudio_Notes/*_ItemEffectCatalog.json` 的 UTF-8 宝物特效目录，未命中时再回退到 `6.5-1-2/6.5-1-3 装备特效名称`；效果值是同一行参数。";
+            return "跨表引用：宝物页优先读取项目侧 `CCZModStudio_Notes/*_ItemEffectCatalog.json` 的 UTF-8 宝物特效目录，未命中时再回退到当前 6.X HexTable 中的装备特效名称表；效果值是同一行参数。";
         }
 
         if (rule?.Kind == ReferenceRuleKind.Item)
         {
-            return "跨表引用：通常指向“6.5-1 物品（0-103）/6.5-2 物品（104-255）”；255 在商店/槽位中常作为空槽候选。";
+            return "跨表引用：通常指向当前 6.X HexTable 中的物品表；255 在商店/槽位中常作为空槽候选。";
         }
 
         if (rule != null)
@@ -255,19 +244,23 @@ public sealed class TableReferenceLookupService
             $"“{currentTable.TableName}”通常与“{targetTableName}”按同一 ID 对齐。");
     }
 
-    private static string GetTextRowAlignedTargetTable(string tableName) => tableName switch
+    private static string GetTextRowAlignedTargetTable(string tableName)
     {
-        "6.5-0-1 人物列传" => "6.5-0 人物",
-        "6.5-1-1 物品说明（0-103）" => "6.5-1 物品（0-103）",
-        "6.5-2-1 物品说明（104-255）" => "6.5-2 物品（104-255）",
-        "6.5-4-1 兵种说明" => "6.5-4 详细兵种",
-        "6.5-5-1 策略说明" => "6.5-5 策略",
-        "6.5-6-1 必杀说明" => "6.5-6 必杀",
-        "6.5-7-1 兵种特效说明" => "6.5-7 兵种特效",
-        "6.5-1-2 物品获取说明（0-103）" => "6.5-1 物品（0-103）",
-        "6.5-2-2 物品获取说明（104-199）" => "6.5-2 物品（104-255）",
-        _ => string.Empty
-    };
+        var key = HexTableNameResolver.BuildRangeAgnosticSemanticKey(tableName);
+        return key switch
+        {
+            "0-1 人物列传" => "6.5-0 人物",
+            "1-1 物品说明" => "6.5-1 物品（0-103）",
+            "2-1 物品说明" => "6.5-2 物品（104-255）",
+            "4-1 兵种说明" => "6.5-4 详细兵种",
+            "5-1 策略说明" => "6.5-5 策略",
+            "6-1 必杀说明" => "6.5-6 必杀",
+            "7-1 兵种特效说明" => "6.5-7 兵种特效",
+            "1-2 物品获取说明" => "6.5-1 物品（0-103）",
+            "2-2 物品获取说明" => "6.5-2 物品（104-255）",
+            _ => string.Empty
+        };
+    }
 
     private string BuildRowAlignedEvidence(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition currentTable, HexFieldDefinition field, int value, int? rowId)
     {
@@ -276,27 +269,17 @@ public sealed class TableReferenceLookupService
             return string.Empty;
         }
 
-        var meaning = currentTable.TableName switch
-        {
-            "6.5-5-2 策略动画1" => "策略第一段动画/主动画编号",
-            "6.5-5-3 策略动画2" => "策略第二段动画/附加动画编号",
-            "6.5-5-4 策略伤害类型" => "策略伤害类型/公式类别候选",
-            "6.5-5-5 策略伤害比例" => "策略伤害比例/倍率参数候选",
-            "6.5-5-6 策略命中率" => "策略命中率参数候选",
-            "6.5-5-7 学会策略" => "策略学习/可用条件候选",
-            "6.5-5-8 战场AI策略限制" => "战场 AI 使用限制候选",
-            "6.5-5-9 练武场AI策略限制" => "练武场 AI 使用限制候选",
-            _ => string.Empty
-        };
+        var meaning = GetStrategyCompanionMeaning(currentTable.TableName);
         if (string.IsNullOrWhiteSpace(meaning))
         {
             return string.Empty;
         }
 
-        var strategyName = LookupName(project, tables, "6.5-5 策略", rowId.Value);
+        var strategyTableName = ResolveTableNameOrFallback(tables, "6.5-5 策略");
+        var strategyName = LookupName(project, tables, strategyTableName, rowId.Value);
         return
             $"\r\n\r\n策略附表解释：{currentTable.TableName}\r\n" +
-            $"当前行 ID={rowId.Value} 与“6.5-5 策略”同 ID 对齐；策略名称：{strategyName}\r\n" +
+            $"当前行 ID={rowId.Value} 与“{strategyTableName}”同 ID 对齐；策略名称：{strategyName}\r\n" +
             $"字段“内容”的当前值：{value}；解释候选：{meaning}。\r\n" +
             "建议：此类表通常是策略主表的分栏扩展，改动后请同时检查策略主表的消耗、范围、图标，以及实际战场释放动画/伤害/AI 行为。";
     }
@@ -316,18 +299,7 @@ public sealed class TableReferenceLookupService
             return null;
         }
 
-        var meaning = currentTable.TableName switch
-        {
-            "6.5-5-2 策略动画1" => "策略第一段动画/主动画编号",
-            "6.5-5-3 策略动画2" => "策略第二段动画/附加动画编号",
-            "6.5-5-4 策略伤害类型" => "策略伤害类型/公式类别候选",
-            "6.5-5-5 策略伤害比例" => "策略伤害比例/倍率参数候选",
-            "6.5-5-6 策略命中率" => "策略命中率参数候选",
-            "6.5-5-7 学会策略" => "策略学习/可用条件候选",
-            "6.5-5-8 战场AI策略限制" => "战场 AI 使用限制候选",
-            "6.5-5-9 练武场AI策略限制" => "练武场 AI 使用限制候选",
-            _ => string.Empty
-        };
+        var meaning = GetStrategyCompanionMeaning(currentTable.TableName);
 
         if (string.IsNullOrWhiteSpace(meaning))
         {
@@ -342,15 +314,14 @@ public sealed class TableReferenceLookupService
             sourceValue,
             sourceRowId,
             "策略附表行对齐",
-            "6.5-5 策略",
+            ResolveTableNameOrFallback(tables, "6.5-5 策略"),
             rowId.Value,
             $"当前值 {value} 是“{meaning}”，该附表通常与策略主表按同一 ID 对齐。");
     }
 
     private string BuildSingleTableReference(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition currentTable, HexFieldDefinition field, int id, ReferenceRule rule)
     {
-        var table = tables.FirstOrDefault(x => x.TableName == rule.TargetTableName);
-        if (table == null)
+        if (!HexTableNameResolver.TryResolve(tables, rule.TargetTableName, out var table))
         {
             return $"\r\n\r\n跨表引用解释：字段“{field.ColumnName}”可能引用“{rule.TargetTableName}”，但当前 HexTable.xml 中未找到该表。\r\n建议：保留原值或结合原工具验证后再改。";
         }
@@ -367,18 +338,15 @@ public sealed class TableReferenceLookupService
         var name = GetDisplayName(row);
         return
             $"\r\n\r\n跨表引用解释：{rule.DisplayName}\r\n" +
-            $"当前值：{id} -> {rule.TargetTableName} / ID={id} / 名称={name}\r\n" +
+            $"当前值：{id} -> {table.TableName} / ID={id} / 名称={name}\r\n" +
             $"依据：{rule.Reason}\r\n" +
-            $"建议：改动该编号时，请同时检查目标表“{rule.TargetTableName}”中对应名称和说明，避免编号正确但含义不符合设计。";
+            $"建议：改动该编号时，请同时检查目标表“{table.TableName}”中对应名称和说明，避免编号正确但含义不符合设计。";
     }
 
     private string BuildItemReference(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition currentTable, HexFieldDefinition field, int id)
     {
-        var itemTables = new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" };
-        foreach (var tableName in itemTables)
+        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
         {
-            var table = tables.FirstOrDefault(x => x.TableName == tableName);
-            if (table == null) continue;
             var data = ReadTable(project, table, tables);
             var row = FindRowById(data, id);
             if (row == null) continue;
@@ -386,13 +354,13 @@ public sealed class TableReferenceLookupService
             var name = GetDisplayName(row);
             return
                 $"\r\n\r\n跨表引用解释：物品/装备编号\r\n" +
-                $"当前值：{id} -> {tableName} / ID={id} / 名称={name}\r\n" +
+                $"当前值：{id} -> {table.TableName} / ID={id} / 名称={name}\r\n" +
                 $"依据：字段“{field.ColumnName}”通常存放装备、道具、商店槽位或专属物品编号。\r\n" +
                 "建议：改动后请同步检查物品说明、装备特效号、图标和获得/商店配置。";
         }
 
         return
-            $"\r\n\r\n跨表引用解释：字段“{field.ColumnName}”看起来是物品/装备编号，但未在 6.5 物品表中找到 ID={id}。\r\n" +
+            $"\r\n\r\n跨表引用解释：字段“{field.ColumnName}”看起来是物品/装备编号，但未在当前 6.X 物品表中找到 ID={id}。\r\n" +
             "建议：若该值不是“空槽/特殊值”，请改为物品表中存在的编号。";
     }
 
@@ -522,8 +490,7 @@ public sealed class TableReferenceLookupService
         int targetId,
         string reason)
     {
-        var targetTable = tables.FirstOrDefault(x => x.TableName == targetTableName);
-        if (targetTable == null)
+        if (!HexTableNameResolver.TryResolve(tables, targetTableName, out var targetTable))
         {
             return new TableReferenceNavigationTarget
             {
@@ -573,10 +540,8 @@ public sealed class TableReferenceLookupService
         string sourceRowId,
         string reason)
     {
-        foreach (var targetTableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+        foreach (var targetTable in HexTableNameResolver.ResolveItemTables(tables))
         {
-            var targetTable = tables.FirstOrDefault(x => x.TableName == targetTableName);
-            if (targetTable == null) continue;
             var data = ReadTable(project, targetTable, tables);
             var row = FindRowById(data, itemId);
             if (row == null) continue;
@@ -694,8 +659,7 @@ public sealed class TableReferenceLookupService
             };
         }
 
-        var targetTable = tables.FirstOrDefault(x => x.TableName == targetTableName);
-        if (targetTable == null)
+        if (!HexTableNameResolver.TryResolve(tables, targetTableName, out var targetTable))
         {
             return new TableReferenceNavigationTarget
             {
@@ -816,11 +780,30 @@ public sealed class TableReferenceLookupService
 
     private string LookupName(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName, int id)
     {
-        var table = tables.FirstOrDefault(x => x.TableName == tableName);
-        if (table == null) return "(未找到目标表)";
+        if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return "(未找到目标表)";
         var data = ReadTable(project, table, tables);
         var row = FindRowById(data, id);
         return row == null ? "(未找到目标行)" : GetDisplayName(row);
+    }
+
+    private static string ResolveTableNameOrFallback(IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.TryResolve(tables, tableName, out var table) ? table.TableName : tableName;
+
+    private static string GetStrategyCompanionMeaning(string tableName)
+    {
+        var key = HexTableNameResolver.BuildSemanticKey(tableName);
+        return key switch
+        {
+            "5-2 策略动画1" => "第一段动画/主动画编号",
+            "5-3 策略动画2" => "第二段动画/附加动画编号",
+            "5-4 策略伤害类型" => "伤害类型/公式类别候选",
+            "5-5 策略伤害比例" => "伤害比例/倍率参数候选",
+            "5-6 策略命中率" => "命中率参数候选",
+            "5-7 学会策略" => "学习/可用条件候选",
+            "5-8 战场AI策略限制" => "战场 AI 使用限制候选",
+            "5-9 练武场AI策略限制" => "练武场 AI 使用限制候选",
+            _ => string.Empty
+        };
     }
 
     private static ReferenceRule? GetRule(HexTableDefinition currentTable, HexFieldDefinition field)

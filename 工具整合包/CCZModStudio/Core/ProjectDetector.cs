@@ -32,8 +32,8 @@ public sealed class ProjectDetector
         var lines = new List<string>
         {
             "找不到项目内 HexTable.xml，且工具内置备份也不可用。跨设备迁移后，请把 HexTable.xml 放到当前项目的以下任一结构，或确认工具内置备份未被删除：",
-            "- <工作区>\\老版游戏制作工具\\CczRSX 6.5\\ConfigTable\\HexTable.xml",
-            "- <工作区>\\CczRSX 6.5\\ConfigTable\\HexTable.xml",
+            "- <工作区>\\老版游戏制作工具\\CczRSX 6.X\\ConfigTable\\HexTable.xml（例如 CczRSX 6.6 / 6.5 / 6.4）",
+            "- <工作区>\\CczRSX 6.X\\ConfigTable\\HexTable.xml（例如 CczRSX 6.6 / 6.5 / 6.4）",
             "- <游戏目录或工作区>\\ConfigTable\\HexTable.xml",
             "- <游戏目录或工作区>\\HexTable.xml",
             "- <工具目录>\\ConfigTable\\HexTable.xml（内置备份）",
@@ -136,32 +136,21 @@ public sealed class ProjectDetector
             FindBuiltInLegacyDirectory(
                 "a新剧本编辑器v0.23",
                 new[] { Path.Combine("老版游戏制作工具", "a新剧本编辑器v0.23"), "a新剧本编辑器v0.23" });
+        var imageAssignerCandidates = BuildImageAssignerCandidates(workspace, gameRoot);
         var imageAssignerDirectory = FindPortableDirectoryInRoots(
             projectResourceRoots,
-            "形象指定器6.5",
-            new[]
-            {
-                Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5"),
-                Path.Combine("B形象指定器", "形象指定器6.5")
-            }) ??
+            imageAssignerCandidates.DirectoryName,
+            imageAssignerCandidates.RelativeCandidates) ??
             FindBuiltInLegacyDirectory(
                 "形象指定器6.5",
-                new[]
-                {
-                    Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5"),
-                    Path.Combine("B形象指定器", "形象指定器6.5")
-                });
+                BuildImageAssignerCandidates("6.5").RelativeCandidates);
         var imageAssignerSystemIni = imageAssignerDirectory == null ? null : Path.Combine(imageAssignerDirectory, "System.ini");
         if (imageAssignerSystemIni == null || !File.Exists(imageAssignerSystemIni))
         {
             imageAssignerSystemIni = FindPortableFileInRoots(
                 projectResourceRoots,
                 "System.ini",
-                new[]
-                {
-                    Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
-                    Path.Combine("B形象指定器", "形象指定器6.5", "System.ini")
-                }) ??
+                imageAssignerCandidates.SystemIniRelativeCandidates) ??
                 FindBuiltInLegacyFile(
                     Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
                     Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
@@ -222,7 +211,7 @@ public sealed class ProjectDetector
             return project.SceneEditorDirectory;
         }
 
-        if (directoryName.Equals("形象指定器6.5", StringComparison.OrdinalIgnoreCase) &&
+        if (directoryName.Contains("形象指定器", StringComparison.OrdinalIgnoreCase) &&
             !string.IsNullOrWhiteSpace(project.ImageAssignerDirectory) &&
             Directory.Exists(project.ImageAssignerDirectory))
         {
@@ -343,9 +332,11 @@ public sealed class ProjectDetector
     private static string ResolveHexTablePath(string workspace, string gameRoot, List<string> diagnostics)
     {
         var projectRoots = BuildCurrentProjectRoots(workspace, gameRoot);
+        var versionHint = Build6xVersionHint(workspace, gameRoot);
         diagnostics.Add("HexTableProjectRoots=" + string.Join(" | ", projectRoots));
+        diagnostics.Add("HexTableVersionHint=" + (versionHint ?? "未知"));
 
-        var projectHexTable = FindHexTableInProjectRoots(projectRoots);
+        var projectHexTable = FindHexTableInProjectRoots(projectRoots, versionHint);
         if (projectHexTable != null)
         {
             diagnostics.Add("ResolvedHexTableSource=Project");
@@ -360,7 +351,7 @@ public sealed class ProjectDetector
         }
 
         diagnostics.Add("ResolvedHexTableSource=Missing");
-        return BuildHexTableCandidates(gameRoot).Concat(BuildHexTableCandidates(workspace)).First();
+        return BuildHexTableCandidates(gameRoot, versionHint).Concat(BuildHexTableCandidates(workspace, versionHint)).First();
     }
 
     private static IReadOnlyList<string> BuildCurrentProjectRoots(string workspace, string gameRoot)
@@ -375,9 +366,9 @@ public sealed class ProjectDetector
     private static IReadOnlyList<string> BuildProjectResourceRoots(CczProject project) =>
         BuildCurrentProjectRoots(project.WorkspaceRoot, project.GameRoot);
 
-    private static string? FindHexTableInProjectRoots(IReadOnlyList<string> roots)
+    private static string? FindHexTableInProjectRoots(IReadOnlyList<string> roots, string? versionHint)
     {
-        foreach (var candidate in roots.SelectMany(BuildHexTableCandidates))
+        foreach (var candidate in roots.SelectMany(root => BuildHexTableCandidates(root, versionHint)))
         {
             if (File.Exists(candidate)) return Path.GetFullPath(candidate);
         }
@@ -385,17 +376,145 @@ public sealed class ProjectDetector
         return null;
     }
 
-    private static IReadOnlyList<string> BuildHexTableCandidates(string workspace)
+    private static IReadOnlyList<string> BuildHexTableCandidates(string workspace, string? versionHint = null)
     {
         workspace = NormalizeDirectory(workspace);
-        return new[]
+        var candidates = new List<string>();
+        candidates.AddRange(BuildVersionedHexTableCandidates(workspace, versionHint));
+        candidates.AddRange(new[]
         {
+            Path.Combine(workspace, "老版游戏制作工具", "CczRSX 6.6", "ConfigTable", "HexTable.xml"),
             Path.Combine(workspace, "老版游戏制作工具", "CczRSX 6.5", "ConfigTable", "HexTable.xml"),
+            Path.Combine(workspace, "老版游戏制作工具", "CczRSX 6.4", "ConfigTable", "HexTable.xml"),
+            Path.Combine(workspace, "CczRSX 6.6", "ConfigTable", "HexTable.xml"),
             Path.Combine(workspace, "CczRSX 6.5", "ConfigTable", "HexTable.xml"),
+            Path.Combine(workspace, "CczRSX 6.4", "ConfigTable", "HexTable.xml"),
             Path.Combine(workspace, "ConfigTable", "HexTable.xml"),
             Path.Combine(workspace, "HexTable.xml")
-        };
+        });
+        return candidates
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
+
+    private static ImageAssignerCandidates BuildImageAssignerCandidates(string workspace, string gameRoot)
+        => BuildImageAssignerCandidates(Build6xVersionHint(workspace, gameRoot) ?? "6.5");
+
+    private static ImageAssignerCandidates BuildImageAssignerCandidates(string versionHint)
+    {
+        var is66 = versionHint.StartsWith("6.6", StringComparison.OrdinalIgnoreCase);
+        var primaryNames = is66
+            ? new[] { "6.6x形象指定器", "形象指定器6.6", "形象指定器66x" }
+            : new[] { "形象指定器6.5", "6.5形象指定器", "形象指定器65" };
+        var fallbackNames = is66
+            ? new[] { "形象指定器6.5", "6.5形象指定器", "形象指定器65" }
+            : new[] { "6.6x形象指定器", "形象指定器6.6", "形象指定器66x" };
+        var names = primaryNames.Concat(fallbackNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var relatives = names
+            .SelectMany(name => new[]
+            {
+                Path.Combine("老版游戏制作工具", "B形象指定器", name),
+                Path.Combine("B形象指定器", name),
+                name
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var systemIniRelatives = relatives
+            .Select(relative => Path.Combine(relative, "System.ini"))
+            .ToList();
+
+        return new ImageAssignerCandidates(names[0], relatives, systemIniRelatives);
+    }
+
+    private static IEnumerable<string> BuildVersionedHexTableCandidates(string workspace, string? versionHint)
+    {
+        versionHint ??= Extract6xVersionHint(workspace);
+        var roots = new[]
+            {
+                Path.Combine(workspace, "老版游戏制作工具"),
+                workspace
+            }
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var directories = new List<(string Path, string Version)>();
+        foreach (var root in roots)
+        {
+            try
+            {
+                directories.AddRange(Directory.EnumerateDirectories(root, "CczRSX 6.*", SearchOption.TopDirectoryOnly)
+                    .Select(path => (Path: path, Version: Extract6xVersionHint(Path.GetFileName(path)) ?? string.Empty)));
+            }
+            catch
+            {
+                // 搜索目录可能不存在或无权限；继续使用固定候选路径。
+            }
+        }
+
+        return directories
+            .Where(item => item.Version.StartsWith("6.", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => !string.IsNullOrWhiteSpace(versionHint) &&
+                                       item.Version.Equals(versionHint, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(item => Parse6xVersionRank(item.Version))
+            .ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(item => Path.Combine(item.Path, "ConfigTable", "HexTable.xml"));
+    }
+
+    private static string? Build6xVersionHint(string workspace, string gameRoot)
+        => Infer6xVersionHintFromGameRoot(gameRoot) ??
+           Extract6xVersionHint(gameRoot) ??
+           Extract6xVersionHint(workspace);
+
+    private static string? Extract6xVersionHint(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        for (var i = 0; i < value.Length - 2; i++)
+        {
+            if (value[i] != '6' || value[i + 1] != '.' || !char.IsLetterOrDigit(value[i + 2])) continue;
+            var end = i + 3;
+            while (end < value.Length && char.IsLetterOrDigit(value[end])) end++;
+            return value[i..end];
+        }
+
+        return null;
+    }
+
+    private static int Parse6xVersionRank(string version)
+    {
+        if (!version.StartsWith("6.", StringComparison.OrdinalIgnoreCase)) return 0;
+        var digits = new string(version[2..].TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, out var rank) ? rank : 0;
+    }
+
+    private static string? Infer6xVersionHintFromGameRoot(string gameRoot)
+    {
+        try
+        {
+            var ekd5 = Path.Combine(gameRoot, "Ekd5.exe");
+            if (!File.Exists(ekd5)) return null;
+            var size = new FileInfo(ekd5).Length;
+            return size switch
+            {
+                1_130_496 => "6.6",
+                1_196_032 => "6.5",
+                _ => null
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private sealed record ImageAssignerCandidates(
+        string DirectoryName,
+        IReadOnlyList<string> RelativeCandidates,
+        IReadOnlyList<string> SystemIniRelativeCandidates);
 
     private static string? FindBuiltInHexTableBackup()
     {

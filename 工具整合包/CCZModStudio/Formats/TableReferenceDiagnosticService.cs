@@ -22,6 +22,7 @@ public sealed class TableReferenceDiagnosticService
         _dataCache.Clear();
         var tableLookup = tables.ToDictionary(x => x.TableName, StringComparer.OrdinalIgnoreCase);
         var rules = BuildRules(tables)
+            .Select(rule => ResolveRule(tables, rule))
             .Where(rule => tableLookup.TryGetValue(rule.SourceTableName, out var source) &&
                            source.Fields.Any(field => field.ColumnName == rule.FieldName))
             .ToList();
@@ -63,7 +64,7 @@ public sealed class TableReferenceDiagnosticService
             Id = "0",
             Name = "人物/物品/兵种/商店/专属装备",
             Status = $"规则 {scanResults.Count}，检查单元格 {totalCells}，越界/未命中 {totalInvalid}，空槽/无效果/特殊值 {totalEmpty}",
-            Detail = "源表：6.5-0 人物；行 ID：0；字段：职业；目标：6.5-4 详细兵种；本总览汇总已确认的跨表编号关系，包括人物职业、台词、兵种特效分配、专属装备、商店物品槽位和装备特效号。",
+            Detail = "源表：人物；行 ID：0；字段：职业；目标：详细兵种；本总览汇总已确认的 6.X 跨表编号关系，包括人物职业、台词、兵种特效分配、专属装备、商店物品槽位和装备特效号。",
             Suggestion = totalInvalid > 0
                 ? "请优先筛选“越界引用/未命中引用”；选中后可点“跳到数据表”直接定位到具体单元格，再结合字段中文注释修正。"
                 : "当前已确认跨表引用没有发现越界项。后续修改人物职业、商店物品、专属装备或装备特效号后，建议重新运行资源诊断复查。",
@@ -237,7 +238,7 @@ public sealed class TableReferenceDiagnosticService
 
         foreach (var tableName in new[] { "6.5-1-2 装备特效名称（1A-57）", "6.5-1-3 装备特效名称（58-7F）" })
         {
-            if (!tableLookup.TryGetValue(tableName, out var definition)) continue;
+            if (!HexTableNameResolver.TryResolve(tables, tableName, out var definition)) continue;
             var data = ReadTable(project, tables, definition);
             foreach (DataColumn column in data.Columns)
             {
@@ -305,13 +306,12 @@ public sealed class TableReferenceDiagnosticService
             rules.Add(ReferenceDiagnosticRule.Single("6.5-8-1 商店数据", field, "人物", "6.5-0 人物", "人物/武将编号", "商店数据中的人物字段通常引用人物主表，用于开关仓库或买卖物品角色。", allow255AsEmpty: true));
         }
 
-        var shopTable = tables.FirstOrDefault(x => x.TableName == "6.5-8-1 商店数据");
-        if (shopTable != null)
+        if (HexTableNameResolver.TryResolve(tables, "6.5-8-1 商店数据", out var shopTable))
         {
             foreach (var field in shopTable.Fields.Select(x => x.ColumnName)
                          .Where(name => name is not ("开关仓库人物" or "买卖物品人物")))
             {
-                rules.Add(ReferenceDiagnosticRule.Item("6.5-8-1 商店数据", field, "商店装备/道具槽位通常引用 6.5 物品表；255 常作为空槽候选。", allow255AsEmpty: true));
+                rules.Add(ReferenceDiagnosticRule.Item(shopTable.TableName, field, "商店装备/道具槽位通常引用 6.X 物品表；255 常作为空槽候选。", allow255AsEmpty: true));
             }
         }
 
@@ -319,6 +319,23 @@ public sealed class TableReferenceDiagnosticService
         rules.Add(ReferenceDiagnosticRule.EquipmentEffect("6.5-2 物品（104-255）", "装备特效号", "物品表装备特效号当前优先引用项目侧宝物特效目录；未命中时回退到基础装备特效名称表；0 通常表示无特效。"));
 
         return rules;
+    }
+
+    private static ReferenceDiagnosticRule ResolveRule(IReadOnlyList<HexTableDefinition> tables, ReferenceDiagnosticRule rule)
+    {
+        var sourceTableName = HexTableNameResolver.TryResolve(tables, rule.SourceTableName, out var sourceTable)
+            ? sourceTable.TableName
+            : rule.SourceTableName;
+        var targetTableNames = rule.TargetTableNames
+            .Select(name => HexTableNameResolver.TryResolve(tables, name, out var table) ? table.TableName : name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return rule with
+        {
+            SourceTableName = sourceTableName,
+            TargetTableNames = targetTableNames
+        };
     }
 
     private static string TryResolveSourcePath(CczProject project, IReadOnlyDictionary<string, HexTableDefinition> tableLookup, string sourceTableName)
