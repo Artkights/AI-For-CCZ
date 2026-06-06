@@ -6,6 +6,16 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
 {
     private const float ScaleX = 1.9f;
     private const float ScaleY = 2.1f;
+    private const int RowTopTolerance = 8;
+    private const int ControlSpacing = 6;
+    private const int SurfacePadding = 12;
+    private const int LabelHorizontalPadding = 12;
+    private const int ComboBoxHorizontalPadding = 38;
+    private const int CheckBoxHorizontalPadding = 30;
+    private const int ButtonHorizontalPadding = 28;
+    private const int MinimumTextBoxWidth = 64;
+    private const int MinimumComboBoxWidth = 92;
+    private const int MaximumComboBoxWidth = 260;
 
     private readonly Panel _surface = new()
     {
@@ -37,9 +47,21 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
         get
         {
             if (_spec == null) return new Size(260, 110);
-            return new Size(
+            var baseSize = new Size(
                 Math.Max(260, ToPixelsX(_spec.DialogUnits.Width) + 24),
                 Math.Max(110, ToPixelsY(_spec.DialogUnits.Height) + 22));
+            var contentSize = _surface.AutoScrollMinSize;
+            if (contentSize.Width <= 0 || contentSize.Height <= 0)
+            {
+                return baseSize;
+            }
+
+            var workingArea = SystemInformation.WorkingArea;
+            var maxWidth = Math.Max(baseSize.Width, workingArea.Width - 120);
+            var maxHeight = Math.Max(baseSize.Height, workingArea.Height - 120);
+            return new Size(
+                Math.Min(Math.Max(baseSize.Width, contentSize.Width + 6), maxWidth),
+                Math.Min(Math.Max(baseSize.Height, contentSize.Height + 6), maxHeight));
         }
     }
 
@@ -60,6 +82,7 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
 
         BuildLayout(includeDialogButtons);
         InitializeWorkingData();
+        NormalizeControlRowsForReadableText();
     }
 
     public void ClearDialog(string message = "请选择左侧指令。")
@@ -91,6 +114,7 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
         _working = _target.CloneSnapshot();
         BuildLayout(includeDialogButtons: false);
         InitializeWorkingData();
+        NormalizeControlRowsForReadableText();
     }
 
     public string? CommitToTarget()
@@ -135,6 +159,132 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
         }
     }
 
+    private void NormalizeControlRowsForReadableText()
+    {
+        if (_surface.Controls.Count == 0)
+        {
+            _surface.AutoScrollMinSize = Size.Empty;
+            return;
+        }
+
+        _surface.SuspendLayout();
+        try
+        {
+            foreach (Control control in _surface.Controls)
+            {
+                EnsureReadableControlSize(control);
+            }
+
+            var maxRight = 0;
+            var maxBottom = 0;
+            foreach (var row in BuildControlRows(_surface.Controls.Cast<Control>()))
+            {
+                Control? previous = null;
+                foreach (var control in row.Where(control => control.Visible).OrderBy(control => control.Left))
+                {
+                    if (previous != null)
+                    {
+                        var minimumLeft = previous.Right + ControlSpacing;
+                        if (control.Left < minimumLeft)
+                        {
+                            control.Left = minimumLeft;
+                        }
+                    }
+
+                    previous = control;
+                    maxRight = Math.Max(maxRight, control.Right);
+                    maxBottom = Math.Max(maxBottom, control.Bottom);
+                }
+            }
+
+            _surface.AutoScrollMinSize = new Size(maxRight + SurfacePadding, maxBottom + SurfacePadding);
+        }
+        finally
+        {
+            _surface.ResumeLayout();
+        }
+    }
+
+    private static List<List<Control>> BuildControlRows(IEnumerable<Control> controls)
+    {
+        var rows = new List<List<Control>>();
+        foreach (var control in controls.OrderBy(control => control.Top).ThenBy(control => control.Left))
+        {
+            var row = rows.FirstOrDefault(existing => Math.Abs(RowTop(existing) - control.Top) <= RowTopTolerance);
+            if (row == null)
+            {
+                rows.Add([control]);
+                continue;
+            }
+
+            row.Add(control);
+        }
+
+        return rows;
+    }
+
+    private static int RowTop(IReadOnlyList<Control> row)
+        => row.Count == 0 ? 0 : (int)Math.Round(row.Average(control => control.Top));
+
+    private static void EnsureReadableControlSize(Control control)
+    {
+        switch (control)
+        {
+            case Label label:
+                if (!string.IsNullOrEmpty(label.Text))
+                {
+                    label.Width = Math.Max(label.Width, MeasureTextWidth(label, label.Text) + LabelHorizontalPadding);
+                    label.Height = Math.Max(label.Height, MeasureTextHeight(label, label.Text) + 2);
+                }
+                break;
+            case ComboBox comboBox:
+                comboBox.Width = Math.Max(comboBox.Width, GetPreferredComboBoxWidth(comboBox));
+                break;
+            case CheckBox checkBox:
+                checkBox.Width = Math.Max(checkBox.Width, MeasureTextWidth(checkBox, checkBox.Text) + CheckBoxHorizontalPadding);
+                checkBox.Height = Math.Max(checkBox.Height, MeasureTextHeight(checkBox, checkBox.Text) + 4);
+                break;
+            case Button button:
+                button.Width = Math.Max(button.Width, MeasureTextWidth(button, button.Text) + ButtonHorizontalPadding);
+                button.Height = Math.Max(button.Height, MeasureTextHeight(button, button.Text) + 8);
+                break;
+            case TextBox { Multiline: false } textBox:
+                textBox.Width = Math.Max(textBox.Width, MinimumTextBoxWidth);
+                textBox.Height = Math.Max(textBox.Height, textBox.Font.Height + 8);
+                break;
+        }
+    }
+
+    private static int GetPreferredComboBoxWidth(ComboBox comboBox)
+    {
+        var measured = string.IsNullOrEmpty(comboBox.Text) ? 0 : MeasureTextWidth(comboBox, comboBox.Text);
+        foreach (var item in comboBox.Items)
+        {
+            measured = Math.Max(measured, MeasureTextWidth(comboBox, Convert.ToString(item) ?? string.Empty));
+        }
+
+        if (measured == 0)
+        {
+            return MinimumComboBoxWidth;
+        }
+
+        return Math.Clamp(measured + ComboBoxHorizontalPadding, MinimumComboBoxWidth, MaximumComboBoxWidth);
+    }
+
+    private static int MeasureTextWidth(Control control, string text)
+        => TextRenderer.MeasureText(
+            text,
+            control.Font,
+            new Size(10_000, 10_000),
+            TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Width;
+
+    private static int MeasureTextHeight(Control control, string text)
+        => TextRenderer.MeasureText(
+            text,
+            control.Font,
+            new Size(10_000, 10_000),
+            TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine).Height;
+
     private Control CreateControl(LegacyMfcControlSpec controlSpec)
     {
         switch (controlSpec.Kind)
@@ -144,7 +294,8 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
                 {
                     Text = controlSpec.Text,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    AutoEllipsis = true
+                    AutoEllipsis = true,
+                    UseMnemonic = false
                 };
             case LegacyMfcControlKind.TextBox:
                 return new TextBox
