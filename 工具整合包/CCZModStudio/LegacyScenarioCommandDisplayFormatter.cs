@@ -78,7 +78,7 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
             0x2E or 0x5E or 0x6C => FormatTwoPersons(command, id == 0x2E),
             0x30 => $"{Per2(I(command, 0))} ({N(I(command, 1))},{N(I(command, 2))}) {Sentinel(_dataSources.Direction, I(command, 3), 4)} {Sentinel(_dataSources.Gesture, I(command, 4), 20)}",
             0x31 => FormatSingleOrArea(command, 0),
-            0x32 or 0x55 => FormatDataOrBattleNo(command),
+            0x32 or 0x55 => FormatMovementDataOrBattleNo(command),
             0x33 => $"{Per2(I(command, 0))} {Sentinel(_dataSources.Gesture, I(command, 1), 20)} {Sentinel(_dataSources.Direction, I(command, 2), 4)}",
             0x34 => $"{Per2(I(command, 0))} {Sentinel(_dataSources.Gesture, I(command, 1), 20)}",
             0x35 or 0x39 or 0x75 => $"{Per2(I(command, 0))} {N(I(command, 1))}",
@@ -285,8 +285,13 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
         return $"区域 ({N(I(command, baseIndex + 2))},{N(I(command, baseIndex + 3))}) - ({N(I(command, baseIndex + 4))},{N(I(command, baseIndex + 5))}) {At(_dataSources.Camp, I(command, baseIndex + 6))}";
     }
 
-    private string FormatDataOrBattleNo(LegacyScenarioCommandNode command)
-        => $"{FormatDataOrBattleNoShort(command)} ({N(I(command, 3))},{N(I(command, 4))}) {Sentinel(_dataSources.Direction, I(command, 5), 4)}";
+    private string FormatMovementDataOrBattleNo(LegacyScenarioCommandNode command)
+        => $"{FormatMovementDataOrBattleNoShort(command)} ({N(I(command, 3))},{N(I(command, 4))}) {Sentinel(_dataSources.Direction, I(command, 5), 4)}";
+
+    private string FormatMovementDataOrBattleNoShort(LegacyScenarioCommandNode command)
+        => I(command, 0) != 1
+            ? Per2(I(command, 1))
+            : $"战场编号 {N(I(command, 2))}";
 
     private string FormatDataOrBattleNoShort(LegacyScenarioCommandNode command)
         => I(command, 0) == 0

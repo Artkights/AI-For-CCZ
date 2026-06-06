@@ -79,6 +79,11 @@ internal partial class Program
         var rScene = new LegacyScenarioScene { SceneIndex = 0 };
         var rSection = new LegacyScenarioSection { SceneIndex = 0, SectionIndex = 0 };
         var rSceneAppearance = BuildDisplayCommand(0x30, "武将出现", [LegacyMfcDialogDataSources.Per2ListToCode(12), 13, 12, 0, 0], string.Empty);
+        var rSceneMove = BuildDisplayCommand(0x32, "武将移动", [0, LegacyMfcDialogDataSources.Per2ListToCode(12), 0, 40, 15, 0], string.Empty);
+        var rSceneMoveText = formatter.FormatCommand(rSceneMove);
+        AssertTrue(rSceneMoveText.Contains("12:", StringComparison.Ordinal), "command 0x32 display resolves data-role person slot");
+        AssertTrue(!rSceneMoveText.Contains("data角色", StringComparison.Ordinal), "command 0x32 data-role display matches command 0x30 person label style");
+        AssertTrue(!rSceneMoveText.Contains("战场编号 0", StringComparison.Ordinal), "command 0x32 display does not misread mode 0 as battle number");
         rSection.Commands.Add(rSceneAppearance);
         rScene.Sections.Add(rSection);
         rSceneDocument.Scenes.Add(rScene);

@@ -28,15 +28,15 @@ public sealed class LegacyScenarioDocument
 
 public sealed class LegacyScenarioScene
 {
-    public int SceneIndex { get; init; }
+    public int SceneIndex { get; set; }
     public int FileOffset { get; init; }
     public List<LegacyScenarioSection> Sections { get; } = [];
 }
 
 public sealed class LegacyScenarioSection
 {
-    public int SceneIndex { get; init; }
-    public int SectionIndex { get; init; }
+    public int SceneIndex { get; set; }
+    public int SectionIndex { get; set; }
     public int FileOffset { get; init; }
     public int LengthPrefixOffset { get; init; }
     public int DeclaredLength { get; init; }
@@ -91,8 +91,8 @@ public sealed class LegacyScenarioCommandBlock
 
 public sealed class LegacyScenarioCommandNode
 {
-    public int SceneIndex { get; init; }
-    public int SectionIndex { get; init; }
+    public int SceneIndex { get; set; }
+    public int SectionIndex { get; set; }
     public int CommandIndex { get; set; }
     public int CommandOrdinal { get; set; }
     public int CommandId { get; init; }

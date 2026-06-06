@@ -3404,7 +3404,117 @@ static void RunLegacyScriptEditSmoke(CczProject project)
         throw new InvalidOperationException("删除剧本命令后的完整保存、复读、备份或报告验证失败。");
     }
 
-    Console.WriteLine($"LEGACY_SCRIPT_EDIT_SMOKE_OK file={scenarioFileName} section={targetSection.SceneIndex}/{targetSection.SectionIndex} command=0x{insertedCommandId:X2}/{insertedCommandName} param={editedParameterValue} count={originalCommandCount}->{addedCommandCount}->{deleteVerify.CommandCount} addBackup={Path.GetFileName(addSave.BackupPath)} paramBackup={Path.GetFileName(paramSave.BackupPath)} deleteBackup={Path.GetFileName(deleteSave.BackupPath)}");
+    var sectionEdit = reader.Read(testScenarioPath, dictionary);
+    var sectionScene = sectionEdit.Scenes.FirstOrDefault(scene => scene.Sections.Count > 0)
+        ?? throw new InvalidOperationException("剧本结构编辑烟测找不到可插入 Section 的 Scene。");
+    var originalSectionCount = sectionEdit.SectionCount;
+    var insertSectionIndex = 0;
+    var defaultSection = CreateLegacyScriptEditDefaultSection(sectionScene.SceneIndex, insertSectionIndex + 1, dictionary);
+    jumpTargets = CaptureLegacyScriptEditJumpTargets(sectionEdit);
+    sectionScene.Sections.Insert(insertSectionIndex, defaultSection);
+    ReindexLegacyScriptEditDocument(sectionEdit);
+    RestoreLegacyScriptEditJumpTargets(sectionEdit, jumpTargets);
+    var sectionSave = writer.Save(
+        testProject,
+        Path.Combine("RS", scenarioFileName),
+        sectionEdit,
+        dictionary,
+        "Legacy script edit smoke add default section");
+    var sectionVerify = reader.Read(testScenarioPath, dictionary);
+    var verifyInsertedSection = sectionVerify.Scenes
+        .First(scene => scene.SceneIndex == sectionScene.SceneIndex)
+        .Sections.First(section => section.SectionIndex == insertSectionIndex + 1);
+    if (sectionVerify.SectionCount != originalSectionCount + 1 ||
+        verifyInsertedSection.Commands.Count != 2 ||
+        verifyInsertedSection.Commands[0].CommandId != 0x02 ||
+        verifyInsertedSection.Commands[1].CommandId != 0x00 ||
+        !verifyInsertedSection.Commands[1].StartsBodyBlock ||
+        verifyInsertedSection.Commands[1].ChildBlock?.Commands.Count != 1 ||
+        verifyInsertedSection.Commands[1].ChildBlock!.Commands[0].CommandId != 0x00 ||
+        string.IsNullOrWhiteSpace(sectionSave.BackupPath) ||
+        !File.Exists(sectionSave.BackupPath) ||
+        string.IsNullOrWhiteSpace(sectionSave.ReportJsonPath) ||
+        !File.Exists(sectionSave.ReportJsonPath))
+    {
+        throw new InvalidOperationException("新增默认 Section 后的完整保存、复读、结构骨架、备份或报告验证失败。");
+    }
+
+    Console.WriteLine($"LEGACY_SCRIPT_EDIT_SMOKE_OK file={scenarioFileName} section={targetSection.SceneIndex}/{targetSection.SectionIndex} command=0x{insertedCommandId:X2}/{insertedCommandName} param={editedParameterValue} count={originalCommandCount}->{addedCommandCount}->{deleteVerify.CommandCount} sections={originalSectionCount}->{sectionVerify.SectionCount} addBackup={Path.GetFileName(addSave.BackupPath)} paramBackup={Path.GetFileName(paramSave.BackupPath)} deleteBackup={Path.GetFileName(deleteSave.BackupPath)} sectionBackup={Path.GetFileName(sectionSave.BackupPath)}");
+}
+
+static LegacyScenarioSection CreateLegacyScriptEditDefaultSection(int sceneIndex, int sectionIndex, SceneStringDocument dictionary)
+{
+    var section = new LegacyScenarioSection
+    {
+        SceneIndex = sceneIndex,
+        SectionIndex = sectionIndex,
+        FileOffset = 0,
+        LengthPrefixOffset = 0,
+        DeclaredLength = 0
+    };
+
+    section.Commands.Add(CreateLegacyScriptEditStructuralCommand(0x02, sceneIndex, sectionIndex, dictionary));
+    var bodyRoot = CreateLegacyScriptEditStructuralCommand(0x00, sceneIndex, sectionIndex, dictionary);
+    bodyRoot.StartsBodyBlock = true;
+    bodyRoot.EndsSubEventBlock = false;
+    bodyRoot.ChildBlock = new LegacyScenarioCommandBlock
+    {
+        Kind = "Body",
+        LengthPrefixOffset = 0,
+        FileOffset = 0,
+        DeclaredLength = 0
+    };
+    bodyRoot.ChildBlock.Commands.Add(CreateLegacyScriptEditStructuralCommand(0x00, sceneIndex, sectionIndex, dictionary));
+    section.Commands.Add(bodyRoot);
+    return section;
+}
+
+static LegacyScenarioCommandNode CreateLegacyScriptEditStructuralCommand(
+    int commandId,
+    int sceneIndex,
+    int sectionIndex,
+    SceneStringDocument dictionary)
+{
+    var command = new LegacyScenarioCommandNode
+    {
+        SceneIndex = sceneIndex,
+        SectionIndex = sectionIndex,
+        CommandId = commandId,
+        CommandName = dictionary.Commands.FirstOrDefault(item => item.Id == commandId)?.Name ?? $"Command 0x{commandId:X2}",
+        FileOffset = 0,
+        ConsumedBytes = 0,
+        IsSubEventMarker = commandId == 0x01,
+        EndsSubEventBlock = commandId == 0x00
+    };
+    var instructions = ScenarioStructureProbeReader.LegacyCommandInstructionTable[commandId];
+    for (var index = 0; index < 13; index++)
+    {
+        var layoutCode = instructions[index];
+        if (layoutCode == -1) break;
+        command.Parameters.Add(new LegacyScenarioCommandParameter
+        {
+            Index = command.Parameters.Count,
+            LayoutCode = layoutCode,
+            Tag = layoutCode,
+            FileOffset = 0,
+            Kind = layoutCode switch
+            {
+                0x05 => LegacyScenarioParameterKind.Text,
+                0x35 => LegacyScenarioParameterKind.VariableArray,
+                0x04 => LegacyScenarioParameterKind.Dword32,
+                _ => LegacyScenarioParameterKind.Word16
+            },
+            ByteLength = layoutCode switch
+            {
+                0x05 => 1,
+                0x35 => 2,
+                0x04 => 4,
+                _ => 2
+            }
+        });
+    }
+
+    return command;
 }
 
 static int GetLegacyScriptEditAppendIndex(IReadOnlyList<LegacyScenarioCommandNode> commands)
@@ -3460,28 +3570,37 @@ static void RestoreLegacyScriptEditJumpTargets(
 static void ReindexLegacyScriptEditDocument(LegacyScenarioDocument document)
 {
     var ordinal = 0;
-    foreach (var scene in document.Scenes)
+    for (var sceneIndex = 0; sceneIndex < document.Scenes.Count; sceneIndex++)
     {
-        foreach (var section in scene.Sections)
+        var scene = document.Scenes[sceneIndex];
+        scene.SceneIndex = sceneIndex + 1;
+        for (var sectionIndex = 0; sectionIndex < scene.Sections.Count; sectionIndex++)
         {
+            var section = scene.Sections[sectionIndex];
+            section.SceneIndex = scene.SceneIndex;
+            section.SectionIndex = sectionIndex + 1;
             var commandIndex = 0;
-            ReindexLegacyScriptEditCommands(section.Commands, ref commandIndex, ref ordinal);
+            ReindexLegacyScriptEditCommands(section.Commands, section.SceneIndex, section.SectionIndex, ref commandIndex, ref ordinal);
         }
     }
 }
 
 static void ReindexLegacyScriptEditCommands(
     IReadOnlyList<LegacyScenarioCommandNode> commands,
+    int sceneIndex,
+    int sectionIndex,
     ref int commandIndex,
     ref int ordinal)
 {
     foreach (var command in commands)
     {
+        command.SceneIndex = sceneIndex;
+        command.SectionIndex = sectionIndex;
         command.CommandIndex = ++commandIndex;
         command.CommandOrdinal = ordinal++;
         if (command.ChildBlock != null)
         {
-            ReindexLegacyScriptEditCommands(command.ChildBlock.Commands, ref commandIndex, ref ordinal);
+            ReindexLegacyScriptEditCommands(command.ChildBlock.Commands, sceneIndex, sectionIndex, ref commandIndex, ref ordinal);
         }
     }
 }
