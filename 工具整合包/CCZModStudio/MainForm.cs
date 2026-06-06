@@ -441,7 +441,6 @@ public sealed class MainForm : Form
     private readonly TabControl _mainTabs = new();
     private readonly DataGridView _dataGrid = new();
     private readonly TextBox _diagnostics = new();
-    private readonly TextBox _bottomDiagnostics = new();
     private readonly StatusStrip _statusStrip = new();
     private readonly ToolStripStatusLabel _statusLabel = new();
     private readonly CheckBox _showAllTables = new();
@@ -1170,16 +1169,7 @@ public sealed class MainForm : Form
         root.Controls.Add(_projectLabel, 0, 1);
 
         _mainTabs.Dock = DockStyle.Fill;
-        var mainPageSplit = CreateResizableSplit("BuildLayout.MainPageTopBottom.CompactLog", Orientation.Horizontal, 900, 300, 28);
-        root.Controls.Add(mainPageSplit, 0, 2);
-        mainPageSplit.Panel1.Controls.Add(_mainTabs);
-        _bottomDiagnostics.Dock = DockStyle.Fill;
-        _bottomDiagnostics.Multiline = true;
-        _bottomDiagnostics.ScrollBars = ScrollBars.Both;
-        _bottomDiagnostics.ReadOnly = true;
-        _bottomDiagnostics.WordWrap = false;
-        _bottomDiagnostics.BorderStyle = BorderStyle.FixedSingle;
-        mainPageSplit.Panel2.Controls.Add(_bottomDiagnostics);
+        root.Controls.Add(_mainTabs, 0, 2);
 
         _mainTabs.TabPages.Add(BuildCoreWorkbenchPage());
         _mainTabs.TabPages.Add(BuildScriptEditorPage());
@@ -6111,6 +6101,8 @@ public sealed class MainForm : Form
 
     private static GroupBox BuildCoreModuleCard(string title, string description, params (string Text, Action Action)[] actions)
     {
+        _ = description;
+
         var box = new GroupBox
         {
             Text = title,
@@ -6121,21 +6113,11 @@ public sealed class MainForm : Form
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 1,
             ColumnCount = 1
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         box.Controls.Add(layout);
-
-        var label = new Label
-        {
-            Text = description,
-            Dock = DockStyle.Fill,
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point),
-            AutoEllipsis = true
-        };
-        layout.Controls.Add(label, 0, 0);
 
         var buttons = new FlowLayoutPanel
         {
@@ -6148,7 +6130,7 @@ public sealed class MainForm : Form
         {
             buttons.Controls.Add(BuildCoreButton(action.Text, action.Action));
         }
-        layout.Controls.Add(buttons, 0, 1);
+        layout.Controls.Add(buttons, 0, 0);
         return box;
     }
 
@@ -26945,12 +26927,7 @@ public sealed class MainForm : Form
 
     private static bool CanCopyLegacyScriptCommand(LegacyScenarioCommandNode command, out string reason)
     {
-        if (command.CommandId is 0x00 or 0x01)
-        {
-            reason = "旧版 CczSceneEditor2 不允许复制 0/1 号结构指令。";
-            return false;
-        }
-
+        _ = command;
         reason = string.Empty;
         return true;
     }
@@ -27078,11 +27055,11 @@ public sealed class MainForm : Form
             FileOffset = 0,
             ConsumedBytes = 0,
             StartsBodyBlock = false,
-            IsSubEventMarker = preserveStructuralFlags && source.IsSubEventMarker,
+            IsSubEventMarker = source.IsSubEventMarker || (preserveStructuralFlags && source.CommandId == 0x01),
             OpensSubEventBlock = preserveStructuralFlags
                 ? source.OpensSubEventBlock
                 : source.ChildBlock is { Kind: "SubEvent" } || source.OpensSubEventBlock,
-            EndsSubEventBlock = preserveStructuralFlags && source.EndsSubEventBlock,
+            EndsSubEventBlock = source.EndsSubEventBlock || (preserveStructuralFlags && source.CommandId == 0x00),
             JumpTargetOrdinal = source.JumpTargetOrdinal,
             JumpTargetCommandIndex = source.JumpTargetCommandIndex,
             OriginalJumpDisplacement = source.OriginalJumpDisplacement
@@ -36875,7 +36852,6 @@ public sealed class MainForm : Form
     {
         var line = $"[{DateTime.Now:HH:mm:ss}] {message}\r\n";
         _diagnostics.AppendText(line);
-        _bottomDiagnostics.AppendText(line);
     }
 
     private void SetStatus(string message)
