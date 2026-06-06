@@ -17,4 +17,5 @@ public sealed class RScenePlacedActor
     public int PixelY { get; set; }
     public string Source { get; set; } = "拖放";
     public string Memo { get; set; } = string.Empty;
+    public string LastActionTargetKey { get; set; } = string.Empty;
 }

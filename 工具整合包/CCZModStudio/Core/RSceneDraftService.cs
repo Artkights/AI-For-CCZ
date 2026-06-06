@@ -123,6 +123,108 @@ public sealed class RSceneDraftService
         return result;
     }
 
+    public IReadOnlyList<RSceneStateCandidate> BuildSceneStateCandidates(LegacyScenarioDocument document)
+    {
+        var result = new List<RSceneStateCandidate>();
+        foreach (var section in document.Scenes.SelectMany(scene => scene.Sections))
+        {
+            var commands = section.EnumerateCommands().ToList();
+            for (var i = 0; i < commands.Count; i++)
+            {
+                var command = commands[i];
+                if (command.CommandId != 0x27) continue;
+
+                var nextStart = commands.Skip(i + 1).FirstOrDefault(candidate => candidate.CommandId == 0x27);
+                var endCommandIndex = nextStart?.CommandIndex - 1;
+                var snapshot = BuildStateSnapshot(section, command.CommandIndex);
+                var backgroundText = snapshot.BackgroundImageNumber.HasValue
+                    ? "背景 " + snapshot.BackgroundImageNumber.Value.ToString(CultureInfo.InvariantCulture)
+                    : "背景未识别";
+                result.Add(new RSceneStateCandidate
+                {
+                    Index = result.Count + 1,
+                    SceneTitle = $"场景 {result.Count + 1}  S{command.SceneIndex}/{command.SectionIndex}/C{command.CommandIndex}",
+                    TargetKey = BuildCommandTargetKey(command),
+                    SceneIndex = command.SceneIndex,
+                    SectionIndex = command.SectionIndex,
+                    StartCommandIndex = command.CommandIndex,
+                    CurrentCommandIndex = command.CommandIndex,
+                    EndCommandIndex = endCommandIndex ?? commands.LastOrDefault()?.CommandIndex ?? command.CommandIndex,
+                    OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                    BackgroundImageNumber = snapshot.BackgroundImageNumber,
+                    ActorCount = snapshot.Actors.Count,
+                    Summary = $"{backgroundText}；Section {command.SectionIndex}；Command {command.CommandIndex}-{(endCommandIndex?.ToString(CultureInfo.InvariantCulture) ?? "末尾")}"
+                });
+            }
+        }
+
+        return result;
+    }
+
+    public RSceneStateSnapshot BuildStateSnapshot(LegacyScenarioSection section, int currentCommandIndex)
+    {
+        var actors = new Dictionary<int, MutableActorState>();
+        int? backgroundImageNumber = null;
+        int? startCommandIndex = null;
+
+        foreach (var command in section.EnumerateCommands().Where(command => command.CommandIndex <= currentCommandIndex))
+        {
+            var values = FlattenValues(command).ToList();
+            var targetKey = BuildCommandTargetKey(command);
+            switch (command.CommandId)
+            {
+                case 0x27:
+                    backgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values);
+                    startCommandIndex = command.CommandIndex;
+                    actors.Clear();
+                    break;
+                case 0x2F:
+                    actors.Clear();
+                    break;
+                case 0x30:
+                    ApplyShowActor(actors, command, values, targetKey);
+                    break;
+                case 0x31:
+                    ApplyHideActor(actors, values);
+                    break;
+                case 0x32:
+                    ApplyMoveActor(actors, command, values, targetKey);
+                    break;
+                case 0x33:
+                    ApplyTurnActor(actors, command, values, targetKey);
+                    break;
+                case 0x34:
+                    ApplyActionActor(actors, command, values, targetKey);
+                    break;
+            }
+        }
+
+        return new RSceneStateSnapshot
+        {
+            SceneIndex = section.SceneIndex,
+            SectionIndex = section.SectionIndex,
+            StartCommandIndex = startCommandIndex,
+            CurrentCommandIndex = currentCommandIndex,
+            BackgroundImageNumber = backgroundImageNumber,
+            Actors = actors.Values
+                .OrderBy(actor => actor.GridY)
+                .ThenBy(actor => actor.GridX)
+                .ThenBy(actor => actor.PersonId)
+                .Select(actor => new RSceneActorState
+                {
+                    PersonId = actor.PersonId,
+                    GridX = actor.GridX,
+                    GridY = actor.GridY,
+                    Facing = actor.Facing,
+                    FrameIndex = actor.FrameIndex,
+                    TargetKey = actor.TargetKey,
+                    LastActionTargetKey = actor.LastActionTargetKey,
+                    Source = actor.Source
+                })
+                .ToList()
+        };
+    }
+
     private static bool IsRSceneVisualCommand(int commandId)
         => commandId is 0x1C or 0x1E or 0x27 or 0x29 or 0x2A or 0x2B or 0x2F or 0x30 or 0x31 or 0x32 or 0x33 or 0x34 or 0x35;
 
@@ -238,6 +340,117 @@ public sealed class RSceneDraftService
     private static string BuildCommandTargetKey(LegacyScenarioCommandNode command)
         => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset=0x{command.FileOffset:X6};Id=0x{command.CommandId:X2}";
 
+    private static void ApplyShowActor(
+        IDictionary<int, MutableActorState> actors,
+        LegacyScenarioCommandNode command,
+        IReadOnlyList<int> values,
+        string targetKey)
+    {
+        if (values.Count < 3) return;
+        var personId = values[0];
+        if (personId is < 0 or > 1023) return;
+        actors[personId] = new MutableActorState
+        {
+            PersonId = personId,
+            GridX = ClampCoordinate(values[1]),
+            GridY = ClampCoordinate(values[2]),
+            Facing = DirectionToFacing(values.Count > 3 ? values[3] : -1),
+            FrameIndex = GestureToFrame(values.Count > 4 ? values[4] : 0),
+            TargetKey = targetKey,
+            LastActionTargetKey = targetKey,
+            Source = $"{command.CommandIdHex} {command.CommandName}"
+        };
+    }
+
+    private static void ApplyHideActor(IDictionary<int, MutableActorState> actors, IReadOnlyList<int> values)
+    {
+        if (values.Count == 0) return;
+        if (values[0] == 0 && values.Count > 1)
+        {
+            actors.Remove(values[1]);
+        }
+        else if (values[0] != 0)
+        {
+            actors.Clear();
+        }
+    }
+
+    private static void ApplyMoveActor(
+        IDictionary<int, MutableActorState> actors,
+        LegacyScenarioCommandNode command,
+        IReadOnlyList<int> values,
+        string targetKey)
+    {
+        if (values.Count < 5 || values[0] == 1) return;
+        var personId = values[1];
+        if (!actors.TryGetValue(personId, out var actor)) return;
+        actor.GridX = ClampCoordinate(values[3]);
+        actor.GridY = ClampCoordinate(values[4]);
+        if (values.Count > 5)
+        {
+            actor.Facing = DirectionToFacing(values[5]);
+        }
+        actor.TargetKey = targetKey;
+        actor.LastActionTargetKey = targetKey;
+        actor.Source = $"{command.CommandIdHex} {command.CommandName}";
+    }
+
+    private static void ApplyTurnActor(
+        IDictionary<int, MutableActorState> actors,
+        LegacyScenarioCommandNode command,
+        IReadOnlyList<int> values,
+        string targetKey)
+    {
+        if (values.Count < 1) return;
+        var personId = values[0];
+        if (!actors.TryGetValue(personId, out var actor)) return;
+        if (values.Count > 1)
+        {
+            actor.FrameIndex = GestureToFrame(values[1]);
+        }
+        if (values.Count > 2)
+        {
+            actor.Facing = DirectionToFacing(values[2]);
+        }
+        actor.TargetKey = targetKey;
+        actor.LastActionTargetKey = targetKey;
+        actor.Source = $"{command.CommandIdHex} {command.CommandName}";
+    }
+
+    private static void ApplyActionActor(
+        IDictionary<int, MutableActorState> actors,
+        LegacyScenarioCommandNode command,
+        IReadOnlyList<int> values,
+        string targetKey)
+    {
+        if (values.Count < 1) return;
+        var personId = values[0];
+        if (!actors.TryGetValue(personId, out var actor)) return;
+        if (values.Count > 1)
+        {
+            actor.FrameIndex = GestureToFrame(values[1]);
+        }
+        actor.TargetKey = targetKey;
+        actor.LastActionTargetKey = targetKey;
+        actor.Source = $"{command.CommandIdHex} {command.CommandName}";
+    }
+
+    private static int ClampCoordinate(int value)
+        => Math.Clamp(value, 0, 4096);
+
+    private static int GestureToFrame(int value)
+        => Math.Clamp(value < 0 ? 0 : value, 0, 19);
+
+    private static string DirectionToFacing(int value)
+        => value switch
+        {
+            0 => "上",
+            1 => "右",
+            2 => "下",
+            3 => "左",
+            _ => "下"
+        };
+
     private static RSceneDraft Normalize(RSceneDraft draft)
     {
         draft.ScenarioFileName = draft.ScenarioFileName?.Trim() ?? string.Empty;
@@ -275,8 +488,21 @@ public sealed class RSceneDraftService
         PixelX = actor.PixelX,
         PixelY = actor.PixelY,
         Source = actor.Source,
-        Memo = actor.Memo
+        Memo = actor.Memo,
+        LastActionTargetKey = actor.LastActionTargetKey
     };
+
+    private sealed class MutableActorState
+    {
+        public int PersonId { get; init; }
+        public int GridX { get; set; }
+        public int GridY { get; set; }
+        public string Facing { get; set; } = "下";
+        public int FrameIndex { get; set; }
+        public string TargetKey { get; set; } = string.Empty;
+        public string LastActionTargetKey { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+    }
 
     private static string BuildUniqueBackupPath(string path)
     {
