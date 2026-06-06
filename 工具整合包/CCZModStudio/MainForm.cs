@@ -4841,6 +4841,7 @@ public sealed class MainForm : Form
         _scriptImagePreviewBox.BackColor = Color.Black;
         _scriptImagePreviewBox.BorderStyle = BorderStyle.FixedSingle;
         _scriptImagePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
+        _scriptImagePreviewBox.Margin = Padding.Empty;
         _scriptImagePreviewInfoBox.Dock = DockStyle.Fill;
         _scriptImagePreviewInfoBox.Multiline = true;
         _scriptImagePreviewInfoBox.ReadOnly = true;
@@ -4865,7 +4866,8 @@ public sealed class MainForm : Form
             AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
-            Padding = new Padding(0, 4, 0, 4)
+            Padding = new Padding(0, 4, 0, 4),
+            Margin = Padding.Empty
         };
         _applyScriptInlineDialogButton.Text = "应用修改";
         _applyScriptInlineDialogButton.AutoSize = true;
@@ -4882,28 +4884,19 @@ public sealed class MainForm : Form
         var parameterPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
-            ColumnCount = 1
+            RowCount = 2,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
         };
-        parameterPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         parameterPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         parameterPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        parameterPanel.Controls.Add(MakeHeader("参数"), 0, 0);
-        parameterPanel.Controls.Add(_scriptInlineDialogHost, 0, 1);
-        parameterPanel.Controls.Add(parameterEditToolbar, 0, 2);
-
-        var imagePreviewPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1
-        };
-        imagePreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 68));
-        imagePreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
-        imagePreviewPanel.Controls.Add(_scriptImagePreviewBox, 0, 0);
-        imagePreviewPanel.Controls.Add(_scriptImagePreviewInfoBox, 0, 1);
+        parameterPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _scriptInlineDialogHost.Margin = Padding.Empty;
+        parameterPanel.Controls.Add(_scriptInlineDialogHost, 0, 0);
+        parameterPanel.Controls.Add(parameterEditToolbar, 0, 1);
         var detailLayout = CreateResizableSplit("BuildScriptEditorPage.ImageParameter", Orientation.Horizontal, 430, 180, 220);
-        detailLayout.Panel1.Controls.Add(CreateTitledPanel("图片预览", imagePreviewPanel, new Padding(0, 0, 0, 6)));
+        detailLayout.Panel1.Controls.Add(_scriptImagePreviewBox);
         detailLayout.Panel2.Controls.Add(parameterPanel);
 
         mainSplit.Panel2.Controls.Add(detailLayout);
