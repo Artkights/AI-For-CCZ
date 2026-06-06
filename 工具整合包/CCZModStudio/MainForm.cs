@@ -37,6 +37,18 @@ public sealed class MainForm : Form
     private const int BattlefieldUnitAnimationIntervalMs = 800;
     private const string JobStrategyLearningPrefix = "学会等级_";
     private const string JobStrategyIconResourceFileName = "Mgcicon.dll";
+    private static readonly IReadOnlyList<int> LegacyScriptCodeTestTable =
+    [
+        0, 0, 2, 1, 2, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 2, 2, 0,
+        0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0, 0, 2, 0, 0, 2,
+        2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0,
+        2, 0, 0, 0, 0, 0, 2, 0, 2
+    ];
+
     private static readonly JsonSerializerOptions UiLayoutJsonOptions = new()
     {
         WriteIndented = true
@@ -847,6 +859,20 @@ public sealed class MainForm : Form
     private readonly ToolStripMenuItem _scriptContextMoveUpItem = new("上移命令");
     private readonly ToolStripMenuItem _scriptContextMoveDownItem = new("下移命令");
     private readonly ToolStripMenuItem _scriptContextNoteItem = new("记录备注");
+    private readonly ContextMenuStrip _legacyScriptTreeContextMenu = new();
+    private readonly ToolStripMenuItem _legacyScriptContextEditItem = new("修改(&E)\tCtrl+E");
+    private readonly ToolStripMenuItem _legacyScriptContextAddItem = new("添加(&I)\tCtrl+I");
+    private readonly ToolStripMenuItem _legacyScriptContextAddSubEventItem = new("添加子事件(&S)\tCtrl+O");
+    private readonly ToolStripMenuItem _legacyScriptContextDuplicateItem = new("步进复制(&D)\tCtrl+D");
+    private readonly ToolStripMenuItem _legacyScriptContextBatchEditItem = new("批量修改(&R)\tCtrl+R");
+    private readonly ToolStripMenuItem _legacyScriptContextDeleteItem = new("删除(&D)\tDelete");
+    private readonly ToolStripMenuItem _legacyScriptContextMoveUpItem = new("上移(&U)\tCtrl+Up");
+    private readonly ToolStripMenuItem _legacyScriptContextMoveDownItem = new("下移(&D)\tCtrl+Down");
+    private readonly ToolStripMenuItem _legacyScriptContextCutItem = new("剪切(&T)\tCtrl+X");
+    private readonly ToolStripMenuItem _legacyScriptContextCopyItem = new("复制(&C)\tCtrl+C");
+    private readonly ToolStripMenuItem _legacyScriptContextPasteItem = new("粘贴(&P)\tCtrl+V");
+    private readonly ToolStripMenuItem _legacyScriptContextExpandItem = new("全部展开\tCtrl+Q");
+    private readonly ToolStripMenuItem _legacyScriptContextJumpItem = new("跳转到...");
     private readonly DataGridView _scriptCommandGrid = new();
     private readonly DataGridView _scriptParameterGrid = new();
     private readonly TextBox _scriptParameterValueBox = new();
@@ -4757,8 +4783,8 @@ public sealed class MainForm : Form
         _scriptTree.ShowLines = true;
         _scriptTree.ShowNodeToolTips = true;
         _scriptTree.BorderStyle = BorderStyle.FixedSingle;
-        ConfigureScriptTreeContextMenu();
-        _scriptTree.ContextMenuStrip = _scriptTreeContextMenu;
+        ConfigureLegacyStyleScriptTreeContextMenu();
+        _scriptTree.ContextMenuStrip = _legacyScriptTreeContextMenu;
         _scriptTree.NodeMouseClick += (_, e) => HandleScriptTreeNodeMouseClick(e);
         _scriptTree.NodeMouseDoubleClick += (_, e) => HandleScriptTreeNodeMouseDoubleClick(e);
         _scriptTree.KeyDown += (_, e) => HandleScriptTreeKeyDown(e);
@@ -4999,6 +5025,85 @@ public sealed class MainForm : Form
         });
     }
 
+    private void ConfigureLegacyStyleScriptTreeContextMenu()
+    {
+        if (_legacyScriptTreeContextMenu.Items.Count > 0) return;
+
+        _legacyScriptContextEditItem.Click += (_, _) => EditSelectedLegacyItemDataCommand();
+        _legacyScriptContextAddItem.Click += (_, _) => AddLegacyScriptCommandBeforeSelected();
+        _legacyScriptContextAddSubEventItem.Click += (_, _) => AddLegacyScriptSubEventBeforeSelected();
+        _legacyScriptContextDuplicateItem.Click += (_, _) => StepDuplicateSelectedLegacyScriptCommand();
+        _legacyScriptContextBatchEditItem.Click += (_, _) => ShowLegacyBatchEditUnavailableMessage();
+        _legacyScriptContextDeleteItem.Click += (_, _) => DeleteSelectedLegacyScriptCommand();
+        _legacyScriptContextMoveUpItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: true);
+        _legacyScriptContextMoveDownItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: false);
+        _legacyScriptContextCutItem.Click += (_, _) => CutSelectedLegacyScriptCommand();
+        _legacyScriptContextCopyItem.Click += (_, _) => CopySelectedScriptCommandSummary();
+        _legacyScriptContextPasteItem.Click += (_, _) => PasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true);
+        _legacyScriptContextExpandItem.Click += (_, _) => ExpandSelectedLegacyScriptTreeNode();
+        _legacyScriptContextJumpItem.Click += (_, _) => JumpSelectedLegacyScriptCommandTarget();
+
+        _legacyScriptTreeContextMenu.Opening += (_, e) =>
+        {
+            UpdateLegacyStyleScriptTreeContextMenuItems();
+            if (_scriptTree.SelectedNode == null)
+            {
+                e.Cancel = true;
+            }
+        };
+
+        _legacyScriptTreeContextMenu.Items.AddRange(new ToolStripItem[]
+        {
+            _legacyScriptContextEditItem,
+            _legacyScriptContextAddItem,
+            _legacyScriptContextAddSubEventItem,
+            _legacyScriptContextDuplicateItem,
+            _legacyScriptContextBatchEditItem,
+            _legacyScriptContextDeleteItem,
+            new ToolStripSeparator(),
+            _legacyScriptContextMoveUpItem,
+            _legacyScriptContextMoveDownItem,
+            new ToolStripSeparator(),
+            _legacyScriptContextCutItem,
+            _legacyScriptContextCopyItem,
+            _legacyScriptContextPasteItem,
+            new ToolStripSeparator(),
+            _legacyScriptContextExpandItem,
+            new ToolStripSeparator(),
+            _legacyScriptContextJumpItem
+        });
+    }
+
+    private void UpdateLegacyStyleScriptTreeContextMenuItems()
+    {
+        var selectedItemData = TryGetSelectedLegacyItemData(out var itemData) ? itemData : null;
+        var selectedCommand = TryGetSelectedLegacyScriptCommand(out var command);
+        var canEdit = selectedItemData?.Command != null && LegacyCommandEditDispatcher.CanEdit(selectedItemData.Id);
+        var canAdd = selectedCommand && CanAddLegacyScriptCommandBeforeSelected(command, out _);
+        var canAddSubEvent = selectedCommand && CanAddLegacySubEventBeforeSelected(command, out _);
+        var canDuplicate = selectedCommand && CanStepDuplicateLegacyScriptCommand(command, out _);
+        var canDelete = selectedCommand && CanDeleteLegacyScriptCommand(command, out _);
+        var canMoveUp = selectedCommand && CanMoveLegacyScriptCommand(command, up: true, out _);
+        var canMoveDown = selectedCommand && CanMoveLegacyScriptCommand(command, up: false, out _);
+        var canCopy = selectedCommand && CanCopyLegacyScriptCommand(command, out _);
+        var canPaste = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true, out _);
+
+        _legacyScriptContextEditItem.Enabled = canEdit;
+        _legacyScriptContextAddItem.Enabled = canAdd;
+        _legacyScriptContextAddSubEventItem.Enabled = canAddSubEvent;
+        _legacyScriptContextDuplicateItem.Enabled = canDuplicate;
+        _legacyScriptContextBatchEditItem.Enabled = false;
+        _legacyScriptContextBatchEditItem.ToolTipText = "旧版批量修改依赖复选框多选模式；当前树未开放多选，先保持禁用。";
+        _legacyScriptContextDeleteItem.Enabled = canDelete;
+        _legacyScriptContextMoveUpItem.Enabled = canMoveUp;
+        _legacyScriptContextMoveDownItem.Enabled = canMoveDown;
+        _legacyScriptContextCutItem.Enabled = canCopy && canDelete;
+        _legacyScriptContextCopyItem.Enabled = canCopy;
+        _legacyScriptContextPasteItem.Enabled = canPaste;
+        _legacyScriptContextExpandItem.Enabled = _scriptTree.SelectedNode?.Nodes.Count > 0;
+        _legacyScriptContextJumpItem.Enabled = selectedCommand && command.CommandId == 0x76 && command.JumpTargetOrdinal.HasValue;
+    }
+
     private void HandleScriptTreeNodeMouseClick(TreeNodeMouseClickEventArgs e)
     {
         if (e.Button == MouseButtons.Right)
@@ -5082,26 +5187,79 @@ public sealed class MainForm : Form
             return;
         }
 
+        if (e.Control && e.KeyCode == Keys.I)
+        {
+            AddLegacyScriptCommandBeforeSelected();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.O)
+        {
+            AddLegacyScriptSubEventBeforeSelected();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.D)
+        {
+            StepDuplicateSelectedLegacyScriptCommand();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.R)
+        {
+            ShowLegacyBatchEditUnavailableMessage();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.X)
+        {
+            CutSelectedLegacyScriptCommand();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.C)
+        {
+            CopySelectedScriptCommandSummary();
+            e.SuppressKeyPress = true;
+            return;
+        }
+
         if (e.Control && e.KeyCode == Keys.V)
         {
+            PasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true);
             e.SuppressKeyPress = true;
             return;
         }
 
-        if (e.Alt && e.KeyCode == Keys.Up)
+        if (e.Control && e.KeyCode == Keys.Up)
         {
+            MoveSelectedLegacyScriptCommand(up: true);
             e.SuppressKeyPress = true;
             return;
         }
 
-        if (e.Alt && e.KeyCode == Keys.Down)
+        if (e.Control && e.KeyCode == Keys.Down)
         {
+            MoveSelectedLegacyScriptCommand(up: false);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.Q)
+        {
+            ExpandSelectedLegacyScriptTreeNode();
             e.SuppressKeyPress = true;
             return;
         }
 
         if (e.KeyCode == Keys.Delete)
         {
+            DeleteSelectedLegacyScriptCommand();
             e.SuppressKeyPress = true;
         }
     }
@@ -5155,6 +5313,535 @@ public sealed class MainForm : Form
         => _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem item
             ? item.ToString()
             : null;
+
+    private void AddLegacyScriptCommandBeforeSelected()
+    {
+        if (_currentLegacyScriptDocument == null || !TryGetSelectedLegacyScriptCommand(out var selected))
+        {
+            MessageBox.Show(this, "请先选择要作为添加位置的旧版指令。", "无法添加指令", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanAddLegacyScriptCommandBeforeSelected(selected, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法添加指令", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryChooseLegacyScriptCommand(
+                "添加指令",
+                id => !IsBlockedNewLegacyCommandId(id) && CanUseLegacyScriptCommandAsAddCandidate(selected, id),
+                out var item))
+        {
+            return;
+        }
+
+        SelectLegacyScriptCommandComboItem(item.Id);
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out var index))
+        {
+            MessageBox.Show(this, "没有在当前旧版命令树中定位到插入位置。", "无法添加指令", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var command = CreateLegacyScriptCommand(selected.SceneIndex, selected.SectionIndex);
+        if (command == null) return;
+        var insertIndex = GetLegacyScriptOldInsertIndex(list, index);
+
+        ApplyLegacyScriptStructureEdit(
+            () => list.Insert(insertIndex, command),
+            command,
+            $"已添加指令：{command.CommandIdHex} {command.CommandName}。");
+    }
+
+    private void AddLegacyScriptSubEventBeforeSelected()
+    {
+        if (_currentLegacyScriptDocument == null || !TryGetSelectedLegacyScriptCommand(out var selected))
+        {
+            MessageBox.Show(this, "请先选择要追加子事件的位置。", "无法添加子事件", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanAddLegacySubEventBeforeSelected(selected, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法添加子事件", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryChooseLegacyScriptCommand("添加子事件", IsLegacyScriptSubEventCarrierCommandId, out var item))
+        {
+            return;
+        }
+
+        if (!_currentLegacyScriptDocument.Scenes.Any() ||
+            !TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out var index))
+        {
+            MessageBox.Show(this, "没有在当前旧版命令树中定位到插入位置。", "无法添加子事件", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        SelectLegacyScriptCommandComboItem(item.Id);
+        var command = CreateLegacyScriptCommand(selected.SceneIndex, selected.SectionIndex);
+        if (command == null) return;
+        command.OpensSubEventBlock = true;
+        command.ChildBlock = new LegacyScenarioCommandBlock
+        {
+            Kind = "SubEvent",
+            LengthPrefixOffset = 0,
+            FileOffset = 0,
+            DeclaredLength = 0
+        };
+        command.ChildBlock.Commands.Add(CreateLegacyScriptStructuralCommand(0x00, selected.SceneIndex, selected.SectionIndex));
+
+        var marker = CreateLegacyScriptStructuralCommand(0x01, selected.SceneIndex, selected.SectionIndex);
+        var insertIndex = GetLegacyScriptOldInsertIndex(list, index);
+        ApplyLegacyScriptStructureEdit(
+            () =>
+            {
+                list.Insert(insertIndex, marker);
+                list.Insert(insertIndex + 1, command);
+            },
+            command,
+            $"已添加子事件：{command.CommandIdHex} {command.CommandName}。");
+    }
+
+    private bool CanAddLegacyScriptCommandBeforeSelected(LegacyScenarioCommandNode? command, out string reason)
+    {
+        if (_currentLegacyScriptDocument == null)
+        {
+            reason = "当前没有可编辑的旧版完整剧本树。";
+            return false;
+        }
+
+        if (command == null)
+        {
+            reason = "请先选择要作为添加位置的旧版指令。";
+            return false;
+        }
+
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, command, out var list, out var index))
+        {
+            reason = "没有在当前旧版命令树中定位到插入位置。";
+            return false;
+        }
+
+        if (IsLegacyScriptSectionTopLevelList(list) && command.CommandId == 0x02)
+        {
+            reason = "旧版不允许在 Section 顶层 2 号指令处添加指令。";
+            return false;
+        }
+
+        if (HasLegacyScriptSubEventMarkerBefore(list, index))
+        {
+            reason = "不允许在 0x01 子事件设定标志和其承载指令之间添加指令。";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private bool CanAddLegacySubEventBeforeSelected(LegacyScenarioCommandNode command, out string reason)
+    {
+        if (_currentLegacyScriptDocument == null)
+        {
+            reason = "当前没有可编辑的旧版完整剧本树。";
+            return false;
+        }
+
+        if (command.CommandId is 0x00 or 0x01)
+        {
+            reason = "不能直接在 0/1 号结构指令处创建子事件。";
+            return false;
+        }
+
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, command, out var list, out var index))
+        {
+            reason = "没有在当前旧版命令树中定位到插入位置。";
+            return false;
+        }
+
+        if (IsLegacyScriptSectionTopLevelList(list))
+        {
+            reason = "旧版不允许直接在 Section 顶层创建子事件。";
+            return false;
+        }
+
+        if (HasLegacyScriptSubEventMarkerBefore(list, index))
+        {
+            reason = "不允许在 0x01 子事件设定标志和其承载指令之间添加子事件。";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private void StepDuplicateSelectedLegacyScriptCommand()
+    {
+        if (_currentLegacyScriptDocument == null || !TryGetSelectedLegacyScriptCommand(out var selected))
+        {
+            MessageBox.Show(this, "请先选择要步进复制的指令。", "无法步进复制", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanStepDuplicateLegacyScriptCommand(selected, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法步进复制", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryShowLegacyStepDuplicateDialog(selected, out var count, out var slotIndex, out var delta))
+        {
+            return;
+        }
+
+        if (!TryGetLegacyCommandIntDataSlot(selected, slotIndex, out var baseValue, out reason))
+        {
+            MessageBox.Show(this, reason, "无法步进复制", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out var index))
+        {
+            MessageBox.Show(this, "没有在当前旧版命令树中定位到复制位置。", "无法步进复制", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        LegacyScenarioCommandNode? lastClone = null;
+        ApplyLegacyScriptStructureEdit(
+            () =>
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    var clone = CloneLegacyScriptCommandForPaste(selected, selected.SceneIndex, selected.SectionIndex);
+                    if (!TrySetLegacyCommandIntDataSlot(clone, slotIndex, baseValue + delta * (i + 1), out reason))
+                    {
+                        throw new InvalidOperationException(reason);
+                    }
+
+                    list.Insert(index + 1 + i, clone);
+                    lastClone = clone;
+                }
+            },
+            lastClone ?? selected,
+            $"已步进复制 {count} 条：{selected.CommandIdHex} {selected.CommandName}。");
+    }
+
+    private bool CanStepDuplicateLegacyScriptCommand(LegacyScenarioCommandNode command, out string reason)
+    {
+        if (command.CommandId is 0x46 or 0x47 or 0x05 or 0x00 or 0x01 or 0x02)
+        {
+            reason = "旧版步进复制不支持 46/47/5/0/1/2 号指令。";
+            return false;
+        }
+
+        if (command.ChildBlock != null)
+        {
+            reason = "旧版步进复制不支持带子事件块的指令。";
+            return false;
+        }
+
+        if (!TryGetLegacyCommandIntDataSlot(command, 0, out _, out _))
+        {
+            reason = "该指令没有可步进修改的 int_data 槽。";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private void ShowLegacyBatchEditUnavailableMessage()
+    {
+        MessageBox.Show(this,
+            "旧版批量修改依赖树节点复选框多选模式；当前剧本树尚未开放多选，批量修改继续搁置。\r\n\r\n单条指令请使用“修改”或右侧 Dialog 参数区。",
+            "批量修改暂未开放",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
+    private void CutSelectedLegacyScriptCommand()
+    {
+        if (!TryGetSelectedLegacyScriptCommand(out var command))
+        {
+            MessageBox.Show(this, "请先选择要剪切的指令。", "无法剪切", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanCopyLegacyScriptCommand(command, out var reason) || !CanDeleteLegacyScriptCommand(command, out reason))
+        {
+            MessageBox.Show(this, reason, "无法剪切", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        CopySelectedScriptCommandSummary();
+        DeleteSelectedLegacyScriptCommand();
+    }
+
+    private void ExpandSelectedLegacyScriptTreeNode()
+    {
+        var node = _scriptTree.SelectedNode;
+        if (node == null) return;
+        ExpandTreeRecursively(node);
+        node.EnsureVisible();
+    }
+
+    private static void ExpandTreeRecursively(TreeNode node)
+    {
+        node.Expand();
+        foreach (TreeNode child in node.Nodes)
+        {
+            ExpandTreeRecursively(child);
+        }
+    }
+
+    private void JumpSelectedLegacyScriptCommandTarget()
+    {
+        if (!TryGetSelectedLegacyScriptCommand(out var command) || command.CommandId != 0x76)
+        {
+            MessageBox.Show(this, "只有 0x76 无条件跳转指令可以直接跳转。", "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!command.JumpTargetOrdinal.HasValue || _currentLegacyScriptDocument == null)
+        {
+            MessageBox.Show(this, "该跳转指令没有解析到目标 ord。", "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var target = _currentLegacyScriptDocument.EnumerateCommands()
+            .FirstOrDefault(candidate => candidate.CommandOrdinal == command.JumpTargetOrdinal.Value);
+        if (target == null || !TrySelectLegacyScriptCommand(target))
+        {
+            MessageBox.Show(this, $"没有找到目标 ord {command.JumpTargetOrdinal.Value}。", "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        ShowSelectedScriptTreeNode();
+        SetStatus($"剧本制作：已跳转到 ord {command.JumpTargetOrdinal.Value}");
+    }
+
+    private bool TryChooseLegacyScriptCommand(string title, Func<int, bool> idFilter, out ScriptCommandComboItem item)
+    {
+        item = null!;
+        var items = _scriptNewCommandCombo.Items
+            .OfType<ScriptCommandComboItem>()
+            .Where(candidate => idFilter(candidate.Id))
+            .ToList();
+        if (items.Count == 0)
+        {
+            MessageBox.Show(this, "当前没有可选命令。请先读取剧本字典并加载旧版完整树。", title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return false;
+        }
+
+        using var dialog = new Form
+        {
+            Text = title,
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            ClientSize = new Size(420, 92)
+        };
+        var combo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Left = 12,
+            Top = 12,
+            Width = 392,
+            DataSource = items
+        };
+        var okButton = new Button
+        {
+            Text = "确定",
+            DialogResult = DialogResult.OK,
+            Left = 248,
+            Top = 52,
+            Width = 75
+        };
+        var cancelButton = new Button
+        {
+            Text = "取消",
+            DialogResult = DialogResult.Cancel,
+            Left = 329,
+            Top = 52,
+            Width = 75
+        };
+        dialog.Controls.AddRange(new Control[] { combo, okButton, cancelButton });
+        dialog.AcceptButton = okButton;
+        dialog.CancelButton = cancelButton;
+        if (_scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem selected)
+        {
+            var selectedIndex = items.FindIndex(candidate => candidate.Id == selected.Id);
+            if (selectedIndex >= 0) combo.SelectedIndex = selectedIndex;
+        }
+
+        if (dialog.ShowDialog(this) != DialogResult.OK || combo.SelectedItem is not ScriptCommandComboItem selectedItem)
+        {
+            return false;
+        }
+
+        item = selectedItem;
+        return true;
+    }
+
+    private void SelectLegacyScriptCommandComboItem(int commandId)
+    {
+        for (var i = 0; i < _scriptNewCommandCombo.Items.Count; i++)
+        {
+            if (_scriptNewCommandCombo.Items[i] is ScriptCommandComboItem item && item.Id == commandId)
+            {
+                _scriptNewCommandCombo.SelectedIndex = i;
+                return;
+            }
+        }
+    }
+
+    private static bool IsLegacyScriptSubEventCarrierCommandId(int commandId)
+        => commandId >= 0 &&
+           commandId < LegacyScriptCodeTestTable.Count &&
+           LegacyScriptCodeTestTable[commandId] != 0;
+
+    private bool CanUseLegacyScriptCommandAsAddCandidate(LegacyScenarioCommandNode selected, int commandId)
+    {
+        if (_currentLegacyScriptDocument == null ||
+            !TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out _))
+        {
+            return false;
+        }
+
+        if (!IsLegacyScriptSectionTopLevelList(list))
+        {
+            return true;
+        }
+
+        return IsLegacyScriptTopLevelCommandId(commandId);
+    }
+
+    private static bool IsLegacyScriptTopLevelCommandId(int commandId)
+        => commandId is 0x77 or 0x78 or 0x72 ||
+           (commandId >= 0 &&
+            commandId < LegacyScriptCodeTestTable.Count &&
+            LegacyScriptCodeTestTable[commandId] >= 2);
+
+    private bool TryShowLegacyStepDuplicateDialog(
+        LegacyScenarioCommandNode command,
+        out int count,
+        out int slotIndex,
+        out int delta)
+    {
+        count = 0;
+        slotIndex = 0;
+        delta = 0;
+        using var dialog = new Form
+        {
+            Text = $"步进复制 {command.CommandIdHex} {command.CommandName}",
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            ClientSize = new Size(360, 142)
+        };
+        var countInput = new NumericUpDown { Left = 112, Top = 10, Width = 210, Minimum = 1, Maximum = 100, Value = 1 };
+        var slotInput = new NumericUpDown { Left = 112, Top = 42, Width = 210, Minimum = 0, Maximum = 50, Value = 0 };
+        var deltaInput = new NumericUpDown { Left = 112, Top = 74, Width = 210, Minimum = -999999, Maximum = 999999, Value = 0 };
+        var okButton = new Button { Text = "确定", DialogResult = DialogResult.OK, Left = 166, Top = 108, Width = 75 };
+        var cancelButton = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Left = 247, Top = 108, Width = 75 };
+        dialog.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "复制数量", Left = 12, Top = 14, AutoSize = true },
+            countInput,
+            new Label { Text = "要修改的编号", Left = 12, Top = 46, AutoSize = true },
+            slotInput,
+            new Label { Text = "修改量", Left = 12, Top = 78, AutoSize = true },
+            deltaInput,
+            okButton,
+            cancelButton
+        });
+        dialog.AcceptButton = okButton;
+        dialog.CancelButton = cancelButton;
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return false;
+        }
+
+        count = (int)countInput.Value;
+        slotIndex = (int)slotInput.Value;
+        delta = (int)deltaInput.Value;
+        return true;
+    }
+
+    private static bool TryGetLegacyCommandIntDataSlot(
+        LegacyScenarioCommandNode command,
+        int slotIndex,
+        out int value,
+        out string reason)
+    {
+        value = 0;
+        var current = 0;
+        foreach (var parameter in command.Parameters)
+        {
+            if (parameter.Kind == LegacyScenarioParameterKind.Text)
+            {
+                continue;
+            }
+
+            if (parameter.Kind == LegacyScenarioParameterKind.VariableArray)
+            {
+                reason = "步进复制暂不支持变量数组槽。";
+                return false;
+            }
+
+            if (current == slotIndex)
+            {
+                value = parameter.IntValue;
+                reason = string.Empty;
+                return true;
+            }
+
+            current++;
+        }
+
+        reason = $"该指令没有 int_data[{slotIndex}]。";
+        return false;
+    }
+
+    private static bool TrySetLegacyCommandIntDataSlot(
+        LegacyScenarioCommandNode command,
+        int slotIndex,
+        int value,
+        out string reason)
+    {
+        var current = 0;
+        foreach (var parameter in command.Parameters)
+        {
+            if (parameter.Kind == LegacyScenarioParameterKind.Text)
+            {
+                continue;
+            }
+
+            if (parameter.Kind == LegacyScenarioParameterKind.VariableArray)
+            {
+                reason = "步进复制暂不支持变量数组槽。";
+                return false;
+            }
+
+            if (current == slotIndex)
+            {
+                parameter.IntValue = value;
+                parameter.ByteLength = parameter.Kind == LegacyScenarioParameterKind.Dword32 ? 4 : 2;
+                reason = string.Empty;
+                return true;
+            }
+
+            current++;
+        }
+
+        reason = $"该指令没有 int_data[{slotIndex}]。";
+        return false;
+    }
 
     private TabPage BuildShopEditorPage()
     {
@@ -24925,9 +25612,16 @@ public sealed class MainForm : Form
             return false;
         }
 
-        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out _, out _))
+        if (!TryFindLegacyCommandList(_currentLegacyScriptDocument, selected, out var list, out _))
         {
             reason = "没有在当前旧版命令树中定位到粘贴目标。";
+            return false;
+        }
+
+        if (IsLegacyScriptSectionTopLevelList(list) &&
+            !IsLegacyScriptTopLevelCommandId(_legacyScriptCommandClipboard.CommandId))
+        {
+            reason = "旧版不允许在 Section 顶层粘贴该类型指令。";
             return false;
         }
 
@@ -25286,6 +25980,14 @@ public sealed class MainForm : Form
             return false;
         }
 
+        if (_currentLegacyScriptDocument != null &&
+            TryFindLegacyCommandList(_currentLegacyScriptDocument, command, out var list, out _) &&
+            IsLegacyScriptSectionTopLevelList(list))
+        {
+            reason = "旧版 CczSceneEditor2 不允许移动 Section 顶层头部指令。";
+            return false;
+        }
+
         reason = string.Empty;
         return true;
     }
@@ -25311,8 +26013,20 @@ public sealed class MainForm : Form
         return beforeSelected ? selectedIndex : selectedIndex + 1;
     }
 
+    private static int GetLegacyScriptOldInsertIndex(IReadOnlyList<LegacyScenarioCommandNode> list, int selectedIndex)
+        => selectedIndex > 0 &&
+           IsLegacyScriptSubEventCarrier(list[selectedIndex]) &&
+           list[selectedIndex - 1].CommandId == 0x01
+            ? selectedIndex - 1
+            : selectedIndex;
+
     private static bool HasLegacyScriptSubEventMarkerBefore(IReadOnlyList<LegacyScenarioCommandNode> list, int insertIndex)
         => insertIndex > 0 && insertIndex <= list.Count && list[insertIndex - 1].CommandId == 0x01;
+
+    private bool IsLegacyScriptSectionTopLevelList(IReadOnlyList<LegacyScenarioCommandNode> list)
+        => _currentLegacyScriptDocument?.Scenes
+            .SelectMany(scene => scene.Sections)
+            .Any(section => ReferenceEquals(section.Commands, list)) == true;
 
     private static bool IsLegacyScriptSubEventCarrier(LegacyScenarioCommandNode command)
         => command.ChildBlock is { Kind: "SubEvent" } || command.OpensSubEventBlock;
@@ -25351,6 +26065,7 @@ public sealed class MainForm : Form
         var endIndex = startIndex + count - 1;
         if (endIndex >= list.Count - 1) return -1;
         var nextStart = endIndex + 1;
+        if (list[nextStart].CommandId == 0x00) return -1;
         var nextEnd = nextStart + 1 < list.Count &&
                       list[nextStart].CommandId == 0x01 &&
                       IsLegacyScriptSubEventCarrier(list[nextStart + 1])
