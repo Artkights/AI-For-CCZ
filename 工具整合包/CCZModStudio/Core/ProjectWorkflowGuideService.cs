@@ -223,9 +223,9 @@ public sealed class ProjectWorkflowGuideService
                 Title = "打开曹操传 MOD 项目",
                 Status = hasProject && hasHexTable && hasCoreFiles ? "已就绪" : "需要处理",
                 RecommendedAction = hasProject
-                    ? "确认左侧核心文件、HexTable.xml 和项目路径；如缺文件，请重新选择正确项目目录。"
+                    ? "打开“项目文件检查”确认核心文件、HexTable.xml 和项目路径；如缺文件，请重新选择正确项目目录。"
                     : "点击“打开项目目录”，选择包含 Ekd5.exe、Data.e5、Imsg.e5、Star.e5 的游戏目录。",
-                RelatedPage = "左侧项目文件检查",
+                RelatedPage = "项目文件检查",
                 WhyItMatters = "只有先确认版本和核心文件，后续表格、剧本、资源解析才有可靠偏移依据。",
                 SafetyNote = "打开项目本身不会修改任何游戏文件。"
             },

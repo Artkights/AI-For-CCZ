@@ -8,7 +8,7 @@ namespace CCZModStudio.Core;
 
 public sealed class RSceneDraftService
 {
-    private const string SafetyNoteText = "项目侧 R 场景草稿：保存到 CCZModStudio_Notes，不直接写入 R_XX.eex。30/33 等命令参数槽确认前，仅作为制作预览和旧工具核对依据。";
+    private const string SafetyNoteText = "项目侧 R 场景草稿：保存到 CCZModStudio_Notes。旧版源码已确认 0x30 武将出现的人物/X/Y/方向/动作槽位，可由 R 场景页受控写回；其他视觉命令仍以预览和核对为主。";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -124,7 +124,7 @@ public sealed class RSceneDraftService
     }
 
     private static bool IsRSceneVisualCommand(int commandId)
-        => commandId is 0x1C or 0x1E or 0x27 or 0x2F or 0x30 or 0x31 or 0x32 or 0x33 or 0x34 or 0x35;
+        => commandId is 0x1C or 0x1E or 0x27 or 0x29 or 0x2A or 0x2B or 0x2F or 0x30 or 0x31 or 0x32 or 0x33 or 0x34 or 0x35;
 
     private static string BuildRoleHint(int commandId)
         => commandId switch
@@ -132,6 +132,9 @@ public sealed class RSceneDraftService
             0x1C => "绘图",
             0x1E => "武将重绘",
             0x27 => "背景显示",
+            0x29 => "地图头像显示",
+            0x2A => "地图头像移动",
+            0x2B => "地图头像消失",
             0x2F => "清除人物",
             0x30 => "武将出现",
             0x31 => "武将消失",
@@ -145,9 +148,12 @@ public sealed class RSceneDraftService
     private static string BuildAnnotation(int commandId)
         => commandId switch
         {
-            0x27 => "27 背景显示通常需要配套 1c 绘图；R 场景背景来自 Mmap.e5，图号仍需结合旧工具和实机核对。",
-            0x30 => "30 武将出现：常见参数包含人物、坐标、朝向；当前只做候选解析，不强写。",
-            0x32 => "32 武将移动：R 场景和 S 战场均可出现；坐标含义需按当前背景核对。",
+            0x27 => "27 背景显示按旧 UpdateShow 解释：外场景槽1+1，内场景槽3+41，中国地图/战场地图使用对应槽原值。",
+            0x29 => "29 地图头像显示：人物/头像与坐标可用于 R 场景视觉核对。",
+            0x2A => "2A 地图头像移动：人物/头像与坐标可用于 R 场景视觉核对。",
+            0x2B => "2B 地图头像消失：用于清理地图头像。",
+            0x30 => "30 武将出现：旧源码 Dialog_48 确认为人物、X、Y、方向、动作；R 场景页可受控写回 X/Y。",
+            0x32 => "32 武将移动：旧源码 Dialog_50 为模式、人物/战场编号、X、Y、方向；当前只做候选解析。",
             0x33 => "33 武将转向：方向按上北下南左西右东；当前作为右侧方向预览依据。",
             0x34 => "34 武将动作：动作对应 Pmapobj.e5 的 R 形象帧条。",
             0x35 => "新引擎 R 形象变化优先通过 77/78 整形变量指定；35 仅保留为旧口径候选。",
@@ -168,24 +174,44 @@ public sealed class RSceneDraftService
     private static int? TryGetBackgroundImageNumber(int commandId, IReadOnlyList<int> values)
     {
         if (commandId != 0x27 || values.Count == 0) return null;
-        var candidate = values.LastOrDefault(x => x is > 0 and <= 999);
-        if (candidate > 0) return candidate;
-        candidate = values.FirstOrDefault(x => x is > 0 and <= 999);
-        return candidate > 0 ? candidate : null;
+        var category = values[0];
+        var valueIndex = category + 1;
+        if (valueIndex < 0 || valueIndex >= values.Count) return null;
+
+        var imageNumber = values[valueIndex];
+        if (category == 0)
+        {
+            imageNumber += 1;
+        }
+        else if (category == 2)
+        {
+            imageNumber += 41;
+        }
+
+        return imageNumber is > 0 and <= 999 ? imageNumber : null;
     }
 
     private static int? TryGetPersonId(int commandId, IReadOnlyList<int> values)
     {
-        if (commandId is not (0x30 or 0x31 or 0x32 or 0x33 or 0x34 or 0x35)) return null;
-        if (values.Count == 0) return null;
-        var candidate = values[0];
+        int? candidate = commandId switch
+        {
+            0x29 or 0x2A or 0x30 or 0x33 or 0x34 or 0x35 when values.Count > 0 => values[0],
+            0x31 when values.Count > 1 && values[0] == 0 => values[1],
+            0x32 when values.Count > 1 && values[0] != 1 => values[1],
+            _ => null
+        };
         return candidate is >= 0 and <= 1023 ? candidate : null;
     }
 
     private static int? TryGetCoordinate(int commandId, IReadOnlyList<int> values, bool xSlot)
     {
-        if (commandId is not (0x30 or 0x32)) return null;
-        var index = xSlot ? 1 : 2;
+        var index = commandId switch
+        {
+            0x29 or 0x2A or 0x30 => xSlot ? 1 : 2,
+            0x32 => xSlot ? 3 : 4,
+            _ => -1
+        };
+        if (index < 0) return null;
         if (values.Count <= index) return null;
         var value = values[index];
         return value is >= 0 and <= 4096 ? value : null;

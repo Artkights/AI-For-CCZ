@@ -3758,6 +3758,8 @@ static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition
     }
     Console.WriteLine($"LEGACY_SCENARIO_WRITE_OK file={scenarioFileName} scenes={legacyVerify.SceneCount} sections={legacyVerify.SectionCount} commands={legacyVerify.CommandCount} changedBytes={legacySave.ChangedBytes} backup={Path.GetFileName(legacySave.BackupPath)}");
 
+    RunRScenePositionWriteSmoke(testProject, sceneDoc, scenarioFileName);
+
     var textReader = new ScenarioTextReader();
     var textRows = textReader.Read(testScenarioPath, maxItems: 80).ToList();
     var writableText = textRows.FirstOrDefault(x => x.ByteLength >= EncodingService.GetGbkByteCount("烟测") &&
@@ -3860,6 +3862,59 @@ static void RunItemEffectCatalogSmoke(CczProject testProject, string smokeRoot)
     }
 
     Console.WriteLine($"ITEM_EFFECT_CATALOG_OK file={Path.GetFileName(storePath)} dup42={duplicateName} long99={longName}");
+}
+
+static void RunRScenePositionWriteSmoke(CczProject testProject, SceneStringDocument sceneDoc, string scenarioFileName)
+{
+    var relativePath = Path.Combine("RS", scenarioFileName);
+    var fullPath = Path.Combine(testProject.GameRoot, relativePath);
+    var document = new LegacyScenarioReader().Read(fullPath, sceneDoc);
+    var command = document.EnumerateCommands().FirstOrDefault(command =>
+        command.CommandId == 0x30 &&
+        command.Parameters.Count > 2 &&
+        command.Parameters[1].Kind == LegacyScenarioParameterKind.Dword32 &&
+        command.Parameters[2].Kind == LegacyScenarioParameterKind.Dword32)
+        ?? throw new InvalidOperationException($"{scenarioFileName} 没有可用于 R 场景坐标写回烟测的 0x30 武将出现命令。");
+
+    var originalX = command.Parameters[1].IntValue;
+    var originalY = command.Parameters[2].IntValue;
+    var targetX = originalX <= 0 ? 1 : originalX - 1;
+    var targetY = originalY <= 0 ? 1 : originalY - 1;
+    if (targetX == originalX && targetY == originalY)
+    {
+        targetX = originalX + 1;
+    }
+
+    command.Parameters[1].IntValue = targetX;
+    command.Parameters[2].IntValue = targetY;
+    var save = new LegacyScenarioWriter().Save(
+        testProject,
+        relativePath,
+        document,
+        sceneDoc,
+        "R场景制作 0x30 武将出现坐标写回烟测");
+
+    var verify = new LegacyScenarioReader().Read(fullPath, sceneDoc);
+    var verifiedCommand = verify.EnumerateCommands().FirstOrDefault(candidate =>
+        candidate.SceneIndex == command.SceneIndex &&
+        candidate.SectionIndex == command.SectionIndex &&
+        candidate.CommandIndex == command.CommandIndex &&
+        candidate.CommandId == command.CommandId)
+        ?? throw new InvalidOperationException("R 场景坐标写回复读失败：找不到原 0x30 命令。");
+
+    var actualX = verifiedCommand.Parameters.Count > 2 ? verifiedCommand.Parameters[1].IntValue : int.MinValue;
+    var actualY = verifiedCommand.Parameters.Count > 2 ? verifiedCommand.Parameters[2].IntValue : int.MinValue;
+    if (actualX != targetX ||
+        actualY != targetY ||
+        string.IsNullOrWhiteSpace(save.BackupPath) ||
+        !File.Exists(save.BackupPath) ||
+        string.IsNullOrWhiteSpace(save.ReportJsonPath) ||
+        !File.Exists(save.ReportJsonPath))
+    {
+        throw new InvalidOperationException($"R 场景坐标写回复读、备份或报告失败：expected=({targetX},{targetY}), actual=({actualX},{actualY})。");
+    }
+
+    Console.WriteLine($"RSCENE_POSITION_WRITE_SMOKE_OK file={scenarioFileName} command=Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Id={command.CommandIdHex} coord=({originalX},{originalY})->({actualX},{actualY}) backup={Path.GetFileName(save.BackupPath)} changedBytes={save.ChangedBytes}");
 }
 
 static void RunRoleWriteSmoke(CczProject testProject, IReadOnlyList<HexTableDefinition> tables)
@@ -4363,7 +4418,181 @@ static void RunBattlefieldDeploymentWriteSmoke(CczProject sourceProject, CczProj
     }
 
     Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_WRITE_SMOKE_OK file={scenarioFileName} target={candidate.TargetKey} person={personId} coord=({originalX},{originalY})->({actualX},{actualY}) backup={Path.GetFileName(write.BackupPath)} changedBytes={write.ChangedBytes}");
+
+    var reviewService = new BattlefieldUnitReviewService();
+    var localPlacement = new BattlefieldPlacedUnit
+    {
+        TargetKey = $"Placement#{scenarioFileName}#99,99#{personId}",
+        PersonId = personId,
+        Name = "SmokeLocalOnly",
+        Faction = placement.Faction,
+        AiMode = "被动",
+        GridX = 2,
+        GridY = 2,
+        Source = "拖放",
+        Memo = "Smoke local-only placement"
+    };
+    var reviewPath = reviewService.Save(testProject, verifyDocument, verifyDocument.UnitCandidates, new[] { placement, localPlacement });
+    var savedPlacementReviews = reviewService.Load(testProject)
+        .Where(x => x.IsPlacement && x.ScenarioFileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+    var reloadedPlacements = reviewService.LoadPlacements(testProject, verifyDocument);
+    if (savedPlacementReviews.Any(x => x.TargetKey.Equals(placement.TargetKey, StringComparison.OrdinalIgnoreCase)) ||
+        reloadedPlacements.Any(x => x.TargetKey.Equals(placement.TargetKey, StringComparison.OrdinalIgnoreCase)) ||
+        reloadedPlacements.Count(x => x.TargetKey.Equals(localPlacement.TargetKey, StringComparison.OrdinalIgnoreCase)) != 1)
+    {
+        throw new InvalidOperationException("Battlefield script-backed placement review cache was reloaded as a duplicate map unit.");
+    }
+
+    Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_CACHE_DEDUP_OK file={scenarioFileName} local={localPlacement.TargetKey} scriptSkipped={placement.TargetKey} notes={Path.GetFileName(reviewPath)}");
+
+    var emptySlot = FindOrCreateEmptyBattlefieldDeploymentSlot(testProject, scenario, dictionary, service, tables);
+    if (emptySlot != null)
+    {
+        var emptyPlacement = new BattlefieldPlacedUnit
+        {
+            TargetKey = emptySlot.TargetKey,
+            PersonId = personId,
+            Name = "SmokeAutoDrop",
+            Faction = emptySlot.Category.Contains("敌军", StringComparison.Ordinal) ? "敌军" : "友军",
+            AiMode = "主动",
+            GridX = changedX == 0 ? 1 : 0,
+            GridY = changedY,
+            Source = "纯拖放自动绑定",
+            Memo = "Smoke battlefield empty slot auto-bind write"
+        };
+        var emptyWrite = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
+            testProject,
+            scenario,
+            dictionary,
+            new[] { emptyPlacement });
+        var emptyVerifyDocument = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var emptyVerify = emptyVerifyDocument.UnitCandidates.FirstOrDefault(x => x.TargetKey.Equals(emptySlot.TargetKey, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Battlefield empty deployment slot write did not become a visible candidate after reread.");
+        var emptyPersonParsed = BattlefieldEditorService.TryExtractPersonId(emptyVerify, out var emptyPersonId);
+        var emptyCoordinateParsed = BattlefieldEditorService.TryExtractFirstCoordinate(emptyVerify, out var emptyActualX, out var emptyActualY);
+        if (!emptyPersonParsed ||
+            !emptyCoordinateParsed ||
+            emptyPersonId != personId ||
+            emptyActualX != emptyPlacement.GridX ||
+            emptyActualY != emptyPlacement.GridY)
+        {
+            throw new InvalidOperationException($"Battlefield empty slot auto-bind write reread failed: person={emptyPersonId}, coord=({emptyActualX},{emptyActualY}).");
+        }
+
+        Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_EMPTY_SLOT_WRITE_OK file={scenarioFileName} target={emptySlot.TargetKey} person={personId} coord=({emptyPlacement.GridX},{emptyPlacement.GridY}) changedBytes={emptyWrite.ChangedBytes}");
+    }
+
+    var allyScenario = new ScenarioFileReader()
+        .ReadAllIndex(testProject)
+        .FirstOrDefault(x => x.FileName.Equals("S_01.eex", StringComparison.OrdinalIgnoreCase))
+        ?? scenario;
+    var allyDocument = service.Load(testProject, allyScenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+    var allySlot = BattlefieldEditorService.BuildDeploymentSlotInfos(allyDocument)
+        .FirstOrDefault(x => x.IsAllySlot && x.GridX >= 0 && x.GridY >= 0);
+    if (allySlot != null)
+    {
+        var allyPlacement = new BattlefieldPlacedUnit
+        {
+            TargetKey = allySlot.TargetKey,
+            PersonId = personId,
+            Name = "SmokeAllySlot",
+            Faction = "我军",
+            AiMode = "被动",
+            Direction = "下",
+            Hidden = false,
+            GridX = allySlot.GridX == 0 ? 1 : 0,
+            GridY = allySlot.GridY,
+            Source = "纯拖放自动绑定",
+            Memo = "Smoke battlefield 4B slot auto-bind write"
+        };
+        var allyWrite = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
+            testProject,
+            allyScenario,
+            dictionary,
+            new[] { allyPlacement });
+        var allyVerifyDocument = service.Load(testProject, allyScenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var allyVerify = allyVerifyDocument.UnitCandidates.FirstOrDefault(x => x.TargetKey.Equals(allySlot.TargetKey, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Battlefield 4B slot write reread lost target candidate.");
+        if (!BattlefieldEditorService.TryExtractFirstCoordinate(allyVerify, out var allyActualX, out var allyActualY) ||
+            allyActualX != allyPlacement.GridX ||
+            allyActualY != allyPlacement.GridY)
+        {
+            throw new InvalidOperationException($"Battlefield 4B slot write reread failed: expected=({allyPlacement.GridX},{allyPlacement.GridY}), actual=({allyActualX},{allyActualY}).");
+        }
+
+        Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_ALLY_SLOT_WRITE_OK file={allyScenario.FileName} target={allySlot.TargetKey} coord=({allySlot.GridX},{allySlot.GridY})->({allyActualX},{allyActualY}) changedBytes={allyWrite.ChangedBytes}");
+    }
 }
+
+static BattlefieldDeploymentSlotInfo? FindOrCreateEmptyBattlefieldDeploymentSlot(
+    CczProject testProject,
+    ScenarioFileInfo scenario,
+    SceneStringDocument dictionary,
+    BattlefieldEditorService service,
+    IReadOnlyList<HexTableDefinition> tables)
+{
+    var document = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+    var existing = BattlefieldEditorService.BuildDeploymentSlotInfos(document)
+        .FirstOrDefault(x => !x.IsAllySlot && x.IsBlank && x.WritesPerson);
+    if (existing != null) return existing;
+
+    var legacyDocument = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+    var command = legacyDocument.EnumerateCommands()
+        .FirstOrDefault(x => x.CommandId is 0x46 or 0x47 && TryGetDeploymentRecordLayout(x.CommandId, out var layout) && x.Parameters.Count >= layout.GroupSize);
+    if (command == null) return null;
+
+    var (groupSize, recordCount) = GetDeploymentRecordLayout(command.CommandId);
+    for (var recordIndex = recordCount - 1; recordIndex >= 0; recordIndex--)
+    {
+        var start = recordIndex * groupSize;
+        if (start + groupSize > command.Parameters.Count) continue;
+
+        for (var index = 0; index < groupSize; index++)
+        {
+            var parameter = command.Parameters[start + index];
+            parameter.IntValue = 0;
+            parameter.Text = string.Empty;
+            parameter.Values.Clear();
+        }
+
+        new LegacyScenarioWriter().Save(
+            testProject,
+            Path.Combine("RS", scenario.FileName),
+            legacyDocument,
+            dictionary,
+            "Smoke synthesize empty battlefield 46/47 deployment slot");
+
+        var reread = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        return BattlefieldEditorService.BuildDeploymentSlotInfos(reread)
+            .FirstOrDefault(x => !x.IsAllySlot && x.IsBlank && x.WritesPerson);
+    }
+
+    return null;
+}
+
+static bool TryGetDeploymentRecordLayout(int commandId, out (int GroupSize, int RecordCount) layout)
+{
+    if (commandId == 0x46)
+    {
+        layout = (11, 20);
+        return true;
+    }
+
+    if (commandId == 0x47)
+    {
+        layout = (12, 80);
+        return true;
+    }
+
+    layout = default;
+    return false;
+}
+
+static (int GroupSize, int RecordCount) GetDeploymentRecordLayout(int commandId)
+    => TryGetDeploymentRecordLayout(commandId, out var layout)
+        ? layout
+        : throw new ArgumentOutOfRangeException(nameof(commandId), commandId, "Unsupported deployment command.");
 
 static void RunMapImageWriteSmoke(CczProject testProject)
 {

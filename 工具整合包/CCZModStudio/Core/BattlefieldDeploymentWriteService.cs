@@ -36,7 +36,7 @@ public sealed class BattlefieldDeploymentWriteService
 
         if (writable.Count == 0)
         {
-            throw new InvalidOperationException("没有可写回的 S 剧本出场记录。只有来源于 S 剧本候选、TargetKey 含 Scene/Section/Command/Record 的摆放项才能写回；纯拖放新增单位仍保存为项目侧备注。");
+            throw new InvalidOperationException("没有可写回的 S 剧本出场记录。只有已自动绑定或手动绑定到 S 剧本、TargetKey 含 Scene/Section/Command/Record 的摆放项才能写回。");
         }
 
         var document = _reader.Read(scenario.Path, dictionary);
@@ -53,13 +53,13 @@ public sealed class BattlefieldDeploymentWriteService
             var definition = DeploymentDefinition.FromCommandId(command.CommandId);
             if (definition == null)
             {
-                skipped.Add($"{DescribePlacement(placement.Source)}：命令 {command.CommandIdHex} 不是 46/47 直接地图坐标出场设定。");
+                skipped.Add($"{DescribePlacement(placement.Source)}：命令 {command.CommandIdHex} 不是 46/47/4B 出场设定。");
                 continue;
             }
 
-            if (!definition.HasDirectMapCoordinate)
+            if (!definition.HasMapCoordinate)
             {
-                skipped.Add($"{DescribePlacement(placement.Source)}：{command.CommandIdHex} 不含直接地图坐标槽，当前不写回地图摆放。");
+                skipped.Add($"{DescribePlacement(placement.Source)}：{command.CommandIdHex} 不含地图坐标槽，当前不写回地图摆放。");
                 continue;
             }
 
@@ -76,14 +76,29 @@ public sealed class BattlefieldDeploymentWriteService
                 continue;
             }
 
-            SetParameterValue(command, start + definition.PersonIndex, placement.Source.PersonId, LegacyScenarioParameterKind.Word16);
-            SetParameterValue(command, start + definition.XIndex, placement.Source.GridX, LegacyScenarioParameterKind.Dword32);
-            SetParameterValue(command, start + definition.YIndex, placement.Source.GridY, LegacyScenarioParameterKind.Dword32);
+            if (definition.WritesPerson)
+            {
+                SetParameterValue(command, start + definition.PersonIndex, placement.Source.PersonId, LegacyScenarioParameterKind.Word16);
+            }
+            SetCoordinateParameterValue(command, start + definition.XIndex, placement.Source.GridX);
+            SetCoordinateParameterValue(command, start + definition.YIndex, placement.Source.GridY);
             int? aiValue = null;
             if (definition.AiIndex >= 0 && TryMapAiMode(placement.Source.AiMode, out var mappedAi))
             {
                 aiValue = mappedAi;
                 SetParameterValue(command, start + definition.AiIndex, mappedAi, LegacyScenarioParameterKind.Word16);
+            }
+            int? directionValue = null;
+            if (definition.DirectionIndex >= 0 && TryMapDirection(placement.Source.Direction, out var mappedDirection))
+            {
+                directionValue = mappedDirection;
+                SetParameterValue(command, start + definition.DirectionIndex, mappedDirection, LegacyScenarioParameterKind.Word16);
+            }
+            int? hiddenValue = null;
+            if (definition.HiddenIndex >= 0)
+            {
+                hiddenValue = placement.Source.Hidden ? 1 : 0;
+                SetParameterValue(command, start + definition.HiddenIndex, hiddenValue.Value, LegacyScenarioParameterKind.Word16);
             }
 
             changes.Add(new BattlefieldDeploymentWriteChange
@@ -98,8 +113,14 @@ public sealed class BattlefieldDeploymentWriteService
                 GridX = placement.Source.GridX,
                 GridY = placement.Source.GridY,
                 AiMode = aiValue,
-                Summary = $"{command.CommandIdHex} {command.CommandName} Record={placement.Locator.RecordIndex} 人物={placement.Source.PersonId} 坐标=({placement.Source.GridX},{placement.Source.GridY})" +
-                          (aiValue.HasValue ? $" AI={aiValue.Value}" : " AI=保持原值")
+                DirectionMode = directionValue,
+                HiddenFlag = hiddenValue,
+                Summary = $"{command.CommandIdHex} {command.CommandName} Record={placement.Locator.RecordIndex} " +
+                          (definition.WritesPerson ? $"人物={placement.Source.PersonId} " : $"我军出战位={GetParameterValue(command, start + definition.PersonIndex)} ") +
+                          $"坐标=({placement.Source.GridX},{placement.Source.GridY})" +
+                          (aiValue.HasValue ? $" AI={aiValue.Value}" : " AI=保持原值") +
+                          (directionValue.HasValue ? $" 方向={directionValue.Value}" : string.Empty) +
+                          (hiddenValue.HasValue ? $" 隐藏={hiddenValue.Value}" : string.Empty)
             });
         }
 
@@ -113,7 +134,7 @@ public sealed class BattlefieldDeploymentWriteService
             BuildScenarioRelativePath(scenario),
             document,
             dictionary,
-            "战场制作页 46/47 出场坐标记录写回");
+            "战场制作页 46/47/4B 出场坐标记录写回");
 
         var verifyDocument = _reader.Read(scenario.Path, dictionary);
         ValidateChanges(verifyDocument, changes);
@@ -151,17 +172,28 @@ public sealed class BattlefieldDeploymentWriteService
                 ?? throw new InvalidDataException($"出场写回复读失败：找不到命令 {change.CommandIdHex} Scene={change.SceneIndex} Section={change.SectionIndex} Command={change.CommandIndex}。");
             var definition = DeploymentDefinition.FromCommandId(command.CommandId)
                 ?? throw new InvalidDataException($"出场写回复读失败：命令 {command.CommandIdHex} 不是部署命令。");
-            if (!definition.HasDirectMapCoordinate)
+            if (!definition.HasMapCoordinate)
             {
-                throw new InvalidDataException($"出场写回复读失败：命令 {command.CommandIdHex} 不含直接地图坐标槽。");
+                throw new InvalidDataException($"出场写回复读失败：命令 {command.CommandIdHex} 不含地图坐标槽。");
             }
             var start = change.RecordIndex * definition.GroupSize;
-            AssertParameterValue(command, start + definition.PersonIndex, change.PersonId, "人物");
+            if (definition.WritesPerson)
+            {
+                AssertParameterValue(command, start + definition.PersonIndex, change.PersonId, "人物");
+            }
             AssertParameterValue(command, start + definition.XIndex, change.GridX, "X坐标");
             AssertParameterValue(command, start + definition.YIndex, change.GridY, "Y坐标");
             if (change.AiMode.HasValue && definition.AiIndex >= 0)
             {
                 AssertParameterValue(command, start + definition.AiIndex, change.AiMode.Value, "AI");
+            }
+            if (change.DirectionMode.HasValue && definition.DirectionIndex >= 0)
+            {
+                AssertParameterValue(command, start + definition.DirectionIndex, change.DirectionMode.Value, "方向");
+            }
+            if (change.HiddenFlag.HasValue && definition.HiddenIndex >= 0)
+            {
+                AssertParameterValue(command, start + definition.HiddenIndex, change.HiddenFlag.Value, "隐藏标志");
             }
         }
     }
@@ -199,6 +231,22 @@ public sealed class BattlefieldDeploymentWriteService
         }
 
         parameter.IntValue = value;
+    }
+
+    private static void SetCoordinateParameterValue(LegacyScenarioCommandNode command, int parameterIndex, int value)
+    {
+        if (parameterIndex < 0 || parameterIndex >= command.Parameters.Count)
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 缺少坐标参数槽 {parameterIndex}。");
+        }
+
+        var kind = command.Parameters[parameterIndex].Kind;
+        if (kind is not (LegacyScenarioParameterKind.Word16 or LegacyScenarioParameterKind.Dword32))
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 坐标参数槽 {parameterIndex} 不是数值参数，当前不写回。");
+        }
+
+        SetParameterValue(command, parameterIndex, value, kind);
     }
 
     private static void AssertParameterValue(LegacyScenarioCommandNode command, int parameterIndex, int expected, string label)
@@ -248,9 +296,9 @@ public sealed class BattlefieldDeploymentWriteService
         }
 
         if (!TryParseCommandId(locator.CommandIdHex, out var commandId) ||
-            DeploymentDefinition.FromCommandId(commandId)?.HasDirectMapCoordinate != true)
+            DeploymentDefinition.FromCommandId(commandId)?.HasMapCoordinate != true)
         {
-            reason = "TargetKey 不是 46/47 直接地图坐标出场记录。";
+            reason = "TargetKey 不是 46/47/4B 地图坐标出场记录。";
             return false;
         }
 
@@ -320,6 +368,24 @@ public sealed class BattlefieldDeploymentWriteService
         return value >= 0;
     }
 
+    private static bool TryMapDirection(string direction, out int value)
+    {
+        value = direction switch
+        {
+            "上" => 0,
+            "右" => 1,
+            "下" => 2,
+            "左" => 3,
+            _ => -1
+        };
+        return value >= 0;
+    }
+
+    private static int GetParameterValue(LegacyScenarioCommandNode command, int parameterIndex)
+        => parameterIndex >= 0 && parameterIndex < command.Parameters.Count
+            ? command.Parameters[parameterIndex].IntValue
+            : 0;
+
     private static string DescribePlacement(BattlefieldPlacedUnit placement)
         => $"{placement.Name}({placement.PersonId}) @ ({placement.GridX},{placement.GridY}) {placement.TargetKey}";
 
@@ -345,7 +411,10 @@ public sealed class BattlefieldDeploymentWriteService
             PersonIndex = 0,
             XIndex = 2,
             YIndex = 3,
-            AiIndex = 7
+            AiIndex = 7,
+            DirectionIndex = -1,
+            HiddenIndex = -1,
+            WritesPerson = true
         };
 
         public static readonly DeploymentDefinition Enemy = new()
@@ -355,7 +424,10 @@ public sealed class BattlefieldDeploymentWriteService
             PersonIndex = 0,
             XIndex = 3,
             YIndex = 4,
-            AiIndex = 8
+            AiIndex = 8,
+            DirectionIndex = -1,
+            HiddenIndex = -1,
+            WritesPerson = true
         };
 
         public static readonly DeploymentDefinition Ally = new()
@@ -363,9 +435,12 @@ public sealed class BattlefieldDeploymentWriteService
             GroupSize = 5,
             RecordCount = 1,
             PersonIndex = 0,
-            XIndex = -1,
-            YIndex = -1,
-            AiIndex = -1
+            XIndex = 1,
+            YIndex = 2,
+            AiIndex = -1,
+            DirectionIndex = 3,
+            HiddenIndex = 4,
+            WritesPerson = false
         };
 
         public int GroupSize { get; init; }
@@ -374,7 +449,10 @@ public sealed class BattlefieldDeploymentWriteService
         public int XIndex { get; init; }
         public int YIndex { get; init; }
         public int AiIndex { get; init; }
-        public bool HasDirectMapCoordinate => XIndex >= 0 && YIndex >= 0;
+        public int DirectionIndex { get; init; }
+        public int HiddenIndex { get; init; }
+        public bool WritesPerson { get; init; }
+        public bool HasMapCoordinate => XIndex >= 0 && YIndex >= 0;
 
         public static DeploymentDefinition? FromCommandId(int commandId)
             => commandId switch

@@ -44,6 +44,26 @@ public sealed class BattlefieldEditorService
         };
     }
 
+    public static BattlefieldEditorDocument RebuildFromLegacyDocument(
+        BattlefieldEditorDocument current,
+        LegacyScenarioDocument legacyDocument)
+    {
+        var candidates = BuildBattlefieldCommandCandidates(legacyDocument);
+        var unitCandidates = BuildUnitCandidates(candidates);
+        return new BattlefieldEditorDocument
+        {
+            Scenario = current.Scenario,
+            MapLink = current.MapLink,
+            TextEntries = current.TextEntries,
+            TitleEntry = current.TitleEntry,
+            ConditionEntry = current.ConditionEntry,
+            CommandCandidates = candidates,
+            UnitCandidates = unitCandidates,
+            Summary = BuildSummary(current.Scenario, current.TitleEntry, current.ConditionEntry, current.MapLink, candidates.Count, unitCandidates.Count),
+            Annotation = BuildAnnotation(current.Scenario, current.TitleEntry, current.ConditionEntry, current.MapLink, candidates.Count, unitCandidates.Count)
+        };
+    }
+
     public ScenarioTextSaveResult SaveTitleAndConditions(
         CczProject project,
         BattlefieldEditorDocument document,
@@ -272,6 +292,38 @@ public sealed class BattlefieldEditorService
         return scene > 0 && section > 0 && command > 0;
     }
 
+    public static IReadOnlyList<BattlefieldDeploymentSlotInfo> BuildDeploymentSlotInfos(BattlefieldEditorDocument document)
+        => document.CommandCandidates.SelectMany(BuildDeploymentSlotInfos).ToList();
+
+    public static IReadOnlyList<BattlefieldDeploymentSlotInfo> BuildDeploymentSlotInfos(BattlefieldCommandCandidate command)
+    {
+        var commandId = ParseCommandId(command.CommandIdHex);
+        var definition = DeploymentCommandDefinition.FromCommandId(commandId);
+        if (definition == null) return Array.Empty<BattlefieldDeploymentSlotInfo>();
+
+        var words = ExtractCommandWords(command).ToList();
+        if (words.Count == 0) return Array.Empty<BattlefieldDeploymentSlotInfo>();
+
+        var rows = new List<BattlefieldDeploymentSlotInfo>();
+        for (var recordIndex = 0; recordIndex < definition.RecordCount; recordIndex++)
+        {
+            var start = recordIndex * definition.GroupSize;
+            if (start + definition.GroupSize > words.Count) break;
+            var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
+            rows.Add(BuildDeploymentSlotInfo(command, definition, commandId, recordIndex, recordWords));
+        }
+
+        return rows;
+    }
+
+    private static IReadOnlyList<BattlefieldCommandCandidate> BuildBattlefieldCommandCandidates(LegacyScenarioDocument document)
+        => document
+            .EnumerateCommands()
+            .Select(BuildLegacyBattlefieldStructureRow)
+            .Where(IsBattlefieldRelated)
+            .Select(BuildBattlefieldCommandCandidate)
+            .ToList();
+
     private IReadOnlyList<BattlefieldCommandCandidate> LoadBattlefieldCommandCandidates(
         CczProject project,
         ScenarioFileInfo scenario,
@@ -306,12 +358,7 @@ public sealed class BattlefieldEditorService
         try
         {
             var document = _legacyReader.Read(scenario.Path, dictionary);
-            return document
-                .EnumerateCommands()
-                .Select(BuildLegacyBattlefieldStructureRow)
-                .Where(IsBattlefieldRelated)
-                .Select(BuildBattlefieldCommandCandidate)
-                .ToList();
+            return BuildBattlefieldCommandCandidates(document);
         }
         catch
         {
@@ -516,32 +563,41 @@ public sealed class BattlefieldEditorService
 
     private static IReadOnlyList<BattlefieldUnitCandidate> BuildDeploymentRecordCandidates(BattlefieldCommandCandidate command, int existingCount)
     {
-        var commandId = ParseCommandId(command.CommandIdHex);
-        var definition = commandId switch
-        {
-            0x46 => DeploymentCommandDefinition.Friend,
-            0x47 => DeploymentCommandDefinition.Enemy,
-            0x4B => DeploymentCommandDefinition.Ally,
-            _ => null
-        };
-        if (definition == null) return Array.Empty<BattlefieldUnitCandidate>();
-
-        var words = ExtractCommandWords(command).ToList();
-        if (words.Count == 0) return Array.Empty<BattlefieldUnitCandidate>();
-
         var rows = new List<BattlefieldUnitCandidate>();
-        for (var recordIndex = 0; recordIndex < definition.RecordCount; recordIndex++)
+        var words = ExtractCommandWords(command).ToList();
+        foreach (var slot in BuildDeploymentSlotInfos(command))
         {
-            var start = recordIndex * definition.GroupSize;
-            if (start + definition.GroupSize > words.Count) break;
-            var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
-            if (definition.SkipBlankRecords && LooksLikeBlankDeploymentRecord(recordWords)) continue;
+            var definition = DeploymentCommandDefinition.FromCommandId(slot.CommandId);
+            if (definition == null || definition.SkipBlankRecords && slot.IsBlank) continue;
 
-            rows.Add(BuildDeploymentRecordCandidate(command, definition, recordIndex, recordWords, existingCount + rows.Count + 1));
+            var start = slot.RecordIndex * definition.GroupSize;
+            var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
+            rows.Add(BuildDeploymentRecordCandidate(command, definition, slot.RecordIndex, recordWords, existingCount + rows.Count + 1));
         }
 
         return rows;
     }
+
+    private static BattlefieldDeploymentSlotInfo BuildDeploymentSlotInfo(
+        BattlefieldCommandCandidate command,
+        DeploymentCommandDefinition definition,
+        int commandId,
+        int recordIndex,
+        IReadOnlyList<int> words)
+        => new()
+        {
+            TargetKey = BuildUnitTargetKey(command, recordIndex),
+            Category = definition.Category,
+            CommandId = commandId,
+            RecordIndex = recordIndex,
+            PersonOrOrder = GetWordOrDefault(words, definition.PersonIndex),
+            GridX = GetWordOrDefault(words, definition.XIndex),
+            GridY = GetWordOrDefault(words, definition.YIndex),
+            IsBlank = LooksLikeBlankDeploymentRecord(definition, words),
+            WritesPerson = definition.WritesPerson,
+            WritesAi = definition.AiIndex >= 0,
+            IsAllySlot = ReferenceEquals(definition, DeploymentCommandDefinition.Ally)
+        };
 
     private static BattlefieldUnitCandidate BuildDeploymentRecordCandidate(
         BattlefieldCommandCandidate command,
@@ -573,10 +629,11 @@ public sealed class BattlefieldEditorService
         };
     }
 
-    private static bool LooksLikeBlankDeploymentRecord(IReadOnlyList<int> words)
+    private static bool LooksLikeBlankDeploymentRecord(DeploymentCommandDefinition definition, IReadOnlyList<int> words)
     {
         if (words.Count == 0) return true;
         if (words.All(value => value == 0)) return true;
+        if (definition.WritesPerson && GetWordOrDefault(words, definition.PersonIndex) is < 0) return true;
         return words[0] is 0 or -1 && words.Skip(1).All(value => value == 0);
     }
 
@@ -601,7 +658,7 @@ public sealed class BattlefieldEditorService
         if (ReferenceEquals(definition, DeploymentCommandDefinition.Ally))
         {
             return x >= 0 && y >= 0
-                ? $"我军候选出战位：({x},{y})；{slotText}；用于地图候选标记，不作为 46/47 直接摆放写回。"
+                ? $"我军候选出战位：({x},{y})；{slotText}；绑定到 S 侧 4B 时可写回坐标/方向/隐藏，不改出战顺序槽。"
                 : $"我军候选出战位含整型变量：({FormatScriptValue(x)},{FormatScriptValue(y)})；6.5 坐标负数按整型变量引用处理。";
         }
 
@@ -661,7 +718,7 @@ public sealed class BattlefieldEditorService
             : $"第 {(recordIndex + 1).ToString(CultureInfo.InvariantCulture)}/{definition.RecordCount.ToString(CultureInfo.InvariantCulture)} 条出场记录";
         return $"{definition.Category}：来源 {command.SourceCommandText()}，位置 {command.OffsetHex}，{slotLabel}。旧源码确认本命令按 {definition.GroupSize} 个逻辑参数为一组" +
                (definition.RecordCount > 1 ? $"循环 {definition.RecordCount} 组" : string.Empty) +
-               $"；当前按槽位候选展示，不直接写回坐标/AI/等级。原始槽值：{string.Join(' ', words.Select(FormatScriptValue))}。";
+               $"；拖放绑定后可按已确认槽位受控写回，未确认的等级/装备/状态槽保持原值。原始槽值：{string.Join(' ', words.Select(FormatScriptValue))}。";
     }
 
     private static int GetWordOrDefault(IReadOnlyList<int> words, int index)
@@ -874,7 +931,8 @@ public sealed class BattlefieldEditorService
             YIndex = 3,
             AiIndex = 7,
             StateIndexes = [1, 4, 5, 6, 8, 9, 10],
-            SkipBlankRecords = true
+            SkipBlankRecords = true,
+            WritesPerson = true
         };
 
         public static readonly DeploymentCommandDefinition Enemy = new()
@@ -888,7 +946,8 @@ public sealed class BattlefieldEditorService
             YIndex = 4,
             AiIndex = 8,
             StateIndexes = [1, 2, 5, 6, 7, 9, 10, 11],
-            SkipBlankRecords = true
+            SkipBlankRecords = true,
+            WritesPerson = true
         };
 
         public static readonly DeploymentCommandDefinition Ally = new()
@@ -902,8 +961,18 @@ public sealed class BattlefieldEditorService
             YIndex = 2,
             AiIndex = -1,
             StateIndexes = [3, 4],
-            SkipBlankRecords = false
+            SkipBlankRecords = false,
+            WritesPerson = false
         };
+
+        public static DeploymentCommandDefinition? FromCommandId(int commandId)
+            => commandId switch
+            {
+                0x46 => Friend,
+                0x47 => Enemy,
+                0x4B => Ally,
+                _ => null
+            };
 
         public string Category { get; init; } = string.Empty;
         public string FactionHint { get; init; } = string.Empty;
@@ -915,6 +984,7 @@ public sealed class BattlefieldEditorService
         public int AiIndex { get; init; }
         public IReadOnlyList<int> StateIndexes { get; init; } = Array.Empty<int>();
         public bool SkipBlankRecords { get; init; }
+        public bool WritesPerson { get; init; }
     }
 }
 

@@ -341,9 +341,9 @@ public sealed partial class BattlefieldAllyDeploymentSlotService
         => value switch
         {
             0 => "上",
-            1 => "下",
-            2 => "左",
-            3 => "右",
+            1 => "右",
+            2 => "下",
+            3 => "左",
             _ => "下"
         };
 
