@@ -51,8 +51,59 @@ internal partial class Program
         }
 
         RunLegacyMfcDialogBehaviorSmoke(dataSources);
+        RunLegacyScenarioCommandDisplaySmoke(dataSources);
 
         Console.WriteLine($"LEGACY_MFC_DIALOG_SMOKE_OK oldCommands={oldDispatchMap.Count} dialogs={resourceSpecs.Count} templates={templates.Count} sortedCombos={string.Join("/", sortedCombos)}");
+    }
+
+    private static void RunLegacyScenarioCommandDisplaySmoke(LegacyMfcDialogDataSources dataSources)
+    {
+        var formatter = new LegacyScenarioCommandDisplayFormatter(dataSources);
+
+        var variableTest = BuildDisplayCommand(0x05, "变量测试", [], string.Empty);
+        variableTest.Parameters.Add(new LegacyScenarioCommandParameter { Index = 0, Kind = LegacyScenarioParameterKind.VariableArray, Values = { 20 } });
+        variableTest.Parameters.Add(new LegacyScenarioCommandParameter { Index = 1, Kind = LegacyScenarioParameterKind.VariableArray });
+        AssertTrue(formatter.FormatCommand(variableTest).Contains("Var20;无", StringComparison.Ordinal), "command 0x05 display uses old variable-array summary");
+
+        var positionTest = BuildDisplayCommand(0x25, "武将进入指定地点测试", [LegacyMfcDialogDataSources.Per2ListToCode(1025), 13, 12], string.Empty);
+        var positionText = formatter.FormatCommand(positionTest);
+        AssertTrue(positionText.Contains("13,12", StringComparison.Ordinal), "command 0x25 display includes coordinates");
+        AssertTrue(!positionText.Contains("P0=", StringComparison.Ordinal), "command 0x25 display hides raw parameter tokens");
+
+        var personCondition = BuildDisplayCommand(0x36, "武将状态测试", [146, 7, 0, 2], string.Empty);
+        var conditionText = formatter.FormatCommand(personCondition);
+        AssertTrue(conditionText.Contains("HPCur", StringComparison.Ordinal), "command 0x36 display maps condition name");
+        AssertTrue(conditionText.Contains("=", StringComparison.Ordinal), "command 0x36 display maps compare operator");
+    }
+
+    private static LegacyScenarioCommandNode BuildDisplayCommand(int commandId, string name, IReadOnlyList<int> values, string text)
+    {
+        var command = new LegacyScenarioCommandNode
+        {
+            CommandId = commandId,
+            CommandName = name
+        };
+        for (var i = 0; i < values.Count; i++)
+        {
+            command.Parameters.Add(new LegacyScenarioCommandParameter
+            {
+                Index = i,
+                Kind = LegacyScenarioParameterKind.Word16,
+                IntValue = values[i]
+            });
+        }
+
+        if (!string.IsNullOrEmpty(text))
+        {
+            command.Parameters.Add(new LegacyScenarioCommandParameter
+            {
+                Index = values.Count,
+                Kind = LegacyScenarioParameterKind.Text,
+                Text = text
+            });
+        }
+
+        return command;
     }
 
     private static void RunLegacyMfcDialogBehaviorSmoke(LegacyMfcDialogDataSources dataSources)

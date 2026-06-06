@@ -159,6 +159,7 @@ public sealed class MainForm : Form
     private readonly ScenarioCommandReferenceNoteTemplateService _scenarioCommandReferenceNoteTemplateService = new();
     private readonly ScenarioCommandClipboardService _scenarioCommandClipboardService = new();
     private readonly ScenarioScriptSearchService _scenarioScriptSearchService = new();
+    private LegacyScenarioCommandDisplayFormatter? _legacyScenarioCommandDisplayFormatter;
     private readonly ResourceReplaceService _resourceReplaceService = new();
     private readonly E5ImageReplaceService _e5ImageReplaceService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
@@ -6676,6 +6677,7 @@ public sealed class MainForm : Form
     private void LoadProject(CczProject project)
     {
         _project = project;
+        _legacyScenarioCommandDisplayFormatter = null;
         _attackAreaPreviewService.ClearCache();
         _strategyAnimationPreviewService.ClearCache();
         _imageAssignmentPreviewService.ClearCache();
@@ -26585,31 +26587,13 @@ public sealed class MainForm : Form
         ScenarioStructureRow section,
         IReadOnlyList<ScenarioStructureRow> rows,
         IReadOnlyDictionary<(int SceneIndex, int SectionIndex), IReadOnlyList<ScenarioTextEntry>> sectionTextAssignments)
-    {
-        var sectionCommands = rows
-            .Where(row => row.NodeType == "Command候选"
-                && row.SceneIndex == section.SceneIndex
-                && row.SectionIndex == section.SectionIndex)
-            .ToList();
-        var sectionTexts = sectionTextAssignments.TryGetValue((section.SceneIndex, section.SectionIndex), out var texts)
-            ? texts
-            : Array.Empty<ScenarioTextEntry>();
-        var summary = BuildScriptNodeSummary(sectionTexts, sectionCommands);
-        return string.IsNullOrWhiteSpace(summary)
-            ? $"Section {section.SectionIndex}"
-            : $"Section {section.SectionIndex}｜{summary}";
-    }
+        => $"Section {section.SectionIndex}";
 
     private static string BuildLegacySceneNodeText(LegacyScenarioScene scene)
         => $"Scene {scene.SceneIndex}";
 
     private static string BuildLegacySectionNodeText(LegacyScenarioSection section, IReadOnlyList<LegacyScenarioCommandNode> commands)
-    {
-        var summary = BuildLegacyNodeSummary(commands);
-        return string.IsNullOrWhiteSpace(summary)
-            ? $"Section {section.SectionIndex}"
-            : $"Section {section.SectionIndex}｜{summary}";
-    }
+        => $"Section {section.SectionIndex}";
 
     private static string BuildScriptNodeSummary(
         IReadOnlyList<ScenarioTextEntry> texts,
@@ -26638,7 +26622,7 @@ public sealed class MainForm : Form
         var command = commands.FirstOrDefault(IsPreferredLegacySummaryCommand) ?? commands.FirstOrDefault();
         return command == null
             ? string.Empty
-            : TrimSingleLine(BuildLegacyCommandValuesPreview(command, maxVisibleValues: 3), 24);
+            : TrimSingleLine(BuildLegacyCommandValuesPreviewFallback(command, maxVisibleValues: 3), 24);
     }
 
     private static ScenarioTextEntry? PickBestSummaryText(IEnumerable<ScenarioTextEntry> texts)
@@ -26751,14 +26735,15 @@ public sealed class MainForm : Form
         return string.IsNullOrWhiteSpace(suffix) ? label : $"{label} {suffix}";
     }
 
-    private static string BuildLegacyScriptCommandSummary(ScenarioStructureRow row, LegacyScenarioCommandNode command, bool includeIdentity, int maxVisibleValues)
+    private LegacyScenarioCommandDisplayFormatter GetLegacyScenarioCommandDisplayFormatter()
     {
-        var label = includeIdentity
-            ? $"{command.CommandId:X}:{command.CommandName}"
-            : $"{command.CommandId:X}:{command.CommandName}";
-        var suffix = BuildLegacyCommandValuesPreview(command, maxVisibleValues);
-        return string.IsNullOrWhiteSpace(suffix) ? label : $"{label} {suffix}";
+        _legacyScenarioCommandDisplayFormatter ??= new LegacyScenarioCommandDisplayFormatter(
+            LegacyMfcDialogDataSources.Create(_project, _tables));
+        return _legacyScenarioCommandDisplayFormatter;
     }
+
+    private string BuildLegacyScriptCommandSummary(ScenarioStructureRow row, LegacyScenarioCommandNode command, bool includeIdentity, int maxVisibleValues)
+        => GetLegacyScenarioCommandDisplayFormatter().FormatCommand(command, includeIdentity);
 
     private static string BuildScriptCommandValuesPreview(ScenarioStructureRow command, int maxVisibleValues)
     {
@@ -26776,7 +26761,10 @@ public sealed class MainForm : Form
             : TrimSingleLine(JoinValuePreview(values, maxVisibleValues), 132);
     }
 
-    private static string BuildLegacyCommandValuesPreview(LegacyScenarioCommandNode command, int maxVisibleValues)
+    private string BuildLegacyCommandValuesPreview(LegacyScenarioCommandNode command, int maxVisibleValues)
+        => GetLegacyScenarioCommandDisplayFormatter().FormatValuesPreview(command, maxVisibleValues);
+
+    private static string BuildLegacyCommandValuesPreviewFallback(LegacyScenarioCommandNode command, int maxVisibleValues)
     {
         var friendly = BuildLegacyScriptFriendlyValueText(command);
         if (!string.IsNullOrWhiteSpace(friendly))
