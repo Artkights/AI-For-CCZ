@@ -4757,7 +4757,6 @@ public sealed class MainForm : Form
             _scriptClearSearchButton,
             _locateScriptCommandButton,
             _saveScriptStructureButton,
-            _createScriptNoteButton,
             _jumpScriptBattlefieldButton
         });
         layout.Controls.Add(toolbar, 0, 0);
@@ -4766,7 +4765,7 @@ public sealed class MainForm : Form
         _scriptHeaderLabel.AutoSize = true;
         _scriptHeaderLabel.ForeColor = Color.FromArgb(210, 210, 210);
         _scriptHeaderLabel.Padding = new Padding(2, 0, 0, 6);
-        _scriptHeaderLabel.Text = "字典：未加载    剧本：未选择    双击指令使用旧版 Dialog 修改；右侧可内嵌修改参数和记录备注";
+        _scriptHeaderLabel.Text = "字典：未加载    剧本：未选择    双击指令使用旧版 Dialog 修改；右侧可内嵌修改参数";
         layout.Controls.Add(_scriptHeaderLabel, 0, 1);
 
         var mainSplit = new SplitContainer
@@ -4880,42 +4879,6 @@ public sealed class MainForm : Form
             _resetScriptInlineDialogButton
         });
 
-        var remarkEditPanel = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 3,
-            ColumnCount = 1
-        };
-        remarkEditPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        remarkEditPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        remarkEditPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var textToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        textToolbar.Controls.Add(new Label
-        {
-            Text = "备注",
-            AutoSize = true,
-            Padding = new Padding(0, 7, 8, 6),
-            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point)
-        });
-        _saveScriptTextButton.Text = "保存备注";
-        textToolbar.Controls.Add(_saveScriptTextButton);
-        remarkEditPanel.Controls.Add(textToolbar, 0, 0);
-        _scriptTextCapacityLabel.Text = "备注：未选择";
-        _scriptTextCapacityLabel.AutoSize = true;
-        _scriptTextCapacityLabel.Padding = new Padding(0, 0, 0, 4);
-        remarkEditPanel.Controls.Add(_scriptTextCapacityLabel, 0, 1);
-        _scriptTextEditorBox.Dock = DockStyle.Fill;
-        _scriptTextEditorBox.Multiline = true;
-        _scriptTextEditorBox.ScrollBars = ScrollBars.Vertical;
-        _scriptTextEditorBox.WordWrap = true;
-        _scriptTextEditorBox.BorderStyle = BorderStyle.FixedSingle;
-        remarkEditPanel.Controls.Add(_scriptTextEditorBox, 0, 2);
         var parameterPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -4939,12 +4902,9 @@ public sealed class MainForm : Form
         imagePreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
         imagePreviewPanel.Controls.Add(_scriptImagePreviewBox, 0, 0);
         imagePreviewPanel.Controls.Add(_scriptImagePreviewInfoBox, 0, 1);
-        var parameterTextSplit = CreateResizableSplit("BuildScriptEditorPage.ParameterText", Orientation.Horizontal, 260);
-        parameterTextSplit.Panel1.Controls.Add(parameterPanel);
-        parameterTextSplit.Panel2.Controls.Add(remarkEditPanel);
-        var detailLayout = CreateResizableSplit("BuildScriptEditorPage.DetailTopBottom", Orientation.Horizontal, 430);
+        var detailLayout = CreateResizableSplit("BuildScriptEditorPage.ImageParameter", Orientation.Horizontal, 430, 180, 220);
         detailLayout.Panel1.Controls.Add(CreateTitledPanel("图片预览", imagePreviewPanel, new Padding(0, 0, 0, 6)));
-        detailLayout.Panel2.Controls.Add(parameterTextSplit);
+        detailLayout.Panel2.Controls.Add(parameterPanel);
 
         mainSplit.Panel2.Controls.Add(detailLayout);
         layout.Controls.Add(mainSplit, 0, 2);
@@ -29337,7 +29297,7 @@ public sealed class MainForm : Form
             return
                 $"旧版剧本制作：{structure.FileName}\r\n" +
                 $"Scene：{structure.SceneCount}    Section：{structure.SectionCount}    Command：{structure.CommandCandidateCount}    文本参数：{texts.Count}\r\n" +
-                "右键事件树可新增、插入、删除、修改参数、编辑文本或记录备注。";
+                "右键事件树可新增、插入、删除和移动；双击指令或使用右侧参数区按旧版 Dialog 修改参数。";
         }
 
         return
@@ -29638,7 +29598,7 @@ public sealed class MainForm : Form
         return
             $"{structure.FileName}    {mode}\r\n" +
             $"Scene {structure.SceneCount}    Section {structure.SectionCount}    Command {structure.CommandCandidateCount}    文本 {texts.Count}\r\n" +
-            "右键事件树可新增、插入、删除、修改参数、编辑文本或记录备注。";
+            "右键事件树可新增、插入、删除和移动；双击指令或使用右侧参数区按旧版 Dialog 修改参数。";
     }
 
     private string BuildScriptObjectPreview(
