@@ -21696,7 +21696,7 @@ public sealed class MainForm : Form
     private void ApplyBattlefieldScriptPreviewToNode(TreeNode node, ScenarioStructureRow row)
     {
         var preview = GetBattlefieldScriptPreviewForRow(row);
-        var baseText = BuildScriptCommandSummary(row, includeIdentity: true, maxVisibleValues: 6);
+        var baseText = BuildBattlefieldScriptCommandNodeText(node, row);
         var baseToolTip = BuildBattlefieldScriptCommandTreeToolTip(row);
         if (preview == null)
         {
@@ -21711,13 +21711,23 @@ public sealed class MainForm : Form
         node.ForeColor = Color.DarkOrange;
     }
 
+    private string BuildBattlefieldScriptCommandNodeText(TreeNode node, ScenarioStructureRow row)
+    {
+        if (node.Tag is LegacyScenarioItemData { Command: { } command })
+        {
+            return BuildLegacyScriptCommandSummary(row, command, includeIdentity: false, maxVisibleValues: 6);
+        }
+
+        return BuildScriptCommandSummary(row, includeIdentity: true, maxVisibleValues: 6);
+    }
+
     private void RefreshBattlefieldScriptPreviewTree()
     {
         foreach (TreeNode root in _battlefieldScriptTree.Nodes)
         {
             foreach (var node in EnumerateScriptTreeNodes(root))
             {
-                if (node.Tag is ScenarioStructureRow row && row.NodeType == "Command候选")
+                if (TryGetBattlefieldScriptCommandRowFromNode(node, out var row))
                 {
                     ApplyBattlefieldScriptPreviewToNode(node, row);
                 }
@@ -21728,6 +21738,24 @@ public sealed class MainForm : Form
         {
             _battlefieldScriptDetailBox.Text = BuildBattlefieldScriptRowDetailWithPreview(_selectedBattlefieldScriptCommandRow);
         }
+    }
+
+    private static bool TryGetBattlefieldScriptCommandRowFromNode(TreeNode node, out ScenarioStructureRow row)
+    {
+        if (node.Tag is LegacyScenarioItemData { UiRow: ScenarioStructureRow itemRow } && itemRow.NodeType == "Command候选")
+        {
+            row = itemRow;
+            return true;
+        }
+
+        if (node.Tag is ScenarioStructureRow directRow && directRow.NodeType == "Command候选")
+        {
+            row = directRow;
+            return true;
+        }
+
+        row = null!;
+        return false;
     }
 
     private BattlefieldPlacedUnit? GetBattlefieldScriptPreviewForRow(ScenarioStructureRow row)
