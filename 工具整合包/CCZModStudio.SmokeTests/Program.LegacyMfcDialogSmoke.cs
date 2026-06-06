@@ -74,6 +74,22 @@ internal partial class Program
         var conditionText = formatter.FormatCommand(personCondition);
         AssertTrue(conditionText.Contains("HPCur", StringComparison.Ordinal), "command 0x36 display maps condition name");
         AssertTrue(conditionText.Contains("=", StringComparison.Ordinal), "command 0x36 display maps compare operator");
+
+        var rSceneDocument = new LegacyScenarioDocument { FilePath = "R_00.eex" };
+        var rScene = new LegacyScenarioScene { SceneIndex = 0 };
+        var rSection = new LegacyScenarioSection { SceneIndex = 0, SectionIndex = 0 };
+        var rSceneAppearance = BuildDisplayCommand(0x30, "武将出现", [LegacyMfcDialogDataSources.Per2ListToCode(12), 13, 12, 0, 0], string.Empty);
+        rSection.Commands.Add(rSceneAppearance);
+        rScene.Sections.Add(rSection);
+        rSceneDocument.Scenes.Add(rScene);
+        var rSceneCandidates = new RSceneDraftService().BuildCommandCandidates(
+            rSceneDocument,
+            command => formatter.FormatCommand(command, includeIdentity: false),
+            command => formatter.FormatValuesPreview(command, maxVisibleValues: 8));
+        AssertEqual(1, rSceneCandidates.Count, "R scene visual command candidate count");
+        AssertTrue(rSceneCandidates[0].CommandName.Contains("13,12", StringComparison.Ordinal), "R scene candidate command name uses legacy display coordinates");
+        AssertTrue(rSceneCandidates[0].ParameterPreview.Contains("13,12", StringComparison.Ordinal), "R scene candidate parameter preview uses legacy display coordinates");
+        AssertTrue(!rSceneCandidates[0].ParameterPreview.Contains("P0=", StringComparison.Ordinal), "R scene candidate parameter preview hides raw parameter tokens");
     }
 
     private static LegacyScenarioCommandNode BuildDisplayCommand(int commandId, string name, IReadOnlyList<int> values, string text)

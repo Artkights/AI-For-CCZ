@@ -87,13 +87,18 @@ public sealed class RSceneDraftService
         return path;
     }
 
-    public IReadOnlyList<RSceneCommandCandidate> BuildCommandCandidates(LegacyScenarioDocument document)
+    public IReadOnlyList<RSceneCommandCandidate> BuildCommandCandidates(
+        LegacyScenarioDocument document,
+        Func<LegacyScenarioCommandNode, string>? commandDisplayText = null,
+        Func<LegacyScenarioCommandNode, string>? parameterDisplayText = null)
     {
         var result = new List<RSceneCommandCandidate>();
         foreach (var command in document.EnumerateCommands())
         {
             if (!IsRSceneVisualCommand(command.CommandId)) continue;
             var values = FlattenValues(command).ToList();
+            var displayName = commandDisplayText?.Invoke(command);
+            var displayParameters = parameterDisplayText?.Invoke(command);
             var candidate = new RSceneCommandCandidate
             {
                 Index = result.Count + 1,
@@ -101,9 +106,11 @@ public sealed class RSceneDraftService
                 SceneSection = $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex}",
                 OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
                 CommandId = command.CommandId,
-                CommandName = command.CommandName,
+                CommandName = string.IsNullOrWhiteSpace(displayName) ? command.CommandName : displayName,
                 RoleHint = BuildRoleHint(command.CommandId),
-                ParameterPreview = BuildParameterPreview(command, values),
+                ParameterPreview = string.IsNullOrWhiteSpace(displayParameters)
+                    ? BuildParameterPreview(command, values)
+                    : displayParameters,
                 PersonId = TryGetPersonId(command.CommandId, values),
                 X = TryGetCoordinate(command.CommandId, values, xSlot: true),
                 Y = TryGetCoordinate(command.CommandId, values, xSlot: false),

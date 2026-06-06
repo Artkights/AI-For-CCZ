@@ -22954,7 +22954,7 @@ public sealed class MainForm : Form
         _currentRSceneScriptStructure = BuildRSceneLegacyScriptStructureResult(_currentRSceneLegacyScriptDocument);
         _currentRSceneScriptTextEntries = BuildRSceneLegacyScriptTextEntries(_currentRSceneLegacyScriptDocument);
         BuildRSceneScriptTree(_currentRSceneScriptStructure);
-        _currentRSceneCommandCandidates = _rSceneDraftService.BuildCommandCandidates(_currentRSceneLegacyScriptDocument);
+        _currentRSceneCommandCandidates = BuildRSceneCommandCandidates(_currentRSceneLegacyScriptDocument);
         BindRSceneCommandCandidates(_currentRSceneCommandCandidates);
 
         if (preferredSelection != null)
@@ -22974,6 +22974,21 @@ public sealed class MainForm : Form
         }
 
         _rSceneScriptDetailBox.Text = BuildRSceneInfoText();
+    }
+
+    private IReadOnlyList<RSceneCommandCandidate> BuildRSceneCommandCandidates(LegacyScenarioDocument document)
+    {
+        return BuildRSceneCommandCandidates(document, GetLegacyScenarioCommandDisplayFormatter());
+    }
+
+    private IReadOnlyList<RSceneCommandCandidate> BuildRSceneCommandCandidates(
+        LegacyScenarioDocument document,
+        LegacyScenarioCommandDisplayFormatter formatter)
+    {
+        return _rSceneDraftService.BuildCommandCandidates(
+            document,
+            command => formatter.FormatCommand(command, includeIdentity: false),
+            command => formatter.FormatValuesPreview(command, maxVisibleValues: 8));
     }
 
     private async Task SaveCurrentRSceneLegacyScriptStructureAsync()
@@ -23605,6 +23620,7 @@ public sealed class MainForm : Form
 
             var project = _project;
             var tables = _tables;
+            var displayFormatter = GetLegacyScenarioCommandDisplayFormatter();
             var result = await Task.Run(() =>
             {
                 LegacyScenarioDocument? legacy = null;
@@ -23623,7 +23639,7 @@ public sealed class MainForm : Form
                         Legacy: legacy,
                         Structure: (ScenarioStructureProbeResult?)BuildRSceneLegacyScriptStructureResult(legacy),
                         Texts: (IReadOnlyList<ScenarioTextEntry>)BuildRSceneLegacyScriptTextEntries(legacy),
-                        Commands: _rSceneDraftService.BuildCommandCandidates(legacy));
+                        Commands: BuildRSceneCommandCandidates(legacy, displayFormatter));
                 }
 
                 var structure = new ScenarioStructureProbeReader().Build(scenario.Path, dictionary, maxCommandRows: 600, project: project, tables: tables);
