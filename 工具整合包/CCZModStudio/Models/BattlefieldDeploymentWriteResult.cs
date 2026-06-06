@@ -26,5 +26,7 @@ public sealed class BattlefieldDeploymentWriteChange
     public int GridX { get; init; }
     public int GridY { get; init; }
     public int? AiMode { get; init; }
+    public int? DirectionMode { get; init; }
+    public int? HiddenFlag { get; init; }
     public string Summary { get; init; } = string.Empty;
 }

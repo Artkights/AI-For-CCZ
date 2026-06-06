@@ -52,6 +52,7 @@ public sealed class BattlefieldUnitReviewService
     {
         return Load(project)
             .Where(x => x.IsPlacement && x.ScenarioFileName.Equals(document.Scenario.FileName, StringComparison.OrdinalIgnoreCase))
+            .Where(x => !IsScriptBackedPlacementReview(x))
             .OrderBy(x => x.GridY)
             .ThenBy(x => x.GridX)
             .ThenBy(x => x.PersonId)
@@ -145,6 +146,7 @@ public sealed class BattlefieldUnitReviewService
             foreach (var placement in placements)
             {
                 if (placement.GridX < 0 || placement.GridY < 0) continue;
+                if (BattlefieldDeploymentWriteService.IsScriptPlacementWritable(placement)) continue;
                 all.Add(new BattlefieldUnitReview
                 {
                     TargetKey = string.IsNullOrWhiteSpace(placement.TargetKey)
@@ -212,6 +214,15 @@ public sealed class BattlefieldUnitReviewService
 
     private static string BuildPlacementTargetKey(string scenarioFileName, BattlefieldPlacedUnit placement)
         => $"Placement#{scenarioFileName}#{placement.GridX},{placement.GridY}#{placement.PersonId}";
+
+    private static bool IsScriptBackedPlacementReview(BattlefieldUnitReview review)
+        => BattlefieldDeploymentWriteService.IsScriptPlacementWritable(new BattlefieldPlacedUnit
+        {
+            TargetKey = review.TargetKey,
+            PersonId = review.PersonId,
+            GridX = review.GridX,
+            GridY = review.GridY
+        });
 
     private static BattlefieldUnitReview Normalize(BattlefieldUnitReview review)
     {
