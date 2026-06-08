@@ -26,7 +26,7 @@ public sealed class MapCanvasComposeService
             throw new InvalidOperationException("地图草稿格数无效。");
         }
 
-        var tileSize = draft.TileSize <= 0 ? ResourceIndexItem.MapTilePixelSize : draft.TileSize;
+        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
         var pixelWidth = checked(draft.GridWidth * tileSize);
         var pixelHeight = checked(draft.GridHeight * tileSize);
         var bitmap = new Bitmap(pixelWidth, pixelHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb);

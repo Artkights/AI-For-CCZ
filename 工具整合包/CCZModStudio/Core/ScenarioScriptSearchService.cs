@@ -25,7 +25,7 @@ public sealed class ScenarioScriptSearchService
                     Name = $"{command.CommandIdHex} {command.CommandName}",
                     Preview = FirstNonEmpty(command.ParameterPreview, command.RawContextWordsHex, command.CommandTemplateHint, command.ReferenceHint),
                     Annotation = command.Annotation,
-                    ActionHint = "双击或选中后自动定位到左侧树和命令列表；可继续复制候选或记录备注。",
+                    ActionHint = "双击或选中后自动定位到左侧树和命令列表；可继续复制候选或补充核对记录。",
                     CommandRow = command
                 });
             }

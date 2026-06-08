@@ -59,7 +59,7 @@ public sealed class HexzmapEditorService
         var verify = File.ReadAllBytes(filePath);
         if (verify.Length != output.Length || !verify.AsSpan(offset, newCells.Length).SequenceEqual(newCells))
         {
-            throw new InvalidOperationException("Hexzmap 保存后复读校验失败。已生成保存前备份，请用备份历史核对目标文件。");
+            throw new InvalidOperationException("Hexzmap 保存后复读校验失败。已生成保存前备份，请用备份文件核对并恢复目标文件。");
         }
 
         var reportPath = WriteStructuredReport(project, probe, block, filePath, backupPath, original, output, changedBytes, changes);
@@ -102,8 +102,8 @@ public sealed class HexzmapEditorService
             ChangedBytes = changedBytes,
             Summary = $"保存 Hexzmap 地形块 {block.MapId}（#{block.Index}），尺寸 {block.Width}x{block.Height}，修改地形格 {changes.Count} 个，字节改动 {changedBytes:N0}。",
             SafetyNotes = project.IsTestCopy
-                ? "该报告由测试副本地形编辑流程自动生成。还原时请使用备份历史/回滚页的预览和再备份流程。"
-                : "该报告由当前 MOD 项目地形编辑直接保存流程自动生成。保存前已备份 Hexzmap.e5；如需回退，请使用备份文件或备份历史功能。",
+                ? "该报告由测试副本地形编辑流程自动生成。还原时请使用保存前生成的备份文件手动恢复。"
+                : "该报告由当前 MOD 项目地形编辑直接保存流程自动生成。保存前已备份 Hexzmap.e5；如需回退，请使用备份文件手动恢复。",
             Changes = changes.ToList(),
             Metadata =
             {

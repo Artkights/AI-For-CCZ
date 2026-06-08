@@ -23,6 +23,7 @@ public sealed partial class MainForm : Form
         RScene
     }
 
+    private sealed record JobEditorCellTarget(DataRow Row, string ColumnName);
     private sealed record JobEditorCellEdit(DataRow Row, string ColumnName, object? OldValue, object? NewValue);
 
     private const string UiLayoutSettingsFileName = "ui-layout.json";
@@ -155,25 +156,11 @@ public sealed partial class MainForm : Form
     private readonly HexTableParser _tableParser = new();
     private readonly HexTableReader _tableReader = new();
     private readonly HexTableWriter _tableWriter = new();
-    private readonly BackupManager _backupManager = new();
-    private readonly ProjectAuditService _projectAuditService = new();
-    private readonly TestCopyDiffService _testCopyDiffService = new();
-    private readonly ReleasePackageService _releasePackageService = new();
-    private readonly ProjectDeliveryReportService _projectDeliveryReportService = new();
-    private readonly ProjectWorkflowGuideService _workflowGuideService = new();
-    private readonly ProjectEvidenceService _projectEvidenceService = new();
-    private readonly CreatorNoteService _creatorNoteService = new();
-    private readonly CreatorNoteNavigationService _creatorNoteNavigationService = new();
-    private readonly CreatorNoteRelationService _creatorNoteRelationService = new();
-    private readonly BackupHistoryService _backupHistoryService = new();
-    private readonly BackupTimelineLinkService _backupTimelineLinkService = new();
-    private readonly WriteOperationReportFormatter _writeOperationReportFormatter = new();
+    private readonly BackupManager _backupManager = new();    private readonly WriteOperationReportFormatter _writeOperationReportFormatter = new();
     private readonly ScenarioStructureNodeDetailService _scenarioStructureNodeDetailService = new();
     private readonly ScenarioStructureFilterService _scenarioStructureFilterService = new();
     private readonly ScenarioCommandReferenceNavigationService _scenarioCommandReferenceNavigationService = new();
-    private readonly ScenarioCommandReferenceChecklistService _scenarioCommandReferenceChecklistService = new();
-    private readonly ScenarioCommandReferenceNoteTemplateService _scenarioCommandReferenceNoteTemplateService = new();
-    private readonly ScenarioCommandClipboardService _scenarioCommandClipboardService = new();
+    private readonly ScenarioCommandReferenceChecklistService _scenarioCommandReferenceChecklistService = new();    private readonly ScenarioCommandClipboardService _scenarioCommandClipboardService = new();
     private readonly ScenarioScriptSearchService _scenarioScriptSearchService = new();
     private readonly ScriptVariableUsageService _scriptVariableUsageService = new();
     private readonly ScriptVariableValueResolver _scriptVariableValueResolver = new();
@@ -186,21 +173,13 @@ public sealed partial class MainForm : Form
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
     private readonly FieldAnnotationService _fieldAnnotationService = new();
     private readonly ProPatchParser _patchParser = new();
-    private readonly PatchApplyService _patchService = new();
-    private readonly BatchMoveParser _batchMoveParser = new();
-    private readonly SceneStringParser _sceneStringParser = new();
+    private readonly PatchApplyService _patchService = new();    private readonly SceneStringParser _sceneStringParser = new();
     private readonly MaterialLibraryIndexer _materialLibraryIndexer = new();
     private readonly MapDraftService _mapDraftService = new();
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
-    private readonly GameResourceIndexer _gameResourceIndexer = new();
-    private readonly ImageResourceCatalogService _imageResourceCatalogService = new();
-    private readonly ResourceDiagnosticService _resourceDiagnosticService = new();
-    private readonly ResourceReferenceDiagnosticService _resourceReferenceDiagnosticService = new();
-    private readonly TableReferenceDiagnosticService _tableReferenceDiagnosticService = new();
-    private readonly ResourceDiagnosticNavigationService _resourceDiagnosticNavigationService = new();
-    private readonly ResourceChangeReviewHintService _resourceChangeReviewHintService = new();
-    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
+    private readonly MapResourceIndexer _mapResourceIndexer = new();
+    private readonly ImageResourceCatalogService _imageResourceCatalogService = new();    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
     private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
     private readonly ImageAssignmentService _imageAssignmentService = new();
     private readonly EexArchiveReader _eexArchiveReader = new();
@@ -220,10 +199,7 @@ public sealed partial class MainForm : Form
     private readonly LsResourceReader _lsResourceReader = new();
     private readonly HexzmapProbeReader _hexzmapProbeReader = new();
     private readonly HexzmapTerrainRenderService _hexzmapTerrainRenderService = new();
-    private readonly HexzmapEditorService _hexzmapEditorService = new();
-    private readonly ScenarioMapLinkService _scenarioMapLinkService = new();
-    private readonly ScenarioMapLinkReportService _scenarioMapLinkReportService = new();
-    private readonly BattlefieldEditorService _battlefieldEditorService = new();
+    private readonly HexzmapEditorService _hexzmapEditorService = new();    private readonly BattlefieldEditorService _battlefieldEditorService = new();
     private readonly BattlefieldUnitReviewService _battlefieldUnitReviewService = new();
     private readonly BattlefieldDeploymentWriteService _battlefieldDeploymentWriteService = new();
     private readonly BattlefieldAllyDeploymentSlotService _battlefieldAllyDeploymentSlotService = new();
@@ -240,22 +216,11 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<HexTableDefinition> _tables = Array.Empty<HexTableDefinition>();
     private TableReadResult? _currentTableResult;
     private PatchDocument? _currentPatchDocument;
-    private PatchPreviewResult? _currentPatchPreview;
-    private BatchMoveDocument? _currentBatchMoveDocument;
-    private SceneStringDocument? _currentSceneStringDocument;
+    private PatchPreviewResult? _currentPatchPreview;    private SceneStringDocument? _currentSceneStringDocument;
     private IReadOnlyList<MaterialAsset> _currentMaterialAssets = Array.Empty<MaterialAsset>();
-    private IReadOnlyList<ResourceIndexItem> _currentGameResources = Array.Empty<ResourceIndexItem>();
+    private IReadOnlyList<MapResourceItem> _currentMapResources = Array.Empty<MapResourceItem>();
     private IReadOnlyList<ImageResourceFileInfo> _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
-    private IReadOnlyList<ImageResourceEntryInfo> _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();
-    private IReadOnlyList<ResourceDiagnosticItem> _currentResourceDiagnostics = Array.Empty<ResourceDiagnosticItem>();
-    private IReadOnlyList<ProjectAuditItem> _currentAuditItems = Array.Empty<ProjectAuditItem>();
-    private IReadOnlyList<ProjectDiffItem> _currentProjectDiffItems = Array.Empty<ProjectDiffItem>();
-    private IReadOnlyList<BackupHistoryItem> _currentBackupHistoryItems = Array.Empty<BackupHistoryItem>();
-    private IReadOnlyList<WorkflowGuideStep> _currentWorkflowSteps = Array.Empty<WorkflowGuideStep>();
-    private IReadOnlyList<WorkflowDashboardItem> _currentWorkflowDashboardItems = Array.Empty<WorkflowDashboardItem>();
-    private IReadOnlyList<WorkflowActionItem> _currentWorkflowActionItems = Array.Empty<WorkflowActionItem>();
-    private IReadOnlyList<ProjectEvidenceItem> _currentProjectEvidenceItems = Array.Empty<ProjectEvidenceItem>();
-    private IReadOnlyList<EexArchiveInfo> _currentEexArchives = Array.Empty<EexArchiveInfo>();
+    private IReadOnlyList<ImageResourceEntryInfo> _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();    private IReadOnlyList<EexArchiveInfo> _currentEexArchives = Array.Empty<EexArchiveInfo>();
     private IReadOnlyList<EexEntryProbeRow> _currentEexEntryProbeRows = Array.Empty<EexEntryProbeRow>();
     private EexCrossFileComparisonResult? _currentEexCrossFileComparison;
     private EexByteHeatmapResult? _currentEexByteHeatmap;
@@ -291,9 +256,7 @@ public sealed partial class MainForm : Form
     private HexzmapBlockInfo? _terrainEditorBlock;
     private byte[] _terrainEditorCells = Array.Empty<byte>();
     private byte[] _terrainEditorOriginalCells = Array.Empty<byte>();
-    private IReadOnlyDictionary<byte, string> _terrainEditorTerrainLookup = new Dictionary<byte, string>();
-    private IReadOnlyList<ScenarioMapLinkInfo> _currentScenarioMapLinks = Array.Empty<ScenarioMapLinkInfo>();
-    private BattlefieldEditorDocument? _currentBattlefieldDocument;
+    private IReadOnlyDictionary<byte, string> _terrainEditorTerrainLookup = new Dictionary<byte, string>();    private BattlefieldEditorDocument? _currentBattlefieldDocument;
     private ScenarioStructureProbeResult? _currentBattlefieldScriptStructure;
     private LegacyScenarioDocument? _currentBattlefieldLegacyScriptDocument;
     private IReadOnlyList<ScenarioTextEntry> _currentBattlefieldScriptTextEntries = Array.Empty<ScenarioTextEntry>();
@@ -365,9 +328,7 @@ public sealed partial class MainForm : Form
     private RScenePlacedActor? _rSceneMovePreviewActor;
     private Point? _rSceneMovePreviewGrid;
     private IReadOnlyList<ScenarioStructureRow> _rScenePlaybackRows = Array.Empty<ScenarioStructureRow>();
-    private int _rScenePlaybackIndex = -1;
-    private IReadOnlyList<CreatorNote> _currentCreatorNotes = Array.Empty<CreatorNote>();
-    private DataTable? _currentRoleEditorData;
+    private int _rScenePlaybackIndex = -1;    private DataTable? _currentRoleEditorData;
     private DataTable? _roleEditorJobLookup;
     private IReadOnlyDictionary<int, string> _roleEditorJobNames = new Dictionary<int, string>();
     private TableReadResult? _roleBiographyRead;
@@ -380,8 +341,10 @@ public sealed partial class MainForm : Form
     private TableReadResult? _jobPierceRead;
     private readonly Stack<List<JobEditorCellEdit>> _jobEditorUndoStack = new();
     private readonly Stack<List<JobEditorCellEdit>> _jobEditorRedoStack = new();
+    private List<JobEditorCellTarget> _jobEditorSelectionSnapshotTargets = [];
     private List<JobEditorCellEdit> _jobEditorPendingCellEditOriginals = [];
     private bool _applyingJobEditorHistory;
+    private bool _jobEditorSelectionChangeStartedByMouse;
     private DataTable? _currentJobTerrainData;
     private TableReadResult? _jobSeriesRead;
     private TableReadResult? _jobTerrainPowerRead;
@@ -401,6 +364,10 @@ public sealed partial class MainForm : Form
     private IReadOnlyDictionary<int, string> _jobEffectNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, string> _jobEffectPersonNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, string> _jobEffectJobNames = new Dictionary<int, string>();
+    private TableReadResult? _rolePersonalEffectRead;
+    private IReadOnlyDictionary<int, string> _rolePersonalEffectNames = new Dictionary<int, string>();
+    private IReadOnlyDictionary<int, string> _rolePersonalEffectPersonNames = new Dictionary<int, string>();
+    private IReadOnlyDictionary<int, string> _rolePersonalEffectItemNames = new Dictionary<int, string>();
     private DataTable? _currentItemEditorData;
     private TableReadResult? _itemBaseLowRead;
     private TableReadResult? _itemBaseHighRead;
@@ -414,10 +381,8 @@ public sealed partial class MainForm : Form
     private IReadOnlyDictionary<int, string> _shopEditorItemNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, ShopItemInfo> _shopEditorItemInfos = new Dictionary<int, ShopItemInfo>();
     private DataTable? _currentImageAssignments;
-    private string _editingCreatorNoteId = string.Empty;
-    private (string Scope, string TargetKey, string Title, string SourceHint, string ContentSeed)? _lastCreatorNoteContext;
     private string _imageAssignmentSummaryText = string.Empty;
-    private ResourceIndexItem? _currentMapMakerItem;
+    private MapResourceItem? _currentMapMakerItem;
     private MapWorkbenchDraft? _currentMapWorkbenchDraft;
     private MapWorkbenchSettings _mapWorkbenchSettings = new();
     private MaterialAsset? _mapMakerSelectedMaterial;
@@ -478,7 +443,6 @@ public sealed partial class MainForm : Form
     private readonly TabControl _mainTabs = new();
     private TabControl? _jobEditorTabs;
     private readonly DataGridView _dataGrid = new();
-    private readonly TextBox _diagnostics = new();
     private readonly StatusStrip _statusStrip = new();
     private readonly ToolStripStatusLabel _statusLabel = new();
     private readonly CheckBox _showAllTables = new();
@@ -496,28 +460,11 @@ public sealed partial class MainForm : Form
     private readonly Button _pasteTableSelectionButton = new();
     private readonly Button _batchFillTableColumnButton = new();
     private readonly Button _openPlanButton = new();
-    private readonly Button _workflowRefreshButton = new();
-    private readonly Button _workflowOpenProjectButton = new();
-    private readonly Button _workflowCreateTestCopyButton = new();
-    private readonly Button _workflowRunAuditButton = new();
-    private readonly Button _workflowLoadCreatorNotesButton = new();
-    private readonly Button _workflowAnalyzeDiffButton = new();
-    private readonly Button _workflowWriteDeliveryReportButton = new();
-    private readonly Button _workflowOpenTablePageButton = new();
-    private readonly Button _workflowOpenResourcePageButton = new();
-    private readonly Button _workflowOpenScenarioPageButton = new();
-    private readonly Button _workflowOpenScenarioMapPageButton = new();
-    private readonly Button _workflowHandleActionButton = new();
-    private readonly Button _workflowHandleActionAndNoteButton = new();
-    private readonly Button _workflowCreateActionNoteButton = new();
-    private readonly Button _workflowHandleDashboardButton = new();
-    private readonly Button _workflowRefreshEvidenceButton = new();
-    private readonly Button _workflowOpenEvidenceButton = new();
-    private readonly Button _workflowLocateEvidenceButton = new();
     private readonly Button _loadRoleEditorButton = new();
     private readonly Button _saveRoleEditorButton = new();
     private readonly Button _openRoleInTableEditorButton = new();
     private readonly Button _openRolePersonalEffectButton = new();
+    private readonly Button _openRoleEffectButton = new();
     private readonly Button _openGlobalSettingsButton = new();
     private readonly Button _exportRoleEditorCsvButton = new();
     private readonly Button _importRoleEditorCsvButton = new();
@@ -611,11 +558,6 @@ public sealed partial class MainForm : Form
     private readonly Button _shopBatchReplaceButton = new();
     private readonly DataGridView _shopEditorGrid = new();
     private readonly TextBox _shopEditorInfoBox = new();
-    private readonly DataGridView _workflowActionGrid = new();
-    private readonly DataGridView _workflowDashboardGrid = new();
-    private readonly DataGridView _workflowEvidenceGrid = new();
-    private readonly DataGridView _workflowGuideGrid = new();
-    private readonly TextBox _workflowGuideInfoBox = new();
     private readonly ComboBox _chartColumnCombo = new();
     private readonly Button _renderChartButton = new();
     private readonly PictureBox _tableChartBox = new();
@@ -635,10 +577,6 @@ public sealed partial class MainForm : Form
     private readonly Button _clearTableRowFilterButton = new();
     private readonly CheckBox _changedTableRowsOnly = new();
     private readonly CheckBox _tableRowSearchVisibleColumnsOnly = new();
-    private readonly Button _runAuditButton = new();
-    private readonly Button _writeAuditReportButton = new();
-    private readonly DataGridView _auditGrid = new();
-    private readonly TextBox _auditInfoBox = new();
     private readonly TextBox _patchPathBox = new();
     private readonly ComboBox _patchTargetCombo = new();
     private readonly Button _selectPatchButton = new();
@@ -671,25 +609,10 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _gameResourceGrid = new();
     private readonly PictureBox _gameResourcePreview = new();
     private readonly TextBox _gameResourceInfoBox = new();
-    private readonly Button _runResourceDiagnosticsButton = new();
-    private readonly Button _exportResourceDiagnosticsCsvButton = new();
-    private readonly Button _locateDiagnosticResourceButton = new();
-    private readonly Button _jumpDiagnosticImageAssignmentButton = new();
-    private readonly Button _jumpDiagnosticTableCellButton = new();
-    private readonly Button _jumpDiagnosticScenarioMapButton = new();
-    private readonly Button _jumpDiagnosticScenarioButton = new();
-    private readonly Button _jumpDiagnosticHexzmapButton = new();
-    private readonly Button _jumpDiagnosticMapViewerButton = new();
-    private readonly ComboBox _resourceDiagnosticSeverityFilterCombo = new();
-    private readonly ComboBox _resourceDiagnosticCategoryFilterCombo = new();
-    private readonly TextBox _resourceDiagnosticSearchBox = new();
-    private readonly Button _filterResourceDiagnosticsButton = new();
-    private readonly Button _clearResourceDiagnosticFilterButton = new();
-    private readonly DataGridView _resourceDiagnosticGrid = new();
-    private readonly TextBox _resourceDiagnosticInfoBox = new();
     private readonly Button _loadMapImagesButton = new();
     private readonly ListBox _mapImageList = new();
     private readonly PictureBox _mapViewerBox = new();
+    private readonly Label _mapViewerCellPreviewLabel = new();
     private readonly TextBox _mapViewerInfoBox = new();
     private readonly TrackBar _mapZoomTrackBar = new();
     private readonly Button _mapFitButton = new();
@@ -801,7 +724,6 @@ public sealed partial class MainForm : Form
     private readonly ComboBox _scenarioCommandReferenceCombo = new();
     private readonly Button _jumpScenarioCommandReferenceButton = new();
     private readonly Button _exportScenarioCommandReferenceChecklistButton = new();
-    private readonly Button _createScenarioCommandReferenceNoteButton = new();
     private readonly Button _probeScenarioTextsButton = new();
     private readonly Button _exportScenarioTextsButton = new();
     private readonly Button _saveScenarioTextsButton = new();
@@ -814,7 +736,6 @@ public sealed partial class MainForm : Form
     private readonly Button _saveBattlefieldTextsButton = new();
     private readonly Button _saveBattlefieldUnitReviewsButton = new();
     private readonly Button _writeBattlefieldDeploymentButton = new();
-    private readonly Button _createBattlefieldNoteButton = new();
     private readonly Button _jumpBattlefieldMapButton = new();
     private readonly Button _jumpBattlefieldScenarioButton = new();
     private readonly TextBox _battlefieldTitleBox = new();
@@ -841,7 +762,6 @@ public sealed partial class MainForm : Form
     private readonly Button _applyBattlefieldScriptParameterButton = new();
     private readonly Button _editBattlefieldScriptParametersButton = new();
     private readonly TextBox _battlefieldScriptDetailBox = new();
-    private readonly CheckBox _battlefieldMapClickMemoCheckBox = new();
     private readonly ListBox _battlefieldUnitListBox = new();
     private readonly PictureBox _battlefieldUnitPreviewBox = new();
     private readonly TextBox _battlefieldUnitPreviewInfoBox = new();
@@ -917,7 +837,6 @@ public sealed partial class MainForm : Form
     private readonly Button _moveScriptCommandDownButton = new();
     private readonly Button _saveScriptTextButton = new();
     private readonly Button _saveScriptStructureButton = new();
-    private readonly Button _createScriptNoteButton = new();
     private readonly Button _jumpScriptBattlefieldButton = new();
     private readonly TreeView _scriptTree = new();
     private readonly ContextMenuStrip _scriptTreeContextMenu = new();
@@ -935,7 +854,6 @@ public sealed partial class MainForm : Form
     private readonly ToolStripMenuItem _scriptContextPasteAfterItem = new("粘贴到后面");
     private readonly ToolStripMenuItem _scriptContextMoveUpItem = new("上移命令");
     private readonly ToolStripMenuItem _scriptContextMoveDownItem = new("下移命令");
-    private readonly ToolStripMenuItem _scriptContextNoteItem = new("记录备注");
     private readonly ContextMenuStrip _legacyScriptTreeContextMenu = new();
     private readonly ToolStripMenuItem _legacyScriptContextEditItem = new("修改(&E)\tCtrl+E");
     private readonly ToolStripMenuItem _legacyScriptContextAddItem = new("添加(&I)\tCtrl+I");
@@ -967,11 +885,6 @@ public sealed partial class MainForm : Form
     private readonly TabControl _scriptLowerLeftTabs = new();
     private readonly TextBox _scriptTextEditorBox = new();
     private readonly Label _scriptTextCapacityLabel = new();
-    private string _scriptRemarkNoteId = string.Empty;
-    private string _scriptRemarkScope = string.Empty;
-    private string _scriptRemarkTargetKey = string.Empty;
-    private string _scriptRemarkTitle = string.Empty;
-    private string _scriptRemarkSourceHint = string.Empty;
     private readonly Label _scriptHeaderLabel = new();
     private readonly Panel _scriptHintPanel = new();
     private readonly Button _scriptToggleHintButton = new();
@@ -1021,61 +934,8 @@ public sealed partial class MainForm : Form
     private readonly Label _hexzmapOverlayOpacityLabel = new();
     private readonly DataGridView _hexzmapGrid = new();
     private readonly PictureBox _hexzmapPreviewBox = new();
+    private readonly Label _hexzmapCellPreviewLabel = new();
     private readonly TextBox _hexzmapInfoBox = new();
-    private readonly Button _loadScenarioMapLinksButton = new();
-    private readonly Button _exportScenarioMapLinksCsvButton = new();
-    private readonly Button _locateScenarioMapScenarioButton = new();
-    private readonly Button _locateScenarioMapImageButton = new();
-    private readonly Button _jumpScenarioMapScenarioButton = new();
-    private readonly Button _jumpScenarioMapHexzmapButton = new();
-    private readonly Button _jumpScenarioMapViewerButton = new();
-    private readonly Button _exportScenarioMapPreviewPngButton = new();
-    private readonly Button _writeScenarioMapReportButton = new();
-    private readonly ComboBox _scenarioMapLinkStatusFilterCombo = new();
-    private readonly TextBox _scenarioMapLinkSearchBox = new();
-    private readonly Button _filterScenarioMapLinksButton = new();
-    private readonly Button _clearScenarioMapLinkFilterButton = new();
-    private readonly CheckBox _scenarioMapLinksIncompleteOnly = new();
-    private readonly DataGridView _scenarioMapLinkGrid = new();
-    private readonly PictureBox _scenarioMapImagePreviewBox = new();
-    private readonly PictureBox _scenarioMapTerrainPreviewBox = new();
-    private readonly TextBox _scenarioMapLinkInfoBox = new();
-    private readonly Button _analyzeProjectDiffButton = new();
-    private readonly Button _writeProjectDiffReportButton = new();
-    private readonly Button _createReleaseCopyButton = new();
-    private readonly Button _writeDeliveryReportButton = new();
-    private readonly Button _showDiffBackupTimelineButton = new();
-    private readonly ComboBox _projectDiffStatusFilterCombo = new();
-    private readonly TextBox _projectDiffSearchBox = new();
-    private readonly Button _filterProjectDiffButton = new();
-    private readonly Button _clearProjectDiffFilterButton = new();
-    private readonly DataGridView _projectDiffGrid = new();
-    private readonly TextBox _projectDiffInfoBox = new();
-    private readonly Button _loadBackupHistoryButton = new();
-    private readonly Button _restoreBackupHistoryButton = new();
-    private readonly Button _openBackupHistoryLocationButton = new();
-    private readonly Button _openBackupHistoryReportButton = new();
-    private readonly Button _exportBackupHistoryCsvButton = new();
-    private readonly DataGridView _backupHistoryGrid = new();
-    private readonly TextBox _backupHistoryInfoBox = new();
-    private readonly Button _loadCreatorNotesButton = new();
-    private readonly Button _captureCreatorNoteContextButton = new();
-    private readonly Button _locateCreatorNoteTargetButton = new();
-    private readonly Button _newCreatorNoteButton = new();
-    private readonly Button _saveCreatorNoteButton = new();
-    private readonly Button _deleteCreatorNoteButton = new();
-    private readonly Button _exportCreatorNotesCsvButton = new();
-    private readonly TextBox _creatorNoteSearchBox = new();
-    private readonly Button _filterCreatorNotesButton = new();
-    private readonly Button _clearCreatorNoteFilterButton = new();
-    private readonly ComboBox _creatorNoteScopeCombo = new();
-    private readonly TextBox _creatorNoteTargetBox = new();
-    private readonly TextBox _creatorNoteTitleBox = new();
-    private readonly TextBox _creatorNoteTagsBox = new();
-    private readonly TextBox _creatorNoteSourceHintBox = new();
-    private readonly TextBox _creatorNoteContentBox = new();
-    private readonly DataGridView _creatorNoteGrid = new();
-    private readonly TextBox _creatorNoteInfoBox = new();
 
     private enum MapWorkbenchBrushMode
     {
@@ -1182,19 +1042,19 @@ public sealed partial class MainForm : Form
     private bool _savingScenarioByShortcut;
 
     private bool IsLegacyScenarioEditorPageSelected()
-        => _mainTabs.SelectedTab?.Text is "剧本制作" or "战场制作" or "R场景制作";
+        => _mainTabs.SelectedTab?.Text is "剧本编辑" or "战场编辑" or "场景编辑";
 
     private bool TryShowScriptVariableUsageDialogForCurrentPage()
     {
         switch (_mainTabs.SelectedTab?.Text)
         {
-            case "剧本制作":
+            case "剧本编辑":
                 ShowScriptVariableUsageDialog(LegacyScriptEditorScope.Script);
                 return true;
-            case "战场制作":
+            case "战场编辑":
                 ShowScriptVariableUsageDialog(LegacyScriptEditorScope.Battlefield);
                 return true;
-            case "R场景制作":
+            case "场景编辑":
                 ShowScriptVariableUsageDialog(LegacyScriptEditorScope.RScene);
                 return true;
             default:
@@ -1215,23 +1075,23 @@ public sealed partial class MainForm : Form
         {
             switch (_mainTabs.SelectedTab?.Text)
             {
-                case "剧本制作":
+                case "剧本编辑":
                     await SaveCurrentLegacyScriptStructureAsync();
                     break;
-                case "战场制作":
+                case "战场编辑":
                     await SaveCurrentBattlefieldLegacyScriptStructureAsync();
                     break;
-                case "R场景制作":
+                case "场景编辑":
                     await SaveCurrentRSceneLegacyScriptStructureAsync();
                     break;
                 default:
-                    SetStatus("Ctrl+S：请切换到剧本制作、战场制作或 R场景制作页保存剧本。");
+                    SetStatus("Ctrl+S：请切换到剧本编辑、战场编辑或场景编辑页保存剧本。");
                     break;
             }
         }
         catch (Exception ex)
         {
-            Log("Ctrl+S 保存剧本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("Ctrl+S 保存剧本失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存剧本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -1296,8 +1156,6 @@ public sealed partial class MainForm : Form
         _batchFillTableColumnButton.AutoSize = true;
         _openPlanButton.Text = "打开 plan.md";
         _openPlanButton.AutoSize = true;
-        _runAuditButton.Text = "项目体检";
-        _runAuditButton.AutoSize = true;
         _showAllTables.Text = "显示全部版本/禁用表";
         _showAllTables.AutoSize = true;
         _showAllTables.Margin = new Padding(18, 8, 3, 3);
@@ -1313,8 +1171,7 @@ public sealed partial class MainForm : Form
             _copyTableSelectionButton,
             _pasteTableSelectionButton,
             _batchFillTableColumnButton,
-            _openPlanButton,
-            _runAuditButton
+            _openPlanButton
         });
 
         var numberBasePanel = new FlowLayoutPanel
@@ -1369,15 +1226,9 @@ public sealed partial class MainForm : Form
         _mainTabs.Dock = DockStyle.Fill;
         root.Controls.Add(_mainTabs, 0, 2);
 
-        _mainTabs.TabPages.Add(BuildCoreWorkbenchPage());
-        _mainTabs.TabPages.Add(BuildScriptEditorPage());
-        _mainTabs.TabPages.Add(BuildRSceneEditorPage());
         _mainTabs.TabPages.Add(BuildRoleEditorPage());
         _mainTabs.TabPages.Add(BuildJobEditorPage());
         _mainTabs.TabPages.Add(BuildItemEditorPage());
-        _mainTabs.TabPages.Add(BuildBattlefieldEditorPage());
-        _mainTabs.TabPages.Add(BuildShopEditorPage());
-        _mainTabs.TabPages.Add(BuildWorkflowGuidePage());
 
         if (ShowGenericTableEditorPage)
         {
@@ -1528,318 +1379,7 @@ public sealed partial class MainForm : Form
             tablePage.Controls.Add(tableSplit);
             _mainTabs.TabPages.Add(tablePage);
         }
-        _mainTabs.TabPages.Add(BuildProjectFileStatusPage());
-
-        var diagPage = new TabPage("诊断/日志");
-        _diagnostics.Dock = DockStyle.Fill;
-        _diagnostics.Multiline = true;
-        _diagnostics.ScrollBars = ScrollBars.Both;
-        _diagnostics.ReadOnly = true;
-        _diagnostics.WordWrap = false;
-        diagPage.Controls.Add(_diagnostics);
-        _mainTabs.TabPages.Add(diagPage);
-
-        var auditPage = new TabPage("项目体检/发布检查");
-        var auditLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        auditLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        auditLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        auditPage.Controls.Add(auditLayout);
-        var auditToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _writeAuditReportButton.Text = "导出体检报告";
-        _writeAuditReportButton.AutoSize = true;
-        _writeAuditReportButton.Enabled = false;
-        auditToolbar.Controls.AddRange(new Control[] { _runAuditButton, _writeAuditReportButton });
-        auditLayout.Controls.Add(auditToolbar, 0, 0);
-        _auditInfoBox.Dock = DockStyle.Fill;
-        _auditInfoBox.Multiline = true;
-        _auditInfoBox.Height = 76;
-        _auditInfoBox.ReadOnly = true;
-        _auditInfoBox.ScrollBars = ScrollBars.Vertical;
-        _auditInfoBox.WordWrap = false;
-        _auditGrid.Dock = DockStyle.Fill;
-        _auditGrid.ReadOnly = true;
-        _auditGrid.AllowUserToAddRows = false;
-        _auditGrid.AllowUserToDeleteRows = false;
-        _auditGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _auditGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        auditLayout.Controls.Add(_auditGrid, 0, 1);
-        _mainTabs.TabPages.Add(auditPage);
-
-        var projectDiffPage = new TabPage("测试副本差异/发布");
-        var projectDiffLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        projectDiffLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        projectDiffLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        projectDiffPage.Controls.Add(projectDiffLayout);
-        var projectDiffToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _analyzeProjectDiffButton.Text = "生成测试副本差异";
-        _analyzeProjectDiffButton.AutoSize = true;
-        _writeProjectDiffReportButton.Text = "导出差异报告";
-        _writeProjectDiffReportButton.AutoSize = true;
-        _writeProjectDiffReportButton.Enabled = false;
-        _createReleaseCopyButton.Text = "生成发布副本";
-        _createReleaseCopyButton.AutoSize = true;
-        _createReleaseCopyButton.Enabled = false;
-        _writeDeliveryReportButton.Text = "生成综合报告";
-        _writeDeliveryReportButton.AutoSize = true;
-        _writeDeliveryReportButton.Enabled = false;
-        _showDiffBackupTimelineButton.Text = "筛出相关备份";
-        _showDiffBackupTimelineButton.AutoSize = true;
-        _showDiffBackupTimelineButton.Enabled = false;
-        var projectDiffStatusLabel = new Label { Text = "状态", AutoSize = true, Padding = new Padding(10, 7, 0, 0) };
-        _projectDiffStatusFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _projectDiffStatusFilterCombo.Width = 95;
-        var projectDiffSearchLabel = new Label { Text = "关键字", AutoSize = true, Padding = new Padding(8, 7, 0, 0) };
-        _projectDiffSearchBox.Width = 160;
-        _projectDiffSearchBox.PlaceholderText = "路径/SHA/说明";
-        _filterProjectDiffButton.Text = "筛选";
-        _filterProjectDiffButton.AutoSize = true;
-        _clearProjectDiffFilterButton.Text = "显示全部";
-        _clearProjectDiffFilterButton.AutoSize = true;
-        projectDiffToolbar.Controls.AddRange(new Control[]
-        {
-            _analyzeProjectDiffButton,
-            _writeProjectDiffReportButton,
-            _createReleaseCopyButton,
-            _writeDeliveryReportButton,
-            _showDiffBackupTimelineButton,
-            projectDiffStatusLabel,
-            _projectDiffStatusFilterCombo,
-            projectDiffSearchLabel,
-            _projectDiffSearchBox,
-            _filterProjectDiffButton,
-            _clearProjectDiffFilterButton
-        });
-        projectDiffLayout.Controls.Add(projectDiffToolbar, 0, 0);
-        _projectDiffInfoBox.Dock = DockStyle.Fill;
-        _projectDiffInfoBox.Multiline = true;
-        _projectDiffInfoBox.Height = 92;
-        _projectDiffInfoBox.ReadOnly = true;
-        _projectDiffInfoBox.ScrollBars = ScrollBars.Vertical;
-        _projectDiffInfoBox.WordWrap = false;
-        _projectDiffGrid.Dock = DockStyle.Fill;
-        _projectDiffGrid.ReadOnly = true;
-        _projectDiffGrid.AllowUserToAddRows = false;
-        _projectDiffGrid.AllowUserToDeleteRows = false;
-        _projectDiffGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _projectDiffGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        projectDiffLayout.Controls.Add(_projectDiffGrid, 0, 1);
-        _mainTabs.TabPages.Add(projectDiffPage);
-
-        var backupHistoryPage = new TabPage("备份历史/回滚");
-        var backupHistoryLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        backupHistoryLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        backupHistoryLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        backupHistoryPage.Controls.Add(backupHistoryLayout);
-        var backupHistoryToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _loadBackupHistoryButton.Text = "读取备份历史";
-        _loadBackupHistoryButton.AutoSize = true;
-        _restoreBackupHistoryButton.Text = "还原选中备份";
-        _restoreBackupHistoryButton.AutoSize = true;
-        _openBackupHistoryLocationButton.Text = "定位备份文件";
-        _openBackupHistoryLocationButton.AutoSize = true;
-        _openBackupHistoryReportButton.Text = "打开写入报告";
-        _openBackupHistoryReportButton.AutoSize = true;
-        _exportBackupHistoryCsvButton.Text = "导出历史CSV";
-        _exportBackupHistoryCsvButton.AutoSize = true;
-        backupHistoryToolbar.Controls.AddRange(new Control[]
-        {
-            _loadBackupHistoryButton,
-            _restoreBackupHistoryButton,
-            _openBackupHistoryLocationButton,
-            _openBackupHistoryReportButton,
-            _exportBackupHistoryCsvButton
-        });
-        backupHistoryLayout.Controls.Add(backupHistoryToolbar, 0, 0);
-        _backupHistoryInfoBox.Dock = DockStyle.Fill;
-        _backupHistoryInfoBox.Multiline = true;
-        _backupHistoryInfoBox.Height = 92;
-        _backupHistoryInfoBox.ReadOnly = true;
-        _backupHistoryInfoBox.ScrollBars = ScrollBars.Vertical;
-        _backupHistoryInfoBox.WordWrap = false;
-        _backupHistoryGrid.Dock = DockStyle.Fill;
-        _backupHistoryGrid.ReadOnly = true;
-        _backupHistoryGrid.AllowUserToAddRows = false;
-        _backupHistoryGrid.AllowUserToDeleteRows = false;
-        _backupHistoryGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _backupHistoryGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        backupHistoryLayout.Controls.Add(_backupHistoryGrid, 0, 1);
-        _mainTabs.TabPages.Add(backupHistoryPage);
-
-        var creatorNotePage = new TabPage("创作者备注");
-        var creatorNoteLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        creatorNoteLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        creatorNotePage.Controls.Add(creatorNoteLayout);
-
-        var creatorNoteToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _loadCreatorNotesButton.Text = "读取备注";
-        _loadCreatorNotesButton.AutoSize = true;
-        _captureCreatorNoteContextButton.Text = "抓取当前选择";
-        _captureCreatorNoteContextButton.AutoSize = true;
-        _locateCreatorNoteTargetButton.Text = "定位备注目标";
-        _locateCreatorNoteTargetButton.AutoSize = true;
-        _newCreatorNoteButton.Text = "新建备注";
-        _newCreatorNoteButton.AutoSize = true;
-        _saveCreatorNoteButton.Text = "保存备注";
-        _saveCreatorNoteButton.AutoSize = true;
-        _deleteCreatorNoteButton.Text = "删除选中";
-        _deleteCreatorNoteButton.AutoSize = true;
-        _exportCreatorNotesCsvButton.Text = "导出备注CSV";
-        _exportCreatorNotesCsvButton.AutoSize = true;
-        _creatorNoteSearchBox.Width = 160;
-        _creatorNoteSearchBox.PlaceholderText = "搜索标题/内容/标签";
-        _filterCreatorNotesButton.Text = "筛选";
-        _filterCreatorNotesButton.AutoSize = true;
-        _clearCreatorNoteFilterButton.Text = "显示全部";
-        _clearCreatorNoteFilterButton.AutoSize = true;
-        creatorNoteToolbar.Controls.AddRange(new Control[]
-        {
-            _loadCreatorNotesButton,
-            _captureCreatorNoteContextButton,
-            _locateCreatorNoteTargetButton,
-            _newCreatorNoteButton,
-            _saveCreatorNoteButton,
-            _deleteCreatorNoteButton,
-            _exportCreatorNotesCsvButton,
-            new Label { Text = "关键字", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _creatorNoteSearchBox,
-            _filterCreatorNotesButton,
-            _clearCreatorNoteFilterButton
-        });
-        creatorNoteLayout.Controls.Add(creatorNoteToolbar, 0, 0);
-
-        _creatorNoteGrid.Dock = DockStyle.Fill;
-        _creatorNoteGrid.ReadOnly = true;
-        _creatorNoteGrid.AllowUserToAddRows = false;
-        _creatorNoteGrid.AllowUserToDeleteRows = false;
-        _creatorNoteGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _creatorNoteGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-
-        var creatorNoteEditor = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 5,
-            ColumnCount = 4
-        };
-        creatorNoteEditor.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        creatorNoteEditor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
-        creatorNoteEditor.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        creatorNoteEditor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
-        creatorNoteEditor.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        creatorNoteEditor.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        creatorNoteEditor.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        creatorNoteEditor.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        creatorNoteEditor.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        _creatorNoteScopeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _creatorNoteScopeCombo.Items.AddRange(new object[]
-        {
-            "全局项目",
-            "数据表单元格",
-            "数据表行",
-            "R/S命令",
-            "R/S文本",
-            "游戏资源",
-            "图片资源",
-            "资源诊断",
-            "EEX资源",
-            "EEX区段",
-            "EEX跨文件对比",
-            "Ls/E5资源",
-            "Hexzmap地形块",
-            "关卡地图联动",
-            "备份/差异",
-            "待办事项"
-        });
-        _creatorNoteScopeCombo.SelectedIndex = 0;
-        _creatorNoteTargetBox.Dock = DockStyle.Fill;
-        _creatorNoteTargetBox.PlaceholderText = "目标键，例如 表名#ID=0#字段 或 RS/R_00.eex#Scene=1#Section=1#Command=4#Offset=0x000006";
-        _creatorNoteTitleBox.Dock = DockStyle.Fill;
-        _creatorNoteTitleBox.PlaceholderText = "备注标题";
-        _creatorNoteTagsBox.Dock = DockStyle.Fill;
-        _creatorNoteTagsBox.PlaceholderText = "标签，例如 剧情,待实测,资源";
-        _creatorNoteSourceHintBox.Dock = DockStyle.Fill;
-        _creatorNoteSourceHintBox.PlaceholderText = "来源/证据，例如 当前表格选择、旧工具核对、实机测试";
-        _creatorNoteContentBox.Dock = DockStyle.Fill;
-        _creatorNoteContentBox.Multiline = true;
-        _creatorNoteContentBox.ScrollBars = ScrollBars.Vertical;
-        _creatorNoteContentBox.PlaceholderText = "写下这条数据、剧本命令、文本或资源的用途、修改理由、风险、待办和实机验证结果。";
-        creatorNoteEditor.Controls.Add(new Label { Text = "范围", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, 0, 0);
-        creatorNoteEditor.Controls.Add(_creatorNoteScopeCombo, 1, 0);
-        creatorNoteEditor.Controls.Add(new Label { Text = "目标", AutoSize = true, Padding = new Padding(10, 7, 0, 0) }, 2, 0);
-        creatorNoteEditor.Controls.Add(_creatorNoteTargetBox, 3, 0);
-        creatorNoteEditor.Controls.Add(new Label { Text = "标题", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, 0, 1);
-        creatorNoteEditor.Controls.Add(_creatorNoteTitleBox, 1, 1);
-        creatorNoteEditor.Controls.Add(new Label { Text = "标签", AutoSize = true, Padding = new Padding(10, 7, 0, 0) }, 2, 1);
-        creatorNoteEditor.Controls.Add(_creatorNoteTagsBox, 3, 1);
-        creatorNoteEditor.Controls.Add(new Label { Text = "来源/证据", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, 0, 2);
-        creatorNoteEditor.Controls.Add(_creatorNoteSourceHintBox, 1, 2);
-        creatorNoteEditor.SetColumnSpan(_creatorNoteSourceHintBox, 3);
-        creatorNoteEditor.Controls.Add(new Label { Text = "内容", AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, 0, 3);
-        creatorNoteEditor.Controls.Add(_creatorNoteContentBox, 0, 4);
-        creatorNoteEditor.SetColumnSpan(_creatorNoteContentBox, 4);
-
-        _creatorNoteInfoBox.Dock = DockStyle.Fill;
-        _creatorNoteInfoBox.Multiline = true;
-        _creatorNoteInfoBox.Height = 72;
-        _creatorNoteInfoBox.ReadOnly = true;
-        _creatorNoteInfoBox.ScrollBars = ScrollBars.Vertical;
-        _creatorNoteInfoBox.WordWrap = false;
-        _creatorNoteInfoBox.Text = "创作者备注：项目侧 JSON 备注，不修改游戏文件。可用于记录剧情设计、资源用途、待办、风险和实机验证结果。";
-        var creatorNoteSplit = CreateResizableSplit("BuildLayout.CreatorNoteGridEditor", Orientation.Horizontal, 300);
-        creatorNoteSplit.Panel1.Controls.Add(_creatorNoteGrid);
-        creatorNoteSplit.Panel2.Controls.Add(creatorNoteEditor);
-        creatorNoteLayout.Controls.Add(creatorNoteSplit, 0, 1);
-        _mainTabs.TabPages.Add(creatorNotePage);
-
-        var imagePage = new TabPage("图片处理");
+        var imagePage = new TabPage("图片设定");
         var imageTabs = new TabControl
         {
             Dock = DockStyle.Fill
@@ -2097,376 +1637,11 @@ public sealed partial class MainForm : Form
         imageLayout.Controls.Add(imageSplit, 0, 1);
         imageTabs.TabPages.Add(imageAssignmentPage);
         _mainTabs.TabPages.Add(imagePage);
-
-        var patchPage = new TabPage("补丁导入");
-        var patchLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        patchLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        patchLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        patchPage.Controls.Add(patchLayout);
-
-        var patchToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _patchPathBox.Width = 470;
-        _patchPathBox.ReadOnly = true;
-        _patchTargetCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _patchTargetCombo.Width = 110;
-        _patchTargetCombo.Items.AddRange(new object[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5", "Hexzmap.e5" });
-        _patchTargetCombo.SelectedIndex = 0;
-        _selectPatchButton.Text = "选择补丁";
-        _selectPatchButton.AutoSize = true;
-        _previewPatchButton.Text = "预览";
-        _previewPatchButton.AutoSize = true;
-        _applyPatchButton.Text = "应用到项目";
-        _applyPatchButton.AutoSize = true;
-        _applyPatchButton.Enabled = false;
-        patchToolbar.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "补丁：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
-            _patchPathBox,
-            _selectPatchButton,
-            new Label { Text = "目标：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _patchTargetCombo,
-            _previewPatchButton,
-            _applyPatchButton
-        });
-        patchLayout.Controls.Add(patchToolbar, 0, 0);
-
-        _patchInfoBox.Dock = DockStyle.Fill;
-        _patchInfoBox.Multiline = true;
-        _patchInfoBox.Height = 86;
-        _patchInfoBox.ReadOnly = true;
-        _patchInfoBox.ScrollBars = ScrollBars.Vertical;
-        _patchInfoBox.WordWrap = false;
-
-        _patchGrid.Dock = DockStyle.Fill;
-        _patchGrid.ReadOnly = true;
-        _patchGrid.AllowUserToAddRows = false;
-        _patchGrid.AllowUserToDeleteRows = false;
-        _patchGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _patchGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        patchLayout.Controls.Add(_patchGrid, 0, 1);
-        _mainTabs.TabPages.Add(patchPage);
-
-        var movePage = new TabPage("搬运配置预览");
-        var moveLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        moveLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        moveLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        movePage.Controls.Add(moveLayout);
-
-        var moveToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _movePathBox.Width = 560;
-        _movePathBox.ReadOnly = true;
-        _selectMoveButton.Text = "选择搬运配置";
-        _selectMoveButton.AutoSize = true;
-        _previewMoveButton.Text = "预览配置";
-        _previewMoveButton.AutoSize = true;
-        moveToolbar.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "配置：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
-            _movePathBox,
-            _selectMoveButton,
-            _previewMoveButton
-        });
-        moveLayout.Controls.Add(moveToolbar, 0, 0);
-
-        _moveInfoBox.Dock = DockStyle.Fill;
-        _moveInfoBox.Multiline = true;
-        _moveInfoBox.Height = 70;
-        _moveInfoBox.ReadOnly = true;
-        _moveInfoBox.ScrollBars = ScrollBars.Vertical;
-        _moveInfoBox.WordWrap = false;
-
-        _moveGrid.Dock = DockStyle.Fill;
-        _moveGrid.ReadOnly = true;
-        _moveGrid.AllowUserToAddRows = false;
-        _moveGrid.AllowUserToDeleteRows = false;
-        _moveGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _moveGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        moveLayout.Controls.Add(_moveGrid, 0, 1);
-        _mainTabs.TabPages.Add(movePage);
-
-        var sceneDictPage = new TabPage("剧本字典");
-        var sceneLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        sceneLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        sceneLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        sceneDictPage.Controls.Add(sceneLayout);
-
-        var sceneToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _loadSceneDictionaryButton.Text = "读取 CczString.ini";
-        _loadSceneDictionaryButton.AutoSize = true;
-        sceneToolbar.Controls.Add(_loadSceneDictionaryButton);
-        sceneLayout.Controls.Add(sceneToolbar, 0, 0);
-
-        _sceneDictionaryInfoBox.Dock = DockStyle.Fill;
-        _sceneDictionaryInfoBox.Multiline = true;
-        _sceneDictionaryInfoBox.Height = 70;
-        _sceneDictionaryInfoBox.ReadOnly = true;
-        _sceneDictionaryInfoBox.ScrollBars = ScrollBars.Vertical;
-        _sceneDictionaryInfoBox.WordWrap = false;
-
-        var sceneSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Horizontal,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(sceneSplit, desiredDistance: 360, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        _sceneCommandGrid.Dock = DockStyle.Fill;
-        _sceneCommandGrid.ReadOnly = true;
-        _sceneCommandGrid.AllowUserToAddRows = false;
-        _sceneCommandGrid.AllowUserToDeleteRows = false;
-        _sceneCommandGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _sceneCommandGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _sceneGroupGrid.Dock = DockStyle.Fill;
-        _sceneGroupGrid.ReadOnly = true;
-        _sceneGroupGrid.AllowUserToAddRows = false;
-        _sceneGroupGrid.AllowUserToDeleteRows = false;
-        _sceneGroupGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _sceneGroupGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        sceneSplit.Panel1.Controls.Add(_sceneCommandGrid);
-        sceneSplit.Panel2.Controls.Add(_sceneGroupGrid);
-        sceneLayout.Controls.Add(sceneSplit, 0, 1);
-        _mainTabs.TabPages.Add(sceneDictPage);
-
-        var materialPage = new TabPage("素材库");
-        var materialLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        materialLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        materialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        materialPage.Controls.Add(materialLayout);
-
-        var materialToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _indexMaterialLibraryButton.Text = "索引普罗素材库";
-        _indexMaterialLibraryButton.AutoSize = true;
-        materialToolbar.Controls.Add(_indexMaterialLibraryButton);
-        materialLayout.Controls.Add(materialToolbar, 0, 0);
-
-        _materialInfoBox.Dock = DockStyle.Fill;
-        _materialInfoBox.Multiline = true;
-        _materialInfoBox.Height = 70;
-        _materialInfoBox.ReadOnly = true;
-        _materialInfoBox.ScrollBars = ScrollBars.Vertical;
-        _materialInfoBox.WordWrap = false;
-
-        var materialSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(materialSplit, desiredDistance: 620, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        _materialGrid.Dock = DockStyle.Fill;
-        _materialGrid.ReadOnly = true;
-        _materialGrid.AllowUserToAddRows = false;
-        _materialGrid.AllowUserToDeleteRows = false;
-        _materialGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _materialGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _materialPreview.Dock = DockStyle.Fill;
-        _materialPreview.BorderStyle = BorderStyle.FixedSingle;
-        _materialPreview.SizeMode = PictureBoxSizeMode.Zoom;
-        materialSplit.Panel1.Controls.Add(_materialGrid);
-        materialSplit.Panel2.Controls.Add(_materialPreview);
-        materialLayout.Controls.Add(materialSplit, 0, 1);
-        _mainTabs.TabPages.Add(materialPage);
-
-        var gameResourcePage = new TabPage("游戏资源索引");
-        var resourceLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        resourceLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        resourceLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        gameResourcePage.Controls.Add(resourceLayout);
-        var resourceToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _indexGameResourcesButton.Text = "索引游戏资源";
-        _indexGameResourcesButton.AutoSize = true;
-        _openGameResourceButton.Text = "\u5b9a\u4f4d\u9009\u4e2d\u6587\u4ef6";
-        _openGameResourceButton.AutoSize = true;
-        _replaceGameResourceButton.Text = "替换选中资源";
-        _replaceGameResourceButton.AutoSize = true;
-        _restoreGameResourceBackupButton.Text = "从备份还原";
-        _restoreGameResourceBackupButton.AutoSize = true;
-        _exportGameResourcesCsvButton.Text = "\u5bfc\u51fa\u7d22\u5f15CSV";
-        _exportGameResourcesCsvButton.AutoSize = true;
-        var gameResourceCategoryLabel = new Label { Text = "\u5206\u7c7b", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _gameResourceCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _gameResourceCategoryFilterCombo.Width = 120;
-        var gameResourceSearchLabel = new Label { Text = "\u5173\u952e\u5b57", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _gameResourceSearchBox.Width = 160;
-        _filterGameResourcesButton.Text = "\u7b5b\u9009";
-        _filterGameResourcesButton.AutoSize = true;
-        _clearGameResourceFilterButton.Text = "\u663e\u793a\u5168\u90e8";
-        _clearGameResourceFilterButton.AutoSize = true;
-        resourceToolbar.Controls.AddRange(new Control[] { _indexGameResourcesButton, _openGameResourceButton, _replaceGameResourceButton, _restoreGameResourceBackupButton, _exportGameResourcesCsvButton, gameResourceCategoryLabel, _gameResourceCategoryFilterCombo, gameResourceSearchLabel, _gameResourceSearchBox, _filterGameResourcesButton, _clearGameResourceFilterButton });
-        resourceLayout.Controls.Add(resourceToolbar, 0, 0);
-        _gameResourceInfoBox.Dock = DockStyle.Fill;
-        _gameResourceInfoBox.Multiline = true;
-        _gameResourceInfoBox.Height = 70;
-        _gameResourceInfoBox.ReadOnly = true;
-        _gameResourceInfoBox.ScrollBars = ScrollBars.Vertical;
-        _gameResourceInfoBox.WordWrap = false;
-        var resourceSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(resourceSplit, desiredDistance: 680, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        _gameResourceGrid.Dock = DockStyle.Fill;
-        _gameResourceGrid.ReadOnly = true;
-        _gameResourceGrid.AllowUserToAddRows = false;
-        _gameResourceGrid.AllowUserToDeleteRows = false;
-        _gameResourceGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _gameResourceGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _gameResourcePreview.Dock = DockStyle.Fill;
-        _gameResourcePreview.BorderStyle = BorderStyle.FixedSingle;
-        _gameResourcePreview.SizeMode = PictureBoxSizeMode.Zoom;
-        resourceSplit.Panel1.Controls.Add(_gameResourceGrid);
-        resourceSplit.Panel2.Controls.Add(_gameResourcePreview);
-        resourceLayout.Controls.Add(resourceSplit, 0, 1);
-        _mainTabs.TabPages.Add(gameResourcePage);
-
-        var resourceDiagnosticPage = new TabPage("资源诊断");
-        var resourceDiagnosticLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        resourceDiagnosticLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        resourceDiagnosticLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        resourceDiagnosticPage.Controls.Add(resourceDiagnosticLayout);
-        var resourceDiagnosticToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _runResourceDiagnosticsButton.Text = "运行资源诊断";
-        _runResourceDiagnosticsButton.AutoSize = true;
-        _exportResourceDiagnosticsCsvButton.Text = "导出诊断CSV";
-        _exportResourceDiagnosticsCsvButton.AutoSize = true;
-        _locateDiagnosticResourceButton.Text = "定位到资源索引";
-        _locateDiagnosticResourceButton.AutoSize = true;
-        _jumpDiagnosticImageAssignmentButton.Text = "跳到人物R/S";
-        _jumpDiagnosticImageAssignmentButton.AutoSize = true;
-        _jumpDiagnosticImageAssignmentButton.Enabled = false;
-        _jumpDiagnosticTableCellButton.Text = "跳到专用编辑";
-        _jumpDiagnosticTableCellButton.AutoSize = true;
-        _jumpDiagnosticTableCellButton.Enabled = false;
-        _jumpDiagnosticScenarioMapButton.Text = "跳到联动页";
-        _jumpDiagnosticScenarioMapButton.AutoSize = true;
-        _jumpDiagnosticScenarioMapButton.Enabled = false;
-        _jumpDiagnosticScenarioButton.Text = "跳到RS";
-        _jumpDiagnosticScenarioButton.AutoSize = true;
-        _jumpDiagnosticScenarioButton.Enabled = false;
-        _jumpDiagnosticHexzmapButton.Text = "跳到地图制作";
-        _jumpDiagnosticHexzmapButton.AutoSize = true;
-        _jumpDiagnosticHexzmapButton.Enabled = false;
-        _jumpDiagnosticMapViewerButton.Text = "跳到地图";
-        _jumpDiagnosticMapViewerButton.AutoSize = true;
-        _jumpDiagnosticMapViewerButton.Enabled = false;
-        var resourceDiagnosticSeverityLabel = new Label { Text = "级别", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _resourceDiagnosticSeverityFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _resourceDiagnosticSeverityFilterCombo.Width = 90;
-        var resourceDiagnosticCategoryLabel = new Label { Text = "分类", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _resourceDiagnosticCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _resourceDiagnosticCategoryFilterCombo.Width = 150;
-        var resourceDiagnosticSearchLabel = new Label { Text = "关键字", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _resourceDiagnosticSearchBox.Width = 180;
-        _filterResourceDiagnosticsButton.Text = "筛选";
-        _filterResourceDiagnosticsButton.AutoSize = true;
-        _clearResourceDiagnosticFilterButton.Text = "显示全部";
-        _clearResourceDiagnosticFilterButton.AutoSize = true;
-        resourceDiagnosticToolbar.Controls.AddRange(new Control[]
-        {
-            _runResourceDiagnosticsButton,
-            _exportResourceDiagnosticsCsvButton,
-            _locateDiagnosticResourceButton,
-            _jumpDiagnosticImageAssignmentButton,
-            _jumpDiagnosticTableCellButton,
-            _jumpDiagnosticScenarioMapButton,
-            _jumpDiagnosticScenarioButton,
-            _jumpDiagnosticHexzmapButton,
-            _jumpDiagnosticMapViewerButton,
-            resourceDiagnosticSeverityLabel,
-            _resourceDiagnosticSeverityFilterCombo,
-            resourceDiagnosticCategoryLabel,
-            _resourceDiagnosticCategoryFilterCombo,
-            resourceDiagnosticSearchLabel,
-            _resourceDiagnosticSearchBox,
-            _filterResourceDiagnosticsButton,
-            _clearResourceDiagnosticFilterButton
-        });
-        resourceDiagnosticLayout.Controls.Add(resourceDiagnosticToolbar, 0, 0);
-        _resourceDiagnosticInfoBox.Dock = DockStyle.Fill;
-        _resourceDiagnosticInfoBox.Multiline = true;
-        _resourceDiagnosticInfoBox.Height = 92;
-        _resourceDiagnosticInfoBox.ReadOnly = true;
-        _resourceDiagnosticInfoBox.ScrollBars = ScrollBars.Vertical;
-        _resourceDiagnosticInfoBox.WordWrap = false;
-        _resourceDiagnosticGrid.Dock = DockStyle.Fill;
-        _resourceDiagnosticGrid.ReadOnly = true;
-        _resourceDiagnosticGrid.AllowUserToAddRows = false;
-        _resourceDiagnosticGrid.AllowUserToDeleteRows = false;
-        _resourceDiagnosticGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _resourceDiagnosticGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        resourceDiagnosticLayout.Controls.Add(_resourceDiagnosticGrid, 0, 1);
-        _mainTabs.TabPages.Add(resourceDiagnosticPage);
+        _mainTabs.TabPages.Add(BuildMapEditorPage());
+        _mainTabs.TabPages.Add(BuildScriptEditorPage());
+        _mainTabs.TabPages.Add(BuildRSceneEditorPage());
+        _mainTabs.TabPages.Add(BuildBattlefieldEditorPage());
+        _mainTabs.TabPages.Add(BuildShopEditorPage());
 
         if (ShowLegacyProbePages)
         {
@@ -2811,9 +1986,6 @@ public sealed partial class MainForm : Form
         _exportScenarioCommandReferenceChecklistButton.Text = "导出命令引用清单";
         _exportScenarioCommandReferenceChecklistButton.AutoSize = true;
         _exportScenarioCommandReferenceChecklistButton.Enabled = false;
-        _createScenarioCommandReferenceNoteButton.Text = "为命令引用建备注";
-        _createScenarioCommandReferenceNoteButton.AutoSize = true;
-        _createScenarioCommandReferenceNoteButton.Enabled = false;
         structureFilterToolbar.Controls.AddRange(new Control[]
         {
             new Label { Text = "结构筛选：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
@@ -2827,8 +1999,7 @@ public sealed partial class MainForm : Form
             new Label { Text = "命令引用：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
             _scenarioCommandReferenceCombo,
             _jumpScenarioCommandReferenceButton,
-            _exportScenarioCommandReferenceChecklistButton,
-            _createScenarioCommandReferenceNoteButton
+            _exportScenarioCommandReferenceChecklistButton
         });
         structureLayout.Controls.Add(structureFilterToolbar, 0, 0);
         _scenarioStructureTree.Dock = DockStyle.Fill;
@@ -2840,7 +2011,7 @@ public sealed partial class MainForm : Form
         _scenarioStructureNodeInfoBox.ReadOnly = true;
         _scenarioStructureNodeInfoBox.ScrollBars = ScrollBars.Vertical;
         _scenarioStructureNodeInfoBox.WordWrap = false;
-        _scenarioStructureNodeInfoBox.Text = "事件树节点详情：生成结构草图后，点击右侧 Scene/Section/Command 节点，可查看中文说明、同文件文本线索和关卡地图联动候选。";
+        _scenarioStructureNodeInfoBox.Text = "事件树节点详情：生成结构草图后，点击右侧 Scene/Section/Command 节点，可查看中文说明和同文件文本线索。";
         _scenarioStructureXmlBox.Dock = DockStyle.Fill;
         _scenarioStructureXmlBox.Multiline = true;
         _scenarioStructureXmlBox.ReadOnly = true;
@@ -3086,370 +2257,34 @@ public sealed partial class MainForm : Form
         _hexzmapGrid.AllowUserToDeleteRows = false;
         _hexzmapGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _hexzmapGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        var hexzmapPreviewLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        hexzmapPreviewLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        hexzmapPreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _hexzmapCellPreviewLabel.Dock = DockStyle.Fill;
+        _hexzmapCellPreviewLabel.AutoSize = false;
+        _hexzmapCellPreviewLabel.Height = 30;
+        _hexzmapCellPreviewLabel.Padding = new Padding(8, 6, 8, 0);
+        _hexzmapCellPreviewLabel.BackColor = Color.FromArgb(245, 245, 245);
+        _hexzmapCellPreviewLabel.ForeColor = Color.FromArgb(32, 32, 32);
+        _hexzmapCellPreviewLabel.BorderStyle = BorderStyle.FixedSingle;
+        _hexzmapCellPreviewLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _hexzmapCellPreviewLabel.Text = "地形：-    坐标：-";
         _hexzmapPreviewBox.Dock = DockStyle.Fill;
         _hexzmapPreviewBox.BackColor = Color.Black;
         _hexzmapPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
+        hexzmapPreviewLayout.Controls.Add(_hexzmapCellPreviewLabel, 0, 0);
+        hexzmapPreviewLayout.Controls.Add(_hexzmapPreviewBox, 0, 1);
         hexzmapSplit.Panel1.Controls.Add(_hexzmapGrid);
-        hexzmapSplit.Panel2.Controls.Add(_hexzmapPreviewBox);
+        hexzmapSplit.Panel2.Controls.Add(hexzmapPreviewLayout);
         hexzmapLayout.Controls.Add(hexzmapSplit, 0, 1);
         _mainTabs.TabPages.Add(hexzmapPage);
         }
 
-        var scenarioMapPage = new TabPage("关卡地图联动");
-        var scenarioMapLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        scenarioMapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        scenarioMapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        scenarioMapPage.Controls.Add(scenarioMapLayout);
-        var scenarioMapToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _loadScenarioMapLinksButton.Text = "生成关卡地图联动";
-        _loadScenarioMapLinksButton.AutoSize = true;
-        _exportScenarioMapLinksCsvButton.Text = "导出联动CSV";
-        _exportScenarioMapLinksCsvButton.AutoSize = true;
-        _exportScenarioMapLinksCsvButton.Enabled = false;
-        _locateScenarioMapScenarioButton.Text = "定位SV文件";
-        _locateScenarioMapScenarioButton.AutoSize = true;
-        _locateScenarioMapScenarioButton.Enabled = false;
-        _locateScenarioMapImageButton.Text = "定位地图图片";
-        _locateScenarioMapImageButton.AutoSize = true;
-        _locateScenarioMapImageButton.Enabled = false;
-        _jumpScenarioMapScenarioButton.Text = "跳到剧本制作";
-        _jumpScenarioMapScenarioButton.AutoSize = true;
-        _jumpScenarioMapScenarioButton.Enabled = false;
-        _jumpScenarioMapHexzmapButton.Text = "跳到地图制作";
-        _jumpScenarioMapHexzmapButton.AutoSize = true;
-        _jumpScenarioMapHexzmapButton.Enabled = false;
-        _jumpScenarioMapViewerButton.Text = "跳到地图制作";
-        _jumpScenarioMapViewerButton.AutoSize = true;
-        _jumpScenarioMapViewerButton.Enabled = false;
-        _exportScenarioMapPreviewPngButton.Text = "导出预览PNG";
-        _exportScenarioMapPreviewPngButton.AutoSize = true;
-        _exportScenarioMapPreviewPngButton.Enabled = false;
-        _writeScenarioMapReportButton.Text = "导出检查报告";
-        _writeScenarioMapReportButton.AutoSize = true;
-        _writeScenarioMapReportButton.Enabled = false;
-        var scenarioMapStatusLabel = new Label { Text = "状态", AutoSize = true, Padding = new Padding(8, 7, 0, 0) };
-        _scenarioMapLinkStatusFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scenarioMapLinkStatusFilterCombo.Width = 130;
-        var scenarioMapSearchLabel = new Label { Text = "搜索", AutoSize = true, Padding = new Padding(8, 7, 0, 0) };
-        _scenarioMapLinkSearchBox.Width = 150;
-        _scenarioMapLinkSearchBox.PlaceholderText = "关卡/标题/地图/地形";
-        _filterScenarioMapLinksButton.Text = "筛选";
-        _filterScenarioMapLinksButton.AutoSize = true;
-        _filterScenarioMapLinksButton.Enabled = false;
-        _clearScenarioMapLinkFilterButton.Text = "显示全部";
-        _clearScenarioMapLinkFilterButton.AutoSize = true;
-        _clearScenarioMapLinkFilterButton.Enabled = false;
-        _scenarioMapLinksIncompleteOnly.Text = "仅不完整";
-        _scenarioMapLinksIncompleteOnly.AutoSize = true;
-        _scenarioMapLinksIncompleteOnly.Enabled = false;
-        scenarioMapToolbar.Controls.AddRange(new Control[]
-        {
-            _loadScenarioMapLinksButton,
-            _exportScenarioMapLinksCsvButton,
-            _locateScenarioMapScenarioButton,
-            _locateScenarioMapImageButton,
-            _jumpScenarioMapScenarioButton,
-            _jumpScenarioMapHexzmapButton,
-            _jumpScenarioMapViewerButton,
-            _exportScenarioMapPreviewPngButton,
-            _writeScenarioMapReportButton,
-            scenarioMapStatusLabel,
-            _scenarioMapLinkStatusFilterCombo,
-            scenarioMapSearchLabel,
-            _scenarioMapLinkSearchBox,
-            _filterScenarioMapLinksButton,
-            _clearScenarioMapLinkFilterButton,
-            _scenarioMapLinksIncompleteOnly
-        });
-        scenarioMapLayout.Controls.Add(scenarioMapToolbar, 0, 0);
-        _scenarioMapLinkInfoBox.Dock = DockStyle.Fill;
-        _scenarioMapLinkInfoBox.Multiline = true;
-        _scenarioMapLinkInfoBox.Height = 96;
-        _scenarioMapLinkInfoBox.ReadOnly = true;
-        _scenarioMapLinkInfoBox.ScrollBars = ScrollBars.Vertical;
-        _scenarioMapLinkInfoBox.WordWrap = false;
-        var scenarioMapSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(scenarioMapSplit, desiredDistance: 720, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        _scenarioMapLinkGrid.Dock = DockStyle.Fill;
-        _scenarioMapLinkGrid.ReadOnly = true;
-        _scenarioMapLinkGrid.AllowUserToAddRows = false;
-        _scenarioMapLinkGrid.AllowUserToDeleteRows = false;
-        _scenarioMapLinkGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _scenarioMapLinkGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        var scenarioMapPreviewSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Horizontal,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(scenarioMapPreviewSplit, desiredDistance: 320, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        _scenarioMapImagePreviewBox.Dock = DockStyle.Fill;
-        _scenarioMapImagePreviewBox.BackColor = Color.Black;
-        _scenarioMapImagePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
-        _scenarioMapTerrainPreviewBox.Dock = DockStyle.Fill;
-        _scenarioMapTerrainPreviewBox.BackColor = Color.Black;
-        _scenarioMapTerrainPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
-        scenarioMapPreviewSplit.Panel1.Controls.Add(_scenarioMapImagePreviewBox);
-        scenarioMapPreviewSplit.Panel2.Controls.Add(_scenarioMapTerrainPreviewBox);
-        scenarioMapSplit.Panel1.Controls.Add(_scenarioMapLinkGrid);
-        scenarioMapSplit.Panel2.Controls.Add(scenarioMapPreviewSplit);
-        scenarioMapLayout.Controls.Add(scenarioMapSplit, 0, 1);
-        _mainTabs.TabPages.Add(scenarioMapPage);
-
-        var mapViewerPage = new TabPage("地图制作");
-        var mapLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1,
-            Padding = new Padding(6)
-        };
-        mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        mapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        mapViewerPage.Controls.Add(mapLayout);
-        var mapToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _loadMapImagesButton.Text = "读取 Map 图片";
-        _loadMapImagesButton.AutoSize = true;
-        _mapMakerNewDraftButton.Text = "新建草稿";
-        _mapMakerNewDraftButton.AutoSize = true;
-        _mapMakerLoadLastDraftButton.Text = "载入上次草稿";
-        _mapMakerLoadLastDraftButton.AutoSize = true;
-        _mapMakerSaveDraftButton.Text = "保存草稿";
-        _mapMakerSaveDraftButton.AutoSize = true;
-        _mapMakerSaveDraftButton.Enabled = false;
-        _mapMakerGridWidthInput.Minimum = 1;
-        _mapMakerGridWidthInput.Maximum = 256;
-        _mapMakerGridWidthInput.Value = 30;
-        _mapMakerGridWidthInput.Width = 58;
-        _mapMakerGridHeightInput.Minimum = 1;
-        _mapMakerGridHeightInput.Maximum = 256;
-        _mapMakerGridHeightInput.Value = 30;
-        _mapMakerGridHeightInput.Width = 58;
-        _mapMakerBrushModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _mapMakerBrushModeCombo.Width = 105;
-        _mapMakerBrushModeCombo.Items.AddRange(new object[] { "浏览", "地图画笔", "地形画笔" });
-        _mapMakerBrushModeCombo.SelectedIndex = 0;
-        _mapMakerSelectMaterialRootButton.Text = "选择素材库";
-        _mapMakerSelectMaterialRootButton.AutoSize = true;
-        _mapFitButton.Text = "适应窗口";
-        _mapFitButton.AutoSize = true;
-        _mapActualButton.Text = "100%";
-        _mapActualButton.AutoSize = true;
-        _mapZoomTrackBar.Minimum = 10;
-        _mapZoomTrackBar.Maximum = 300;
-        _mapZoomTrackBar.Value = 100;
-        _mapZoomTrackBar.TickFrequency = 50;
-        _mapZoomTrackBar.Width = 140;
-        _mapMakerShowTerrainCheckBox.Text = "叠加地形";
-        _mapMakerShowTerrainCheckBox.AutoSize = true;
-        _mapMakerShowTerrainCheckBox.Checked = true;
-        _mapMakerShowGridCheckBox.Text = "显示网格";
-        _mapMakerShowGridCheckBox.AutoSize = true;
-        _mapMakerShowGridCheckBox.Checked = true;
-        _mapMakerEditTerrainCheckBox.Text = "地形画笔";
-        _mapMakerEditTerrainCheckBox.AutoSize = true;
-        _mapMakerEditTerrainCheckBox.Enabled = false;
-        _mapMakerTerrainOpacityTrackBar.Minimum = 0;
-        _mapMakerTerrainOpacityTrackBar.Maximum = 100;
-        _mapMakerTerrainOpacityTrackBar.Value = 45;
-        _mapMakerTerrainOpacityTrackBar.TickFrequency = 25;
-        _mapMakerTerrainOpacityTrackBar.Width = 110;
-        _mapMakerTerrainOpacityLabel.Text = "地形透明度 45%";
-        _mapMakerTerrainOpacityLabel.AutoSize = true;
-        _mapMakerTerrainOpacityLabel.Padding = new Padding(0, 7, 0, 0);
-        _mapMakerTerrainPresetCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _mapMakerTerrainPresetCombo.Width = 170;
-        _mapMakerTerrainBrushInput.Minimum = 0;
-        _mapMakerTerrainBrushInput.Maximum = 255;
-        _mapMakerTerrainBrushInput.Width = 62;
-        _mapMakerBrushNameLabel.Text = "地形：0x00";
-        _mapMakerBrushNameLabel.AutoSize = true;
-        _mapMakerBrushNameLabel.Padding = new Padding(0, 7, 0, 0);
-        _mapMakerSaveTerrainButton.Text = "保存草稿地形";
-        _mapMakerSaveTerrainButton.AutoSize = true;
-        _mapMakerSaveTerrainButton.Enabled = false;
-        _mapMakerUndoTerrainButton.Text = "撤销";
-        _mapMakerUndoTerrainButton.AutoSize = true;
-        _mapMakerUndoTerrainButton.Enabled = false;
-        _mapMakerRedoTerrainButton.Text = "重做";
-        _mapMakerRedoTerrainButton.AutoSize = true;
-        _mapMakerRedoTerrainButton.Enabled = false;
-        _mapMakerReplaceMapImageButton.Text = "旧版替换底图";
-        _mapMakerReplaceMapImageButton.AutoSize = true;
-        _mapMakerReplaceMapImageButton.Enabled = false;
-        _mapMakerExportPreviewButton.Text = "导出预览";
-        _mapMakerExportPreviewButton.AutoSize = true;
-        _mapMakerExportPreviewButton.Enabled = false;
-        _mapMakerExportJpgButton.Text = "导出JPG";
-        _mapMakerExportJpgButton.AutoSize = true;
-        _mapMakerExportJpgButton.Enabled = false;
-        _mapMakerPublishMapButton.Text = "发布到底图";
-        _mapMakerPublishMapButton.AutoSize = true;
-        _mapMakerPublishMapButton.Enabled = false;
-        _mapMakerPublishTerrainButton.Text = "发布到地形层";
-        _mapMakerPublishTerrainButton.AutoSize = true;
-        _mapMakerPublishTerrainButton.Enabled = false;
-        mapToolbar.Controls.AddRange(new Control[]
-        {
-            _loadMapImagesButton,
-            _mapMakerNewDraftButton,
-            _mapMakerLoadLastDraftButton,
-            new Label { Text = "尺寸：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerGridWidthInput,
-            new Label { Text = "x", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
-            _mapMakerGridHeightInput,
-            _mapMakerSaveDraftButton,
-            _mapMakerSelectMaterialRootButton,
-            new Label { Text = "模式：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerBrushModeCombo,
-            _mapFitButton,
-            _mapActualButton,
-            new Label { Text = "缩放：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapZoomTrackBar,
-            _mapMakerShowTerrainCheckBox,
-            _mapMakerShowGridCheckBox,
-            _mapMakerTerrainOpacityLabel,
-            _mapMakerTerrainOpacityTrackBar,
-            _mapMakerEditTerrainCheckBox,
-            new Label { Text = "常用地形：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerTerrainPresetCombo,
-            new Label { Text = "画笔ID：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerTerrainBrushInput,
-            _mapMakerBrushNameLabel,
-            _mapMakerSaveTerrainButton,
-            _mapMakerUndoTerrainButton,
-            _mapMakerRedoTerrainButton,
-            _mapMakerReplaceMapImageButton,
-            _mapMakerExportPreviewButton,
-            _mapMakerExportJpgButton,
-            _mapMakerPublishMapButton,
-            _mapMakerPublishTerrainButton
-        });
-        mapLayout.Controls.Add(mapToolbar, 0, 0);
-        var mapSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-        };
-        ConfigureSplitContainerDistanceAfterLayout(mapSplit, desiredDistance: 260, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        _mapImageList.Dock = DockStyle.Fill;
-        _mapImageList.HorizontalScrollbar = true;
-        var mapEditorSplit = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical
-        };
-        ConfigureSplitContainerDistanceAfterLayout(mapEditorSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        var mapRightLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 1,
-            ColumnCount = 1
-        };
-        mapRightLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var mapScroll = new Panel
-        {
-            Dock = DockStyle.Fill,
-            AutoScroll = true,
-            TabStop = true,
-            BackColor = Color.FromArgb(36, 36, 36)
-        };
-        mapScroll.MouseWheel += (_, e) => HandleMapViewerMouseWheel(e);
-        mapScroll.MouseEnter += (_, _) => mapScroll.Focus();
-        _mapViewerBox.Location = new Point(0, 0);
-        _mapViewerBox.SizeMode = PictureBoxSizeMode.StretchImage;
-        _mapViewerBox.MouseWheel += (_, e) => HandleMapViewerMouseWheel(e);
-        _mapViewerBox.MouseEnter += (_, _) => mapScroll.Focus();
-        mapScroll.Controls.Add(_mapViewerBox);
-        _mapViewerInfoBox.Dock = DockStyle.Fill;
-        _mapViewerInfoBox.Multiline = true;
-        _mapViewerInfoBox.ReadOnly = true;
-        _mapViewerInfoBox.ScrollBars = ScrollBars.Vertical;
-        _mapViewerInfoBox.WordWrap = true;
-        _mapViewerInfoBox.Text = "地图制作：统一地图绘制工作台。新建草稿默认 30x30，每格 48x48；地图画笔覆盖格图片，地形画笔编辑草稿地形层；绑定现有 Mxxx 槽位且尺寸一致时才允许发布到游戏。";
-        mapRightLayout.Controls.Add(mapScroll, 0, 0);
-        var mapMakerMaterialLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1
-        };
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var mapMakerMaterialToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _mapMakerMaterialCategoryCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _mapMakerMaterialCategoryCombo.Width = 120;
-        _mapMakerMaterialSearchBox.Width = 140;
-        _mapMakerMaterialSearchBox.PlaceholderText = "素材关键字";
-        _mapMakerFilterMaterialsButton.Text = "筛选";
-        _mapMakerFilterMaterialsButton.AutoSize = true;
-        _mapMakerClearMaterialFilterButton.Text = "清除";
-        _mapMakerClearMaterialFilterButton.AutoSize = true;
-        mapMakerMaterialToolbar.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "分类：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
-            _mapMakerMaterialCategoryCombo,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(8, 7, 0, 0) },
-            _mapMakerMaterialSearchBox,
-            _mapMakerFilterMaterialsButton,
-            _mapMakerClearMaterialFilterButton
-        });
-        _mapMakerMaterialGrid.Dock = DockStyle.Fill;
-        _mapMakerMaterialGrid.ReadOnly = true;
-        _mapMakerMaterialGrid.AllowUserToAddRows = false;
-        _mapMakerMaterialGrid.AllowUserToDeleteRows = false;
-        _mapMakerMaterialGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _mapMakerMaterialGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _mapMakerMaterialGrid.DataBindingComplete += (_, _) => HideMapMakerMaterialTechnicalColumns();
-        _mapMakerMaterialPreview.Dock = DockStyle.Fill;
-        _mapMakerMaterialPreview.BackColor = Color.Black;
-        _mapMakerMaterialPreview.SizeMode = PictureBoxSizeMode.Zoom;
-        _mapMakerMaterialInfoBox.Dock = DockStyle.Fill;
-        _mapMakerMaterialInfoBox.Multiline = true;
-        _mapMakerMaterialInfoBox.ReadOnly = true;
-        _mapMakerMaterialInfoBox.ScrollBars = ScrollBars.Vertical;
-        _mapMakerMaterialInfoBox.WordWrap = true;
-        _mapMakerMaterialInfoBox.Text = "素材库：点击“选择素材库”后从本地目录读取图片。地图画笔会把选中素材整张缩放到 48x48 并覆盖当前格。";
-        mapMakerMaterialLayout.Controls.Add(mapMakerMaterialToolbar, 0, 0);
-        var mapMaterialSplit = CreateResizableSplit("BuildLayout.MapMaterialGridPreview", Orientation.Horizontal, 320);
-        mapMaterialSplit.Panel1.Controls.Add(_mapMakerMaterialGrid);
-        mapMaterialSplit.Panel2.Controls.Add(_mapMakerMaterialPreview);
-        mapMakerMaterialLayout.Controls.Add(mapMaterialSplit, 0, 1);
-        mapSplit.Panel1.Controls.Add(_mapImageList);
-        mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
-        mapEditorSplit.Panel2.Controls.Add(mapMakerMaterialLayout);
-        mapSplit.Panel2.Controls.Add(mapEditorSplit);
-        mapLayout.Controls.Add(mapSplit, 0, 1);
-        _mainTabs.TabPages.Add(mapViewerPage);
-
-        MoveAdvancedPagesIntoAdvancedTab();
         ReorderMainCreationTabs();
 
         _statusStrip.Items.Add(_statusLabel);
@@ -3472,14 +2307,8 @@ public sealed partial class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log("打开 plan.md 失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("打开 plan.md 失败：" + ex.Message);
         }
-    }
-
-    private void Log(string message)
-    {
-        var line = $"[{DateTime.Now:HH:mm:ss}] {message}\r\n";
-        _diagnostics.AppendText(line);
     }
 
     private void SetStatus(string message)

@@ -31,7 +31,7 @@ public sealed class CczEffectMcpResources(CczMcpRuntime runtime)
         => ToJson(runtime.ReadEffectResource(null, "ccz://effects/templates"));
 
     [McpServerResource(UriTemplate = "ccz://effects/manifests", Name = "ccz_effects_manifests", Title = "CCZ effect manifests", MimeType = "application/json")]
-    [Description("Effect write manifests available for audit and rollback.")]
+    [Description("Effect write manifests available for review and manual recovery.")]
     public string ReadEffectManifests()
         => ToJson(runtime.ReadEffectResource(null, "ccz://effects/manifests"));
 

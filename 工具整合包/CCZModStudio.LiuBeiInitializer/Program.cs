@@ -212,30 +212,20 @@ static void DumpBattlefieldSummary(CczProject project, IReadOnlyList<HexTableDef
         .ReadAllIndex(project)
         .Where(scenario => ScenarioFileReader.IsBattlefieldScriptFile(scenario.FileName))
         .ToList();
-    var resources = new GameResourceIndexer().Index(project);
-    var terrainLookup = HexzmapProbeReader.BuildTerrainNameLookup(new MaterialLibraryIndexer().Index(project));
-    var hexzmapPath = project.ResolveGameFile("Hexzmap.e5");
-    var hexzmap = File.Exists(hexzmapPath)
-        ? new HexzmapProbeReader().Read(project, terrainLookup)
-        : null;
-    var mapLinks = new ScenarioMapLinkService().BuildLinks(scenarios, resources, hexzmap);
     var battlefieldService = new BattlefieldEditorService();
 
     Console.WriteLine($"BATTLE_SUMMARY count={scenarios.Count}");
     foreach (var scenario in scenarios)
     {
-        var document = battlefieldService.Load(project, scenario, dictionary, tables, mapLinks);
+        var document = battlefieldService.Load(project, scenario, dictionary, tables);
         var deployments = document.UnitCandidates
             .Select(candidate => candidate.Category)
             .Where(category => category is "我军出场" or "友军出场" or "敌军出场")
             .Distinct(StringComparer.Ordinal)
             .OrderBy(category => category, StringComparer.Ordinal)
             .ToList();
-        var map = document.MapLink == null
-            ? "-"
-            : $"{document.MapLink.MapId}:{document.MapLink.Status}:{document.MapLink.MapImageName}:{document.MapLink.HexzmapOffsetHex}";
         var title = document.TitleEntry?.Text ?? scenario.TitleHint;
-        Console.WriteLine($"BATTLE_SUMMARY_ROW file={scenario.FileName} title=\"{OneLine(title)}\" map={map} commands={document.CommandCandidates.Count} units={document.UnitCandidates.Count} deployment={string.Join("/", deployments)} condition={document.ConditionEntry?.OffsetHex ?? "-"}");
+        Console.WriteLine($"BATTLE_SUMMARY_ROW file={scenario.FileName} title=\"{OneLine(title)}\" commands={document.CommandCandidates.Count} units={document.UnitCandidates.Count} deployment={string.Join("/", deployments)} condition={document.ConditionEntry?.OffsetHex ?? "-"}");
     }
 }
 

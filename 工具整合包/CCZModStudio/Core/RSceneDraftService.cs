@@ -526,7 +526,7 @@ public sealed class RSceneDraftService
         PixelX = actor.PixelX,
         PixelY = actor.PixelY,
         Source = actor.Source,
-        Memo = actor.Memo,
+        ActorNote = actor.ActorNote,
         LastActionTargetKey = actor.LastActionTargetKey
     };
 

@@ -162,14 +162,14 @@ public sealed class HexzmapProbeReader
                 using var image = Image.FromFile(path);
                 if (image.Width <= 0 ||
                     image.Height <= 0 ||
-                    image.Width % ResourceIndexItem.MapTilePixelSize != 0 ||
-                    image.Height % ResourceIndexItem.MapTilePixelSize != 0)
+                    image.Width % MapResourceItem.MapTilePixelSize != 0 ||
+                    image.Height % MapResourceItem.MapTilePixelSize != 0)
                 {
                     continue;
                 }
 
-                var gridWidth = image.Width / ResourceIndexItem.MapTilePixelSize;
-                var gridHeight = image.Height / ResourceIndexItem.MapTilePixelSize;
+                var gridWidth = image.Width / MapResourceItem.MapTilePixelSize;
+                var gridHeight = image.Height / MapResourceItem.MapTilePixelSize;
                 maps.Add(new HexzmapMapInfo(
                     "M" + mapNumber.ToString("000", CultureInfo.InvariantCulture),
                     mapNumber,

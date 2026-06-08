@@ -2,7 +2,7 @@ namespace CCZModStudio.Models;
 
 /// <summary>
 /// SV 命令参数模板目录中的可视化行。
-/// 这些条目只用于中文解释、筛选、备注和核对，不代表完整命令长度已确认。
+/// 这些条目只用于中文解释、筛选、核对记录和核对，不代表完整命令长度已确认。
 /// </summary>
 public sealed class ScenarioCommandTemplateCatalogItem
 {

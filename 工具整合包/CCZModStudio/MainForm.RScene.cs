@@ -67,7 +67,7 @@ public sealed partial class MainForm
         {
             _updatingRSceneScenarioSelection = false;
             _rSceneScriptDetailBox.Text = ex.ToString();
-            Log("Load R scene scenarios failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("Load R scene scenarios failed: " + ex);
             MessageBox.Show(this, ex.Message, "读取 R 场景失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -192,7 +192,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("Load R scene document failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("Load R scene document failed: " + ex);
             MessageBox.Show(this, ex.Message, "读取 R 场景失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -953,7 +953,7 @@ public sealed partial class MainForm
             actor.LastActionTargetKey = string.IsNullOrWhiteSpace(state.LastActionTargetKey) ? state.TargetKey : state.LastActionTargetKey;
             actor.Facing = NormalizeRSceneFacing(state.Facing);
             actor.FrameIndex = Math.Clamp(state.FrameIndex, 0, RSceneFrameCount - 1);
-            actor.Memo = $"从当前 Section 状态推演：人物={state.PersonId} 坐标=({state.GridX},{state.GridY}) 方向={actor.Facing} 动作帧={actor.FrameIndex}。";
+            actor.ActorNote = $"从当前 Section 状态推演：人物={state.PersonId} 坐标=({state.GridX},{state.GridY}) 方向={actor.Facing} 动作帧={actor.FrameIndex}。";
             _rScenePlacedActors.Add(actor);
         }
 
@@ -1252,7 +1252,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("读取 R 场景角色列表失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("读取 R 场景角色列表失败：" + ex.Message);
             BindRSceneActorPalette(_rSceneActorPaletteItems);
         }
     }
@@ -1344,7 +1344,7 @@ public sealed partial class MainForm
                 }
                 catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
                 {
-                    Log($"R 场景帧缩略图生成失败：R={item.RImageId} frame={frameIndex} {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"R 场景帧缩略图生成失败：R={item.RImageId} frame={frameIndex} {ex.Message}");
                     using var placeholder = CreateRSceneFramePlaceholder(frameIndex);
                     AddRSceneFrameImage(imageList, placeholder, frameIndex);
                 }
@@ -1370,7 +1370,7 @@ public sealed partial class MainForm
                 }
                 catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
                 {
-                    Log($"R 场景移动帧缩略图生成失败：R={item.RImageId} stripFrame={stripFrameIndex} {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"R 场景移动帧缩略图生成失败：R={item.RImageId} stripFrame={stripFrameIndex} {ex.Message}");
                     using var placeholder = CreateRSceneFramePlaceholder(stripFrameIndex);
                     AddRSceneFrameImage(imageList, placeholder, imageIndex);
                 }
@@ -1648,7 +1648,7 @@ public sealed partial class MainForm
             PixelX = (int)Math.Round(anchor.X),
             PixelY = (int)Math.Round(anchor.Y),
             Source = source,
-            Memo = $"R 场景预览摆放：{item.PersonId} {item.Name} 坐标=({gridX},{gridY})，方向={GetSelectedRSceneFacing()}，动作帧={GetSelectedRSceneFrameIndex()}。"
+            ActorNote = $"R 场景预览摆放：{item.PersonId} {item.Name} 坐标=({gridX},{gridY})，方向={GetSelectedRSceneFacing()}，动作帧={GetSelectedRSceneFrameIndex()}。"
         };
     }
 
@@ -1860,8 +1860,8 @@ public sealed partial class MainForm
             return;
         }
 
-        actor.Memo = BattlefieldUnitReviewService.AppendMemoLine(
-            actor.Memo,
+        actor.ActorNote = BattlefieldUnitReviewService.AppendReviewLine(
+            actor.ActorNote,
             $"地图拖拽：({oldGrid.X},{oldGrid.Y}) -> ({actor.GridX},{actor.GridY})。");
         _saveRSceneDraftButton.Enabled = true;
 
@@ -2001,8 +2001,8 @@ public sealed partial class MainForm
         }
 
         PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.RScene, beforeEdit);
-        actor.Memo = BattlefieldUnitReviewService.AppendMemoLine(
-            actor.Memo,
+        actor.ActorNote = BattlefieldUnitReviewService.AppendReviewLine(
+            actor.ActorNote,
             $"已同步到 R 剧本内存：{command.CommandIdHex} {command.CommandName} 槽1/2=({actor.GridX},{actor.GridY})。");
         _saveRSceneScriptStructureButton.Enabled = true;
         RefreshRSceneLegacyScriptView(command);
@@ -2172,8 +2172,8 @@ public sealed partial class MainForm
 
         _selectedRScenePlacedActor.Facing = GetSelectedRSceneFacing();
         _selectedRScenePlacedActor.FrameIndex = GetSelectedRSceneFrameIndex();
-        _selectedRScenePlacedActor.Memo = BattlefieldUnitReviewService.AppendMemoLine(
-            _selectedRScenePlacedActor.Memo,
+        _selectedRScenePlacedActor.ActorNote = BattlefieldUnitReviewService.AppendReviewLine(
+            _selectedRScenePlacedActor.ActorNote,
             $"控制面板调整：方向={_selectedRScenePlacedActor.Facing}，动作帧={_selectedRScenePlacedActor.FrameIndex}。");
         _saveRSceneDraftButton.Enabled = true;
         TrySyncRSceneActorPoseToScriptCommand(_selectedRScenePlacedActor, out _);
@@ -2274,7 +2274,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _currentRSceneDialoguePreviewMessage = "对白预览失败：" + ex.Message;
-            Log("R 场景对白预览失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("R 场景对白预览失败：" + ex.Message);
         }
     }
 
@@ -2343,7 +2343,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("R 场景背景预览失败：" + ex.Message);
+                System.Diagnostics.Debug.WriteLine("R 场景背景预览失败：" + ex.Message);
             }
         }
 
@@ -2607,7 +2607,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存 R 场景草稿失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存 R 场景草稿失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存 R 场景草稿失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }

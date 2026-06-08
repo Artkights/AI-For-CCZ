@@ -9,7 +9,7 @@ namespace CCZModStudio.Core;
 /// <summary>
 /// SV 命令参数引用导航服务。
 /// 把结构草图中的后续 16 位词整理为可点击候选：人物、物品、策略、文本线索、关卡地图/坐标。
-/// 当前仅用于可视化核对和创作者备注，不推断完整命令长度，不写回 SV/E5S。
+/// 当前仅用于可视化核对和制作记录，不推断完整命令长度，不写回 SV/E5S。
 /// </summary>
 public sealed class ScenarioCommandReferenceNavigationService
 {
@@ -22,7 +22,6 @@ public sealed class ScenarioCommandReferenceNavigationService
         IReadOnlyList<HexTableDefinition> tables,
         ScenarioStructureRow row,
         string scenarioFileName,
-        ScenarioMapLinkInfo? mapLink,
         IReadOnlyList<ScenarioTextEntry> textEntries)
     {
         if (row.NodeType != "Command候选")
@@ -38,9 +37,7 @@ public sealed class ScenarioCommandReferenceNavigationService
 
         var targets = new List<ScenarioCommandReferenceTarget>();
         AppendNamedTargets(project, tables, row, scenarioFileName, words, targets);
-        AppendTextTarget(row, scenarioFileName, textEntries, targets);
-        AppendCoordinateTargets(row, scenarioFileName, mapLink, words, targets);
-        AppendMapTarget(row, scenarioFileName, mapLink, words, targets);
+        AppendTextTarget(row, scenarioFileName, textEntries, targets);        AppendCoordinateTargets(row, scenarioFileName, words, targets);        AppendMapTarget(row, scenarioFileName, words, targets);
 
         return targets
             .GroupBy(BuildDistinctKey, StringComparer.OrdinalIgnoreCase)
@@ -65,7 +62,7 @@ public sealed class ScenarioCommandReferenceNavigationService
             var actions = new List<string>();
             if (target.CanJumpDataTable) actions.Add("数据表");
             if (target.CanJumpScenarioText) actions.Add("文本线索");
-            if (target.CanJumpScenarioMap) actions.Add("地图联动");
+            if (target.CanJumpScenarioMap) actions.Add("地图");
             lines.Add($"- [{target.Kind}] {target.DisplayText}；可跳：{(actions.Count == 0 ? "无" : string.Join("/", actions))}；依据：{target.Evidence}");
         }
 
@@ -74,7 +71,7 @@ public sealed class ScenarioCommandReferenceNavigationService
             lines.Add($"- ……另有 {targets.Count - maxItems} 项候选，请使用右上角“命令引用”下拉框查看。");
         }
 
-        lines.Add("安全边界：这些候选来自固定窗口内的 16 位词扫描，不代表已确认命令参数长度；不要据此直接改 SV 结构，只用于定位、备注和实机核对。");
+        lines.Add("安全边界：这些候选来自固定窗口内的 16 位词扫描，不代表已确认命令参数长度；不要据此直接改 SV 结构，只用于定位、核对记录和实机核对。");
         return string.Join(Environment.NewLine, lines);
     }
 
@@ -198,7 +195,6 @@ public sealed class ScenarioCommandReferenceNavigationService
     private static void AppendCoordinateTargets(
         ScenarioStructureRow row,
         string scenarioFileName,
-        ScenarioMapLinkInfo? mapLink,
         IReadOnlyList<int> words,
         List<ScenarioCommandReferenceTarget> targets)
     {
@@ -216,13 +212,13 @@ public sealed class ScenarioCommandReferenceNavigationService
             targets.Add(new ScenarioCommandReferenceTarget
             {
                 Kind = "坐标",
-                DisplayText = $"坐标候选 ({pair.X},{pair.Y})" + (mapLink == null ? string.Empty : $" -> {mapLink.MapId}"),
+                DisplayText = $"坐标候选 ({pair.X},{pair.Y})",
                 Evidence = "相邻 16 位词落在常见战场坐标范围，且命令/引用提示与地图、地点、移动或区域判断有关。",
                 SafetyNote = "坐标候选需要对照地图底图和按地图分辨率/48 划分的 Hexzmap 地形格；当前不推断真实参数长度。",
                 ScenarioFileName = scenarioFileName,
                 CommandIndex = row.CommandIndex,
                 CommandOffsetHex = row.OffsetHex,
-                MapId = mapLink?.MapId ?? string.Empty,
+                MapId = string.Empty,
                 CoordinateX = pair.X,
                 CoordinateY = pair.Y
             });
@@ -232,25 +228,9 @@ public sealed class ScenarioCommandReferenceNavigationService
     private static void AppendMapTarget(
         ScenarioStructureRow row,
         string scenarioFileName,
-        ScenarioMapLinkInfo? mapLink,
         IReadOnlyList<int> words,
         List<ScenarioCommandReferenceTarget> targets)
     {
-        if (mapLink != null && IsMapRelated(row))
-        {
-            targets.Add(new ScenarioCommandReferenceTarget
-            {
-                Kind = "地图",
-                DisplayText = $"{scenarioFileName} -> {mapLink.MapId}（{mapLink.Status}）",
-                Evidence = "当前命令疑似地图/坐标相关；同关卡已有关卡地图联动候选。",
-                SafetyNote = "请在关卡地图联动页同时核对 SV、Map 图片和 Hexzmap 地形块。",
-                ScenarioFileName = scenarioFileName,
-                CommandIndex = row.CommandIndex,
-                CommandOffsetHex = row.OffsetHex,
-                MapId = mapLink.MapId
-            });
-            return;
-        }
 
         var mapValue = words.FirstOrDefault(value => value is > 0 and <= 999);
         if (mapValue > 0 && row.CommandName.Contains("地图", StringComparison.Ordinal))
@@ -261,7 +241,7 @@ public sealed class ScenarioCommandReferenceNavigationService
                 Kind = "地图",
                 DisplayText = $"地图编号候选 {mapId}",
                 Evidence = "命令名含地图，参数值落在 M000-M999 编号范围。",
-                SafetyNote = "未确认该值一定是地图编号；请在关卡地图联动页核对。",
+                SafetyNote = "未确认该值一定是地图编号；请在关卡地图页核对。",
                 ScenarioFileName = scenarioFileName,
                 CommandIndex = row.CommandIndex,
                 CommandOffsetHex = row.OffsetHex,

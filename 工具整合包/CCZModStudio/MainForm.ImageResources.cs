@@ -40,13 +40,13 @@ public sealed partial class MainForm
                 $"图片资源已读取：文件 {_currentImageResourceFiles.Count} 个，可预览 {previewable} 个，可读取 0x110 E5 图片索引 {indexed} 个，可替换 {replaceable} 个。\r\n" +
                 "覆盖：角色头像、R/S形象、道具/策略图标、攻击/穿透范围、策略动画、Logo/Mmap/Tr/U_select/Gate/Weather 等图片资源；战场地图底图不在此模块。\r\n" +
                 "支持：E5 单条替换、E5 批量导入、E5 批量清空；DLL 图标按 RT_BITMAP 资源替换/清空。";
-            Log($"已读取图片资源目录：{_currentImageResourceFiles.Count} 个文件。");
+            System.Diagnostics.Debug.WriteLine($"已读取图片资源目录：{_currentImageResourceFiles.Count} 个文件。");
             SetStatus("图片资源读取完成");
         }
         catch (Exception ex)
         {
             _imageResourceInfoBox.Text = ex.ToString();
-            Log("图片资源读取失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("图片资源读取失败：" + ex);
             MessageBox.Show(this, ex.Message, "图片资源读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -237,7 +237,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("图片资源条目预览失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("图片资源条目预览失败：" + ex);
         }
 
         SetPictureBoxImage(_imageResourcePreviewBox, bitmap);
@@ -333,7 +333,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("图片资源 E5 还原预览失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("图片资源 E5 还原预览失败：" + ex);
                 MessageBox.Show(this, ex.Message, "E5 还原预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -360,7 +360,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("图片资源 E5 替换预览失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("图片资源 E5 替换预览失败：" + ex);
                 MessageBox.Show(this, ex.Message, "E5 替换预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -390,12 +390,12 @@ public sealed partial class MainForm
             _imageResourceCatalogService.ClearCache();
             LoadImageResources();
             _imageResourceEntryInfoBox.Text = BuildE5ImageReplaceResultText(result);
-            Log($"图片资源 E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}");
+            System.Diagnostics.Debug.WriteLine($"图片资源 E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}");
             SetStatus(restoreMode ? "图片资源 E5 条目还原完成" : "图片资源 E5 条目替换完成");
         }
         catch (Exception ex)
         {
-            Log("图片资源 E5 条目写入失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("图片资源 E5 条目写入失败：" + ex);
             MessageBox.Show(this, ex.Message, restoreMode ? "E5 还原失败" : "E5 替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -409,7 +409,7 @@ public sealed partial class MainForm
         if (_project == null) return;
         if (restoreMode)
         {
-            MessageBox.Show(this, "DLL 图标还原请在备份历史中执行整文件回滚，或用“替换E5条目/导入”重新导入图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "DLL 图标还原请使用保存前生成的备份文件恢复整文件，或用“替换E5条目/导入”重新导入图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -429,7 +429,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("DLL 图标替换预览失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("DLL 图标替换预览失败：" + ex);
             MessageBox.Show(this, ex.Message, "DLL 图标替换预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
@@ -456,12 +456,12 @@ public sealed partial class MainForm
             _imageResourceCatalogService.ClearCache();
             LoadImageResources();
             _imageResourceEntryInfoBox.Text = BuildDllIconReplaceResultText(result);
-            Log($"DLL 图标替换完成：{result.TargetRelativePath} #{result.IconIndex}");
+            System.Diagnostics.Debug.WriteLine($"DLL 图标替换完成：{result.TargetRelativePath} #{result.IconIndex}");
             SetStatus("DLL 图标替换完成");
         }
         catch (Exception ex)
         {
-            Log("DLL 图标替换失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("DLL 图标替换失败：" + ex);
             MessageBox.Show(this, ex.Message, "DLL 图标替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -517,7 +517,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("E5 批量导入预览失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("E5 批量导入预览失败：" + ex);
             MessageBox.Show(this, ex.Message, "E5 批量导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
@@ -544,12 +544,12 @@ public sealed partial class MainForm
             _imageResourceCatalogService.ClearCache();
             LoadImageResources();
             _imageResourceEntryInfoBox.Text = BuildE5BatchReplaceResultText(result);
-            Log($"E5 批量导入完成：{result.TargetRelativePath} count={result.OperationCount}");
+            System.Diagnostics.Debug.WriteLine($"E5 批量导入完成：{result.TargetRelativePath} count={result.OperationCount}");
             SetStatus($"E5 批量导入完成：{result.OperationCount} 条");
         }
         catch (Exception ex)
         {
-            Log("E5 批量导入失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("E5 批量导入失败：" + ex);
             MessageBox.Show(this, ex.Message, "E5 批量导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -614,12 +614,12 @@ public sealed partial class MainForm
             _imageResourceCatalogService.ClearCache();
             LoadImageResources();
             _imageResourceEntryInfoBox.Text = BuildE5BatchReplaceResultText(result);
-            Log($"E5 批量删除/清空完成：{preview.TargetRelativePath} count={result.OperationCount}");
+            System.Diagnostics.Debug.WriteLine($"E5 批量删除/清空完成：{preview.TargetRelativePath} count={result.OperationCount}");
             SetStatus($"E5 批量删除/清空完成：{result.OperationCount} 条");
         }
         catch (Exception ex)
         {
-            Log("E5 批量删除/清空失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("E5 批量删除/清空失败：" + ex);
             MessageBox.Show(this, ex.Message, "E5 批量删除/清空失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -648,13 +648,13 @@ public sealed partial class MainForm
                 $"编号：{string.Join(", ", results.Select(x => x.IconIndex))}\r\n" +
                 $"最后备份：{results.LastOrDefault()?.BackupPath}\r\n" +
                 $"最后报告：{results.LastOrDefault()?.ReportJsonPath}\r\n" +
-                "说明：每个编号均写入透明 RT_BITMAP，占用原资源 ID；如需撤销，可在备份历史中回滚对应 DLL。";
-            Log($"DLL 图标批量删除/清空完成：{file.FileName} count={results.Count}");
+                "说明：每个编号均写入透明 RT_BITMAP，占用原资源 ID；如需撤销，请使用保存前生成的备份文件恢复对应 DLL。";
+            System.Diagnostics.Debug.WriteLine($"DLL 图标批量删除/清空完成：{file.FileName} count={results.Count}");
             SetStatus($"DLL 图标批量删除/清空完成：{results.Count} 条");
         }
         catch (Exception ex)
         {
-            Log("DLL 图标批量删除/清空失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("DLL 图标批量删除/清空失败：" + ex);
             MessageBox.Show(this, ex.Message, "DLL 图标批量删除/清空失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -801,6 +801,7 @@ public sealed partial class MainForm
                 }
                 if (column.DataPropertyName is "R资源状态" or "S资源状态")
                 {
+                    column.Visible = false;
                     column.Width = 150;
                     column.ToolTipText = "R：根据 Pmapobj.e5 正/反图号解释编号；S：按紧凑编号映射到 Unit_atk/mov/spc.e5。预览按 E5 0x110 索引表取图。";
                 }
@@ -814,13 +815,13 @@ public sealed partial class MainForm
                 "右侧显示人物表头像预览，并按 E5 0x110 索引表显示 R/S 形象预览：R=n 取 Pmapobj.e5 图 2n+1；S=0 按职业和预览阵营取默认兵种图，S=1..32 取三转特殊三张图，S>=33 取一转特殊单张图。当前项目可直接编辑 R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
             _imageAssignmentInfoBox.Text = _imageAssignmentSummaryText;
             ShowSelectedImageAssignmentDetail();
-            Log("已读取人物 R/S 形象联动表。");
+            System.Diagnostics.Debug.WriteLine("已读取人物 R/S 形象联动表。");
             SetStatus("人物 R/S 形象读取完成");
         }
         catch (Exception ex)
         {
             _imageAssignmentInfoBox.Text = ex.ToString();
-            Log("读取人物 R/S 形象失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取人物 R/S 形象失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取人物 R/S 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -950,11 +951,11 @@ public sealed partial class MainForm
                 FileName = rsDir,
                 UseShellExecute = true
             });
-            Log("\u5df2\u6253\u5f00 RS \u76ee\u5f55\uff1a" + rsDir);
+            System.Diagnostics.Debug.WriteLine("\u5df2\u6253\u5f00 RS \u76ee\u5f55\uff1a" + rsDir);
         }
         catch (Exception ex)
         {
-            Log("\u6253\u5f00 RS \u76ee\u5f55\u5931\u8d25\uff1a" + ex);
+            System.Diagnostics.Debug.WriteLine("\u6253\u5f00 RS \u76ee\u5f55\u5931\u8d25\uff1a" + ex);
             MessageBox.Show(this, ex.Message, "\u6253\u5f00 RS \u76ee\u5f55\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -1024,7 +1025,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             ClearImageAssignmentPreview();
-            Log("ImageAssignment preview failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("ImageAssignment preview failed: " + ex);
         }
     }
 
@@ -1154,7 +1155,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("E5 条目还原预览失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("E5 条目还原预览失败：" + ex);
                 MessageBox.Show(this, ex.Message, "E5 还原预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -1181,7 +1182,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("E5 条目替换预览失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("E5 条目替换预览失败：" + ex);
                 MessageBox.Show(this, ex.Message, "E5 替换预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -1193,7 +1194,7 @@ public sealed partial class MainForm
 
         var previewText = BuildE5ImageReplacePreviewText(target, preview, restoreMode);
         _imageAssignmentInfoBox.Text = previewText;
-        Log($"E5 条目{(restoreMode ? "还原" : "替换")}预览：{preview.TargetRelativePath} #{preview.ImageNumber} <- {preview.SourcePath}");
+        System.Diagnostics.Debug.WriteLine($"E5 条目{(restoreMode ? "还原" : "替换")}预览：{preview.TargetRelativePath} #{preview.ImageNumber} <- {preview.SourcePath}");
 
         if (MessageBox.Show(this,
                 previewText + "\r\n\r\n确认后会先备份目标 E5 文件，再写入该单个图片条目。是否继续？",
@@ -1213,12 +1214,12 @@ public sealed partial class MainForm
             _imageAssignmentPreviewService.ClearCache();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildE5ImageReplaceResultText(result));
-            Log($"E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}，备份 {result.BackupPath}，结构化报告 {result.ReportJsonPath}");
+            System.Diagnostics.Debug.WriteLine($"E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}，备份 {result.BackupPath}，结构化报告 {result.ReportJsonPath}");
             SetStatus(restoreMode ? "E5 图片条目还原完成" : "E5 图片条目替换完成");
         }
         catch (Exception ex)
         {
-            Log("E5 条目写入失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("E5 条目写入失败：" + ex);
             MessageBox.Show(this, ex.Message, restoreMode ? "E5 还原失败" : "E5 替换失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -1434,12 +1435,12 @@ public sealed partial class MainForm
                 ["S\u8d44\u6e90\u72b6\u6001"] = "S \u8d44\u6e90\u5b9a\u4f4d\u68c0\u67e5\u7ed3\u679c\uff1a\u4e0d\u518d\u6309 RS\\S_XX.eex \u5224\u65ad\u4eba\u7269\u56fe\u50cf\u3002"
             };
             CsvService.ExportColumnsRowsWithAnnotationRow(_currentImageAssignments, dialog.FileName, columns, notes, missingRows);
-            Log($"\u5df2\u5bfc\u51fa R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\uff1a{dialog.FileName}\uff0c\u884c\u6570 {missingRows.Count}");
+            System.Diagnostics.Debug.WriteLine($"\u5df2\u5bfc\u51fa R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\uff1a{dialog.FileName}\uff0c\u884c\u6570 {missingRows.Count}");
             SetStatus($"R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\u5bfc\u51fa\u5b8c\u6210\uff1a{missingRows.Count} \u884c");
         }
         catch (Exception ex)
         {
-            Log("\u5bfc\u51fa R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\u5931\u8d25\uff1a" + ex);
+            System.Diagnostics.Debug.WriteLine("\u5bfc\u51fa R/S \u7f3a\u5931\u8d44\u6e90\u62a5\u544a\u5931\u8d25\uff1a" + ex);
             MessageBox.Show(this, ex.Message, "\u5bfc\u51fa\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -1514,11 +1515,11 @@ public sealed partial class MainForm
                 Arguments = $"/select,\"{path}\"",
                 UseShellExecute = true
             });
-            Log("\u5df2\u5b9a\u4f4d\u6587\u4ef6\uff1a" + path);
+            System.Diagnostics.Debug.WriteLine("\u5df2\u5b9a\u4f4d\u6587\u4ef6\uff1a" + path);
         }
         catch (Exception ex)
         {
-            Log("\u5b9a\u4f4d\u6587\u4ef6\u5931\u8d25\uff1a" + ex);
+            System.Diagnostics.Debug.WriteLine("\u5b9a\u4f4d\u6587\u4ef6\u5931\u8d25\uff1a" + ex);
             MessageBox.Show(this, ex.Message, "\u5b9a\u4f4d\u6587\u4ef6\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -1552,8 +1553,8 @@ public sealed partial class MainForm
             _imageAssignmentGrid.DataSource = _currentImageAssignments;
             ColorImageAssignmentResourceRows();
             ShowSelectedImageAssignmentDetail();
-            Log($"已保存人物 R/S 形象：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");
-            Log("备份：" + result.BackupSummary);
+            System.Diagnostics.Debug.WriteLine($"已保存人物 R/S 形象：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");
+            System.Diagnostics.Debug.WriteLine("备份：" + result.BackupSummary);
             SetStatus($"人物 R/S 保存完成并已复读：变化 {result.ChangedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{result.Saves.Count}\r\n变化字节：{result.ChangedBytes}\r\n备份：{result.BackupSummary}",
@@ -1563,7 +1564,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存人物 R/S 形象失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存人物 R/S 形象失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存人物 R/S 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally

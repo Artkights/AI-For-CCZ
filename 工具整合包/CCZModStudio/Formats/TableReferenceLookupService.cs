@@ -170,7 +170,7 @@ public sealed class TableReferenceLookupService
                 SourceValue = sourceValue,
                 ReferenceKind = "空槽/不指定",
                 Summary = $"{currentTable.TableName} / ID={sourceRowId} / {field.ColumnName} = 255：通常可作为“无/空槽/不指定”候选值，不跳转到目标表。",
-                SafetyNote = "若游戏内显示异常，请结合原工具和实机验证；确认特殊用途后建议添加创作者备注。"
+                SafetyNote = "若游戏内显示异常，请结合原工具、外部制作记录和实机验证确认特殊用途。"
             };
         }
 
@@ -655,7 +655,7 @@ public sealed class TableReferenceLookupService
                 SourceValue = sourceValue,
                 ReferenceKind = "装备特效号",
                 Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = 0x{effectId:X2}：既不在项目侧宝物特效目录中，也不在当前已确认基础特效名称表范围内，暂不跳转。",
-                SafetyNote = "可能是未使用值、特殊值或需要继续研究的扩展值；建议添加创作者备注，或在“宝物设定 -> 宝物特效”中补充项目侧目录后再实机验证。"
+                SafetyNote = "可能是未使用值、特殊值或需要继续研究的扩展值；建议补充外部制作记录，或在“游戏设定 -> 宝物特效”中补充项目侧目录后再实机验证。"
             };
         }
 

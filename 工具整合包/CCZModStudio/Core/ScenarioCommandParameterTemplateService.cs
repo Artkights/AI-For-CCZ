@@ -17,7 +17,6 @@ public sealed class ScenarioCommandParameterTemplateService
 
     public string BuildTemplateDetail(
         ScenarioStructureRow row,
-        ScenarioMapLinkInfo? mapLink,
         CczProject? project = null,
         IReadOnlyList<HexTableDefinition>? tables = null)
     {
@@ -42,7 +41,7 @@ public sealed class ScenarioCommandParameterTemplateService
         if (!Templates.TryGetValue(commandId, out var template))
         {
             builder.AppendLine($"命令参数模板（只读候选）：暂未为 {row.CommandIdHex} {row.CommandName} 建立专用模板。");
-            builder.AppendLine("- 当前处理方式：请优先参考上方“参数分组解释”、同文件文本线索、关卡地图联动和原工具显示结果。");
+            builder.AppendLine("- 当前处理方式：请优先参考上方“参数分组解释”、同文件文本线索、原工具显示结果。");
             builder.AppendLine("- 后续计划：把更多高频命令逐步加入模板表；在真实参数长度未验证前，不开放完整命令树写回。");
             return builder.ToString().TrimEnd();
         }
@@ -60,7 +59,7 @@ public sealed class ScenarioCommandParameterTemplateService
 
         foreach (var slot in template.Slots)
         {
-            builder.AppendLine(BuildSlotLine(slot, words, lookups, mapLink, project));
+            builder.AppendLine(BuildSlotLine(slot, words, lookups, project));
         }
 
         if (words.Count > template.Slots.Count)
@@ -73,7 +72,7 @@ public sealed class ScenarioCommandParameterTemplateService
             builder.AppendLine("- 模板外剩余词：" + string.Join(" / ", remaining) + "；这些可能属于后续命令、变长参数或误扫上下文，暂不强行解释。");
         }
 
-        builder.AppendLine("- 使用建议：先用模板判断“可能参数槽”，再到人物/物品/策略表、文本线索、地图联动页逐项核对；不要把模板结果直接当作可写回结构。");
+        builder.AppendLine("- 使用建议：先用模板判断“可能参数槽”，再到人物/物品/策略表、文本线索逐项核对；不要把模板结果直接当作可写回结构。");
         return builder.ToString().TrimEnd();
     }
 
@@ -93,7 +92,6 @@ public sealed class ScenarioCommandParameterTemplateService
 
     public IReadOnlyList<ScenarioCommandParameterRow> BuildParameterRows(
         ScenarioStructureRow row,
-        ScenarioMapLinkInfo? mapLink,
         CczProject? project = null,
         IReadOnlyList<HexTableDefinition>? tables = null)
     {
@@ -133,7 +131,7 @@ public sealed class ScenarioCommandParameterTemplateService
                 }
 
                 var value = words[slot.Index];
-                var decoded = DecodeValue(slot, words, lookups, mapLink, project);
+                var decoded = DecodeValue(slot, words, lookups, project);
                 result.Add(new ScenarioCommandParameterRow
                 {
                     Index = slot.Index + 1,
@@ -192,14 +190,14 @@ public sealed class ScenarioCommandParameterTemplateService
             builder.AppendLine("- 命令字典：未提供；本目录仅列出内置模板。");
         }
         builder.AppendLine();
-        builder.AppendLine("> 安全边界：本目录解释的是“后续 16 位词”的常见参数槽候选，用于界面中文注释、备注、核对清单和旧工具对照；它不证明完整命令长度，也不作为 R/S eex 完整命令树写回依据。");
+        builder.AppendLine("> 安全边界：本目录解释的是“后续 16 位词”的常见参数槽候选，用于界面中文注释、核对记录、核对清单和旧工具对照；它不证明完整命令长度，也不作为 R/S eex 完整命令树写回依据。");
         builder.AppendLine();
 
         if (dictionary != null && dictionary.Commands.Count > 0)
         {
             builder.AppendLine("## 1. 命令字典覆盖表");
             builder.AppendLine();
-            builder.AppendLine("| 命令 | 字典名称 | 模板状态 | 创作者提示 |");
+            builder.AppendLine("| 命令 | 字典名称 | 模板状态 | 核对提示 |");
             builder.AppendLine("| --- | --- | --- | --- |");
             foreach (var command in dictionary.Commands.OrderBy(command => command.Id))
             {
@@ -236,8 +234,8 @@ public sealed class ScenarioCommandParameterTemplateService
         builder.AppendLine("## 3. 推荐使用方式");
         builder.AppendLine();
         builder.AppendLine("1. 在“R/S eex高级探针”中生成结构草图，优先筛选“仅有模板”和“高风险/需核对”。");
-        builder.AppendLine("2. 选中命令后阅读节点详情中的“命令参数模板”，再用“命令引用”下拉框跳到人物、物品、策略、文本或地图联动页核对。");
-        builder.AppendLine("3. 对重要剧情命令点击“为命令引用建备注”，记录旧工具截图、修改意图、实机验证结果和回滚点。");
+        builder.AppendLine("2. 选中命令后阅读节点详情中的“命令参数模板”，再用“命令引用”下拉框跳到人物、物品、策略、文本或地图预览核对。");
+        builder.AppendLine("3. 对重要剧情命令保留外部制作记录，记录旧工具截图、修改意图、实机验证结果和备份文件。");
         builder.AppendLine("4. 模板缺失或模板外剩余词较多时，不要直接写回命令结构；先作为只读研究事项记录。");
         return builder.ToString();
     }
@@ -285,7 +283,7 @@ public sealed class ScenarioCommandParameterTemplateService
         builder.AppendLine("槽位明细：");
         builder.AppendLine(string.IsNullOrWhiteSpace(item.SlotDetails) ? "暂无专用槽位明细。" : item.SlotDetails);
         builder.AppendLine();
-        builder.AppendLine("创作者提示：");
+        builder.AppendLine("核对提示：");
         builder.AppendLine(item.CreatorTip);
         builder.AppendLine();
         builder.AppendLine("风险边界：");
@@ -315,7 +313,7 @@ public sealed class ScenarioCommandParameterTemplateService
             Risk = template.Risk,
             SlotDetails = slotDetails,
             CreatorTip = BuildCreatorTip(template),
-            SafetyNote = "只读模板：用于中文注释、跳转核对、备注和报告，不证明完整命令长度，不作为 R/S eex 写回依据。"
+            SafetyNote = "只读模板：用于中文注释、跳转核对、核对记录和报告，不证明完整命令长度，不作为 R/S eex 写回依据。"
         };
     }
 
@@ -333,7 +331,7 @@ public sealed class ScenarioCommandParameterTemplateService
             Purpose = "当前命令已存在于 CczString.ini 字典，但尚未建立专用参数槽位模板。",
             Risk = "只能使用通用参数分组、命令引用候选、旧工具和实机表现进行核对；不要据此写回完整命令结构。",
             SlotDetails = string.Empty,
-            CreatorTip = "建议在结构草图中筛选该命令，生成命令引用备注，记录旧工具截图、上下文和实机验证结果。",
+            CreatorTip = "建议在结构草图中筛选该命令，导出命令引用核对清单，记录旧工具截图、上下文和实机验证结果。",
             SafetyNote = "待补模板：当前只读研究，不写入游戏文件。"
         };
 
@@ -357,13 +355,13 @@ public sealed class ScenarioCommandParameterTemplateService
         {
             "剧情/文本" => "优先跳到“文本线索”核对 GBK 容量；如要改对白，尽量只做原容量内短写回并保留实机截图。",
             "流程/变量" => "先记录上下文、前后 case/else/跳转，再实机触发；不要只按单行参数判断流程。",
-            "人物/战场单位" => "跳到人物表、关卡地图联动和实机战场核对人物 ID、出场状态、坐标、朝向和 AI。",
+            "人物/战场单位" => "跳到人物表、实机战场核对人物 ID、出场状态、坐标、朝向和 AI。",
             "物品/奖励" => "跳到物品表核对 ID、名称、特效和奖励设计；发布前实机确认获得/丢弃/战利品结果。",
-            "地图/坐标/战场" => "配合关卡地图联动、地图预览 PNG 和 Hexzmap 地形格核对坐标范围。",
+            "地图/坐标/战场" => "配合地图预览 PNG 和 Hexzmap 地形格核对坐标范围。",
             "单挑" => "按单挑开始、出场、对话、动作、胜负显示的顺序核对，并记录实机录像或截图。",
             "演出/音画" => "结合资源索引、EEX/Ls 探针、音效/BGM 和实机画面核对，不直接替换资源内部结构。",
             "系统/路线" => "涉及结局、剧本跳转、Game Over 或存档开关时，必须记录路线设计并做完整流程测试。",
-            _ => "作为只读研究项处理；为不确定参数建立创作者备注，补旧工具截图和实机验证。"
+            _ => "作为只读研究项处理；为不确定参数补充外部制作记录、旧工具截图和实机验证。"
         };
     }
 
@@ -374,7 +372,6 @@ public sealed class ScenarioCommandParameterTemplateService
         TemplateSlot slot,
         IReadOnlyList<int> words,
         NameLookups lookups,
-        ScenarioMapLinkInfo? mapLink,
         CczProject? project)
     {
         var label = $"- P{slot.Index + 1} {slot.Name}";
@@ -385,7 +382,7 @@ public sealed class ScenarioCommandParameterTemplateService
 
         var value = words[slot.Index];
         var valueText = $"0x{value:X4}({value})";
-        var decoded = DecodeValue(slot, words, lookups, mapLink, project);
+        var decoded = DecodeValue(slot, words, lookups, project);
         var riskText = string.IsNullOrWhiteSpace(slot.Risk) ? string.Empty : $"；风险：{slot.Risk}";
         return $"{label}：{valueText} => {decoded}；{slot.Meaning}{riskText}";
     }
@@ -409,7 +406,6 @@ public sealed class ScenarioCommandParameterTemplateService
         TemplateSlot slot,
         IReadOnlyList<int> words,
         NameLookups lookups,
-        ScenarioMapLinkInfo? mapLink,
         CczProject? project)
     {
         var value = words[slot.Index];
@@ -422,9 +418,9 @@ public sealed class ScenarioCommandParameterTemplateService
             SlotKind.Person => DecodeNamed(value, lookups.PersonNames, "人物/部队"),
             SlotKind.Item => DecodeNamed(value, lookups.ItemNames, "物品/装备"),
             SlotKind.Strategy => DecodeNamed(value, lookups.StrategyNames, "策略"),
-            SlotKind.CoordinateX => DecodeCoordinate(words, slot.Index, isX: true, mapLink),
-            SlotKind.CoordinateY => DecodeCoordinate(words, slot.Index, isX: false, mapLink),
-            SlotKind.MapId => DecodeMapId(value, project, mapLink),
+            SlotKind.CoordinateX => DecodeCoordinate(words, slot.Index, isX: true),
+            SlotKind.CoordinateY => DecodeCoordinate(words, slot.Index, isX: false),
+            SlotKind.MapId => DecodeMapId(value, project),
             SlotKind.TextIndex => $"文本/消息/内部字符串编号候选 #{value}；请在“文本线索”页按标题、对白、说明核对",
             SlotKind.BranchTarget => $"跳转目标/条件成立后流程块候选 #{value}",
             SlotKind.BooleanFlag => value switch
@@ -590,7 +586,7 @@ public sealed class ScenarioCommandParameterTemplateService
             : $"{label}编号候选 {value}（未在当前表中命中名称）";
     }
 
-    private static string DecodeCoordinate(IReadOnlyList<int> words, int index, bool isX, ScenarioMapLinkInfo? mapLink)
+    private static string DecodeCoordinate(IReadOnlyList<int> words, int index, bool isX)
     {
         var value = words[index];
         var otherIndex = isX ? index + 1 : index - 1;
@@ -599,17 +595,14 @@ public sealed class ScenarioCommandParameterTemplateService
                 ? $"坐标对候选 ({value},{words[otherIndex]})"
                 : $"坐标对候选 ({words[otherIndex]},{value})"
             : isX ? $"X 坐标候选 {value}" : $"Y 坐标候选 {value}";
-        var mapText = mapLink == null ? string.Empty : $"；建议对照 {mapLink.MapId}/{mapLink.MapImageName}";
         var boundsText = value <= 60 ? "；数值落在常见 30x30/60x60 地图坐标观察范围" : "；数值偏大，可能不是坐标";
-        return pairText + boundsText + mapText;
+        return pairText + boundsText;
     }
 
-    private static string DecodeMapId(int value, CczProject? project, ScenarioMapLinkInfo? mapLink)
+    private static string DecodeMapId(int value, CczProject? project)
     {
         var mapId = "M" + value.ToString("000", CultureInfo.InvariantCulture);
-        var same = mapLink != null && mapId.Equals(mapLink.MapId, StringComparison.OrdinalIgnoreCase)
-            ? "；与当前关卡地图编号一致"
-            : string.Empty;
+        var same = false ? string.Empty : string.Empty;
         var exists = string.Empty;
         if (project != null)
         {
@@ -1005,7 +998,7 @@ public sealed class ScenarioCommandParameterTemplateService
                 S(2, "数值", SlotKind.Value, "变量目标值候选。")),
 
             T(0x46, "友军出场设定", "用于设置友军单位是否出场、位置或状态。",
-                "友军出场与 AI、胜败条件和剧情保护对象相关，需结合地图联动验证。",
+                "友军出场与 AI、胜败条件和剧情保护对象相关，需结合地图预览和实机战场验证。",
                 S(0, "友军人物/部队", SlotKind.Person, "友军人物或部队候选。"),
                 S(1, "出场标志", SlotKind.BooleanFlag, "是否出场或启用候选。"),
                 S(2, "X坐标", SlotKind.CoordinateX, "出场 X 坐标候选。"),

@@ -480,36 +480,6 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ClearDllIcon(game_root, target_relative_path, icon_index, write_mode);
 
     [McpServerTool]
-    [Description("List indexed project resources such as E5, Map, RS eex, E5S, WAV, and MP3 files. Read-only.")]
-    public object list_project_resources(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Optional category filter, for example 地图图片, E5资源, R剧本EEX, S剧本EEX, WAV音效.")]
-        string? category = null,
-        [Description("Optional keyword across file name, id, category, format hint, annotation, and path.")]
-        string? keyword = null,
-        [Description("Maximum resources to return. Defaults to 200; capped at 5000.")]
-        int limit = 200)
-        => runtime.ListProjectResources(game_root, category, keyword, limit);
-
-    [McpServerTool]
-    [Description("Run read-only project resource diagnostics before replacement or release.")]
-    public object run_resource_diagnostics(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Optional severity filter: Error, Warn, Info, or comma-separated values.")]
-        string? severity = null,
-        [Description("Optional category filter, for example 地图图片 or R剧本EEX.")]
-        string? category = null,
-        [Description("Optional keyword across diagnostic fields.")]
-        string? keyword = null,
-        [Description("Write a UTF-8 resource diagnostic report under CCZModStudio_Reports.")]
-        bool write_report = false,
-        [Description("Maximum diagnostic items to return. Defaults to 200; capped at 2000.")]
-        int limit = 200)
-        => runtime.RunResourceDiagnostics(game_root, severity, category, keyword, write_report, limit);
-
-    [McpServerTool]
     [Description("Replace a non-core project resource file. Core files must use dedicated tools.")]
     public object replace_resource(
         [Description("Project-relative target resource path.")]
@@ -523,146 +493,6 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Require target and replacement extensions to match.")]
         bool require_same_extension = true)
         => runtime.ReplaceResource(game_root, target_relative_path, replacement_path, write_mode, require_same_extension);
-
-    [McpServerTool]
-    [Description("Run the project audit used by the creator workflow. Optionally writes an audit report.")]
-    public object audit_project(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Write a project audit report under CCZModStudio_Reports.")]
-        bool write_report = false,
-        [Description("Maximum audit items to return. Defaults to 200; capped at 1000.")]
-        int limit = 200)
-        => runtime.AuditProject(game_root, write_report, limit);
-
-    [McpServerTool]
-    [Description("Create a complete CCZModStudio test copy for safe editing. Refuses nested creation from an existing test copy.")]
-    public object create_test_copy(
-        [Description("Optional source game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null)
-        => runtime.CreateTestCopy(game_root);
-
-    [McpServerTool]
-    [Description("Analyze differences between a test copy and its recorded source project. Optionally writes a diff report.")]
-    public object diff_test_copy(
-        [Description("Test-copy game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Write a diff report under the test copy _CCZModStudio_Reports directory.")]
-        bool write_report = false,
-        [Description("Maximum diff rows to return. Defaults to 200; capped at 2000.")]
-        int limit = 200)
-        => runtime.DiffTestCopy(game_root, write_report, limit);
-
-    [McpServerTool]
-    [Description("Create a clean release copy from a CCZModStudio test copy, excluding test markers, backups, reports, and exports.")]
-    public object create_release_copy(
-        [Description("Test-copy game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null)
-        => runtime.CreateReleaseCopy(game_root);
-
-    [McpServerTool]
-    [Description("Build the CCZModStudio creator workflow guide, dashboard, and prioritized action items. Read-only.")]
-    public object list_workflow_guide(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Run resource diagnostics and scenario-map linking while building the guide. Defaults to true.")]
-        bool include_diagnostics = true,
-        [Description("Maximum prioritized action items to return. Defaults to 6; capped at 10.")]
-        int max_actions = 6)
-        => runtime.ListWorkflowGuide(game_root, include_diagnostics, max_actions);
-
-    [McpServerTool]
-    [Description("List recent CCZModStudio reports, exports, previews, and write reports used as project evidence. Read-only.")]
-    public object list_project_evidence(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Optional evidence category filter, for example 发布证据, 安全检查证据, 写入/回滚证据.")]
-        string? category = null,
-        [Description("Optional evidence kind filter, for example 发布前综合报告 or 结构化写入报告.")]
-        string? kind = null,
-        [Description("Optional keyword across file name, path, annotation, suggested use, and safety note.")]
-        string? keyword = null,
-        [Description("Maximum evidence rows to return. Defaults to 80; capped at 500.")]
-        int limit = 80)
-        => runtime.ListProjectEvidence(game_root, category, kind, keyword, limit);
-
-    [McpServerTool]
-    [Description("Read one project evidence file by file name, relative path, full path, or aliases like latest_delivery_report. Text files only; PNG returns metadata.")]
-    public object read_project_evidence(
-        [Description("Evidence file name, project/workspace-relative path, full path from list_project_evidence, or alias: latest, latest_delivery_report, latest_write_report.")]
-        string path_or_file,
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Maximum text characters to return. Defaults to 20000; capped at 100000.")]
-        int max_chars = 20000)
-        => runtime.ReadProjectEvidence(game_root, path_or_file, max_chars);
-
-    [McpServerTool]
-    [Description("Write a Markdown pre-release delivery report under CCZModStudio_Reports. Does not modify game files.")]
-    public object write_project_delivery_report(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Include resource diagnostics in the report. Defaults to true.")]
-        bool include_resource_diagnostics = true,
-        [Description("Include scenario-map link candidates in the report. Defaults to true.")]
-        bool include_scenario_map_links = true,
-        [Description("Include creator notes in the report. Defaults to true.")]
-        bool include_creator_notes = true)
-        => runtime.WriteProjectDeliveryReport(game_root, include_resource_diagnostics, include_scenario_map_links, include_creator_notes);
-
-    [McpServerTool]
-    [Description("List project-side creator notes used to track design intent, risks, TODOs, rollback points, and verification. Read-only.")]
-    public object list_creator_notes(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Optional scope filter, for example 资源诊断, R/S命令, Hexzmap地形块, 全局项目.")]
-        string? scope = null,
-        [Description("Optional keyword across title, content, tags, target key, source hint, and scope.")]
-        string? keyword = null,
-        [Description("Maximum notes to return. Defaults to 100; capped at 1000.")]
-        int limit = 100)
-        => runtime.ListCreatorNotes(game_root, scope, keyword, limit);
-
-    [McpServerTool]
-    [Description("Create or update a project-side creator note. Writes only CCZModStudio_Notes, never game files.")]
-    public object upsert_creator_note(
-        [Description("Required note content. Use it to record intent, evidence, risk, rollback point, or real-game verification result.")]
-        string content,
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Optional existing note id. Omit to create a new note.")]
-        string? id = null,
-        [Description("Optional note scope, for example 资源诊断, R/S命令, Hexzmap地形块, 全局项目.")]
-        string? scope = "全局项目",
-        [Description("Optional stable target key, for example 资源诊断#分类=地图图片#规则=连续编号缺口#编号=Map#对象=M000.jpg.")]
-        string? target_key = "",
-        [Description("Optional note title. Defaults from scope and target key.")]
-        string? title = "",
-        [Description("Optional comma-separated tags such as 风险,待办,已验证.")]
-        string? tags = "",
-        [Description("Optional source hint, for example MCP, 实机测试, 旧工具截图.")]
-        string? source_hint = "MCP")
-        => runtime.UpsertCreatorNote(game_root, id, scope, target_key, title, content, tags, source_hint);
-
-    [McpServerTool]
-    [Description("Delete a project-side creator note by id. Writes only CCZModStudio_Notes, never game files.")]
-    public object delete_creator_note(
-        [Description("Creator note id to delete.")]
-        string id,
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null)
-        => runtime.DeleteCreatorNote(game_root, id);
-
-    [McpServerTool]
-    [Description("Export project-side creator notes to CSV under CCZModStudio_Exports/CreatorNotes.")]
-    public object export_creator_notes_csv(
-        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
-        string? game_root = null,
-        [Description("Optional scope filter.")]
-        string? scope = null,
-        [Description("Optional keyword filter.")]
-        string? keyword = null)
-        => runtime.ExportCreatorNotesCsv(game_root, scope, keyword);
 
     [McpServerTool]
     [Description("List CCZModStudio local knowledge-base markdown files.")]
@@ -779,15 +609,6 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null)
         => runtime.ApplyEffectPatch(game_root, package, write_mode);
-
-    [McpServerTool]
-    [Description("Rollback files from a previously written effect manifest where file backups are available.")]
-    public object rollback_effect_manifest(
-        [Description("Manifest id returned by apply_effect_package or apply_effect_patch.")]
-        string manifest_id,
-        [Description("Optional game root.")]
-        string? game_root = null)
-        => runtime.RollbackEffectManifest(game_root, manifest_id);
 
     [McpServerTool]
     [Description("Read effect pseudo-resources such as ccz://effects/schema, ccz://effects/catalog/item, ccz://effects/templates, ccz://effects/manifests, and ccz://knowledge/effects.")]

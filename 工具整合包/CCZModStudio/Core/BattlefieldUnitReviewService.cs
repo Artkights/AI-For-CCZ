@@ -7,12 +7,12 @@ using CCZModStudio.Models;
 namespace CCZModStudio.Core;
 
 /// <summary>
-/// Project-side battlefield unit review and placement notes.
-/// These JSON notes never write game files.
+/// Project-side battlefield unit review records and placement drafts.
+/// These JSON records never write game files.
 /// </summary>
 public sealed class BattlefieldUnitReviewService
 {
-    private const string SafetyNoteText = "项目侧战场核对/布阵备注：保存到 CCZModStudio_Notes，不写入游戏文件，不参与发布封包。";
+    private const string SafetyNoteText = "项目侧战场核对/布阵草稿：保存到 CCZModStudio_Notes，不写入游戏文件。";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -73,8 +73,8 @@ public sealed class BattlefieldUnitReviewService
                 Direction = string.IsNullOrWhiteSpace(x.Direction) ? "下" : x.Direction,
                 GridX = x.GridX,
                 GridY = x.GridY,
-                Source = "项目备注",
-                Memo = x.CreatorMemo
+                Source = "布阵草稿",
+                PlacementNote = x.ReviewNote
             })
             .ToList();
     }
@@ -89,7 +89,7 @@ public sealed class BattlefieldUnitReviewService
         {
             if (!reviews.TryGetValue(candidate.TargetKey, out var review)) continue;
             candidate.ReviewStatus = review.ReviewStatus;
-            candidate.CreatorMemo = review.CreatorMemo;
+            candidate.ReviewNote = review.ReviewNote;
         }
     }
 
@@ -113,7 +113,7 @@ public sealed class BattlefieldUnitReviewService
             var existing = all.FirstOrDefault(x => !x.IsPlacement &&
                                                    x.TargetKey.Equals(candidate.TargetKey, StringComparison.OrdinalIgnoreCase) &&
                                                    x.ScenarioFileName.Equals(document.Scenario.FileName, StringComparison.OrdinalIgnoreCase));
-            var empty = string.IsNullOrWhiteSpace(candidate.ReviewStatus) && string.IsNullOrWhiteSpace(candidate.CreatorMemo);
+            var empty = string.IsNullOrWhiteSpace(candidate.ReviewStatus) && string.IsNullOrWhiteSpace(candidate.ReviewNote);
             if (empty)
             {
                 if (existing != null) all.Remove(existing);
@@ -134,7 +134,7 @@ public sealed class BattlefieldUnitReviewService
             existing.SceneSection = candidate.SceneSection;
             existing.OffsetHex = candidate.OffsetHex;
             existing.ReviewStatus = candidate.ReviewStatus.Trim();
-            existing.CreatorMemo = candidate.CreatorMemo.Trim();
+            existing.ReviewNote = candidate.ReviewNote.Trim();
             existing.UpdatedAtText = now;
             existing.SafetyNote = SafetyNoteText;
         }
@@ -157,7 +157,7 @@ public sealed class BattlefieldUnitReviewService
                     SceneSection = $"Grid ({placement.GridX},{placement.GridY})",
                     OffsetHex = string.Empty,
                     ReviewStatus = "地图摆放",
-                    CreatorMemo = placement.Memo.Trim(),
+                    ReviewNote = placement.PlacementNote.Trim(),
                     UpdatedAtText = now,
                     IsPlacement = true,
                     PersonId = placement.PersonId,
@@ -188,12 +188,12 @@ public sealed class BattlefieldUnitReviewService
         return path;
     }
 
-    public static string BuildCoordinateReviewMemo(BattlefieldUnitCandidate candidate, int x, int y)
+    public static string BuildCoordinateReviewNote(BattlefieldUnitCandidate candidate, int x, int y)
     {
         return $"地图点选坐标：({x},{y})；原候选坐标：{candidate.CoordinateHint}；来源：{candidate.SourceCommand} / {candidate.SceneSection} / {candidate.OffsetHex}；请用旧剧本编辑器和实机战场核对后，再决定是否修改 S 剧本参数。";
     }
 
-    public static string BuildQuickReviewMemo(BattlefieldUnitCandidate candidate, string status)
+    public static string BuildQuickReviewNote(BattlefieldUnitCandidate candidate, string status)
     {
         var coordinate = BattlefieldEditorService.TryExtractFirstCoordinate(candidate, out var x, out var y)
             ? $"已解析候选坐标：({x},{y})。"
@@ -201,15 +201,15 @@ public sealed class BattlefieldUnitReviewService
         return $"快速标记：{status}；{coordinate} 来源：{candidate.SourceCommand} / {candidate.SceneSection} / {candidate.OffsetHex}。";
     }
 
-    public static string AppendMemoLine(string existingMemo, string line)
+    public static string AppendReviewLine(string existingRecord, string line)
     {
-        existingMemo = existingMemo?.Trim() ?? string.Empty;
+        existingRecord = existingRecord?.Trim() ?? string.Empty;
         line = line.Trim();
-        if (string.IsNullOrWhiteSpace(line)) return existingMemo;
-        if (existingMemo.Contains(line, StringComparison.Ordinal)) return existingMemo;
-        return string.IsNullOrWhiteSpace(existingMemo)
+        if (string.IsNullOrWhiteSpace(line)) return existingRecord;
+        if (existingRecord.Contains(line, StringComparison.Ordinal)) return existingRecord;
+        return string.IsNullOrWhiteSpace(existingRecord)
             ? line
-            : existingMemo + Environment.NewLine + line;
+            : existingRecord + Environment.NewLine + line;
     }
 
     private static string BuildPlacementTargetKey(string scenarioFileName, BattlefieldPlacedUnit placement)
@@ -232,7 +232,7 @@ public sealed class BattlefieldUnitReviewService
         review.SceneSection = review.SceneSection?.Trim() ?? string.Empty;
         review.OffsetHex = review.OffsetHex?.Trim() ?? string.Empty;
         review.ReviewStatus = review.ReviewStatus?.Trim() ?? string.Empty;
-        review.CreatorMemo = review.CreatorMemo?.Trim() ?? string.Empty;
+        review.ReviewNote = review.ReviewNote?.Trim() ?? string.Empty;
         review.UpdatedAtText = review.UpdatedAtText?.Trim() ?? string.Empty;
         review.UnitName = review.UnitName?.Trim() ?? string.Empty;
         review.JobName = review.JobName?.Trim() ?? string.Empty;
@@ -254,7 +254,7 @@ public sealed class BattlefieldUnitReviewService
         SceneSection = review.SceneSection,
         OffsetHex = review.OffsetHex,
         ReviewStatus = review.ReviewStatus,
-        CreatorMemo = review.CreatorMemo,
+        ReviewNote = review.ReviewNote,
         UpdatedAtText = review.UpdatedAtText,
         IsPlacement = review.IsPlacement,
         PersonId = review.PersonId,

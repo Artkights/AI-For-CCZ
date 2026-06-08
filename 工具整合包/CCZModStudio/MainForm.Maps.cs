@@ -32,13 +32,13 @@ public sealed partial class MainForm
             PopulateLsResourceCategoryFilter();
             BindLsResourceRows(_currentLsResources);
             UpdateLsResourceInfo(_currentLsResources.Count, "\u5168\u90e8", string.Empty);
-            Log($"已读取 Ls/E5 资源探针：{_currentLsResources.Count} 个文件。");
+            System.Diagnostics.Debug.WriteLine($"已读取 Ls/E5 资源探针：{_currentLsResources.Count} 个文件。");
             SetStatus("Ls/E5 地图资源探针读取完成");
         }
         catch (Exception ex)
         {
             _lsResourceInfoBox.Text = ex.ToString();
-            Log("Ls/E5 资源探针读取失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("Ls/E5 资源探针读取失败：" + ex);
             MessageBox.Show(this, ex.Message, "Ls/E5 资源探针读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -71,9 +71,6 @@ public sealed partial class MainForm
     {
         _lsResourceGrid.DataSource = new BindingList<LsResourceInfo>(rows.ToList());
         ConfigureLsResourceGrid();
-        HighlightRowsWithCreatorNotes<LsResourceInfo>(
-            _lsResourceGrid,
-            item => ("Ls/E5资源", BuildLsResourceCreatorNoteTargetKey(item)));
     }
 
     private void PopulateLsResourceCategoryFilter()
@@ -180,13 +177,6 @@ public sealed partial class MainForm
         if (_lsResourceGrid.SelectedRows.Count == 0) return;
         if (_lsResourceGrid.SelectedRows[0].DataBoundItem is not LsResourceInfo item) return;
 
-        var targetKey = BuildLsResourceCreatorNoteTargetKey(item);
-        SetLastCreatorNoteContext(
-            "Ls/E5资源",
-            targetKey,
-            $"{item.Category}：{item.FileName}",
-            "从 Ls/E5 资源探针页抓取；当前只读，不解压、不重封包。",
-            $"路径：{item.Path}\r\n角色候选：{item.RoleHint}\r\nMagic：{item.Magic}\r\n中文说明：{item.Annotation}\r\n研究记录：");
         if (_currentLsResourceHeatmap != null &&
             !_currentLsResourceHeatmap.Path.Equals(item.Path, StringComparison.OrdinalIgnoreCase))
         {
@@ -202,13 +192,10 @@ public sealed partial class MainForm
             $"文本线索({item.TextHintCount})：{item.TextHints}\r\n" +
             $"中文注释：{item.Annotation}\r\n" +
             $"判定依据：{item.RoleReason}\r\n" +
-            "说明：Ls 资源可能为曹操传专用压缩/封装格式；当前页面只用于建立格式封装证据，避免误写。" +
-            BuildRelatedCreatorNotesText("Ls/E5资源", targetKey);
+            "说明：Ls 资源可能为曹操传专用压缩/封装格式；当前页面只用于建立格式封装证据，避免误写。";
         SetStatus($"Ls/E5：{item.FileName}");
     }
 
-    private static string BuildLsResourceCreatorNoteTargetKey(LsResourceInfo item)
-        => $"{item.Category}/{item.FileName}";
 
     private void RenderSelectedLsResourceHeatmap()
     {
@@ -243,15 +230,14 @@ public sealed partial class MainForm
             _exportLsResourceHeatmapPngButton.Enabled = true;
             _lsResourceHeatmapInfoBox.Text =
                 BuildEexHeatmapInfoText(result) +
-                "\r\n说明：此图只观察 Ls/E5 载荷的原始字节分布，帮助判断稀疏表、参数表、图像/压缩载荷或文本线索；当前不解压、不重封包、不写入。" +
-                BuildRelatedCreatorNotesText("Ls/E5资源", BuildLsResourceCreatorNoteTargetKey(item));
-            Log($"已生成 Ls/E5 字节热力图：{result.FileName} {result.OffsetHex}-{result.EndOffsetHex}，单元 {result.CellCount}。");
+                "\r\n说明：此图只观察 Ls/E5 载荷的原始字节分布，帮助判断稀疏表、参数表、图像/压缩载荷或文本线索；当前不解压、不重封包、不写入。";
+            System.Diagnostics.Debug.WriteLine($"已生成 Ls/E5 字节热力图：{result.FileName} {result.OffsetHex}-{result.EndOffsetHex}，单元 {result.CellCount}。");
             SetStatus($"Ls/E5 字节热力图完成：{result.FileName}");
         }
         catch (Exception ex)
         {
             _lsResourceHeatmapInfoBox.Text = ex.ToString();
-            Log("Ls/E5 字节热力图生成失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("Ls/E5 字节热力图生成失败：" + ex);
             MessageBox.Show(this, ex.Message, "Ls/E5 字节热力图失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -293,12 +279,12 @@ public sealed partial class MainForm
                 using var bitmap = _eexByteHeatmapService.Render(_currentLsResourceHeatmap);
                 bitmap.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
             }
-            Log($"已导出 Ls/E5 字节热力图：{dialog.FileName}");
+            System.Diagnostics.Debug.WriteLine($"已导出 Ls/E5 字节热力图：{dialog.FileName}");
             SetStatus("Ls/E5 字节热力图 PNG 导出完成");
         }
         catch (Exception ex)
         {
-            Log("导出 Ls/E5 字节热力图失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出 Ls/E5 字节热力图失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -367,9 +353,6 @@ public sealed partial class MainForm
             _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, terrainLookup);
             _hexzmapGrid.DataSource = new BindingList<HexzmapBlockInfo>(_currentHexzmapProbe.Blocks.ToList());
             ConfigureHexzmapGrid();
-            HighlightRowsWithCreatorNotes<HexzmapBlockInfo>(
-                _hexzmapGrid,
-                block => ("Hexzmap地形块", BuildHexzmapCreatorNoteTargetKey(block)));
             _exportHexzmapProbeCsvButton.Enabled = _currentHexzmapProbe.Blocks.Count > 0;
             _exportHexzmapOverlayPngButton.Enabled = _currentHexzmapProbe.Blocks.Count > 0;
             _hexzmapInfoBox.Text =
@@ -383,7 +366,7 @@ public sealed partial class MainForm
                 _hexzmapGrid.Rows[0].Selected = true;
                 ShowSelectedHexzmapBlock();
             }
-            Log($"已读取 Hexzmap 地形探针：{_currentHexzmapProbe.Blocks.Count} 个候选块，尾部 {_currentHexzmapProbe.TrailingBytes} 字节。");
+            System.Diagnostics.Debug.WriteLine($"已读取 Hexzmap 地形探针：{_currentHexzmapProbe.Blocks.Count} 个候选块，尾部 {_currentHexzmapProbe.TrailingBytes} 字节。");
             SetStatus("Hexzmap 地形探针读取完成");
         }
         catch (Exception ex)
@@ -391,7 +374,7 @@ public sealed partial class MainForm
             _hexzmapInfoBox.Text = ex.ToString();
             _exportHexzmapProbeCsvButton.Enabled = false;
             _exportHexzmapOverlayPngButton.Enabled = false;
-            Log("Hexzmap 地形探针读取失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("Hexzmap 地形探针读取失败：" + ex);
             MessageBox.Show(this, ex.Message, "Hexzmap 地形探针读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -429,8 +412,6 @@ public sealed partial class MainForm
         return null;
     }
 
-    private static string BuildHexzmapCreatorNoteTargetKey(HexzmapBlockInfo block)
-        => $"{block.MapId}#Offset={block.OffsetHex}";
 
     private void ShowSelectedHexzmapBlock()
     {
@@ -444,13 +425,6 @@ public sealed partial class MainForm
             ? RenderHexzmapPreview(block, cells)
             : null;
         _exportHexzmapOverlayPngButton.Enabled = _hexzmapPreviewBox.Image != null;
-        var targetKey = BuildHexzmapCreatorNoteTargetKey(block);
-        SetLastCreatorNoteContext(
-            "Hexzmap地形块",
-            targetKey,
-            $"{block.MapId} 地形块",
-            "从 Hexzmap 地形探针页抓取；当前只读。",
-            $"偏移：{block.OffsetHex}\r\n主地形：{block.DominantTerrainName}\r\n高频地形：{block.TopTerrainNames}\r\n设计备注：");
         _hexzmapInfoBox.Text =
             $"候选地图块：{block.MapId}    Index={block.Index}    偏移：{block.OffsetHex}    {block.Width}x{block.Height}\r\n" +
             $"对应地图图片：{(block.MapImageExists ? block.MapImageName : "未找到同编号 Mxxx.jpg")}    地形种类：{block.UniqueTerrainCount}    已知图例：{block.KnownTerrainCount}    主地形：0x{block.DominantTerrainId:X2} {block.DominantTerrainName} x {block.DominantTerrainCount}\r\n" +
@@ -459,9 +433,35 @@ public sealed partial class MainForm
             $"未匹配图例ID：{block.UnknownTerrainIds}\r\n" +
             $"中文说明：{block.Annotation}\r\n" +
             $"{BuildHexzmapPreviewModeText(block)}\r\n" +
-            "右侧预览用于把按地图分辨率/48 划分的地形索引与战场底图对照，帮助判断地形表、地图图片和关卡编号是否匹配。" +
-            BuildRelatedCreatorNotesText("Hexzmap地形块", targetKey);
+            "右侧预览用于把按地图分辨率/48 划分的地形索引与战场底图对照，帮助判断地形表、地图图片和关卡编号是否匹配。";
         SetStatus($"Hexzmap：{block.MapId}");
+    }
+
+    private void ClearHexzmapCellPreview()
+    {
+        _hexzmapCellPreviewLabel.Text = "地形：-    坐标：-";
+    }
+
+    private void UpdateHexzmapCellPreview(Point location)
+    {
+        if (_currentHexzmapProbe == null || _hexzmapPreviewBox.Image == null)
+        {
+            ClearHexzmapCellPreview();
+            return;
+        }
+
+        var block = GetSelectedHexzmapBlock();
+        if (block == null ||
+            !TryMapPictureBoxPointToTerrainCell(_hexzmapPreviewBox, location, block.Width, block.Height, out var x, out var y))
+        {
+            ClearHexzmapCellPreview();
+            return;
+        }
+
+        var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
+        var index = y * block.Width + x;
+        var terrain = index >= 0 && index < cells.Length ? FormatTerrainValue(cells[index]) : "未知";
+        _hexzmapCellPreviewLabel.Text = $"地形：{terrain}    坐标：({x}, {y})";
     }
 
     private Bitmap RenderHexzmapPreview(HexzmapBlockInfo block, byte[] cells)
@@ -480,7 +480,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("Hexzmap 地图底图叠加失败，已改用纯地形色块预览：" + ex.Message);
+                System.Diagnostics.Debug.WriteLine("Hexzmap 地图底图叠加失败，已改用纯地形色块预览：" + ex.Message);
             }
         }
 
@@ -556,12 +556,12 @@ public sealed partial class MainForm
         {
             using var bitmap = RenderHexzmapPreview(block, cells);
             bitmap.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
-            Log("已导出 Hexzmap 地形预览 PNG：" + dialog.FileName);
+            System.Diagnostics.Debug.WriteLine("已导出 Hexzmap 地形预览 PNG：" + dialog.FileName);
             SetStatus("Hexzmap 地形预览 PNG 导出完成");
         }
         catch (Exception ex)
         {
-            Log("导出 Hexzmap 地形预览 PNG 失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出 Hexzmap 地形预览 PNG 失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -578,7 +578,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("素材库地形图例读取失败，Hexzmap 将只显示地形 ID：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("素材库地形图例读取失败，Hexzmap 将只显示地形 ID：" + ex.Message);
             return new Dictionary<byte, string>();
         }
     }
@@ -586,560 +586,11 @@ public sealed partial class MainForm
     private Bitmap RenderHexzmapCells(byte[] cells, int width, int height) =>
         _hexzmapTerrainRenderService.RenderTerrainCells(cells, width, height);
 
-    private void RefreshScenarioMapLinksAfterTerrainSave(string mapId)
-    {
-        if (_scenarioMapLinkGrid.DataSource == null || _currentScenarioFiles.Count == 0 || _currentGameResources.Count == 0 || _currentHexzmapProbe == null)
-        {
-            _currentScenarioMapLinks = Array.Empty<ScenarioMapLinkInfo>();
-            return;
-        }
 
-        try
-        {
-            _currentScenarioMapLinks = _scenarioMapLinkService.BuildLinks(_currentScenarioFiles, _currentGameResources, _currentHexzmapProbe);
-            PopulateScenarioMapLinkStatusFilter();
-            BindScenarioMapLinkRows(_currentScenarioMapLinks);
-            _exportScenarioMapLinksCsvButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _locateScenarioMapScenarioButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _locateScenarioMapImageButton.Enabled = _currentScenarioMapLinks.Any(x => x.MapImageExists);
-            _jumpScenarioMapScenarioButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _jumpScenarioMapHexzmapButton.Enabled = _currentScenarioMapLinks.Any(x => x.HexzmapBlockExists);
-            _jumpScenarioMapViewerButton.Enabled = _currentScenarioMapLinks.Any(x => x.MapImageExists);
-            _exportScenarioMapPreviewPngButton.Enabled = _currentScenarioMapLinks.Any(x => x.MapImageExists || x.HexzmapBlockExists);
-            _writeScenarioMapReportButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _filterScenarioMapLinksButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _clearScenarioMapLinkFilterButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _scenarioMapLinksIncompleteOnly.Enabled = _currentScenarioMapLinks.Count > 0;
-            UpdateScenarioMapLinkSummary(_currentScenarioMapLinks.Count, "全部", string.Empty, false);
-            if (SelectGridRow<ScenarioMapLinkInfo>(_scenarioMapLinkGrid, link => link.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase))
-                || _scenarioMapLinkGrid.Rows.Count > 0)
-            {
-                if (_scenarioMapLinkGrid.SelectedRows.Count == 0 && _scenarioMapLinkGrid.Rows.Count > 0)
-                {
-                    _scenarioMapLinkGrid.Rows[0].Selected = true;
-                }
-                ShowSelectedScenarioMapLink();
-            }
-        }
-        catch (Exception ex)
-        {
-            Log("地形保存后刷新关卡地图联动失败：" + ex.Message);
-        }
-    }
 
-    private void LoadScenarioMapLinks()
-    {
-        if (_project == null)
-        {
-            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
 
-        try
-        {
-            Cursor = Cursors.WaitCursor;
-            if (_currentScenarioFiles.Count == 0)
-            {
-                var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
-                _currentScenarioFiles = _scenarioFileReader.ReadAllIndex(_project);
-                PopulateScenarioKindFilter();
-                BindScenarioFileRows(_currentScenarioFiles);
-            }
 
-            if (_currentGameResources.Count == 0)
-            {
-                _currentGameResources = _gameResourceIndexer.Index(_project);
-            }
 
-            if (_currentHexzmapProbe == null)
-            {
-                var terrainLookup = BuildTerrainNameLookupForCurrentProject();
-                _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, terrainLookup);
-            }
-
-            _currentScenarioMapLinks = _scenarioMapLinkService.BuildLinks(_currentScenarioFiles, _currentGameResources, _currentHexzmapProbe);
-            PopulateScenarioMapLinkStatusFilter();
-            BindScenarioMapLinkRows(_currentScenarioMapLinks);
-            _exportScenarioMapLinksCsvButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _locateScenarioMapScenarioButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _locateScenarioMapImageButton.Enabled = _currentScenarioMapLinks.Any(x => x.MapImageExists);
-            _jumpScenarioMapScenarioButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _jumpScenarioMapHexzmapButton.Enabled = _currentScenarioMapLinks.Any(x => x.HexzmapBlockExists);
-            _jumpScenarioMapViewerButton.Enabled = _currentScenarioMapLinks.Any(x => x.MapImageExists);
-            _exportScenarioMapPreviewPngButton.Enabled = _currentScenarioMapLinks.Any(x => x.MapImageExists || x.HexzmapBlockExists);
-            _writeScenarioMapReportButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _filterScenarioMapLinksButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _clearScenarioMapLinkFilterButton.Enabled = _currentScenarioMapLinks.Count > 0;
-            _scenarioMapLinksIncompleteOnly.Enabled = _currentScenarioMapLinks.Count > 0;
-            UpdateScenarioMapLinkSummary(_currentScenarioMapLinks.Count, "全部", string.Empty, false);
-            if (_scenarioMapLinkGrid.Rows.Count > 0)
-            {
-                _scenarioMapLinkGrid.Rows[0].Selected = true;
-                ShowSelectedScenarioMapLink();
-            }
-            Log($"已生成关卡地图联动：{_currentScenarioMapLinks.Count} 行。");
-            SetStatus("关卡地图联动生成完成");
-        }
-        catch (Exception ex)
-        {
-            _scenarioMapLinkInfoBox.Text = ex.ToString();
-            _exportScenarioMapLinksCsvButton.Enabled = false;
-            _locateScenarioMapScenarioButton.Enabled = false;
-            _locateScenarioMapImageButton.Enabled = false;
-            _jumpScenarioMapScenarioButton.Enabled = false;
-            _jumpScenarioMapHexzmapButton.Enabled = false;
-            _jumpScenarioMapViewerButton.Enabled = false;
-            _exportScenarioMapPreviewPngButton.Enabled = false;
-            _writeScenarioMapReportButton.Enabled = false;
-            _filterScenarioMapLinksButton.Enabled = false;
-            _clearScenarioMapLinkFilterButton.Enabled = false;
-            _scenarioMapLinksIncompleteOnly.Enabled = false;
-            Log("关卡地图联动生成失败：" + ex);
-            MessageBox.Show(this, ex.Message, "关卡地图联动生成失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        finally
-        {
-            Cursor = Cursors.Default;
-        }
-    }
-
-    private void ConfigureScenarioMapLinkGrid()
-    {
-        foreach (DataGridViewColumn column in _scenarioMapLinkGrid.Columns)
-        {
-            if (column.DataPropertyName is nameof(ScenarioMapLinkInfo.Annotation) or nameof(ScenarioMapLinkInfo.Suggestion))
-            {
-                column.Width = 420;
-            }
-            else if (column.DataPropertyName is nameof(ScenarioMapLinkInfo.TopTerrainNames))
-            {
-                column.Width = 320;
-            }
-            else if (column.DataPropertyName is nameof(ScenarioMapLinkInfo.ScenarioPath) or nameof(ScenarioMapLinkInfo.MapImagePath))
-            {
-                column.Width = 260;
-            }
-        }
-        HideNonAuthoringColumns(
-            _scenarioMapLinkGrid,
-            nameof(ScenarioMapLinkInfo.Annotation),
-            nameof(ScenarioMapLinkInfo.Suggestion),
-            nameof(ScenarioMapLinkInfo.ScenarioPath),
-            nameof(ScenarioMapLinkInfo.MapImagePath));
-
-        foreach (DataGridViewRow row in _scenarioMapLinkGrid.Rows)
-        {
-            if (row.DataBoundItem is not ScenarioMapLinkInfo item) continue;
-            row.DefaultCellStyle.BackColor = item.Status switch
-            {
-                "完整候选" => Color.Honeydew,
-                "非普通关卡" => Color.AliceBlue,
-                "有地图图，缺地形块" or "有地形块，缺地图图" => Color.LemonChiffon,
-                "缺地图图和地形块" => Color.MistyRose,
-                _ => row.DefaultCellStyle.BackColor
-            };
-        }
-    }
-
-    private void BindScenarioMapLinkRows(IEnumerable<ScenarioMapLinkInfo> rows)
-    {
-        _scenarioMapLinkGrid.DataSource = new BindingList<ScenarioMapLinkInfo>(rows.ToList());
-        ConfigureScenarioMapLinkGrid();
-        HighlightRowsWithCreatorNotes<ScenarioMapLinkInfo>(
-            _scenarioMapLinkGrid,
-            item => ("关卡地图联动", BuildScenarioMapLinkCreatorNoteTargetKey(item)));
-    }
-
-    private void PopulateScenarioMapLinkStatusFilter()
-    {
-        var previous = Convert.ToString(_scenarioMapLinkStatusFilterCombo.SelectedItem, CultureInfo.InvariantCulture);
-        _scenarioMapLinkStatusFilterCombo.Items.Clear();
-        _scenarioMapLinkStatusFilterCombo.Items.Add("全部");
-        foreach (var status in _currentScenarioMapLinks.Select(x => x.Status).Distinct().OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase))
-        {
-            _scenarioMapLinkStatusFilterCombo.Items.Add(status);
-        }
-        SelectComboValueOrFirst(_scenarioMapLinkStatusFilterCombo, previous);
-    }
-
-    private void ApplyScenarioMapLinkFilter()
-    {
-        if (_currentScenarioMapLinks.Count == 0) return;
-        var status = Convert.ToString(_scenarioMapLinkStatusFilterCombo.SelectedItem, CultureInfo.InvariantCulture) ?? "全部";
-        var keyword = _scenarioMapLinkSearchBox.Text.Trim();
-        var incompleteOnly = _scenarioMapLinksIncompleteOnly.Checked;
-        var filtered = _currentScenarioMapLinks.Where(item =>
-            (status == "全部" || string.Equals(item.Status, status, StringComparison.Ordinal)) &&
-            (!incompleteOnly || ScenarioMapLinkIsIncomplete(item)) &&
-            (string.IsNullOrWhiteSpace(keyword) || ScenarioMapLinkMatchesKeyword(item, keyword)))
-            .ToList();
-        BindScenarioMapLinkRows(filtered);
-        UpdateScenarioMapLinkSummary(filtered.Count, status, keyword, incompleteOnly);
-        SetStatus($"关卡地图联动筛选：{filtered.Count}/{_currentScenarioMapLinks.Count}");
-    }
-
-    private void ClearScenarioMapLinkFilter()
-    {
-        _scenarioMapLinkSearchBox.Clear();
-        _scenarioMapLinksIncompleteOnly.Checked = false;
-        if (_scenarioMapLinkStatusFilterCombo.Items.Count > 0) _scenarioMapLinkStatusFilterCombo.SelectedIndex = 0;
-        BindScenarioMapLinkRows(_currentScenarioMapLinks);
-        UpdateScenarioMapLinkSummary(_currentScenarioMapLinks.Count, "全部", string.Empty, false);
-        SetStatus("已显示全部关卡地图联动");
-    }
-
-    private static bool ScenarioMapLinkIsIncomplete(ScenarioMapLinkInfo item)
-        => item.Status.Contains("缺", StringComparison.Ordinal);
-
-    private static bool ScenarioMapLinkMatchesKeyword(ScenarioMapLinkInfo item, string keyword)
-    {
-        return ContainsKeyword(item.ScenarioId, keyword) ||
-               ContainsKeyword(item.ScenarioFileName, keyword) ||
-               ContainsKeyword(item.ScenarioTitle, keyword) ||
-               ContainsKeyword(item.ScenarioKind, keyword) ||
-               ContainsKeyword(item.MapId, keyword) ||
-               ContainsKeyword(item.MapImageName, keyword) ||
-               ContainsKeyword(item.HexzmapOffsetHex, keyword) ||
-               ContainsKeyword(item.DominantTerrain, keyword) ||
-               ContainsKeyword(item.TopTerrainNames, keyword) ||
-               ContainsKeyword(item.Status, keyword) ||
-               ContainsKeyword(item.Annotation, keyword) ||
-               ContainsKeyword(item.Suggestion, keyword) ||
-               ContainsKeyword(item.ScenarioPath, keyword) ||
-               ContainsKeyword(item.MapImagePath, keyword);
-    }
-
-    private void UpdateScenarioMapLinkSummary(int visibleCount, string status, string keyword, bool incompleteOnly)
-    {
-        var summary = string.Join("，", _currentScenarioMapLinks
-            .GroupBy(x => x.Status)
-            .OrderByDescending(g => g.Count())
-            .ThenBy(g => g.Key)
-            .Select(g => $"{g.Key}:{g.Count()}"));
-        var normal = _currentScenarioMapLinks.Count(x => x.Status != "非普通关卡");
-        var complete = _currentScenarioMapLinks.Count(x => x.Status == "完整候选");
-        var filterText = status == "全部" && string.IsNullOrWhiteSpace(keyword) && !incompleteOnly
-            ? "未筛选"
-            : $"状态={status}，关键字={keyword}，仅不完整={incompleteOnly}";
-        _scenarioMapLinkInfoBox.Text =
-            $"旧兼容联动规则：SVxxx.E5S -> Map\\Mxxx.jpg -> Hexzmap 候选块 Mxxx（仅用于历史 E5S 存档/旧探针核对，不代表 R/S eex 主剧本引用规则）。\r\n" +
-            $"关卡候选：{normal}    完整候选：{complete}    当前显示：{visibleCount}/{_currentScenarioMapLinks.Count}    状态分布：{summary}\r\n" +
-            $"筛选：{filterText}\r\n" +
-            "用途：帮助创作者检查关卡脚本、战场底图、地形索引是否成套；新增关卡或替换地图时优先查看缺失/不完整行。可导出联动 CSV、当前预览 PNG 和中文检查报告作为制作证据。";
-    }
-
-    private void ExportScenarioMapLinksCsv() =>
-        ExportGridItemsCsv<ScenarioMapLinkInfo>(_scenarioMapLinkGrid, "导出关卡地图联动", "关卡地图联动.csv", "ScenarioMapLinks", "关卡地图联动");
-
-    private void WriteScenarioMapLinkReport()
-    {
-        if (_project == null)
-        {
-            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (_currentScenarioMapLinks.Count == 0)
-        {
-            MessageBox.Show(this, "请先生成关卡地图联动。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            var visibleRows = GetGridItems<ScenarioMapLinkInfo>(_scenarioMapLinkGrid);
-            var notes = _currentCreatorNotes.Count > 0 ? _currentCreatorNotes : _creatorNoteService.Load(_project);
-            var noteCounts = BuildScenarioMapLinkNoteCounts(notes, _currentScenarioMapLinks);
-            var path = _scenarioMapLinkReportService.WriteReport(
-                _project,
-                _currentScenarioMapLinks,
-                visibleRows.Count > 0 ? visibleRows : _currentScenarioMapLinks,
-                noteCounts);
-            Log("已导出关卡地图联动检查报告：" + path);
-            SetStatus("关卡地图联动检查报告已导出");
-            RefreshProjectEvidence(updateStatus: false);
-            RefreshWorkflowGuide(updateStatus: false);
-            _scenarioMapLinkInfoBox.Text =
-                "关卡地图联动检查报告已导出：\r\n" +
-                path + "\r\n\r\n" +
-                "报告包含状态分布、不完整联动、完整候选示例、当前显示明细、创作者备注数量和安全边界。该操作只写入 CCZModStudio_Reports，不修改游戏文件。";
-            MessageBox.Show(this, "关卡地图联动检查报告已导出：\r\n" + path, "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-        catch (Exception ex)
-        {
-            Log("导出关卡地图联动检查报告失败：" + ex);
-            MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private Dictionary<string, int> BuildScenarioMapLinkNoteCounts(IEnumerable<CreatorNote> notes, IEnumerable<ScenarioMapLinkInfo> links)
-    {
-        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var key in links.Select(BuildScenarioMapLinkCreatorNoteTargetKey).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            var count = _creatorNoteRelationService.CountExact(notes, "关卡地图联动", key);
-            if (count > 0) result[key] = count;
-        }
-
-        return result;
-    }
-
-    private ScenarioMapLinkInfo? GetSelectedScenarioMapLink()
-    {
-        if (_scenarioMapLinkGrid.SelectedRows.Count > 0 && _scenarioMapLinkGrid.SelectedRows[0].DataBoundItem is ScenarioMapLinkInfo selectedItem) return selectedItem;
-        if (_scenarioMapLinkGrid.CurrentRow?.DataBoundItem is ScenarioMapLinkInfo currentItem) return currentItem;
-        return null;
-    }
-
-    private static string BuildScenarioMapLinkCreatorNoteTargetKey(ScenarioMapLinkInfo item)
-        => ScenarioMapLinkReportService.BuildCreatorNoteTargetKey(item);
-
-    private void LocateSelectedScenarioMapImage()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null || string.IsNullOrWhiteSpace(item.MapImagePath) || !File.Exists(item.MapImagePath))
-        {
-            MessageBox.Show(this, "当前行没有可定位的地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-        OpenFileLocation(item.MapImagePath);
-    }
-
-    private void LocateSelectedScenarioMapScenarioFile()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null || string.IsNullOrWhiteSpace(item.ScenarioPath) || !File.Exists(item.ScenarioPath))
-        {
-            MessageBox.Show(this, "当前行没有可定位的 SV 剧本文件。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-        OpenFileLocation(item.ScenarioPath);
-    }
-
-    private void JumpSelectedScenarioMapScenario()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null)
-        {
-            MessageBox.Show(this, "请先选择一条关卡地图联动记录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (!SelectScenarioFileForNavigation(item.ScenarioFileName))
-        {
-            SelectTabPageByText("剧本制作");
-            MessageBox.Show(this, "剧本制作页没有找到对应 R/S 剧本；如果这是旧 E5S 兼容文件，请在关卡地图联动页继续查看预览和文件定位。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        SetStatus($"已从关卡地图联动跳转到剧本制作：{item.ScenarioFileName}");
-    }
-
-    private void JumpSelectedScenarioMapHexzmap()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null)
-        {
-            MessageBox.Show(this, "请先选择一条关卡地图联动记录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (!item.HexzmapBlockExists)
-        {
-            MessageBox.Show(this, "当前关卡没有匹配到 Hexzmap 地形块。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        SelectTabPageByText("地图制作");
-        if (_mapImageList.Items.Count == 0)
-        {
-            LoadMapImages();
-        }
-
-        if (SelectMapImageByName(item.MapImageName) ||
-            SelectMapImageByName(item.MapId))
-        {
-            SetStatus($"已从关卡地图联动跳转到地图制作地形层：{item.MapId}");
-        }
-        else
-        {
-            SetStatus($"已打开地图制作，请在地形层中查看 Hexzmap 候选：{item.MapId}");
-        }
-    }
-
-    private void JumpSelectedScenarioMapViewer()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null)
-        {
-            MessageBox.Show(this, "请先选择一条关卡地图联动记录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (!item.MapImageExists)
-        {
-            MessageBox.Show(this, "当前关卡没有匹配到地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        SelectTabPageByText("地图制作");
-        if (_mapImageList.Items.Count == 0) LoadMapImages();
-        for (var i = 0; i < _mapImageList.Items.Count; i++)
-        {
-            if (_mapImageList.Items[i] is not ResourceIndexItem map) continue;
-            if (!map.Name.Equals(item.MapImageName, StringComparison.OrdinalIgnoreCase) &&
-                !map.Id.Equals(item.MapId.TrimStart('M', 'm'), StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            _mapImageList.SelectedIndex = i;
-            LoadSelectedMapImage();
-            SetStatus($"已从关卡地图联动跳转到地图制作：{item.MapImageName}");
-            return;
-        }
-
-        MessageBox.Show(this, "地图制作列表中没有找到对应地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-    }
-
-    private void ExportSelectedScenarioMapPreviewPng()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null)
-        {
-            MessageBox.Show(this, "请先选择一条关卡地图联动记录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (!item.MapImageExists && !item.HexzmapBlockExists)
-        {
-            MessageBox.Show(this, "当前行没有地图图片或 Hexzmap 地形块，无法导出预览。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        var exportRoot = _project != null
-            ? Path.Combine(_project.WorkspaceRoot, "CCZModStudio_Exports")
-            : Directory.GetCurrentDirectory();
-        Directory.CreateDirectory(exportRoot);
-        var mode = item.MapImageExists && item.HexzmapBlockExists
-            ? "底图地形叠加"
-            : item.MapImageExists
-                ? "地图底图"
-                : "地形色块";
-        using var dialog = new SaveFileDialog
-        {
-            Title = "导出关卡地图联动预览 PNG",
-            Filter = "PNG 图片 (*.png)|*.png|所有文件 (*.*)|*.*",
-            FileName = MakeSafeFileName($"{item.ScenarioFileName}_{item.MapId}_{mode}.png"),
-            InitialDirectory = exportRoot
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            using var bitmap = RenderScenarioMapLinkPreviewForExport(item);
-            bitmap.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
-            Log("已导出关卡地图联动预览 PNG：" + dialog.FileName);
-            SetStatus("关卡地图联动预览 PNG 导出完成");
-            RefreshProjectEvidence(updateStatus: false);
-            RefreshWorkflowGuide(updateStatus: false);
-        }
-        catch (Exception ex)
-        {
-            Log("导出关卡地图联动预览 PNG 失败：" + ex);
-            MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private Bitmap RenderScenarioMapLinkPreviewForExport(ScenarioMapLinkInfo item)
-    {
-        if (_currentHexzmapProbe != null && item.HexzmapBlockExists)
-        {
-            var block = _currentHexzmapProbe.Blocks.FirstOrDefault(x => x.MapId.Equals(item.MapId, StringComparison.OrdinalIgnoreCase));
-            if (block != null)
-            {
-                var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
-                if (cells.Length == block.BytesRead)
-                {
-                    return item.MapImageExists && File.Exists(item.MapImagePath)
-                        ? _hexzmapTerrainRenderService.RenderOverlay(cells, block.Width, block.Height, item.MapImagePath, 45)
-                        : RenderHexzmapCells(cells, block.Width, block.Height);
-                }
-            }
-        }
-
-        if (item.MapImageExists && File.Exists(item.MapImagePath))
-        {
-            using var source = Image.FromFile(item.MapImagePath);
-            return new Bitmap(source);
-        }
-
-        throw new InvalidOperationException("当前联动行没有可导出的预览图。");
-    }
-
-    private void ShowSelectedScenarioMapLink()
-    {
-        var item = GetSelectedScenarioMapLink();
-        if (item == null) return;
-
-        _locateScenarioMapScenarioButton.Enabled = File.Exists(item.ScenarioPath);
-        _locateScenarioMapImageButton.Enabled = item.MapImageExists;
-        _jumpScenarioMapScenarioButton.Enabled = File.Exists(item.ScenarioPath);
-        _jumpScenarioMapHexzmapButton.Enabled = item.HexzmapBlockExists;
-        _jumpScenarioMapViewerButton.Enabled = item.MapImageExists;
-        _exportScenarioMapPreviewPngButton.Enabled = item.MapImageExists || item.HexzmapBlockExists;
-        _scenarioMapImagePreviewBox.Image?.Dispose();
-        _scenarioMapImagePreviewBox.Image = null;
-        if (item.MapImageExists && File.Exists(item.MapImagePath))
-        {
-            try
-            {
-                using var image = Image.FromFile(item.MapImagePath);
-                _scenarioMapImagePreviewBox.Image = new Bitmap(image);
-            }
-            catch (Exception ex)
-            {
-                Log("关卡地图图片预览失败：" + ex.Message);
-            }
-        }
-
-        _scenarioMapTerrainPreviewBox.Image?.Dispose();
-        _scenarioMapTerrainPreviewBox.Image = null;
-        if (_currentHexzmapProbe != null && item.HexzmapBlockExists)
-        {
-            var block = _currentHexzmapProbe.Blocks.FirstOrDefault(x => x.MapId.Equals(item.MapId, StringComparison.OrdinalIgnoreCase));
-            if (block != null)
-            {
-                var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
-                if (cells.Length == block.BytesRead)
-                {
-                    _scenarioMapTerrainPreviewBox.Image = item.MapImageExists && File.Exists(item.MapImagePath)
-                        ? _hexzmapTerrainRenderService.RenderOverlay(cells, block.Width, block.Height, item.MapImagePath, 45)
-                        : RenderHexzmapCells(cells, block.Width, block.Height);
-                }
-            }
-        }
-
-        var targetKey = BuildScenarioMapLinkCreatorNoteTargetKey(item);
-        SetLastCreatorNoteContext(
-            "关卡地图联动",
-            targetKey,
-            $"{item.ScenarioFileName} / {item.MapId}",
-            "从关卡地图联动页抓取。",
-            $"标题：{item.ScenarioTitle}\r\n状态：{item.Status}\r\n地形：{item.TopTerrainNames}\r\n设计备注：");
-        _scenarioMapLinkInfoBox.Text =
-            $"关卡：{item.ScenarioFileName}    ID={item.ScenarioId}    类型={item.ScenarioKind}    标题={item.ScenarioTitle}\r\n" +
-            $"候选地图：{item.MapId}    图片：{(item.MapImageExists ? item.MapImageName : "缺失")}    地形块：{(item.HexzmapBlockExists ? "存在 " + item.HexzmapOffsetHex : "缺失")}    状态：{item.Status}\r\n" +
-            $"主地形：{item.DominantTerrain}    已知图例：{item.KnownTerrainCount}\r\n" +
-            $"高频地形：{item.TopTerrainNames}\r\n" +
-            "右侧地形预览：有地图图片时会显示“地图底图 + 半透明地形格”叠加图，格数来自地图分辨率/48，便于核对底图与 Hexzmap 是否对齐。\r\n" +
-            "联动按钮：可跳到剧本制作、地图制作或直接定位资源文件，继续查看剧本线索、地形索引与底图证据；也可导出当前联动预览 PNG 和中文检查报告，用于发布前记录、美术沟通和缺失排查。\r\n" +
-            $"说明：{item.Annotation}\r\n" +
-            $"建议：{item.Suggestion}\r\n" +
-            $"E5S/旧兼容路径：{item.ScenarioPath}\r\n地图路径：{item.MapImagePath}" +
-            BuildRelatedCreatorNotesText("关卡地图联动", targetKey);
-        SetStatus($"关卡地图联动：{item.ScenarioFileName} -> {item.MapId}");
-    }
 
     private bool EnsureMapMakerHexzmapLoaded(bool showMessage)
     {
@@ -1171,7 +622,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("地图制作读取 Hexzmap.e5 失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("地图制作读取 Hexzmap.e5 失败：" + ex);
             if (showMessage) MessageBox.Show(this, ex.Message, "读取地形层失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
@@ -1229,7 +680,7 @@ public sealed partial class MainForm
         RenderMapMakerPreview();
     }
 
-    private HexzmapBlockInfo? FindHexzmapBlockForMap(ResourceIndexItem item)
+    private HexzmapBlockInfo? FindHexzmapBlockForMap(MapResourceItem item)
     {
         if (_currentHexzmapProbe == null) return null;
         var mapId = GetMapIdForMapResource(item);
@@ -1237,7 +688,7 @@ public sealed partial class MainForm
         return _currentHexzmapProbe.Blocks.FirstOrDefault(block => block.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private HexzmapBlockInfo? TryGetMatchingHexzmapBlockForMap(ResourceIndexItem item)
+    private HexzmapBlockInfo? TryGetMatchingHexzmapBlockForMap(MapResourceItem item)
     {
         if (!EnsureMapMakerHexzmapLoaded(showMessage: false)) return null;
         var block = FindHexzmapBlockForMap(item);
@@ -1245,7 +696,7 @@ public sealed partial class MainForm
         return item.GridWidth == block.Width && item.GridHeight == block.Height ? block : null;
     }
 
-    private static string GetMapIdForMapResource(ResourceIndexItem item)
+    private static string GetMapIdForMapResource(MapResourceItem item)
     {
         var name = Path.GetFileNameWithoutExtension(item.Name);
         if (name.Length > 1 && (name[0] == 'M' || name[0] == 'm') &&
@@ -1280,7 +731,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("读取地图工作台设置失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("读取地图工作台设置失败：" + ex.Message);
             _mapWorkbenchSettings = new MapWorkbenchSettings();
         }
     }
@@ -1294,7 +745,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存地图工作台设置失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("保存地图工作台设置失败：" + ex.Message);
         }
     }
 
@@ -1352,7 +803,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("载入地图工作台草稿失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("载入地图工作台草稿失败：" + ex);
             MessageBox.Show(this, ex.Message, "载入草稿失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -1374,12 +825,12 @@ public sealed partial class MainForm
             _mapWorkbenchSettings.LastMaterialRoot = _currentMapWorkbenchDraft.MaterialRoot;
             SaveMapWorkbenchSettings();
             _mapViewerInfoBox.Text = BuildMapMakerInfo("草稿已保存。");
-            Log($"已保存地图工作台草稿：{_currentMapWorkbenchDraft.DraftId}");
+            System.Diagnostics.Debug.WriteLine($"已保存地图工作台草稿：{_currentMapWorkbenchDraft.DraftId}");
             SetStatus("地图草稿保存完成");
         }
         catch (Exception ex)
         {
-            Log("保存地图工作台草稿失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存地图工作台草稿失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存草稿失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -1448,7 +899,7 @@ public sealed partial class MainForm
     private void BindMapWorkbenchDraftToEditor(bool resetHistory)
     {
         if (_currentMapWorkbenchDraft == null) return;
-        _currentMapWorkbenchDraft.TileSize = ResourceIndexItem.MapTilePixelSize;
+        _currentMapWorkbenchDraft.TileSize = MapResourceItem.MapTilePixelSize;
         var cellCount = _currentMapWorkbenchDraft.GridWidth * _currentMapWorkbenchDraft.GridHeight;
         if (_currentMapWorkbenchDraft.TerrainCells.Length != cellCount)
         {
@@ -1586,7 +1037,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("地图工作台素材库索引失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("地图工作台素材库索引失败：" + ex);
             MessageBox.Show(this, ex.Message, "素材库索引失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -1674,19 +1125,19 @@ public sealed partial class MainForm
         {
             _mapMakerMaterialPreview.Image?.Dispose();
             _mapMakerMaterialPreview.Image = null;
-            Log($"地图工作台素材预览失败：{asset.FilePath} {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"地图工作台素材预览失败：{asset.FilePath} {ex.Message}");
         }
     }
 
-    private ResourceIndexItem? FindMapResourceByMapId(string mapId)
+    private MapResourceItem? FindMapResourceByMapId(string mapId)
     {
         if (string.IsNullOrWhiteSpace(mapId)) return null;
-        if (_currentGameResources.Count == 0 && _project != null)
+        if (_currentMapResources.Count == 0 && _project != null)
         {
-            _currentGameResources = _gameResourceIndexer.Index(_project);
+            _currentMapResources = _mapResourceIndexer.Index(_project);
         }
 
-        return _currentGameResources
+        return _currentMapResources
             .Where(x => x.Category == "地图图片")
             .FirstOrDefault(x => GetMapIdForMapResource(x).Equals(mapId, StringComparison.OrdinalIgnoreCase));
     }
@@ -1802,6 +1253,7 @@ public sealed partial class MainForm
         if (_currentMapWorkbenchDraft == null || _mapViewerBox.Image == null) return;
         if (!TryMapPictureBoxPointToTerrainCell(_mapViewerBox, location, _currentMapWorkbenchDraft.GridWidth, _currentMapWorkbenchDraft.GridHeight, out var x, out var y)) return;
         var index = y * _currentMapWorkbenchDraft.GridWidth + x;
+        UpdateMapMakerCellPreview(x, y, _terrainEditorCells.Length > index ? FormatTerrainValue(_terrainEditorCells[index]) : "未知");
 
         if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.MapBrush)
         {
@@ -1857,6 +1309,7 @@ public sealed partial class MainForm
         }
 
         RenderMapMakerPreview();
+        UpdateMapMakerCellPreview(x, y, _terrainEditorCells.Length > index ? FormatTerrainValue(_terrainEditorCells[index]) : "未知");
         _mapViewerInfoBox.Text = BuildMapMakerInfo($"地图画笔：格子 ({x},{y}) <- {_mapMakerSelectedMaterial.Category}/{_mapMakerSelectedMaterial.FileName}", x, y);
         SetStatus($"地图画笔：({x},{y})");
     }
@@ -1888,6 +1341,7 @@ public sealed partial class MainForm
         }
 
         RenderMapMakerPreview();
+        UpdateMapMakerCellPreview(x, y, FormatTerrainValue(newValue));
         _mapViewerInfoBox.Text = BuildMapMakerInfo($"格子 ({x},{y})：{FormatTerrainValue(oldValue)} -> {FormatTerrainValue(newValue)}", x, y);
         SetStatus($"地形画笔：({x},{y})");
     }
@@ -1987,13 +1441,33 @@ public sealed partial class MainForm
                 DisplayName = value.DisplayName
             };
 
+    private void ClearMapMakerCellPreview()
+    {
+        _mapViewerCellPreviewLabel.Text = "地形：-    坐标：-";
+    }
+
+    private void UpdateMapMakerCellPreview(int x, int y, string terrain)
+    {
+        _mapViewerCellPreviewLabel.Text = $"地形：{terrain}    坐标：({x}, {y})";
+    }
+
     private void UpdateMapMakerCellInfo(Point location)
     {
-        if (_currentMapWorkbenchDraft == null || _mapViewerBox.Image == null) return;
-        if (!TryMapPictureBoxPointToTerrainCell(_mapViewerBox, location, _currentMapWorkbenchDraft.GridWidth, _currentMapWorkbenchDraft.GridHeight, out var x, out var y)) return;
+        if (_currentMapWorkbenchDraft == null || _mapViewerBox.Image == null)
+        {
+            ClearMapMakerCellPreview();
+            return;
+        }
+
+        if (!TryMapPictureBoxPointToTerrainCell(_mapViewerBox, location, _currentMapWorkbenchDraft.GridWidth, _currentMapWorkbenchDraft.GridHeight, out var x, out var y))
+        {
+            ClearMapMakerCellPreview();
+            return;
+        }
         var index = y * _currentMapWorkbenchDraft.GridWidth + x;
         var terrain = _terrainEditorCells.Length > index ? FormatTerrainValue(_terrainEditorCells[index]) : "未知";
         var mapCell = _currentMapWorkbenchDraft.MapCellOverrides.FirstOrDefault(cell => cell.Index == index);
+        UpdateMapMakerCellPreview(x, y, terrain);
         var mapText = mapCell == null ? "底稿/空白" : $"{mapCell.MaterialCategory}/{mapCell.DisplayName}";
         _mapViewerInfoBox.Text = BuildMapMakerInfo($"当前格子 ({x},{y})：地图={mapText}，地形={terrain}。", x, y);
     }
@@ -2119,8 +1593,7 @@ public sealed partial class MainForm
             $"模式：{modeText}    地图覆盖格={_currentMapWorkbenchDraft.MapCellOverrides.Count}    地形画笔={FormatTerrainValue((byte)_mapMakerTerrainBrushInput.Value)}    草稿地形改动={CountMapWorkbenchTerrainChangedCells()}    撤销={_mapMakerMapUndoStack.Count + _mapMakerTerrainUndoStack.Count}    重做={_mapMakerMapRedoStack.Count + _mapMakerTerrainRedoStack.Count}{cellText}\r\n" +
             $"发布状态：{terrainText}\r\n" +
             $"素材库：{(string.IsNullOrWhiteSpace(_currentMapWorkbenchDraft.MaterialRoot) ? "未选择" : _currentMapWorkbenchDraft.MaterialRoot)}\r\n" +
-            $"底稿：{(string.IsNullOrWhiteSpace(_currentMapWorkbenchDraft.BaseLayerPath) ? "无底稿；导出未填充格为纯黑" : _currentMapWorkbenchDraft.BaseLayerPath)}" +
-            BuildRelatedCreatorNotesText("游戏资源", targetKey);
+            $"底稿：{(string.IsNullOrWhiteSpace(_currentMapWorkbenchDraft.BaseLayerPath) ? "无底稿；导出未填充格为纯黑" : _currentMapWorkbenchDraft.BaseLayerPath)}";
     }
 
     private string BuildMapWorkbenchPublishReasonText()
@@ -2246,12 +1719,9 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var selectedName = _currentMapMakerItem.Name;
             var result = _mapImageReplaceService.ReplaceMapImage(_project, _currentMapMakerItem.Path, dialog.FileName);
-            _currentGameResources = _gameResourceIndexer.Index(_project);
             LoadMapImages();
             SelectMapImageByName(selectedName);
-            _currentResourceDiagnostics = Array.Empty<ResourceDiagnosticItem>();
-            RefreshScenarioMapLinksAfterMapImageSave(GetMapIdForMapResource(_currentMapMakerItem ?? new ResourceIndexItem { Name = selectedName }));
-            Log($"已替换地图底图：{selectedName} backup={result.BackupPath} report={result.ReportJsonPath}");
+            System.Diagnostics.Debug.WriteLine($"已替换地图底图：{selectedName} backup={result.BackupPath} report={result.ReportJsonPath}");
             MessageBox.Show(this,
                 $"地图底图替换完成。\r\n尺寸：{result.OldWidth}x{result.OldHeight} -> {result.NewWidth}x{result.NewHeight}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}",
                 "替换完成",
@@ -2260,33 +1730,12 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("替换地图底图失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("替换地图底图失败：" + ex);
             MessageBox.Show(this, ex.Message, "替换地图底图失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
             Cursor = Cursors.Default;
-        }
-    }
-
-    private void RefreshScenarioMapLinksAfterMapImageSave(string mapId)
-    {
-        if (_scenarioMapLinkGrid.DataSource == null || _currentScenarioFiles.Count == 0 || _currentGameResources.Count == 0)
-        {
-            return;
-        }
-
-        try
-        {
-            LoadScenarioMapLinks();
-            if (!string.IsNullOrWhiteSpace(mapId))
-            {
-                SelectGridRow<ScenarioMapLinkInfo>(_scenarioMapLinkGrid, link => link.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-        catch (Exception ex)
-        {
-            Log("地图底图替换后刷新关卡地图联动失败：" + ex.Message);
         }
     }
 
@@ -2314,12 +1763,12 @@ public sealed partial class MainForm
         try
         {
             _mapViewerBox.Image.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
-            Log("已导出地图制作预览 PNG：" + dialog.FileName);
+            System.Diagnostics.Debug.WriteLine("已导出地图制作预览 PNG：" + dialog.FileName);
             SetStatus("地图制作预览 PNG 导出完成");
         }
         catch (Exception ex)
         {
-            Log("导出地图制作预览 PNG 失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出地图制作预览 PNG 失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -2350,19 +1799,19 @@ public sealed partial class MainForm
         {
             _mapCanvasPublishService.ExportJpeg(_currentMapWorkbenchDraft, dialog.FileName);
             using var verify = Image.FromFile(dialog.FileName);
-            var expectedWidth = _currentMapWorkbenchDraft.GridWidth * ResourceIndexItem.MapTilePixelSize;
-            var expectedHeight = _currentMapWorkbenchDraft.GridHeight * ResourceIndexItem.MapTilePixelSize;
+            var expectedWidth = _currentMapWorkbenchDraft.GridWidth * MapResourceItem.MapTilePixelSize;
+            var expectedHeight = _currentMapWorkbenchDraft.GridHeight * MapResourceItem.MapTilePixelSize;
             if (verify.Width != expectedWidth || verify.Height != expectedHeight)
             {
                 throw new InvalidOperationException($"导出 JPG 尺寸校验失败：实际 {verify.Width}x{verify.Height}，期望 {expectedWidth}x{expectedHeight}。");
             }
 
-            Log("已导出地图工作台 JPG：" + dialog.FileName);
+            System.Diagnostics.Debug.WriteLine("已导出地图工作台 JPG：" + dialog.FileName);
             SetStatus("地图工作台 JPG 导出完成");
         }
         catch (Exception ex)
         {
-            Log("导出地图工作台 JPG 失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出地图工作台 JPG 失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -2398,12 +1847,9 @@ public sealed partial class MainForm
             _mapDraftService.SaveDraft(_project, _currentMapWorkbenchDraft);
             _mapWorkbenchSettings.LastDraftId = _currentMapWorkbenchDraft.DraftId;
             SaveMapWorkbenchSettings();
-            _currentGameResources = _gameResourceIndexer.Index(_project);
             LoadMapImages();
             SelectMapImageByName(selectedName);
-            _currentResourceDiagnostics = Array.Empty<ResourceDiagnosticItem>();
-            RefreshScenarioMapLinksAfterMapImageSave(GetMapIdForMapResource(_currentMapMakerItem ?? new ResourceIndexItem { Name = selectedName }));
-            Log($"已发布地图工作台底图：{selectedName} backup={result.BackupPath} report={result.ReportJsonPath}");
+            System.Diagnostics.Debug.WriteLine($"已发布地图工作台底图：{selectedName} backup={result.BackupPath} report={result.ReportJsonPath}");
             MessageBox.Show(this,
                 $"发布到底图完成。\r\n尺寸：{result.OldWidth}x{result.OldHeight} -> {result.NewWidth}x{result.NewHeight}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}",
                 "发布完成",
@@ -2412,7 +1858,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("发布地图工作台底图失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("发布地图工作台底图失败：" + ex);
             MessageBox.Show(this, ex.Message, "发布到底图失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -2482,10 +1928,8 @@ public sealed partial class MainForm
             _mapMakerOriginalTerrainCells = reread.ToArray();
             _currentMapWorkbenchDraft.TerrainCells = reread.ToArray();
             _mapDraftService.SaveDraft(_project, _currentMapWorkbenchDraft);
-            RefreshScenarioMapLinksAfterTerrainSave(result.MapId);
-            _currentResourceDiagnostics = Array.Empty<ResourceDiagnosticItem>();
             RenderMapMakerPreview();
-            Log($"已发布地图工作台地形层：{result.MapId} changed={result.ChangedCells} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已发布地图工作台地形层：{result.MapId} changed={result.ChangedCells} backup={result.BackupPath}");
             MessageBox.Show(this,
                 $"发布到地形层完成。\r\n改动格子：{result.ChangedCells}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}",
                 "发布完成",
@@ -2494,7 +1938,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("发布地图工作台地形层失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("发布地图工作台地形层失败：" + ex);
             MessageBox.Show(this, ex.Message, "发布地形层失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -2520,7 +1964,7 @@ public sealed partial class MainForm
         var mapId = mapImageName.TrimStart('M', 'm');
         for (var i = 0; i < _mapImageList.Items.Count; i++)
         {
-            if (_mapImageList.Items[i] is not ResourceIndexItem map) continue;
+            if (_mapImageList.Items[i] is not MapResourceItem map) continue;
             if (!map.Name.Equals(mapImageName, StringComparison.OrdinalIgnoreCase) &&
                 !map.Id.Equals(mapId, StringComparison.OrdinalIgnoreCase)) continue;
             _mapImageList.SelectedIndex = i;
@@ -2542,27 +1986,27 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            if (_currentGameResources.Count == 0)
+            if (_currentMapResources.Count == 0)
             {
-                _currentGameResources = _gameResourceIndexer.Index(_project);
+                _currentMapResources = _mapResourceIndexer.Index(_project);
             }
 
-            var maps = _currentGameResources
+            var maps = _currentMapResources
                 .Where(x => x.Category == "地图图片")
                 .OrderBy(x => x.Id)
                 .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
-            _mapImageList.DisplayMember = nameof(ResourceIndexItem.Name);
-            _mapImageList.DataSource = new BindingList<ResourceIndexItem>(maps);
+            _mapImageList.DisplayMember = nameof(MapResourceItem.Name);
+            _mapImageList.DataSource = new BindingList<MapResourceItem>(maps);
             _mapViewerInfoBox.Text = $"Map 目录地图图片：{maps.Count} 张。选择左侧条目后，可叠加 Hexzmap.e5 地形层、查看格坐标、直接绘制地形或替换底图。";
-            Log($"已读取 Map 图片：{maps.Count} 张。");
+            System.Diagnostics.Debug.WriteLine($"已读取 Map 图片：{maps.Count} 张。");
             SetStatus("Map 图片读取完成");
             if (maps.Count > 0) _mapImageList.SelectedIndex = 0;
         }
         catch (Exception ex)
         {
             _mapViewerInfoBox.Text = ex.ToString();
-            Log("Map 图片读取失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("Map 图片读取失败：" + ex);
             MessageBox.Show(this, ex.Message, "Map 图片读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -2573,7 +2017,7 @@ public sealed partial class MainForm
 
     private void LoadSelectedMapImage()
     {
-        if (_mapImageList.SelectedItem is not ResourceIndexItem item) return;
+        if (_mapImageList.SelectedItem is not MapResourceItem item) return;
         if (_project == null) return;
 
         try
@@ -2587,12 +2031,6 @@ public sealed partial class MainForm
             _mapViewerImage = null;
             using var source = Image.FromFile(item.Path);
             var targetKey = $"{item.Category}/{item.Name}";
-            SetLastCreatorNoteContext(
-                "游戏资源",
-                targetKey,
-                $"地图图片：{item.Name}",
-                "从地图制作页抓取；用于记录战场底图用途、替换记录、地形层调整和实机验证。",
-                $"地图：{item.Name}\r\n尺寸：{source.Width}x{source.Height}\r\n路径：{item.Path}\r\n用途：\r\n替换/验证记录：");
             _currentMapWorkbenchDraft = _mapDraftService.CreateDraftFromMap(_project, item, _mapWorkbenchSettings.LastMaterialRoot);
             var block = TryGetMatchingHexzmapBlockForMap(item);
             if (block != null && _currentHexzmapProbe != null)
@@ -2620,7 +2058,7 @@ public sealed partial class MainForm
             _mapViewerImage?.Dispose();
             _mapViewerImage = null;
             _mapViewerInfoBox.Text = ex.ToString();
-            Log("地图图片加载失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("地图图片加载失败：" + ex);
             UpdateMapMakerEditingButtons();
         }
         finally

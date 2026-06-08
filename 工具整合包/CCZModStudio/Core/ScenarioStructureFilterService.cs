@@ -117,7 +117,7 @@ public sealed class ScenarioStructureFilterService
 
         if (NoTemplateButImportant(row))
         {
-            return "缺少参数模板的关键命令：当前只能看到 16 位词预览，尚不能确认每个参数槽位，建议只做定位和备注。";
+            return "缺少参数模板的关键命令：当前只能看到 16 位词预览，尚不能确认每个参数槽位，建议只做定位和核对记录。";
         }
 
         if (ContainsAny(row.ReferenceHint, "超长", "不可写回"))

@@ -6,7 +6,7 @@ public sealed class MapWorkbenchDraft
     public string BoundMapId { get; set; } = string.Empty;
     public int GridWidth { get; set; } = 30;
     public int GridHeight { get; set; } = 30;
-    public int TileSize { get; set; } = ResourceIndexItem.MapTilePixelSize;
+    public int TileSize { get; set; } = MapResourceItem.MapTilePixelSize;
     public string BaseLayerPath { get; set; } = string.Empty;
     public string MaterialRoot { get; set; } = string.Empty;
     public List<MapCellOverride> MapCellOverrides { get; set; } = new();

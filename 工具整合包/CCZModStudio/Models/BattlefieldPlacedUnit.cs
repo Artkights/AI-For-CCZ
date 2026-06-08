@@ -18,5 +18,5 @@ public sealed class BattlefieldPlacedUnit
     public int GridX { get; set; }
     public int GridY { get; set; }
     public string Source { get; set; } = "拖放";
-    public string Memo { get; set; } = string.Empty;
+    public string PlacementNote { get; set; } = string.Empty;
 }

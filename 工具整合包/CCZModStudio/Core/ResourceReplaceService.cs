@@ -558,7 +558,7 @@ public sealed class ResourceReplaceService
 
         if (changedBytes > 0 && risks.Count == 0)
         {
-            risks.Add("未发现明显格式风险；仍建议替换后运行资源诊断并进入游戏实测。");
+            risks.Add("未发现明显格式风险；仍建议替换后核对资源格式并进入游戏实测。");
         }
 
         return risks.Count == 0

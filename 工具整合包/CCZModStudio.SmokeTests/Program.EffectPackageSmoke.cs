@@ -142,10 +142,9 @@ internal partial class Program
             throw new InvalidOperationException("宝物特效删除后仍存在物品引用。");
         }
     
-        var itemRollback = service.RollbackManifest(testProject, itemDelete.ManifestId);
-        if (!itemRollback.RolledBack || itemRollback.RestoredFiles.Count < 2)
+        if (itemDelete.BackupPaths.Count < 2 || string.IsNullOrWhiteSpace(itemDelete.ManifestPath))
         {
-            throw new InvalidOperationException("宝物特效 manifest 回滚未恢复表格/目录备份。");
+            throw new InvalidOperationException("宝物特效删除未生成备份文件或 manifest。");
         }
     
         var jobPackage = service.BuildPackageFromTemplate("config.job.assignment", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

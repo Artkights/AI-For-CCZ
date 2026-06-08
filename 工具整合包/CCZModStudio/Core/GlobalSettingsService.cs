@@ -219,7 +219,7 @@ public sealed class GlobalSettingsService
             Summary = $"保存全局设定“游戏标题”，目标 Ekd5.exe@0x{GameTitleOffset:X}，字节改动 {changedBytes:N0}。",
             SafetyNotes = project.IsTestCopy
                 ? "该报告由测试副本写入流程自动生成。"
-                : "保存前已备份 Ekd5.exe；如需回退，请使用备份文件或备份历史功能。",
+                : "保存前已备份 Ekd5.exe；如需回退，请使用备份文件手动恢复。",
             Changes =
             {
                 new WriteOperationChange

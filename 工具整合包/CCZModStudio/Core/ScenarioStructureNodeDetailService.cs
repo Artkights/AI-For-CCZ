@@ -9,7 +9,7 @@ namespace CCZModStudio.Core;
 
 /// <summary>
 /// 把 SV/E5S 结构草图中的单个节点整理成创作者可读的中文解释。
-/// 当前只做“命令候选、文本线索、地图联动”的只读汇总，不作为剧本写回依据。
+/// 当前只做“命令候选、文本线索、地图”的只读汇总，不作为剧本写回依据。
 /// </summary>
 public sealed class ScenarioStructureNodeDetailService
 {
@@ -19,7 +19,6 @@ public sealed class ScenarioStructureNodeDetailService
         ScenarioStructureRow row,
         string scenarioFileName,
         IReadOnlyList<ScenarioTextEntry> textEntries,
-        ScenarioMapLinkInfo? mapLink,
         CczProject? project = null,
         IReadOnlyList<HexTableDefinition>? tables = null,
         int maxTextItems = 6)
@@ -42,8 +41,8 @@ public sealed class ScenarioStructureNodeDetailService
             builder.AppendLine($"旧版参数布局：{row.LegacyParameterLayout}");
         }
         AppendLegacyStructureFlags(builder, row);
-        AppendParameterGroups(builder, row, mapLink, BuildNameLookups(project, tables));
-        builder.AppendLine(_commandParameterTemplateService.BuildTemplateDetail(row, mapLink, project, tables));
+        AppendParameterGroups(builder, row, BuildNameLookups(project, tables));
+        builder.AppendLine(_commandParameterTemplateService.BuildTemplateDetail(row, project, tables));
         if (!string.IsNullOrWhiteSpace(row.ReferenceHint))
         {
             builder.AppendLine($"跨表/资源候选：{row.ReferenceHint}");
@@ -54,14 +53,12 @@ public sealed class ScenarioStructureNodeDetailService
         }
 
         AppendScenarioTextHints(builder, row, textEntries, maxTextItems);
-        AppendScenarioMapHint(builder, row, mapLink);
-
         builder.AppendLine();
-        builder.AppendLine("创作提示：该详情用于定位剧情、文本、地图和资源候选。由于 SV/E5S 完整命令参数长度尚未完全确认，当前结论只读参考；若要改文字，请优先使用“文本线索”页的原地短写回；若要改地图/地形，请先核对“关卡地图联动”和 Hexzmap 探针。");
+        builder.AppendLine("创作提示：该详情用于定位剧情、文本、地图和资源候选。由于 SV/E5S 完整命令参数长度尚未完全确认，当前结论只读参考；若要改文字，请优先使用“文本线索”页的原地短写回；若要改地图/地形，请先核对“关卡地图”和 Hexzmap 探针。");
         return builder.ToString();
     }
 
-    private static void AppendParameterGroups(StringBuilder builder, ScenarioStructureRow row, ScenarioMapLinkInfo? mapLink, NameLookups lookups)
+    private static void AppendParameterGroups(StringBuilder builder, ScenarioStructureRow row, NameLookups lookups)
     {
         var words = ScenarioStructureParameterExtractor.ExtractLogicalWords(row).Take(16).ToList();
         if (words.Count == 0)
@@ -113,14 +110,7 @@ public sealed class ScenarioStructureNodeDetailService
             .Where(word => word is >= 0 and <= 999)
             .Distinct()
             .Take(8)
-            .Select(word =>
-            {
-                var mapId = "M" + word.ToString("000", CultureInfo.InvariantCulture);
-                var current = mapLink != null && mapId.Equals(mapLink.MapId, StringComparison.OrdinalIgnoreCase)
-                    ? "（当前关卡同编号候选）"
-                    : string.Empty;
-                return $"{mapId}{current}";
-            })
+            .Select(word => "M" + word.ToString("000", CultureInfo.InvariantCulture))
             .ToList();
         if (mapRefs.Count > 0)
         {
@@ -170,32 +160,6 @@ public sealed class ScenarioStructureNodeDetailService
             }
         }
     }
-
-    private static void AppendScenarioMapHint(StringBuilder builder, ScenarioStructureRow row, ScenarioMapLinkInfo? mapLink)
-    {
-        if (mapLink == null)
-        {
-            builder.AppendLine();
-            builder.AppendLine("关卡地图联动：未找到同文件地图联动候选；可先在“关卡地图联动”页生成联动表。");
-            return;
-        }
-
-        builder.AppendLine();
-        builder.AppendLine(IsMapRelated(row)
-            ? "关卡地图联动（该命令疑似与地图/坐标/战场演出有关）："
-            : "关卡地图联动概览：");
-        builder.AppendLine($"- 关卡：{mapLink.ScenarioFileName}    标题：{ValueOrDash(mapLink.ScenarioTitle)}    候选地图：{ValueOrDash(mapLink.MapId)}");
-        builder.AppendLine($"- 状态：{mapLink.Status}    地图图片：{(mapLink.MapImageExists ? mapLink.MapImageName : "缺失")}    Hexzmap：{(mapLink.HexzmapBlockExists ? mapLink.HexzmapOffsetHex : "缺失")}");
-        if (!string.IsNullOrWhiteSpace(mapLink.DominantTerrain) || !string.IsNullOrWhiteSpace(mapLink.TopTerrainNames))
-        {
-            builder.AppendLine($"- 地形候选：主地形 {ValueOrDash(mapLink.DominantTerrain)}；高频地形 {ValueOrDash(mapLink.TopTerrainNames)}");
-        }
-        if (!string.IsNullOrWhiteSpace(mapLink.Suggestion))
-        {
-            builder.AppendLine($"- 建议：{mapLink.Suggestion}");
-        }
-    }
-
     private static int ScoreTextEntry(ScenarioStructureRow row, ScenarioTextEntry entry, bool isTextRelated)
     {
         var score = 0;

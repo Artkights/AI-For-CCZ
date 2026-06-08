@@ -66,7 +66,7 @@ public sealed partial class MainForm
         {
             _updatingScriptScenarioSelection = false;
             _scriptDetailBox.Text = ex.ToString();
-            Log("Load script scenario index failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("Load script scenario index failed: " + ex);
             MessageBox.Show(this, ex.Message, "\u8bfb\u53d6\u5267\u672c\u7d22\u5f15\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -171,7 +171,6 @@ public sealed partial class MainForm
                 UpdateScriptTextCapacityLabel();
                 _saveScriptTextButton.Enabled = false;
                 _saveScriptStructureButton.Enabled = _currentLegacyScriptDocument != null;
-                _createScriptNoteButton.Enabled = true;
                 _jumpScriptBattlefieldButton.Enabled = true;
                 _showScriptVariablesButton.Enabled = _currentLegacyScriptDocument != null;
                 _locateScriptCommandButton.Enabled = true;
@@ -209,7 +208,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _scriptDetailBox.Text = ex.ToString();
-            Log("Load script document failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("Load script document failed: " + ex);
             MessageBox.Show(this, ex.Message, "\u8bfb\u53d6\u5267\u672c\u5236\u4f5c\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -257,7 +256,7 @@ public sealed partial class MainForm
         {
             _updatingScriptScenarioSelection = false;
             _scriptDetailBox.Text = ex.ToString();
-            Log("\u8bfb\u53d6\u5267\u672c\u7d22\u5f15\u5931\u8d25\uff1a" + ex);
+            System.Diagnostics.Debug.WriteLine("\u8bfb\u53d6\u5267\u672c\u7d22\u5f15\u5931\u8d25\uff1a" + ex);
             MessageBox.Show(this, ex.Message, "\u8bfb\u53d6\u5267\u672c\u7d22\u5f15\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -321,7 +320,6 @@ public sealed partial class MainForm
             UpdateScriptTextCapacityLabel();
             _saveScriptTextButton.Enabled = false;
             _saveScriptStructureButton.Enabled = _currentLegacyScriptDocument != null;
-            _createScriptNoteButton.Enabled = true;
             _jumpScriptBattlefieldButton.Enabled = true;
             _showScriptVariablesButton.Enabled = _currentLegacyScriptDocument != null;
             _locateScriptCommandButton.Enabled = true;
@@ -338,7 +336,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _scriptDetailBox.Text = ex.ToString();
-            Log("读取剧本制作文档失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取剧本制作文档失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取剧本制作失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -375,10 +373,9 @@ public sealed partial class MainForm
             _scriptTextGrid.DataSource = null;
             _scriptSearchResultGrid.DataSource = null;
             _scriptTextEditorBox.Clear();
-            _scriptTextCapacityLabel.Text = "备注：未选择";
+            _scriptTextCapacityLabel.Text = "文本：未选择";
             _saveScriptTextButton.Enabled = false;
             _saveScriptStructureButton.Enabled = false;
-            _createScriptNoteButton.Enabled = false;
             _jumpScriptBattlefieldButton.Enabled = false;
             _showScriptVariablesButton.Enabled = false;
             _locateScriptCommandButton.Enabled = false;
@@ -1294,9 +1291,9 @@ public sealed partial class MainForm
     private string GetLegacyScriptScopeStatusPrefix(LegacyScriptEditorScope scope)
         => scope switch
         {
-            LegacyScriptEditorScope.Script => "剧本制作",
-            LegacyScriptEditorScope.Battlefield => "战场制作 S 剧本",
-            LegacyScriptEditorScope.RScene => "R场景制作 R 剧本",
+            LegacyScriptEditorScope.Script => "剧本编辑",
+            LegacyScriptEditorScope.Battlefield => "战场编辑 S 剧本",
+            LegacyScriptEditorScope.RScene => "场景编辑 R 剧本",
             _ => "剧本"
         };
 
@@ -1593,8 +1590,8 @@ public sealed partial class MainForm
     private LegacyScriptEditorScope GetCurrentLegacyScenarioEditorScope()
         => _mainTabs.SelectedTab?.Text switch
         {
-            "战场制作" => LegacyScriptEditorScope.Battlefield,
-            "R场景制作" => LegacyScriptEditorScope.RScene,
+            "战场编辑" => LegacyScriptEditorScope.Battlefield,
+            "场景编辑" => LegacyScriptEditorScope.RScene,
             _ => LegacyScriptEditorScope.Script
         };
 
@@ -5546,7 +5543,6 @@ public sealed partial class MainForm
                 ShowSelectedLegacyScriptParameter();
             }
             LoadInlineLegacyScriptDialogForSelection();
-            LoadScriptRemarkForContext(row);
             UpdateScriptTextCapacityLabel();
             _scriptPreviewBox.Text = BuildScriptObjectPreview(row, rows, textRows, parameterRows);
             _scriptDetailBox.Text = itemData.Command != null
@@ -5578,29 +5574,16 @@ public sealed partial class MainForm
                 ShowSelectedLegacyScriptParameter();
             }
             LoadInlineLegacyScriptDialogForSelection();
-            LoadScriptRemarkForContext(row);
             UpdateScriptTextCapacityLabel();
             _scriptPreviewBox.Text = BuildScriptObjectPreview(row, rows, textRows, parameterRows);
             _scriptDetailBox.Text = BuildScriptRowDetail(row);
             UpdateScriptImagePreview(row);
             if (row.NodeType == "Command候选")
             {
-                SetLastCreatorNoteContext(
-                    "剧本命令",
-                    BuildScriptCommandTargetKey(row),
-                    $"{_currentScriptScenario?.FileName ?? "RS"} #{row.CommandIndex} {row.CommandName}",
-                    "从剧本制作页旧版事件树抓取。",
-                    BuildScriptCommandNoteSeed(row));
                 SetStatus($"剧本制作：id:{row.CommandIndex} {row.CommandName} {row.OffsetHex}");
             }
             else
             {
-                SetLastCreatorNoteContext(
-                    "剧本结构",
-                    BuildScriptStructureTargetKey(row),
-                    $"{_currentScriptScenario?.FileName ?? "RS"} {row.CommandName}",
-                    "从剧本制作页旧版事件树抓取。",
-                    BuildScriptStructureNoteSeed(row));
                 SetStatus($"剧本制作：{row.CommandName}");
             }
             UpdateScriptStructureEditButtons();
@@ -5638,17 +5621,10 @@ public sealed partial class MainForm
                 SelectScriptTextEntry(text, showSelection: false);
             });
             _scriptInlineDialogHost.ClearDialog("文本参数请通过所属命令的旧版 Dialog 修改。");
-            LoadScriptRemarkForText(text);
             _scriptPreviewBox.Text = BuildScriptTextPreview(text, commandRows);
             _scriptDetailBox.Text = BuildScriptTextDetail(text);
             ClearScriptImagePreview();
             UpdateScriptTextCapacityLabel();
-            SetLastCreatorNoteContext(
-                "剧本文本",
-                BuildScriptTextTargetKey(text),
-                $"{_currentScriptScenario?.FileName ?? "RS"} 文本 {text.OffsetHex}",
-                "从剧本制作页旧版事件树文本参数抓取。",
-                BuildScriptTextNoteSeed(text));
             SetStatus($"剧本制作：文本 {text.OffsetHex}");
             UpdateScriptStructureEditButtons();
         }
@@ -5657,7 +5633,7 @@ public sealed partial class MainForm
             _selectedScriptCommandRow = null;
             _selectedScriptTextEntry = null;
             _scriptInlineDialogHost.ClearDialog();
-            ClearScriptRemarkEditor();
+            _scriptTextEditorBox.Clear();
             _scriptPreviewBox.Text = _currentScriptStructure == null
                 ? "选择剧本后显示当前对象。"
                 : BuildScriptOverviewPreview(_currentScriptStructure, _currentScriptTextEntries);
@@ -6056,12 +6032,6 @@ public sealed partial class MainForm
         _scriptPreviewBox.Text = BuildScriptCommandPreview(row, parameterRows, textRows);
         _scriptDetailBox.Text = BuildScriptRowDetail(row);
         UpdateScriptImagePreview(row);
-        SetLastCreatorNoteContext(
-            "剧本命令",
-            BuildScriptCommandTargetKey(row),
-            $"{_currentScriptScenario?.FileName ?? "RS"} #{row.CommandIndex} {row.CommandName}",
-            "从剧本制作页旧版事件树抓取。",
-            BuildScriptCommandNoteSeed(row));
     }
 
     private ScenarioStructureRow? GetSelectedScriptCommandRow()
@@ -6979,9 +6949,7 @@ public sealed partial class MainForm
         {
             return BuildLegacyScriptParameterRows(legacyCommand);
         }
-
-        var mapLink = _currentScenarioMapLinks.FirstOrDefault(x => _currentScriptScenario != null && x.ScenarioFileName.Equals(_currentScriptScenario.FileName, StringComparison.OrdinalIgnoreCase));
-        return _scenarioCommandParameterTemplateService.BuildParameterRows(row, mapLink, _project, _tables);
+        return _scenarioCommandParameterTemplateService.BuildParameterRows(row, _project, _tables);
     }
 
     private bool TryGetLegacyScriptCommand(ScenarioStructureRow row, out LegacyScenarioCommandNode command)
@@ -7204,18 +7172,11 @@ public sealed partial class MainForm
             BindScriptParameterRows(Array.Empty<ScenarioCommandParameterRow>());
         });
         _scriptInlineDialogHost.ClearDialog("文本参数请通过所属命令的旧版 Dialog 修改。");
-        LoadScriptRemarkForText(entry);
         _scriptPreviewBox.Text = BuildScriptTextPreview(entry, relatedRows);
         _scriptDetailBox.Text = BuildScriptTextDetail(entry);
         ClearScriptImagePreview();
         UpdateScriptTextCapacityLabel();
         _scriptTextEditorBox.Focus();
-        SetLastCreatorNoteContext(
-            "剧本文本",
-            BuildScriptTextTargetKey(entry),
-            $"{_currentScriptScenario?.FileName ?? "RS"} 文本 {entry.OffsetHex}",
-            "从剧本制作页旧版事件树文本参数抓取。",
-            BuildScriptTextNoteSeed(entry));
     }
 
     private ScenarioTextEntry? GetSelectedScriptTextEntry()
@@ -7290,12 +7251,6 @@ public sealed partial class MainForm
                 (string.IsNullOrWhiteSpace(prefix) ? string.Empty : prefix + "\r\n\r\n") +
                 $"搜索结果：#{result.Index} {result.Kind}\r\n{result.Location}\r\n\r\n" +
                 BuildScriptRowDetail(result.CommandRow);
-            SetLastCreatorNoteContext(
-                "剧本命令",
-                BuildScriptCommandTargetKey(result.CommandRow),
-                $"{_currentScriptScenario?.FileName ?? "RS"} #{result.CommandRow.CommandIndex} {result.CommandRow.CommandName}",
-                "从剧本制作页搜索定位到旧版事件树。",
-                BuildScriptCommandNoteSeed(result.CommandRow));
             return;
         }
 
@@ -7322,7 +7277,6 @@ public sealed partial class MainForm
             }
             _selectedScriptCommandRow = null;
             _selectedScriptTextEntry = result.TextEntry;
-            LoadScriptRemarkForText(result.TextEntry);
             _scriptPreviewBox.Text = BuildScriptTextPreview(result.TextEntry, relatedRows);
             ClearScriptImagePreview();
             _scriptDetailBox.Text =
@@ -7330,12 +7284,6 @@ public sealed partial class MainForm
                 $"搜索结果：#{result.Index} {result.Kind}\r\n{result.Location}\r\n\r\n" +
                 BuildScriptTextDetail(result.TextEntry);
             UpdateScriptTextCapacityLabel();
-            SetLastCreatorNoteContext(
-                "剧本文本",
-                BuildScriptTextTargetKey(result.TextEntry),
-                $"{_currentScriptScenario?.FileName ?? "RS"} 文本 {result.TextEntry.OffsetHex}",
-                "从剧本制作页搜索定位到旧版事件树文本参数。",
-                BuildScriptTextNoteSeed(result.TextEntry));
         }
     }
 
@@ -7364,16 +7312,20 @@ public sealed partial class MainForm
     private void UpdateScriptTextCapacityLabel()
     {
         _scriptTextEditorBox.BackColor = SystemColors.Window;
-        if (string.IsNullOrWhiteSpace(_scriptRemarkTargetKey))
+        var entry = GetSelectedScriptTextEntry();
+        if (entry == null)
         {
-            _scriptTextCapacityLabel.Text = "备注：未选择";
+            _scriptTextCapacityLabel.Text = "文本：未选择";
             _scriptTextCapacityLabel.ForeColor = SystemColors.ControlText;
             _saveScriptTextButton.Enabled = false;
             return;
         }
 
-        _scriptTextCapacityLabel.Text = $"备注：{_scriptRemarkScope}，{_scriptTextEditorBox.TextLength} 字";
-        _scriptTextCapacityLabel.ForeColor = SystemColors.ControlText;
+        var byteCount = EncodingService.GetGbkByteCount(_scriptTextEditorBox.Text);
+        var remaining = entry.ByteLength - byteCount;
+        _scriptTextCapacityLabel.Text = $"文本：GBK {byteCount}/{entry.ByteLength} 字节，剩余 {remaining} 字节";
+        _scriptTextCapacityLabel.ForeColor = remaining < 0 ? Color.DarkRed : SystemColors.ControlText;
+        _scriptTextEditorBox.BackColor = remaining < 0 ? Color.MistyRose : SystemColors.Window;
         _saveScriptTextButton.Enabled = true;
     }
 
@@ -7679,7 +7631,7 @@ public sealed partial class MainForm
     {
         if (scope != LegacyScriptEditorScope.Script)
         {
-            SelectTabPageByText(scope == LegacyScriptEditorScope.Battlefield ? "战场制作" : "R场景制作");
+            SelectTabPageByText(scope == LegacyScriptEditorScope.Battlefield ? "战场编辑" : "场景编辑");
             return true;
         }
 
@@ -7849,14 +7801,14 @@ public sealed partial class MainForm
 
                 await LoadSelectedScriptScenarioAsync();
                 _scriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-                Log($"已完整保存旧版剧本文本：{_currentScriptScenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
+                System.Diagnostics.Debug.WriteLine($"已完整保存旧版剧本文本：{_currentScriptScenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
                 SetStatus($"旧版剧本完整保存完成：{_currentScriptScenario.FileName} {entry.OffsetHex}");
                 MessageBox.Show(this, $"完整保存完成。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}", "剧本制作保存完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 legacyText.Parameter.Text = entry.OriginalText;
-                Log("完整保存旧版剧本文本失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("完整保存旧版剧本文本失败：" + ex);
                 MessageBox.Show(this, ex.Message, "完整保存旧版剧本文本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
@@ -7901,13 +7853,13 @@ public sealed partial class MainForm
 
             await LoadSelectedScriptScenarioAsync();
             _scriptDetailBox.Text += $"\r\n\r\n保存完成：写入 {result.EntriesWritten} 条，变化 {result.ChangedBytes} 字节。\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-            Log($"已保存剧本文本：{_currentScriptScenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已保存剧本文本：{_currentScriptScenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
             SetStatus($"剧本制作保存完成：{_currentScriptScenario.FileName} {entry.OffsetHex}");
             MessageBox.Show(this, $"保存完成。\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}", "剧本制作保存完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Log("保存剧本文本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存剧本文本失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存剧本文本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -7916,238 +7868,11 @@ public sealed partial class MainForm
         }
     }
 
-    private void ClearScriptRemarkEditor()
-    {
-        _scriptRemarkNoteId = string.Empty;
-        _scriptRemarkScope = string.Empty;
-        _scriptRemarkTargetKey = string.Empty;
-        _scriptRemarkTitle = string.Empty;
-        _scriptRemarkSourceHint = string.Empty;
-        _scriptTextEditorBox.Clear();
-        _scriptTextCapacityLabel.Text = "备注：未选择";
-        _scriptTextCapacityLabel.ForeColor = SystemColors.ControlText;
-        _saveScriptTextButton.Enabled = false;
-    }
-
-    private void LoadScriptRemarkForContext(ScenarioStructureRow row)
-    {
-        if (_project == null || _currentScriptScenario == null)
-        {
-            ClearScriptRemarkEditor();
-            return;
-        }
-
-        var scope = row.NodeType == "Command候选" ? "剧本命令" : "剧本结构";
-        var targetKey = row.NodeType == "Command候选"
-            ? BuildScriptCommandTargetKey(row)
-            : BuildScriptStructureTargetKey(row);
-        var title = row.NodeType == "Command候选"
-            ? $"{_currentScriptScenario.FileName} #{row.CommandIndex} {row.CommandName}"
-            : $"{_currentScriptScenario.FileName} {row.CommandName}";
-        var sourceHint = "从剧本制作页右侧备注区创建。";
-        var seed = row.NodeType == "Command候选"
-            ? BuildScriptCommandNoteSeed(row)
-            : BuildScriptStructureNoteSeed(row);
-
-        LoadScriptRemark(scope, targetKey, title, sourceHint, seed);
-    }
-
-    private void LoadScriptRemarkForText(ScenarioTextEntry entry)
-    {
-        if (_project == null || _currentScriptScenario == null)
-        {
-            ClearScriptRemarkEditor();
-            return;
-        }
-
-        LoadScriptRemark(
-            "剧本文本",
-            BuildScriptTextTargetKey(entry),
-            $"{_currentScriptScenario.FileName} 文本 {entry.OffsetHex}",
-            "从剧本制作页右侧备注区创建。",
-            BuildScriptTextNoteSeed(entry));
-    }
-
-    private void LoadScriptRemark(string scope, string targetKey, string title, string sourceHint, string seed)
-    {
-        _scriptRemarkScope = scope;
-        _scriptRemarkTargetKey = targetKey;
-        _scriptRemarkTitle = title;
-        _scriptRemarkSourceHint = sourceHint;
-
-        if (_project == null)
-        {
-            ClearScriptRemarkEditor();
-            return;
-        }
-
-        if (_currentCreatorNotes.Count == 0)
-        {
-            _currentCreatorNotes = _creatorNoteService.Load(_project);
-        }
-
-        var existing = _currentCreatorNotes
-            .Where(note => note.Scope.Equals(scope, StringComparison.OrdinalIgnoreCase) &&
-                           note.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(note => note.UpdatedAtText, StringComparer.Ordinal)
-            .FirstOrDefault();
-        _scriptRemarkNoteId = existing?.Id ?? string.Empty;
-        _scriptRemarkScope = scope;
-        _scriptRemarkTargetKey = targetKey;
-        _scriptRemarkTitle = title;
-        _scriptRemarkSourceHint = sourceHint;
-        _scriptTextEditorBox.Text = existing?.Content ?? seed;
-        _scriptTextCapacityLabel.Text = existing == null
-            ? $"备注：{scope}，新建"
-            : $"备注：{scope}，已载入 {existing.UpdatedAtText}";
-        _scriptTextCapacityLabel.ForeColor = SystemColors.ControlText;
-        _saveScriptTextButton.Enabled = true;
-    }
-
-    private void SaveCurrentScriptRemark()
-    {
-        if (_project == null)
-        {
-            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_scriptRemarkScope) || string.IsNullOrWhiteSpace(_scriptRemarkTargetKey))
-        {
-            MessageBox.Show(this, "请先在左侧事件树中选择一个备注目标。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_scriptTextEditorBox.Text))
-        {
-            MessageBox.Show(this, "备注内容为空。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        try
-        {
-            var saved = _creatorNoteService.Upsert(_project, new CreatorNote
-            {
-                Id = _scriptRemarkNoteId,
-                Scope = _scriptRemarkScope,
-                TargetKey = _scriptRemarkTargetKey,
-                Title = _scriptRemarkTitle,
-                Content = _scriptTextEditorBox.Text,
-                Tags = "剧本制作,备注",
-                SourceHint = _scriptRemarkSourceHint
-            });
-            _scriptRemarkNoteId = saved.Id;
-            _currentCreatorNotes = _creatorNoteService.Load(_project);
-            BindCreatorNoteRows(_currentCreatorNotes);
-            _scriptTextCapacityLabel.Text = $"备注：已保存 {saved.UpdatedAtText}";
-            _scriptTextCapacityLabel.ForeColor = SystemColors.ControlText;
-            SetStatus($"剧本备注已保存：{saved.Scope}/{saved.TargetKey}");
-        }
-        catch (Exception ex)
-        {
-            Log("保存剧本备注失败：" + ex);
-            MessageBox.Show(this, ex.Message, "保存剧本备注失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private void CreateScriptNote()
-    {
-        if (_project == null || _currentScriptScenario == null)
-        {
-            MessageBox.Show(this, "请先读取一个剧本。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        if (GetSelectedScriptCommandRow() is { } row)
-        {
-            CreateCreatorNoteFromContext((
-                "剧本命令",
-                BuildScriptCommandTargetKey(row),
-                $"{_currentScriptScenario.FileName} #{row.CommandIndex} {row.CommandName}",
-                "从剧本制作页创建。",
-                BuildScriptCommandNoteSeed(row)),
-                "从剧本制作页直接创建。",
-                "剧本制作,命令,待实测");
-            return;
-        }
-
-        var entry = GetSelectedScriptTextEntry();
-        if (entry != null)
-        {
-            CreateCreatorNoteFromContext((
-                "剧本文本",
-                BuildScriptTextTargetKey(entry),
-                $"{_currentScriptScenario.FileName} 文本 {entry.OffsetHex}",
-                "从剧本制作页创建。",
-                BuildScriptTextNoteSeed(entry)),
-                "从剧本制作页直接创建。",
-                "剧本制作,文本,待实测");
-            return;
-        }
-
-        CreateCreatorNoteFromContext((
-            "剧本制作",
-            $"Script#{_currentScriptScenario.FileName}",
-            $"{_currentScriptScenario.FileName} 剧本制作备注",
-            "从剧本制作页创建。",
-            $"剧本：{_currentScriptScenario.FileName}\r\n修改意图：\r\n旧工具对照：\r\n实机验证：\r\n回滚点/备份："),
-            "从剧本制作页直接创建。",
-            "剧本制作,待实测");
-    }
-
-    private string BuildScriptCommandTargetKey(ScenarioStructureRow row)
-        => $"{BuildCurrentScriptTargetFile()}#Scene={row.SceneIndex}#Section={row.SectionIndex}#Command={row.CommandIndex}#Offset={row.OffsetHex}";
-
-    private string BuildScriptStructureTargetKey(ScenarioStructureRow row)
-        => row.NodeType == "Section候选"
-            ? $"{BuildCurrentScriptTargetFile()}#Scene={row.SceneIndex}#Section={row.SectionIndex}"
-            : $"{BuildCurrentScriptTargetFile()}#Scene={row.SceneIndex}";
-
-    private string BuildScriptTextTargetKey(ScenarioTextEntry entry)
-        => $"{BuildCurrentScriptTargetFile()}#TextIndex={entry.Index}#Offset={entry.OffsetHex}";
-
-    private string BuildCurrentScriptTargetFile()
-        => _currentScriptScenario == null
-            ? "RS"
-            : BuildScenarioRelativePath(_currentScriptScenario).Replace(Path.DirectorySeparatorChar, '/');
-
-    private string BuildScriptCommandNoteSeed(ScenarioStructureRow row)
-    {
-        var parameters = BuildScriptParameterRows(row);
-        var parameterText = parameters.Count == 0
-            ? "暂无参数表格行。"
-            : string.Join("\r\n", parameters.Take(12).Select(p => $"P{p.Index} {p.SlotName}={p.RawHex}/{p.DecimalValue}：{p.DecodedValue}"));
-        return $"剧本：{_currentScriptScenario?.FileName}\r\n" +
-               $"位置：Scene {row.SceneIndex} / Section {row.SectionIndex} / Command {row.CommandIndex} / {row.OffsetHex}\r\n" +
-               $"命令：{row.CommandIdHex} {row.CommandName}\r\n" +
-               $"参数预览：{row.ParameterPreview}\r\n" +
-               $"模板提示：{row.CommandTemplateHint}\r\n" +
-               $"引用候选：{row.ReferenceHint}\r\n" +
-               $"中文注释：{row.Annotation}\r\n\r\n" +
-               $"参数表：\r\n{parameterText}\r\n\r\n" +
-               "修改意图：\r\n旧工具对照：\r\n实机验证：\r\n安全边界/回滚点：";
-    }
-
-    private string BuildScriptStructureNoteSeed(ScenarioStructureRow row)
-        => $"剧本：{_currentScriptScenario?.FileName}\r\n" +
-           $"位置：Scene {row.SceneIndex}" +
-           (row.NodeType == "Section候选" ? $" / Section {row.SectionIndex}" : string.Empty) +
-           $"\r\n节点：{row.CommandName}\r\n偏移：{row.OffsetHex}\r\n中文注释：{row.Annotation}\r\n\r\n" +
-           "修改意图：\r\n旧工具对照：\r\n实机验证：\r\n安全边界/回滚点：";
-
-    private string BuildScriptTextNoteSeed(ScenarioTextEntry entry)
-        => $"剧本：{_currentScriptScenario?.FileName}\r\n" +
-           $"文本：#{entry.Index} {entry.Kind} {entry.OffsetHex}\r\n" +
-           $"容量：{entry.ByteLength}B\r\n" +
-           $"原文：\r\n{entry.Text}\r\n\r\n" +
-           $"中文注释：{entry.Annotation}\r\n\r\n" +
-           "修改意图：\r\n旧工具对照：\r\n实机验证：\r\n回滚点/备份：";
-
     private async Task JumpScriptBattlefieldAsync()
     {
         var scenarioName = _currentScriptScenario?.FileName;
         if (string.IsNullOrWhiteSpace(scenarioName)) return;
-        SelectTabPageByText("战场制作");
+        SelectTabPageByText("战场编辑");
         if (_battlefieldScenarioCombo.Items.Count == 0)
         {
             await LoadBattlefieldScenariosAsync();
@@ -8196,13 +7921,13 @@ public sealed partial class MainForm
 
             await LoadSelectedScriptScenarioAsync();
             _scriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-            Log($"已完整保存旧版剧本：{_currentScriptScenario.FileName} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已完整保存旧版剧本：{_currentScriptScenario.FileName} backup={result.BackupPath}");
             SetStatus($"旧版剧本完整保存完成：{_currentScriptScenario.FileName}");
             return true;
         }
         catch (Exception ex)
         {
-            Log("完整保存旧版剧本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("完整保存旧版剧本失败：" + ex);
             MessageBox.Show(this, ex.Message, "完整保存旧版剧本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
@@ -8243,13 +7968,13 @@ public sealed partial class MainForm
             _exportScenarioStructureXmlButton.Enabled = false;
             _probeScenarioTextsButton.Enabled = _currentScenarioFiles.Count > 0;
             UpdateScenarioFileInfo(_currentScenarioFiles.Count, "\u5168\u90e8", string.Empty, dictionary);
-            Log($"已读取 R/S eex 剧本探针：{_currentScenarioFiles.Count} 个文件。");
+            System.Diagnostics.Debug.WriteLine($"已读取 R/S eex 剧本探针：{_currentScenarioFiles.Count} 个文件。");
             SetStatus("R/S eex 高级探针读取完成");
         }
         catch (Exception ex)
         {
             _scenarioFileInfoBox.Text = ex.ToString();
-            Log("R/S eex高级探针读取失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("R/S eex高级探针读取失败：" + ex);
             MessageBox.Show(this, ex.Message, "R/S eex高级探针读取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -8269,7 +7994,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("R/S 探针读取命令字典失败，继续无字典扫描：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("R/S 探针读取命令字典失败，继续无字典扫描：" + ex.Message);
             return null;
         }
     }
@@ -8469,13 +8194,13 @@ public sealed partial class MainForm
                 $"命令候选：{_currentScenarioCommandProbeRows.Count} 行    不同命令：{unique}    字典：{dictionary.Commands.Count} 条\r\n" +
                 "说明：当前为逐 16 位字扫描的命令候选树雏形，用于定位 Scene/Section/Command；尚未确认每条命令参数长度，因此只读、不写入。\r\n" +
                 $"路径：{item.Path}";
-            Log($"已探测剧本命令候选：{item.FileName}，候选 {_currentScenarioCommandProbeRows.Count} 行。");
+            System.Diagnostics.Debug.WriteLine($"已探测剧本命令候选：{item.FileName}，候选 {_currentScenarioCommandProbeRows.Count} 行。");
             SetStatus($"剧本命令候选：{item.FileName}");
         }
         catch (Exception ex)
         {
             _scenarioFileInfoBox.Text = ex.ToString();
-            Log("剧本命令候选探测失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("剧本命令候选探测失败：" + ex);
             MessageBox.Show(this, ex.Message, "剧本命令候选探测失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -8518,13 +8243,13 @@ public sealed partial class MainForm
                 $"{_currentScenarioStructureResult.Summary}\r\n" +
                 "说明：结构草图把命令候选按“结束Scene/结束Section/事件结束”等标记组织成树状层级，并提供 XML 文本视图；当前只读，不写回。\r\n" +
                 $"路径：{item.Path}";
-            Log($"已生成剧本结构草图：{item.FileName}，Scene={_currentScenarioStructureResult.SceneCount}，Section={_currentScenarioStructureResult.SectionCount}，Command={_currentScenarioStructureResult.CommandCandidateCount}。");
+            System.Diagnostics.Debug.WriteLine($"已生成剧本结构草图：{item.FileName}，Scene={_currentScenarioStructureResult.SceneCount}，Section={_currentScenarioStructureResult.SectionCount}，Command={_currentScenarioStructureResult.CommandCandidateCount}。");
             SetStatus($"剧本结构草图：{item.FileName}");
         }
         catch (Exception ex)
         {
             _scenarioFileInfoBox.Text = ex.ToString();
-            Log("剧本结构草图生成失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("剧本结构草图生成失败：" + ex);
             MessageBox.Show(this, ex.Message, "剧本结构草图生成失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -8548,13 +8273,13 @@ public sealed partial class MainForm
             var baseName = Path.GetFileNameWithoutExtension(_currentScenarioStructureResult.FileName);
             var path = Path.Combine(exportRoot, $"{baseName}_ScenarioStructureProbe.xml");
             File.WriteAllText(path, _currentScenarioStructureResult.XmlText, System.Text.Encoding.UTF8);
-            Log("已导出剧本结构 XML：" + path);
+            System.Diagnostics.Debug.WriteLine("已导出剧本结构 XML：" + path);
             SetStatus("剧本结构 XML 已导出");
             MessageBox.Show(this, "已导出：" + path, "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Log("导出剧本结构 XML 失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出剧本结构 XML 失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出剧本结构 XML 失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -8575,7 +8300,7 @@ public sealed partial class MainForm
             var covered = _currentScenarioCommandTemplateItems.Count(item => item.Status == "已覆盖");
             var missing = _currentScenarioCommandTemplateItems.Count(item => item.Status == "待补充");
             var dictionaryText = dictionary == null ? "未提供字典，当前显示内置模板" : $"{dictionary.Commands.Count} 条字典命令";
-            Log($"已加载 R/S eex 命令模板目录：{_currentScenarioCommandTemplateItems.Count} 行，已覆盖 {covered}，待补充 {missing}，{dictionaryText}。");
+            System.Diagnostics.Debug.WriteLine($"已加载 R/S eex 命令模板目录：{_currentScenarioCommandTemplateItems.Count} 行，已覆盖 {covered}，待补充 {missing}，{dictionaryText}。");
             if (!silent)
             {
                 SetStatus($"R/S命令模板目录：{_currentScenarioCommandTemplateItems.Count} 行，已覆盖 {covered}，待补充 {missing}");
@@ -8584,7 +8309,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _scenarioCommandTemplateInfoBox.Text = ex.ToString();
-            Log("加载 R/S eex 命令模板目录失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("加载 R/S eex 命令模板目录失败：" + ex);
             if (!silent)
             {
                 MessageBox.Show(this, ex.Message, "加载 R/S eex 命令模板目录失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -8739,7 +8464,7 @@ public sealed partial class MainForm
                 nameof(ScenarioCommandTemplateCatalogItem.SlotSummary) => "模板中已知参数槽位摘要；仅解释后续 16 位词候选，不代表完整命令长度。",
                 nameof(ScenarioCommandTemplateCatalogItem.Purpose) => "命令模板的创作用途说明。",
                 nameof(ScenarioCommandTemplateCatalogItem.Risk) => "当前模板的风险边界和核对要求。",
-                nameof(ScenarioCommandTemplateCatalogItem.CreatorTip) => "面向 MOD 创作者的实际核对建议。",
+                nameof(ScenarioCommandTemplateCatalogItem.CreatorTip) => "面向 MOD 制作的实际核对建议。",
                 _ => string.Empty
             };
 
@@ -8794,7 +8519,7 @@ public sealed partial class MainForm
             }
             else if (column.DataPropertyName == nameof(ScenarioCommandTemplateCatalogItem.CreatorTip))
             {
-                column.HeaderText = "创作者提示";
+                column.HeaderText = "核对提示";
                 column.Width = 420;
             }
             else if (column.DataPropertyName is nameof(ScenarioCommandTemplateCatalogItem.SlotDetails)
@@ -8839,14 +8564,7 @@ public sealed partial class MainForm
         var targetKey = $"{item.IdHex}#{(string.IsNullOrWhiteSpace(item.DictionaryName) ? item.TemplateName : item.DictionaryName)}";
         var detail = _scenarioCommandParameterTemplateService.BuildCatalogItemDetail(item);
         _scenarioCommandTemplateInfoBox.Text =
-            detail +
-            BuildRelatedCreatorNotesText("R/S命令模板", targetKey);
-        SetLastCreatorNoteContext(
-            "R/S命令模板",
-            targetKey,
-            $"R/S命令模板：{item.IdHex} {item.TemplateName}",
-            "从 R/S eex高级探针的命令模板目录页抓取；当前只读，不写入游戏文件。",
-            $"{detail}\r\n\r\n研究记录：\r\n- 旧工具对照：\r\n- 实机验证：\r\n- 后续补模板/调整建议：");
+            detail;
         SetStatus($"R/S命令模板：{item.IdHex} {item.TemplateName}");
     }
 
@@ -8881,7 +8599,7 @@ public sealed partial class MainForm
                 $"当前结构草图文件：{_currentScenarioStructureResult.FileName}\r\n" +
                 $"模板：{item.IdHex} {item.TemplateName}\r\n\r\n" +
                 "未在当前结构草图的命令候选中找到同 ID 命令。\r\n" +
-                "提示：可换一个 R/S eex 文件重新生成结构草图，或先把该模板作为待核对研究项记录到创作者备注。";
+                "提示：可换一个 R/S eex 文件重新生成结构草图，或先把该模板作为待核对研究项记录到外部笔记。";
             SetStatus($"当前R/S未命中模板：{item.IdHex} {item.TemplateName}");
             return;
         }
@@ -8894,7 +8612,7 @@ public sealed partial class MainForm
             $"文件：{_currentScenarioStructureResult.FileName}\r\n" +
             $"模板：{item.IdHex} {item.TemplateName}    分类：{item.Category}    状态：{item.Status}\r\n" +
             $"命中命令：{matchedRows.Count} / {_currentScenarioStructureResult.CommandCandidateCount}\r\n\r\n" +
-            "下一步：选中下方命令行，可继续查看参数模板详情、可跳转引用候选、文本线索、关卡地图联动和相关创作者备注。";
+            "下一步：选中下方命令行，可继续查看参数模板详情、可跳转引用候选、文本线索。";
         if (_scenarioStructureGrid.Rows.Count > 0)
         {
             _scenarioStructureGrid.ClearSelection();
@@ -8941,10 +8659,8 @@ public sealed partial class MainForm
                 $"已导出 R/S eex 命令参数模板目录：\r\n{reportPath}\r\n\r\n" +
                 $"内置模板：{_scenarioCommandParameterTemplateService.TemplateCount} 条；命令字典：{dictionaryCount} 条。\r\n" +
                 "说明：该目录用于查阅命令参数槽位、中文解释、风险边界和待补模板；只写入 CCZModStudio_Reports，不修改任何游戏文件。";
-            Log("已导出 R/S eex 命令参数模板目录：" + reportPath);
+            System.Diagnostics.Debug.WriteLine("已导出 R/S eex 命令参数模板目录：" + reportPath);
             SetStatus("R/S eex 命令参数模板目录已导出");
-            RefreshProjectEvidence(updateStatus: false);
-            RefreshWorkflowGuide(updateStatus: false);
             Cursor = Cursors.Default;
             if (MessageBox.Show(this,
                     "已导出 R/S eex 命令参数模板目录：\r\n" + reportPath + "\r\n\r\n是否在资源管理器中定位该文件？",
@@ -8957,7 +8673,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("导出 R/S eex 命令参数模板目录失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出 R/S eex 命令参数模板目录失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出 R/S eex 命令参数模板目录失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -8988,44 +8704,25 @@ public sealed partial class MainForm
                 }
                 catch (Exception ex)
                 {
-                    Log("导出命令引用清单时读取同文件文本线索失败，继续生成不含文本跳转的清单：" + ex.Message);
+                    System.Diagnostics.Debug.WriteLine("导出命令引用清单时读取同文件文本线索失败，继续生成不含文本跳转的清单：" + ex.Message);
                     textEntries = Array.Empty<ScenarioTextEntry>();
                 }
             }
 
-            var creatorNotes = _currentCreatorNotes;
-            if (creatorNotes.Count == 0)
-            {
-                try
-                {
-                    creatorNotes = _creatorNoteService.Load(_project);
-                }
-                catch (Exception ex)
-                {
-                    Log("导出命令引用清单时读取创作者备注失败，继续生成不含备注计数的清单：" + ex.Message);
-                    creatorNotes = Array.Empty<CreatorNote>();
-                }
-            }
-
-            var mapLink = FindScenarioMapLinkForStructure(_currentScenarioStructureResult);
             var reportPath = _scenarioCommandReferenceChecklistService.WriteReport(
                 _project,
                 _tables,
                 _currentScenarioStructureResult,
                 rows,
-                mapLink,
-                textEntries,
-                creatorNotes);
+                textEntries);
             var commandCount = rows.Count(row => row.NodeType == "Command候选");
             var length = new FileInfo(reportPath).Length;
             _scenarioStructureNodeInfoBox.Text =
                 $"已导出 R/S eex 命令引用核对清单：\r\n{reportPath}\r\n\r\n" +
-                $"范围：当前结构视图命令 {commandCount} 行；文本线索 {textEntries.Count} 条；创作者备注 {creatorNotes.Count} 条；报告大小 {length:N0} 字节。\r\n" +
+                $"范围：当前结构视图命令 {commandCount} 行；文本线索 {textEntries.Count} 条；报告大小 {length:N0} 字节。\r\n" +
                 "说明：该 Markdown 只写入 CCZModStudio_Reports，不修改任何游戏文件；候选来自 16 位词窗口扫描，请结合旧工具和实机逐项核对。";
-            Log("已导出 R/S eex 命令引用核对清单：" + reportPath);
+            System.Diagnostics.Debug.WriteLine("已导出 R/S eex 命令引用核对清单：" + reportPath);
             SetStatus("R/S eex 命令引用核对清单已导出");
-            RefreshProjectEvidence(updateStatus: false);
-            RefreshWorkflowGuide(updateStatus: false);
             Cursor = Cursors.Default;
             if (MessageBox.Show(this,
                     "已导出命令引用核对清单：\r\n" + reportPath + "\r\n\r\n是否在资源管理器中定位该文件？",
@@ -9038,7 +8735,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("导出 R/S eex 命令引用核对清单失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("导出 R/S eex 命令引用核对清单失败：" + ex);
             MessageBox.Show(this, ex.Message, "导出 R/S eex 命令引用核对清单失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -9060,7 +8757,7 @@ public sealed partial class MainForm
         ClearScenarioCommandReferenceTargets();
         _scenarioStructureNodeInfoBox.Text =
             _scenarioStructureFilterService.BuildSummary(_currentScenarioStructureResult.Rows, filtered, options) +
-            "\r\n点击 Scene/Section/Command 节点可查看同文件文本线索、地图联动候选和中文注释。";
+            "\r\n点击 Scene/Section/Command 节点可查看同文件文本线索和中文注释。";
         SetStatus($"R/S结构筛选：命令 {filtered.Count(row => row.NodeType == "Command候选")}/{_currentScenarioStructureResult.CommandCandidateCount}");
     }
 
@@ -9089,9 +8786,6 @@ public sealed partial class MainForm
         ConfigureScenarioStructureGrid();
         if (_currentScenarioStructureResult != null)
         {
-            HighlightRowsWithCreatorNotes<ScenarioStructureRow>(
-                _scenarioStructureGrid,
-                row => ("R/S命令", BuildScenarioCommandCreatorNoteTargetKey(_currentScenarioStructureResult.FileName, row)));
         }
         if (_currentScenarioStructureResult != null)
         {
@@ -9131,7 +8825,7 @@ public sealed partial class MainForm
             _scenarioStructureNodeInfoBox.Text =
                 $"事件树：{result.FileName}\r\n" +
                 $"{result.Summary}\r\n" +
-                "点击 Scene/Section/Command 节点可查看同文件文本线索、地图联动候选和中文注释。";
+                "点击 Scene/Section/Command 节点可查看同文件文本线索和中文注释。";
             var visibleSceneCount = rows.Count(row => row.NodeType == "Scene候选");
             var visibleSectionCount = rows.Count(row => row.NodeType == "Section候选");
             var visibleCommandCount = rows.Count(row => row.NodeType == "Command候选");
@@ -9287,15 +8981,12 @@ public sealed partial class MainForm
         {
             return "读取同文件文本线索失败：" + ex.Message;
         }
-
-        var mapLink = FindScenarioMapLinkForStructure(_currentScenarioStructureResult);
-        var referenceTargets = BuildScenarioCommandReferenceTargets(row, textEntries, mapLink);
+        var referenceTargets = BuildScenarioCommandReferenceTargets(row, textEntries);
         ApplyScenarioCommandReferenceTargets(referenceTargets);
         var detail = _scenarioStructureNodeDetailService.BuildDetail(
             row,
             _currentScenarioStructureResult.FileName,
             textEntries,
-            mapLink,
             _project,
             _tables);
         var riskReason = _scenarioStructureFilterService.BuildHighRiskReason(row);
@@ -9311,7 +9002,6 @@ public sealed partial class MainForm
 
         if (row.NodeType == "Command候选")
         {
-            detail += BuildRelatedCreatorNotesText("R/S命令", BuildScenarioCommandCreatorNoteTargetKey(_currentScenarioStructureResult.FileName, row));
         }
 
         return detail;
@@ -9319,8 +9009,7 @@ public sealed partial class MainForm
 
     private IReadOnlyList<ScenarioCommandReferenceTarget> BuildScenarioCommandReferenceTargets(
         ScenarioStructureRow row,
-        IReadOnlyList<ScenarioTextEntry> textEntries,
-        ScenarioMapLinkInfo? mapLink)
+        IReadOnlyList<ScenarioTextEntry> textEntries)
     {
         if (_project == null || _currentScenarioStructureResult == null)
         {
@@ -9334,12 +9023,11 @@ public sealed partial class MainForm
                 _tables,
                 row,
                 _currentScenarioStructureResult.FileName,
-                mapLink,
                 textEntries);
         }
         catch (Exception ex)
         {
-            Log("R/S eex 命令引用候选解析失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("R/S eex 命令引用候选解析失败：" + ex.Message);
             return Array.Empty<ScenarioCommandReferenceTarget>();
         }
     }
@@ -9352,7 +9040,6 @@ public sealed partial class MainForm
         {
             _scenarioCommandReferenceCombo.Enabled = false;
             _jumpScenarioCommandReferenceButton.Enabled = false;
-            UpdateCreateScenarioCommandReferenceNoteButton();
             return;
         }
 
@@ -9360,7 +9047,6 @@ public sealed partial class MainForm
         _scenarioCommandReferenceCombo.DataSource = new BindingList<ScenarioCommandReferenceTarget>(targets.ToList());
         _scenarioCommandReferenceCombo.Enabled = true;
         _jumpScenarioCommandReferenceButton.Enabled = targets.Any(target => target.CanNavigate);
-        UpdateCreateScenarioCommandReferenceNoteButton();
     }
 
     private void ClearScenarioCommandReferenceTargets()
@@ -9369,91 +9055,8 @@ public sealed partial class MainForm
         _scenarioCommandReferenceCombo.DataSource = null;
         _scenarioCommandReferenceCombo.Enabled = false;
         _jumpScenarioCommandReferenceButton.Enabled = false;
-        UpdateCreateScenarioCommandReferenceNoteButton();
     }
 
-    private void UpdateCreateScenarioCommandReferenceNoteButton()
-    {
-        _createScenarioCommandReferenceNoteButton.Enabled =
-            _project != null &&
-            _currentScenarioStructureResult != null &&
-            _scenarioStructureGrid.CurrentRow?.DataBoundItem is ScenarioStructureRow { NodeType: "Command候选" };
-    }
-
-    private void CreateScenarioCommandReferenceNote()
-    {
-        if (_project == null || _currentScenarioStructureResult == null)
-        {
-            MessageBox.Show(this, "请先加载项目并生成 R/S eex 结构草图。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        if (_scenarioStructureGrid.CurrentRow?.DataBoundItem is not ScenarioStructureRow { NodeType: "Command候选" } row)
-        {
-            MessageBox.Show(this, "请先在结构草图中选中一条 Command候选。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            Cursor = Cursors.WaitCursor;
-            var targets = RefreshScenarioCommandReferenceTargetsForNote(row);
-            var draft = _scenarioCommandReferenceNoteTemplateService.BuildDraft(_currentScenarioStructureResult, row, targets);
-            var saved = _creatorNoteService.Upsert(_project, draft);
-            _currentCreatorNotes = _creatorNoteService.Load(_project);
-            _creatorNoteSearchBox.Clear();
-            BindCreatorNoteRows(_currentCreatorNotes);
-            SelectTabPageByText("创作者备注");
-            SelectCreatorNoteById(saved.Id);
-            ShowSelectedCreatorNote();
-            SetLastCreatorNoteContext(saved.Scope, saved.TargetKey, saved.Title, saved.SourceHint, saved.Content);
-            RefreshWorkflowGuide(updateStatus: false);
-            Log($"已为 R/S eex 命令引用候选创建创作者备注：{saved.TargetKey}");
-            SetStatus("R/S eex 命令引用备注已创建");
-            MessageBox.Show(this,
-                "已创建 R/S eex 命令引用核对备注，并已切换到“创作者备注”页。\r\n\r\n" +
-                "该操作只写入 CCZModStudio_Notes，不修改任何游戏文件；请继续补充旧工具对照、实机验证、修改意图和回滚点。",
-                "备注已创建",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-        catch (Exception ex)
-        {
-            Log("创建 R/S eex 命令引用备注失败：" + ex);
-            MessageBox.Show(this, ex.Message, "创建 R/S eex 命令引用备注失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-        finally
-        {
-            Cursor = Cursors.Default;
-        }
-    }
-
-    private IReadOnlyList<ScenarioCommandReferenceTarget> RefreshScenarioCommandReferenceTargetsForNote(ScenarioStructureRow row)
-    {
-        if (_currentScenarioStructureResult == null)
-        {
-            return Array.Empty<ScenarioCommandReferenceTarget>();
-        }
-
-        var textEntries = _currentScenarioTextEntries;
-        if (textEntries.Count == 0)
-        {
-            try
-            {
-                textEntries = _scenarioTextReader.Read(_currentScenarioStructureResult.FilePath);
-            }
-            catch (Exception ex)
-            {
-                Log("创建命令引用备注时读取同文件文本线索失败，继续生成不含文本候选的备注：" + ex.Message);
-                textEntries = Array.Empty<ScenarioTextEntry>();
-            }
-        }
-
-        var mapLink = FindScenarioMapLinkForStructure(_currentScenarioStructureResult);
-        var targets = BuildScenarioCommandReferenceTargets(row, textEntries, mapLink);
-        ApplyScenarioCommandReferenceTargets(targets);
-        return targets;
-    }
 
     private void JumpSelectedScenarioCommandReference()
     {
@@ -9473,10 +9076,6 @@ public sealed partial class MainForm
         else if (target.CanJumpScenarioText)
         {
             jumped = JumpScenarioCommandReferenceToText(target);
-        }
-        else if (target.CanJumpScenarioMap)
-        {
-            jumped = JumpScenarioCommandReferenceToMap(target);
         }
 
         if (jumped)
@@ -9520,54 +9119,6 @@ public sealed partial class MainForm
         return found;
     }
 
-    private bool JumpScenarioCommandReferenceToMap(ScenarioCommandReferenceTarget target)
-    {
-        SelectTabPageByText("关卡地图联动");
-        if (_currentScenarioMapLinks.Count == 0)
-        {
-            LoadScenarioMapLinks();
-        }
-
-        if (_currentScenarioMapLinks.Count == 0)
-        {
-            return false;
-        }
-
-        BindScenarioMapLinkRows(_currentScenarioMapLinks);
-        var found = SelectGridRow<ScenarioMapLinkInfo>(_scenarioMapLinkGrid, row =>
-            (string.IsNullOrWhiteSpace(target.ScenarioFileName) || row.ScenarioFileName.Equals(target.ScenarioFileName, StringComparison.OrdinalIgnoreCase)) &&
-            (string.IsNullOrWhiteSpace(target.MapId) || row.MapId.Equals(target.MapId, StringComparison.OrdinalIgnoreCase)));
-        if (found)
-        {
-            ShowSelectedScenarioMapLink();
-        }
-
-        return found;
-    }
-
-    private static string BuildScenarioCommandCreatorNoteTargetKey(string fileName, ScenarioStructureRow row)
-        => $"{fileName}#Scene={row.SceneIndex}#Section={row.SectionIndex}#Command={row.CommandIndex}#Offset={row.OffsetHex}";
-
-    private ScenarioMapLinkInfo? FindScenarioMapLinkForStructure(ScenarioStructureProbeResult result)
-    {
-        if (_project == null) return null;
-        if (_currentScenarioMapLinks.Count == 0)
-        {
-            try
-            {
-                _currentScenarioMapLinks = EnsureScenarioMapLinksForDiagnostics();
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        return _currentScenarioMapLinks.FirstOrDefault(link =>
-            link.ScenarioFileName.Equals(result.FileName, StringComparison.OrdinalIgnoreCase)
-            || (!string.IsNullOrWhiteSpace(link.ScenarioPath)
-                && Path.GetFullPath(link.ScenarioPath).Equals(Path.GetFullPath(result.FilePath), StringComparison.OrdinalIgnoreCase)));
-    }
 
     private static void ExpandTreeToDepth(TreeNode node, int maxDepth)
     {
@@ -9610,13 +9161,13 @@ public sealed partial class MainForm
                 "说明：Text 列允许原地短写回；GBK 字节数必须不超过原容量，保存前会自动备份并复读验证。\r\n" +
                 $"路径：{item.Path}";
             ShowSelectedScenarioTextEntry();
-            Log($"已提取剧本文本线索：{item.FileName}，文本 {_currentScenarioTextEntries.Count} 条。");
+            System.Diagnostics.Debug.WriteLine($"已提取剧本文本线索：{item.FileName}，文本 {_currentScenarioTextEntries.Count} 条。");
             SetStatus($"剧本文本线索：{item.FileName}");
         }
         catch (Exception ex)
         {
             _scenarioFileInfoBox.Text = ex.ToString();
-            Log("剧本文本线索提取失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("剧本文本线索提取失败：" + ex);
             MessageBox.Show(this, ex.Message, "剧本文本线索提取失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -9634,7 +9185,6 @@ public sealed partial class MainForm
 
         var scenarioFile = GetSelectedScenarioFileItem();
         var scenarioName = scenarioFile?.FileName ?? _currentScenarioStructureResult?.FileName ?? "未知RS";
-        var targetKey = BuildScenarioTextCreatorNoteTargetKey(scenarioName, entry);
         var isChanged = IsScenarioTextChanged(entry);
         var writeMode = "当前项目可在 Text 列原地短写回；保存前会备份，保存后会复读验证。";
         var originalPreview = BuildPreview(NormalizeScenarioTextForSave(entry.OriginalText), 120);
@@ -9643,16 +9193,9 @@ public sealed partial class MainForm
             ? $"改动状态：已改动（原文：{originalPreview}）"
             : "改动状态：未改动";
         var annotation = string.IsNullOrWhiteSpace(entry.Annotation)
-            ? "暂无自动注释；可结合上下文和实机验证补充创作者备注。"
+            ? "暂无自动注释；可结合上下文和实机验证补充外部记录。"
             : entry.Annotation;
         var sourcePath = scenarioFile?.Path ?? _currentScenarioStructureResult?.FilePath ?? string.Empty;
-
-        SetLastCreatorNoteContext(
-            "R/S文本",
-            targetKey,
-            $"{scenarioName} 文本 #{entry.Index}",
-            "从 R/S eex 文本线索选中行抓取；写回仍受原容量 GBK 字节限制。",
-            $"当前文本：{entry.Text}\r\n原文：{entry.OriginalText}\r\n类型：{entry.Kind}\r\n偏移：{entry.OffsetHex}\r\n容量：{entry.ByteLength}B；当前GBK：{entry.GbkByteCount}B；剩余：{entry.RemainingBytes}B；状态：{entry.WriteStatus}\r\n用途/改写意图：\r\n风险：\r\n实机验证：");
 
         _scenarioFileInfoBox.Text =
             $"文件：{scenarioName}    文本索引：#{entry.Index}    类型：{entry.Kind}\r\n" +
@@ -9661,8 +9204,7 @@ public sealed partial class MainForm
             $"当前文本：{currentPreview}\r\n" +
             $"{changeText}\r\n" +
             $"安全说明：{writeMode}\r\n" +
-            (string.IsNullOrWhiteSpace(sourcePath) ? string.Empty : $"路径：{sourcePath}\r\n") +
-            BuildRelatedCreatorNotesText("R/S文本", targetKey);
+            (string.IsNullOrWhiteSpace(sourcePath) ? string.Empty : $"路径：{sourcePath}\r\n");
 
         SetStatus($"R/S文本 #{entry.Index}：{entry.WriteStatus}，GBK {entry.GbkByteCount}/{entry.ByteLength} 字节");
     }
@@ -9701,13 +9243,13 @@ public sealed partial class MainForm
                 (_project.IsTestCopy
                     ? "当前为测试副本：导出文件位于测试副本 _CCZModStudio_Exports。"
                     : "当前为项目目录：导出文件位于工作区 CCZModStudio_Exports，避免混入游戏发布目录。");
-            Log($"已导出剧本文本线索 CSV/TXT：{item.FileName}");
+            System.Diagnostics.Debug.WriteLine($"已导出剧本文本线索 CSV/TXT：{item.FileName}");
             SetStatus("剧本文本线索导出完成");
             MessageBox.Show(this, $"导出完成：\r\n{csv}\r\n{txt}", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Log("剧本文本线索导出失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("剧本文本线索导出失败：" + ex);
             MessageBox.Show(this, ex.Message, "剧本文本线索导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -9815,9 +9357,9 @@ public sealed partial class MainForm
                 $"备份：{result.BackupPath}\r\n" +
                 $"结构化报告：{result.ReportJsonPath}\r\n" +
                 "已重新读取文件并按偏移验证改动；当前仍只支持原地等长/缩短写回。";
-            Log($"已保存剧本文本：{item.FileName}，写入 {result.EntriesWritten} 条，变化 {result.ChangedBytes} 字节。");
-            Log("剧本文本备份：" + result.BackupPath);
-            Log("剧本文本结构化报告：" + result.ReportJsonPath);
+            System.Diagnostics.Debug.WriteLine($"已保存剧本文本：{item.FileName}，写入 {result.EntriesWritten} 条，变化 {result.ChangedBytes} 字节。");
+            System.Diagnostics.Debug.WriteLine("剧本文本备份：" + result.BackupPath);
+            System.Diagnostics.Debug.WriteLine("剧本文本结构化报告：" + result.ReportJsonPath);
             SetStatus($"剧本文本保存完成：{result.ChangedBytes} 字节变化");
             MessageBox.Show(this,
                 $"保存完成。\r\n写入条数：{result.EntriesWritten}\r\n变化字节：{result.ChangedBytes}\r\n备份：{result.BackupPath}\r\n结构化报告：{result.ReportJsonPath}",
@@ -9827,7 +9369,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("剧本文本保存失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("剧本文本保存失败：" + ex);
             MessageBox.Show(this, ex.Message, "剧本文本保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -9905,14 +9447,9 @@ public sealed partial class MainForm
         var scenarioName = GetSelectedScenarioFileItem()?.FileName ?? _currentScenarioStructureResult?.FileName ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(scenarioName))
         {
-            HighlightRowsWithCreatorNotes<ScenarioTextEntry>(
-                _scenarioTextGrid,
-                item => ("R/S文本", BuildScenarioTextCreatorNoteTargetKey(scenarioName, item)));
         }
     }
 
-    private static string BuildScenarioTextCreatorNoteTargetKey(string fileName, ScenarioTextEntry entry)
-        => $"{fileName}#TextIndex={entry.Index}#Offset={entry.OffsetHex}";
 
     private void ApplyScenarioTextFilter()
     {
@@ -9944,7 +9481,7 @@ public sealed partial class MainForm
         {
             _scenarioFileInfoBox.Text =
                 $"剧本文本筛选无匹配结果。\r\n筛选关键字：{keyword}\r\n仅改动：{_scenarioTextChangedOnly.Checked}\r\n" +
-                "提示：清除筛选后可继续查看文本线索详情和相关创作者备注。";
+                "提示：清除筛选后可继续查看文本线索详情和文本详情。";
         }
         else
         {

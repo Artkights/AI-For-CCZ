@@ -107,17 +107,7 @@ public sealed partial class CczMcpRuntime
         {
             project.GameRoot,
             Result = _effectPackageService.ApplyPatch(project, package),
-            SafetyNote = "Patch writes use PatchApplyService. A manifest is written for rollback_effect_manifest."
-        };
-    }
-
-    public object RollbackEffectManifest(string? gameRoot, string manifestId)
-    {
-        var project = LoadProject(gameRoot);
-        return new
-        {
-            project.GameRoot,
-            Result = _effectPackageService.RollbackManifest(project, manifestId)
+            SafetyNote = "Patch writes use PatchApplyService. A manifest records the generated backup files for manual recovery."
         };
     }
 
@@ -188,7 +178,7 @@ public sealed partial class CczMcpRuntime
             {
                 Name = "delete_ccz_effect",
                 Description = "删除或禁用特效并处理引用。",
-                Instructions = "固定行表不缩表：宝物清特效号和值，兵种清武将=1024/兵种=255/值=0，个人/套装行清 0；补丁用 rollback_effect_manifest。"
+                Instructions = "固定行表不缩表：宝物清特效号和值，兵种清武将=1024/兵种=255/值=0，个人/套装行清 0；补丁删除不提供自动入口，按 manifest 里的备份文件手动处理。"
             }
         };
 

@@ -129,8 +129,8 @@ public sealed class HexTableWriter
             ChangedBytes = changedBytes,
             Summary = $"保存数据表“{table.TableName}”，目标 {targetRelative}，字段改动 {changes.Count} 项，字节改动 {changedBytes:N0}。",
             SafetyNotes = project.IsTestCopy
-                ? "该报告由测试副本写入流程自动生成。还原时请使用备份历史/回滚页的预览和再备份流程。"
-                : "该报告由当前 MOD 项目直接保存流程自动生成。保存前已备份目标文件；如需回退，请使用备份文件或备份历史功能。",
+                ? "该报告由测试副本写入流程自动生成。还原时请使用保存前生成的备份文件手动恢复。"
+                : "该报告由当前 MOD 项目直接保存流程自动生成。保存前已备份目标文件；如需回退，请使用备份文件手动恢复。",
             Changes = changes,
             Metadata =
             {

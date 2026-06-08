@@ -52,7 +52,7 @@ public sealed class CczEffectMcpPrompts(CczMcpRuntime runtime)
             "2. Use list_effects/list_effect_templates before creating or changing a package.",
             "3. Prefer item/job/personal configuration packages. Use patch packages only when existing effect ids cannot express the request.",
             "4. Always call preview_effect_package or preview_effect_patch before apply_effect_package/apply_effect_patch.",
-            "5. For patch bytes, require address mapping, expected old bytes, conflict checks, manifest output, and rollback plan."
+            "5. For patch bytes, require address mapping, expected old bytes, conflict checks, manifest output, and manual recovery notes."
         });
     }
 }

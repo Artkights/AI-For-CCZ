@@ -27,34 +27,24 @@ public sealed partial class MainForm
         var project = _project;
         var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
         var existingScenarios = _currentScenarioFiles;
-        var existingResources = _currentGameResources;
         var existingTerrainLookup = _terrainEditorTerrainLookup;
         var existingHexzmap = _currentHexzmapProbe;
-        var existingLinks = _currentScenarioMapLinks;
 
         var result = await Task.Run(() =>
         {
             var scenarios = existingScenarios.Count > 0
                 ? existingScenarios
                 : new ScenarioFileReader().ReadAllIndex(project);
-            var resources = existingResources.Count > 0
-                ? existingResources
-                : new GameResourceIndexer().Index(project);
             IReadOnlyDictionary<byte, string> terrainLookup = existingTerrainLookup.Count > 0
                 ? existingTerrainLookup
                 : BuildTerrainNameLookupForBackground(project);
             var hexzmap = existingHexzmap ?? new HexzmapProbeReader().Read(project, terrainLookup);
-            var links = existingLinks.Count > 0
-                ? existingLinks
-                : new ScenarioMapLinkService().BuildLinks(scenarios, resources, hexzmap);
-            return (scenarios, resources, terrainLookup, hexzmap, links);
+            return (scenarios, terrainLookup, hexzmap);
         });
 
         _currentScenarioFiles = result.scenarios;
-        _currentGameResources = result.resources;
         _terrainEditorTerrainLookup = result.terrainLookup;
         _currentHexzmapProbe = result.hexzmap;
-        _currentScenarioMapLinks = result.links;
 
         return true;
     }
@@ -121,7 +111,7 @@ public sealed partial class MainForm
         {
             _updatingBattlefieldScenarioSelection = false;
             _battlefieldInfoBox.Text = ex.ToString();
-            Log("Load battlefield scenarios failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("Load battlefield scenarios failed: " + ex);
             MessageBox.Show(this, ex.Message, "\u8bfb\u53d6\u6218\u573a\u5236\u4f5c\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -157,8 +147,7 @@ public sealed partial class MainForm
             var project = _project;
             var tables = _tables;
             var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
-            var links = _currentScenarioMapLinks;
-            var document = await Task.Run(() => new BattlefieldEditorService().Load(project, scenario, dictionary, tables, links));
+            var document = await Task.Run(() => new BattlefieldEditorService().Load(project, scenario, dictionary, tables));
             _currentBattlefieldDocument = document;
             ClearBattlefieldManualMarker();
             ClearBattlefieldInstructionPreviewState();
@@ -185,8 +174,7 @@ public sealed partial class MainForm
             _saveBattlefieldTextsButton.Enabled = _currentBattlefieldDocument.TitleEntry != null || _currentBattlefieldDocument.ConditionEntry != null;
             _saveBattlefieldUnitReviewsButton.Enabled = _currentBattlefieldDocument.UnitCandidates.Count > 0;
             UpdateBattlefieldDeploymentWriteButton();
-            _createBattlefieldNoteButton.Enabled = true;
-            _jumpBattlefieldMapButton.Enabled = _currentBattlefieldDocument.MapLink?.MapImageExists == true;
+            _jumpBattlefieldMapButton.Enabled = false;
             _jumpBattlefieldScenarioButton.Enabled = true;
             _battlefieldInfoBox.Text = BuildBattlefieldInfo(_currentBattlefieldDocument);
             SetStatus($"\u6218\u573a\u5236\u4f5c\uff1a{scenario.FileName}");
@@ -194,7 +182,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _battlefieldInfoBox.Text = ex.ToString();
-            Log("Load battlefield document failed: " + ex);
+            System.Diagnostics.Debug.WriteLine("Load battlefield document failed: " + ex);
             MessageBox.Show(this, ex.Message, "\u8bfb\u53d6\u6218\u573a\u5236\u4f5c\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -250,7 +238,7 @@ public sealed partial class MainForm
         {
             _updatingBattlefieldScenarioSelection = false;
             _battlefieldInfoBox.Text = ex.ToString();
-            Log("读取战场制作关卡失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取战场制作关卡失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取战场制作失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -268,11 +256,6 @@ public sealed partial class MainForm
             _currentScenarioFiles = _scenarioFileReader.ReadAllIndex(_project);
         }
 
-        if (_currentGameResources.Count == 0)
-        {
-            _currentGameResources = _gameResourceIndexer.Index(_project);
-        }
-
         if (_terrainEditorTerrainLookup.Count == 0)
         {
             _terrainEditorTerrainLookup = BuildTerrainNameLookupForCurrentProject();
@@ -281,11 +264,6 @@ public sealed partial class MainForm
         if (_currentHexzmapProbe == null)
         {
             _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, _terrainEditorTerrainLookup);
-        }
-
-        if (_currentScenarioMapLinks.Count == 0)
-        {
-            _currentScenarioMapLinks = _scenarioMapLinkService.BuildLinks(_currentScenarioFiles, _currentGameResources, _currentHexzmapProbe);
         }
     }
 
@@ -300,7 +278,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             EnsureBattlefieldBaseDataLoaded();
             var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
-            _currentBattlefieldDocument = _battlefieldEditorService.Load(_project, scenario, dictionary, _tables, _currentScenarioMapLinks);
+            _currentBattlefieldDocument = _battlefieldEditorService.Load(_project, scenario, dictionary, _tables);
             ClearBattlefieldManualMarker();
             ClearBattlefieldInstructionPreviewState();
             _battlefieldUnitReviewService.Apply(_project, _currentBattlefieldDocument);
@@ -326,8 +304,7 @@ public sealed partial class MainForm
             _saveBattlefieldTextsButton.Enabled = _currentBattlefieldDocument.TitleEntry != null || _currentBattlefieldDocument.ConditionEntry != null;
             _saveBattlefieldUnitReviewsButton.Enabled = _currentBattlefieldDocument.UnitCandidates.Count > 0;
             UpdateBattlefieldDeploymentWriteButton();
-            _createBattlefieldNoteButton.Enabled = true;
-            _jumpBattlefieldMapButton.Enabled = _currentBattlefieldDocument.MapLink?.MapImageExists == true;
+            _jumpBattlefieldMapButton.Enabled = false;
             _jumpBattlefieldScenarioButton.Enabled = true;
             _battlefieldInfoBox.Text = BuildBattlefieldInfo(_currentBattlefieldDocument);
             SetStatus($"战场制作：{scenario.FileName}");
@@ -335,7 +312,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _battlefieldInfoBox.Text = ex.ToString();
-            Log("读取战场制作文档失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取战场制作文档失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取战场制作失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -373,7 +350,7 @@ public sealed partial class MainForm
                 nameof(BattlefieldUnitCandidate.Annotation) => "中文注释",
                 nameof(BattlefieldUnitCandidate.TargetKey) => "内部键",
                 nameof(BattlefieldUnitCandidate.ReviewStatus) => "核对状态",
-                nameof(BattlefieldUnitCandidate.CreatorMemo) => "创作者备注",
+                nameof(BattlefieldUnitCandidate.ReviewNote) => "核对记录",
                 _ => column.HeaderText
             };
             column.ToolTipText = column.DataPropertyName switch
@@ -384,11 +361,11 @@ public sealed partial class MainForm
                 nameof(BattlefieldUnitCandidate.AiHint) => "AI/方针候选解释；尚未开放未知命令结构写回。",
                 nameof(BattlefieldUnitCandidate.Annotation) => "面向创作者的中文说明和安全边界。",
                 nameof(BattlefieldUnitCandidate.ReviewStatus) => "可编辑项目侧状态，例如：待核对、已核对、需改、已实测。不写入游戏文件。",
-                nameof(BattlefieldUnitCandidate.CreatorMemo) => "可编辑项目侧备注，用于记录旧工具对照、计划修改、实机结果。不写入游戏文件。",
+                nameof(BattlefieldUnitCandidate.ReviewNote) => "可编辑核对记录，用于记录旧工具对照、计划修改、实机结果。不写入游戏文件。",
                 _ => column.ToolTipText
             };
-            column.ReadOnly = column.DataPropertyName is not (nameof(BattlefieldUnitCandidate.ReviewStatus) or nameof(BattlefieldUnitCandidate.CreatorMemo));
-            if (column.DataPropertyName is nameof(BattlefieldUnitCandidate.ReviewStatus) or nameof(BattlefieldUnitCandidate.CreatorMemo))
+            column.ReadOnly = column.DataPropertyName is not (nameof(BattlefieldUnitCandidate.ReviewStatus) or nameof(BattlefieldUnitCandidate.ReviewNote));
+            if (column.DataPropertyName is nameof(BattlefieldUnitCandidate.ReviewStatus) or nameof(BattlefieldUnitCandidate.ReviewNote))
             {
                 column.DefaultCellStyle.BackColor = Color.LightYellow;
             }
@@ -399,7 +376,7 @@ public sealed partial class MainForm
             if (column.DataPropertyName is nameof(BattlefieldUnitCandidate.PersonHint)
                 or nameof(BattlefieldUnitCandidate.CoordinateHint)
                 or nameof(BattlefieldUnitCandidate.Annotation)
-                or nameof(BattlefieldUnitCandidate.CreatorMemo))
+                or nameof(BattlefieldUnitCandidate.ReviewNote))
             {
                 column.Width = 320;
             }
@@ -521,7 +498,7 @@ public sealed partial class MainForm
             GridX = unit.GridX,
             GridY = unit.GridY,
             Source = unit.Source,
-            Memo = unit.Memo
+            PlacementNote = unit.PlacementNote
         };
 
     private void PopulateBattlefieldUnitCategoryFilter(IReadOnlyList<BattlefieldUnitCandidate> rows)
@@ -589,7 +566,7 @@ public sealed partial class MainForm
                ContainsKeyword(item.LevelOrStateHint, keyword) ||
                ContainsKeyword(item.Annotation, keyword) ||
                ContainsKeyword(item.ReviewStatus, keyword) ||
-               ContainsKeyword(item.CreatorMemo, keyword);
+               ContainsKeyword(item.ReviewNote, keyword);
     }
 
     private BattlefieldUnitCandidate? GetSelectedBattlefieldUnitCandidate()
@@ -792,60 +769,18 @@ public sealed partial class MainForm
         }
 
         candidate.ReviewStatus = status;
-        candidate.CreatorMemo = BattlefieldUnitReviewService.AppendMemoLine(
-            candidate.CreatorMemo,
-            BattlefieldUnitReviewService.BuildQuickReviewMemo(candidate, status));
+        candidate.ReviewNote = BattlefieldUnitReviewService.AppendReviewLine(
+            candidate.ReviewNote,
+            BattlefieldUnitReviewService.BuildQuickReviewNote(candidate, status));
         _battlefieldUnitGrid.Refresh();
         ShowSelectedBattlefieldUnitCandidate();
         SetStatus($"战场候选已标记：{status}");
-    }
-
-    private void CaptureBattlefieldMapClickMemo(Point location)
-    {
-        if (!_battlefieldMapClickMemoCheckBox.Checked) return;
-        if (_currentBattlefieldDocument == null) return;
-        var candidate = GetSelectedBattlefieldUnitCandidate();
-        if (candidate == null)
-        {
-            SetStatus("地图点选：请先选择一条出场/坐标候选。");
-            return;
-        }
-
-        if (!TryMapPreviewPointToGrid(location, out var x, out var y))
-        {
-            SetStatus("地图点选：点击位置不在地图显示区域内。");
-            return;
-        }
-
-        _battlefieldManualMarkerTargetKey = candidate.TargetKey;
-        _battlefieldManualMarkerX = x;
-        _battlefieldManualMarkerY = y;
-        if (string.IsNullOrWhiteSpace(candidate.ReviewStatus))
-        {
-            candidate.ReviewStatus = "需核对坐标";
-        }
-
-        candidate.CreatorMemo = BattlefieldUnitReviewService.AppendMemoLine(
-            candidate.CreatorMemo,
-            BattlefieldUnitReviewService.BuildCoordinateReviewMemo(candidate, x, y));
-        _battlefieldUnitGrid.Refresh();
-        RenderBattlefieldMapPreview(_currentBattlefieldDocument, candidate);
-        ShowSelectedBattlefieldUnitCandidate();
-        SetStatus($"战场地图点选已写入备注：({x},{y})");
     }
 
     private void BeginBattlefieldPlacedUnitInteraction(MouseEventArgs e)
     {
         if (e.Button is not (MouseButtons.Left or MouseButtons.Right)) return;
 
-        if (_battlefieldMapClickMemoCheckBox.Checked)
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                CaptureBattlefieldMapClickMemo(e.Location);
-            }
-            return;
-        }
 
         if (_currentBattlefieldDocument == null) return;
         if (!TryMapPreviewPointToGrid(e.Location, out var x, out var y))
@@ -952,8 +887,8 @@ public sealed partial class MainForm
             return;
         }
 
-        unit.Memo = BattlefieldUnitReviewService.AppendMemoLine(
-            unit.Memo,
+        unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
+            unit.PlacementNote,
             $"地图拖拽：({oldGrid.X},{oldGrid.Y}) -> ({unit.GridX},{unit.GridY})。");
         var synced = SyncBattlefieldInstructionPreviewAfterPlacement(unit, "地图拖动");
         if (_currentBattlefieldDocument != null)
@@ -967,7 +902,7 @@ public sealed partial class MainForm
                 $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  转向={unit.Direction}\r\n" +
                 (synced
                     ? "右侧候选和左侧 S 剧本预览已同步；点击“写回出场到S剧本”后写入指令。"
-                    : "未绑定到可写 46/47/4B 出场设置；只能保存为项目侧地图摆放备注。");
+                    : "未绑定到可写 46/47/4B 出场设置；只能保存为布阵草稿记录。");
         }
 
         _saveBattlefieldUnitReviewsButton.Enabled = true;
@@ -1002,7 +937,7 @@ public sealed partial class MainForm
             $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  转向={unit.Direction}\r\n" +
             $"状态：{(ReferenceEquals(unit, _editingBattlefieldPlacedUnit) ? "可编辑，拖拽后可同步 46/47/4B 出场设置预览" : "已选中，右键进入可编辑状态")}\r\n" +
             $"来源：{unit.Source}\r\n" +
-            $"备注：{unit.Memo}";
+            $"布阵记录：{unit.PlacementNote}";
         SetStatus(enterEdit
             ? $"战场布阵：{unit.Name} 已进入可编辑状态。"
             : $"战场布阵：已选中 {unit.Name} ({unit.GridX},{unit.GridY})");
@@ -1100,13 +1035,13 @@ public sealed partial class MainForm
 
         if (!await SelectScriptScenarioByNameAsync(_currentBattlefieldDocument.Scenario.FileName))
         {
-            MessageBox.Show(this, "剧本制作页没有找到对应关卡：" + _currentBattlefieldDocument.Scenario.FileName, "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "剧本编辑页没有找到对应关卡：" + _currentBattlefieldDocument.Scenario.FileName, "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         if (_currentScriptStructure == null)
         {
-            MessageBox.Show(this, "剧本制作结构尚未读取成功。", "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "剧本编辑结构尚未读取成功。", "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1114,7 +1049,7 @@ public sealed partial class MainForm
         if (row == null)
         {
             MessageBox.Show(this,
-                "没有在剧本制作结构中找到该战场候选对应命令。\r\n" +
+                "没有在剧本编辑结构中找到该战场候选对应命令。\r\n" +
                 $"候选来源：{candidate.SourceCommand} / {candidate.SceneSection} / {candidate.OffsetHex}",
                 "未找到对应命令",
                 MessageBoxButtons.OK,
@@ -1122,7 +1057,7 @@ public sealed partial class MainForm
             return;
         }
 
-        SelectTabPageByText("剧本制作");
+        SelectTabPageByText("剧本编辑");
         SelectScriptTreeNode(row, suppressEvents: true);
         _selectedScriptCommandRow = row;
         _selectedScriptTextEntry = null;
@@ -1130,17 +1065,17 @@ public sealed partial class MainForm
         _scriptTextEditorBox.Clear();
         UpdateScriptTextCapacityLabel();
         _scriptDetailBox.Text =
-            "从战场制作跳转：\r\n" +
+            "从战场编辑跳转：\r\n" +
             $"战场候选：{candidate.Category} / {candidate.PersonHint} / {candidate.CoordinateHint}\r\n" +
             $"核对状态：{candidate.ReviewStatus}\r\n" +
-            $"创作者备注：{candidate.CreatorMemo}\r\n\r\n" +
+            $"核对记录：{candidate.ReviewNote}\r\n\r\n" +
             BuildScriptRowDetail(row);
         SetStatus($"已从战场候选跳到剧本命令：{row.CommandName} {row.OffsetHex}");
     }
 
     private async Task<bool> SelectScriptScenarioByNameAsync(string fileName)
     {
-        SelectTabPageByText("剧本制作");
+        SelectTabPageByText("剧本编辑");
         if (_scriptScenarioCombo.Items.Count == 0)
         {
             await LoadScriptScenariosAsync();
@@ -1201,7 +1136,7 @@ public sealed partial class MainForm
             $"AI：{candidate.AiHint}\r\n" +
             $"等级/状态：{candidate.LevelOrStateHint}\r\n" +
             $"核对状态：{candidate.ReviewStatus}\r\n" +
-            $"创作者备注：{candidate.CreatorMemo}\r\n" +
+            $"核对记录：{candidate.ReviewNote}\r\n" +
             $"中文注释：{candidate.Annotation}";
     }
 
@@ -1238,43 +1173,7 @@ public sealed partial class MainForm
     private void RenderBattlefieldMapPreview(BattlefieldEditorDocument document, BattlefieldUnitCandidate? selectedUnit = null)
     {
         ClearBattlefieldMapPreviewImages();
-
-        var link = document.MapLink;
-        if (link == null)
-        {
-            _battlefieldMapHintLabel.Text = "地图预览：当前关卡未匹配到地图联动。";
-            return;
-        }
-
-        try
-        {
-            if (_currentHexzmapProbe != null && link.HexzmapBlockExists)
-            {
-                var block = _currentHexzmapProbe.Blocks.FirstOrDefault(x => x.MapId.Equals(link.MapId, StringComparison.OrdinalIgnoreCase));
-                if (block != null)
-                {
-                    var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
-                    if (cells.Length == block.BytesRead)
-                    {
-                        var preview = link.MapImageExists && File.Exists(link.MapImagePath)
-                            ? _hexzmapTerrainRenderService.RenderOverlay(cells, block.Width, block.Height, link.MapImagePath, 45)
-                            : RenderHexzmapCells(cells, block.Width, block.Height);
-                        SetBattlefieldMapPreviewImage(preview, selectedUnit);
-                        return;
-                    }
-                }
-            }
-
-            if (link.MapImageExists && File.Exists(link.MapImagePath))
-            {
-                using var image = Image.FromFile(link.MapImagePath);
-                SetBattlefieldMapPreviewImage(new Bitmap(image), selectedUnit);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log("战场制作地图预览失败：" + ex.Message);
-        }
+        _battlefieldMapHintLabel.Text = "地图预览：未绑定地图预览。";
     }
 
     private void SetBattlefieldMapPreviewImage(Image image, BattlefieldUnitCandidate? selectedUnit)
@@ -1294,7 +1193,7 @@ public sealed partial class MainForm
         {
             if (_battlefieldManualMarkerX < gridWidth && _battlefieldManualMarkerY < gridHeight)
             {
-                _battlefieldMapHintLabel.Text = $"地图点选记录：{selectedUnit.Category} {selectedUnit.SourceCommand} -> 坐标 ({_battlefieldManualMarkerX},{_battlefieldManualMarkerY})；已写入创作者备注。";
+                _battlefieldMapHintLabel.Text = $"地图点选记录：{selectedUnit.Category} {selectedUnit.SourceCommand} -> 坐标 ({_battlefieldManualMarkerX},{_battlefieldManualMarkerY})。";
             }
         }
         else if (selectedUnit != null && BattlefieldEditorService.TryExtractFirstCoordinate(selectedUnit, out var gridX, out var gridY))
@@ -1417,21 +1316,11 @@ public sealed partial class MainForm
 
     private (int Width, int Height) GetCurrentBattlefieldMapGridSize(Image? image)
     {
-        var mapId = _currentBattlefieldDocument?.MapLink?.MapId ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(mapId) && _currentHexzmapProbe != null)
-        {
-            var block = _currentHexzmapProbe.Blocks.FirstOrDefault(x => x.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase));
-            if (block is { Width: > 0, Height: > 0 })
-            {
-                return (block.Width, block.Height);
-            }
-        }
-
         if (image != null &&
-            image.Width % ResourceIndexItem.MapTilePixelSize == 0 &&
-            image.Height % ResourceIndexItem.MapTilePixelSize == 0)
+            image.Width % MapResourceItem.MapTilePixelSize == 0 &&
+            image.Height % MapResourceItem.MapTilePixelSize == 0)
         {
-            return (image.Width / ResourceIndexItem.MapTilePixelSize, image.Height / ResourceIndexItem.MapTilePixelSize);
+            return (image.Width / MapResourceItem.MapTilePixelSize, image.Height / MapResourceItem.MapTilePixelSize);
         }
 
         return (0, 0);
@@ -1747,12 +1636,12 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("战场待机帧刷新失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("战场待机帧刷新失败：" + ex.Message);
         }
     }
 
     private bool IsBattlefieldEditorTabActive()
-        => _mainTabs.SelectedTab?.Text == "战场制作";
+        => _mainTabs.SelectedTab?.Text == "战场编辑";
 
     private static string NormalizeBattlefieldDirection(string direction)
         => direction switch
@@ -1883,9 +1772,9 @@ public sealed partial class MainForm
             GridX = x,
             GridY = y,
             Source = scriptBacked ? "S剧本出场设置(拖放调整)" : "拖放",
-            Memo = scriptBacked && scriptCandidate != null
-                ? BuildBattlefieldScriptBoundPlacementMemo(item, x, y, scriptCandidate)
-                : BuildBattlefieldPlacementMemo(item, x, y)
+            PlacementNote = scriptBacked && scriptCandidate != null
+                ? BuildBattlefieldScriptBoundPlacementNote(item, x, y, scriptCandidate)
+                : BuildBattlefieldPlacementNote(item, x, y)
         };
         _battlefieldPlacedUnits.Add(placed);
         _selectedBattlefieldPlacedUnit = placed;
@@ -1900,13 +1789,13 @@ public sealed partial class MainForm
         UpdateBattlefieldDeploymentWriteButton();
         SetStatus(synced
             ? $"战场布阵：{item.DisplayText} -> ({x},{y})，已同步右侧候选和左侧 S 剧本预览，尚未写回。"
-            : $"战场布阵：{item.DisplayText} -> ({x},{y})；未找到可用的 46/47/4B 出场设置槽，左右指令不改，需保存为项目侧备注。");
+            : $"战场布阵：{item.DisplayText} -> ({x},{y})；未找到可用的 46/47/4B 出场设置槽，左右指令不改，需保存为布阵草稿。");
     }
 
-    private string BuildBattlefieldPlacementMemo(BattlefieldUnitPaletteItem item, int x, int y)
+    private string BuildBattlefieldPlacementNote(BattlefieldUnitPaletteItem item, int x, int y)
         => $"地图摆放：{item.DisplayText} ({GetSelectedBattlefieldFaction()}) 坐标=({x},{y})，等级={_battlefieldLevelModeCombo.SelectedItem}+{_battlefieldLevelOffsetInput.Value}，AI={_battlefieldAiModeCombo.SelectedItem}，隐藏={_battlefieldHiddenCheckBox.Checked}，转向={_battlefieldDirectionCombo.SelectedItem}。请在 S 剧本命令参数确认后再写入游戏文件。";
 
-    private string BuildBattlefieldScriptBoundPlacementMemo(BattlefieldUnitPaletteItem item, int x, int y, BattlefieldUnitCandidate candidate)
+    private string BuildBattlefieldScriptBoundPlacementNote(BattlefieldUnitPaletteItem item, int x, int y, BattlefieldUnitCandidate candidate)
         => $"地图拖放预览：{item.DisplayText} 绑定 S 剧本记录 {candidate.SourceCommand} / {candidate.SceneSection} / {candidate.OffsetHex}，预览人物={item.PersonId}，坐标=({x},{y})，AI={_battlefieldAiModeCombo.SelectedItem}。点击“写回出场到S剧本”前不会修改原文件。";
 
     private bool TryResolveBattlefieldDropScriptBinding(
@@ -2171,12 +2060,12 @@ public sealed partial class MainForm
             FactionHint = $"预览阵营：{placed.Faction}；原候选：{original.FactionHint}",
             AiHint = aiPreviewText,
             LevelOrStateHint = original.LevelOrStateHint,
-            Annotation = BattlefieldUnitReviewService.AppendMemoLine(
+            Annotation = BattlefieldUnitReviewService.AppendReviewLine(
                 original.Annotation,
                 "地图拖放预览已调整；点击“写回出场到S剧本”前不会修改原文件。"),
             TargetKey = original.TargetKey,
             ReviewStatus = reviewStatus,
-            CreatorMemo = BattlefieldUnitReviewService.AppendMemoLine(original.CreatorMemo, memoLine)
+            ReviewNote = BattlefieldUnitReviewService.AppendReviewLine(original.ReviewNote, memoLine)
         };
     }
 
@@ -2198,7 +2087,7 @@ public sealed partial class MainForm
             LegacyParameterLayout = original.LegacyParameterLayout,
             CommandTemplateHint = original.CommandTemplateHint,
             ReferenceHint = original.ReferenceHint,
-            Annotation = BattlefieldUnitReviewService.AppendMemoLine(
+            Annotation = BattlefieldUnitReviewService.AppendReviewLine(
                 original.Annotation,
                 "地图拖放预览已调整；点击“写回出场到S剧本”前不会修改原文件。")
         };
@@ -2423,7 +2312,7 @@ public sealed partial class MainForm
     private void ClearBattlefieldPlacedUnits()
     {
         if (_battlefieldPlacedUnits.Count == 0) return;
-        if (MessageBox.Show(this, "将清空当前关卡的地图摆放备注，不修改 S 剧本。是否继续？", "确认清空摆放", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+        if (MessageBox.Show(this, "将清空当前关卡的地图摆放草稿，不修改 S 剧本。是否继续？", "确认清空摆放", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
         {
             return;
         }
@@ -2538,7 +2427,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("读取战场角色列表失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("读取战场角色列表失败：" + ex.Message);
             BindBattlefieldUnitPalette(_battlefieldUnitPaletteItems);
         }
     }
@@ -2590,7 +2479,7 @@ public sealed partial class MainForm
                 GridX = x,
                 GridY = y,
                 Source = "S剧本预览",
-                Memo = BuildBattlefieldScriptPlacementMemo(candidate)
+                PlacementNote = BuildBattlefieldScriptPlacementNote(candidate)
             });
             existingTargets.Add(targetKey);
             occupiedGrids.Add(gridKey);
@@ -2644,7 +2533,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("读取我军候选出战位失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("读取我军候选出战位失败：" + ex.Message);
         }
     }
 
@@ -2709,7 +2598,7 @@ public sealed partial class MainForm
                text.Contains("伏兵", StringComparison.Ordinal);
     }
 
-    private static string BuildBattlefieldScriptPlacementMemo(BattlefieldUnitCandidate candidate)
+    private static string BuildBattlefieldScriptPlacementNote(BattlefieldUnitCandidate candidate)
         => $"从 S 剧本出场/坐标候选预加载：{candidate.SourceCommand} / {candidate.SceneSection} / {candidate.OffsetHex}\r\n" +
            $"人物：{candidate.PersonHint}\r\n" +
            $"坐标：{candidate.CoordinateHint}\r\n" +
@@ -3705,14 +3594,14 @@ public sealed partial class MainForm
 
                 await LoadSelectedBattlefieldScenarioAsync();
                 _battlefieldScriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-                Log($"已从战场制作页完整保存 S 剧本文本：{scenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
+                System.Diagnostics.Debug.WriteLine($"已从战场制作页完整保存 S 剧本文本：{scenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
                 SetStatus($"战场制作：S 剧本文本保存完成 {scenario.FileName}");
                 MessageBox.Show(this, $"完整保存完成。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}", "保存完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 legacyText.Parameter.Text = entry.OriginalText;
-                Log("战场制作页保存 S 剧本文本失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("战场制作页保存 S 剧本文本失败：" + ex);
                 MessageBox.Show(this, ex.Message, "保存 S 剧本文本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
@@ -3754,7 +3643,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("战场制作页原地保存 S 剧本文本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("战场制作页原地保存 S 剧本文本失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存 S 剧本文本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3786,12 +3675,12 @@ public sealed partial class MainForm
 
             await LoadSelectedBattlefieldScenarioAsync();
             _battlefieldScriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-            Log($"已从战场制作页完整保存 S 剧本：{scenario.FileName} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已从战场制作页完整保存 S 剧本：{scenario.FileName} backup={result.BackupPath}");
             SetStatus($"战场制作：S 剧本完整保存完成 {scenario.FileName}");
         }
         catch (Exception ex)
         {
-            Log("战场制作页完整保存 S 剧本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("战场制作页完整保存 S 剧本失败：" + ex);
             MessageBox.Show(this, ex.Message, "完整保存 S 剧本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3879,12 +3768,12 @@ public sealed partial class MainForm
 
             await LoadSelectedRSceneScenarioAsync();
             _rSceneScriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-            Log($"已从 R 场景制作页完整保存 R 剧本：{scenario.FileName} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已从 R 场景制作页完整保存 R 剧本：{scenario.FileName} backup={result.BackupPath}");
             SetStatus($"R场景制作：R 剧本完整保存完成 {scenario.FileName}");
         }
         catch (Exception ex)
         {
-            Log("R 场景制作页完整保存 R 剧本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("R 场景制作页完整保存 R 剧本失败：" + ex);
             MessageBox.Show(this, ex.Message, "完整保存 R 剧本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4014,68 +3903,13 @@ public sealed partial class MainForm
 
     private string BuildBattlefieldInfo(BattlefieldEditorDocument document)
     {
-        var link = document.MapLink;
-        var mapText = link == null
-            ? "未匹配关卡地图联动"
-            : $"{link.MapId}    图片={(link.MapImageExists ? link.MapImageName : "缺失")}    地形块={(link.HexzmapBlockExists ? "存在 " + link.HexzmapOffsetHex : "缺失")}    状态={link.Status}";
-        var targetKey = $"Battlefield#{document.Scenario.FileName}";
-        SetLastCreatorNoteContext(
-            "战场制作",
-            targetKey,
-            $"{document.Scenario.FileName} 战场制作",
-            "从战场制作页抓取；用于记录关卡地图、胜败条件、出场单位和坐标核对。",
-            $"关卡：{document.Scenario.FileName}\r\n地图：{mapText}\r\n标题：{_battlefieldTitleBox.Text}\r\n胜败条件：\r\n{_battlefieldConditionsBox.Text}\r\n出场/坐标/AI核对：");
         return
             $"{document.Summary}\r\n" +
-            $"地图联动：{mapText}\r\n" +
             $"标题：{BattlefieldEditorService.FormatCapacity(document.TitleEntry, _battlefieldTitleBox.Text)}\r\n" +
-            $"胜败条件：{BattlefieldEditorService.FormatCapacity(document.ConditionEntry, _battlefieldConditionsBox.Text)}\r\n" +
-            $"出场/坐标候选：{document.UnitCandidates.Count} 条；战场命令定位：{document.CommandCandidates.Count} 条（46/47/4B 已确认出场槽可受控写回，其它未知命令结构暂不强写）。\r\n" +
-            $"地图预览单位：{_battlefieldPlacedUnits.Count} 个（含本地保存摆放与 S 剧本候选预加载）。\r\n" +
-            $"我军候选出战位：{_battlefieldAllyDeploymentSlots.Count} 个（强制 {_battlefieldAllyDeploymentSlots.Count(slot => slot.IsForced)} 个；S 侧 4B 可写回坐标/方向/隐藏，R 4057 仍只读核对）。\r\n" +
-            $"说明：{document.Annotation}" +
-            BuildRelatedCreatorNotesText("战场制作", targetKey);
-    }
-
-    private void CreateBattlefieldNote()
-    {
-        if (_currentBattlefieldDocument == null)
-        {
-            MessageBox.Show(this, "请先读取一个战场关卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        var context = BuildBattlefieldCreatorNoteContext(_currentBattlefieldDocument);
-        CreateCreatorNoteFromContext(context, "从战场制作页直接创建。", "战场制作,待实测");
-    }
-
-    private (string Scope, string TargetKey, string Title, string SourceHint, string ContentSeed) BuildBattlefieldCreatorNoteContext(BattlefieldEditorDocument document)
-    {
-        var link = document.MapLink;
-        var mapText = link == null
-            ? "未匹配地图"
-            : $"{link.MapId} / {link.MapImageName} / {link.Status}";
-        var selectedUnit = _battlefieldUnitGrid.SelectedRows.Count > 0
-            ? _battlefieldUnitGrid.SelectedRows[0].DataBoundItem as BattlefieldUnitCandidate
-            : null;
-        var unitText = selectedUnit == null
-            ? $"当前关卡出场/坐标候选 {document.UnitCandidates.Count} 条。"
-            : $"选中候选：{selectedUnit.Category}，{selectedUnit.SourceCommand}，{selectedUnit.SceneSection}，偏移 {selectedUnit.OffsetHex}\r\n人物：{selectedUnit.PersonHint}\r\n坐标：{selectedUnit.CoordinateHint}\r\n阵营：{selectedUnit.FactionHint}\r\nAI：{selectedUnit.AiHint}\r\n核对状态：{selectedUnit.ReviewStatus}\r\n创作者备注：{selectedUnit.CreatorMemo}";
-
-        return (
-            "战场制作",
-            $"Battlefield#{document.Scenario.FileName}",
-            $"{document.Scenario.FileName} 战场制作备注",
-            "从战场制作页创建；用于记录关卡地图、胜败条件、出场单位、坐标、阵营和 AI 核对。",
-            $"关卡：{document.Scenario.FileName}\r\n" +
-            $"地图：{mapText}\r\n" +
-            $"标题：{_battlefieldTitleBox.Text}\r\n" +
-            $"胜败条件：\r\n{_battlefieldConditionsBox.Text}\r\n\r\n" +
-            $"{unitText}\r\n\r\n" +
-            "修改意图：\r\n" +
-            "旧工具对照：\r\n" +
-            "实机验证：\r\n" +
-            "回滚点/备份：");
+            $"胜负条件：{BattlefieldEditorService.FormatCapacity(document.ConditionEntry, _battlefieldConditionsBox.Text)}\r\n" +
+            $"出场/坐标候选：{document.UnitCandidates.Count} 条；战场命令定位：{document.CommandCandidates.Count} 条。\r\n" +
+            $"地图预览单位：{_battlefieldPlacedUnits.Count} 个；我军候选出战位：{_battlefieldAllyDeploymentSlots.Count} 个（强制 {_battlefieldAllyDeploymentSlots.Count(slot => slot.IsForced)} 个）。\r\n" +
+            $"说明：{document.Annotation}";
     }
 
     private void SaveBattlefieldUnitReviews()
@@ -4094,12 +3928,12 @@ public sealed partial class MainForm
             _battlefieldInfoBox.Text = BuildBattlefieldInfo(_currentBattlefieldDocument) +
                                        $"\r\n\r\n出场/坐标候选核对和地图摆放已保存：{path}\r\n说明：该文件是项目侧 JSON，不写入 R/S eex，不参与发布封包。";
             SetStatus($"战场制作：已保存出场核对 {rows.Count} 条，摆放 {_battlefieldPlacedUnits.Count} 个");
-            Log($"已保存战场出场核对：{_currentBattlefieldDocument.Scenario.FileName} path={path}");
+            System.Diagnostics.Debug.WriteLine($"已保存战场出场核对：{_currentBattlefieldDocument.Scenario.FileName} path={path}");
             MessageBox.Show(this, $"出场/坐标候选核对和地图摆放已保存。\r\n{path}", "保存出场核对完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Log("保存战场出场核对失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存战场出场核对失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存出场核对失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -4116,7 +3950,7 @@ public sealed partial class MainForm
         if (writableCount == 0)
         {
             MessageBox.Show(this,
-                "当前地图摆放没有可写回的 S 剧本出场记录。\r\n\r\n可写回对象必须自动或手动绑定到 S 剧本 46/47/4B 出场设置槽，且 TargetKey 含 Scene/Section/Command/Record。纯拖放会优先匹配同阵营同人物已有槽、空 46/47 槽或可用 4B 出战位；找不到槽时才只保存为项目侧备注。",
+                "当前地图摆放没有可写回的 S 剧本出场记录。\r\n\r\n可写回对象必须自动或手动绑定到 S 剧本 46/47/4B 出场设置槽，且 TargetKey 含 Scene/Section/Command/Record。纯拖放会优先匹配同阵营同人物已有槽、空 46/47 槽或可用 4B 出战位；找不到槽时才只保存为布阵草稿。",
                 "没有可写回记录",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -4156,7 +3990,7 @@ public sealed partial class MainForm
                 $"备份：{result.BackupPath}\r\n" +
                 $"报告：{result.ReportJsonPath}\r\n" +
                 BuildBattlefieldDeploymentWriteDetail(result);
-            Log($"已写回战场出场记录：{scenarioFileName} records={result.WrittenRecordCount} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已写回战场出场记录：{scenarioFileName} records={result.WrittenRecordCount} backup={result.BackupPath}");
             SetStatus($"战场制作：出场记录写回完成 {scenarioFileName} records={result.WrittenRecordCount}");
             MessageBox.Show(this,
                 $"写回完成：{result.WrittenRecordCount} 条出场记录。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}",
@@ -4166,7 +4000,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("写回战场出场记录失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("写回战场出场记录失败：" + ex);
             MessageBox.Show(this, ex.Message, "写回出场失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4278,13 +4112,13 @@ public sealed partial class MainForm
             _battlefieldInfoBox.Text =
                 BuildBattlefieldInfo(_currentBattlefieldDocument) +
                 $"\r\n\r\n保存完成：写入 {result.EntriesWritten} 条，变化 {result.ChangedBytes} 字节。\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-            Log($"已保存战场文本：{scenarioFileName} entries={result.EntriesWritten} backup={result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"已保存战场文本：{scenarioFileName} entries={result.EntriesWritten} backup={result.BackupPath}");
             SetStatus($"战场制作保存完成：{scenarioFileName}");
             MessageBox.Show(this, $"保存完成。\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}", "战场制作保存完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Log("保存战场制作文本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存战场制作文本失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存战场制作失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4299,7 +4133,7 @@ public sealed partial class MainForm
         EnsureBattlefieldBaseDataLoaded();
         var scenario = _currentScenarioFiles.First(x => x.FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase));
         dictionary ??= _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
-        _currentBattlefieldDocument = _battlefieldEditorService.Load(_project, scenario, dictionary, _tables, _currentScenarioMapLinks);
+        _currentBattlefieldDocument = _battlefieldEditorService.Load(_project, scenario, dictionary, _tables);
         ClearBattlefieldInstructionPreviewState();
         _battlefieldUnitReviewService.Apply(_project, _currentBattlefieldDocument);
         _battlefieldPlacedUnits.Clear();
@@ -4325,8 +4159,7 @@ public sealed partial class MainForm
         _saveBattlefieldTextsButton.Enabled = _currentBattlefieldDocument.TitleEntry != null || _currentBattlefieldDocument.ConditionEntry != null;
         _saveBattlefieldUnitReviewsButton.Enabled = _currentBattlefieldDocument.UnitCandidates.Count > 0;
         UpdateBattlefieldDeploymentWriteButton();
-        _createBattlefieldNoteButton.Enabled = true;
-        _jumpBattlefieldMapButton.Enabled = _currentBattlefieldDocument.MapLink?.MapImageExists == true;
+        _jumpBattlefieldMapButton.Enabled = false;
         _jumpBattlefieldScenarioButton.Enabled = true;
     }
 
@@ -4340,35 +4173,18 @@ public sealed partial class MainForm
         }
     }
 
-    private void JumpBattlefieldMapMaker()
-    {
-        var link = _currentBattlefieldDocument?.MapLink;
-        if (link == null || !link.MapImageExists)
-        {
-            MessageBox.Show(this, "当前关卡没有可跳转的地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        SelectTabPageByText("地图制作");
-        if (_mapImageList.Items.Count == 0) LoadMapImages();
-        if (!SelectMapImageByName(link.MapImageName))
-        {
-            MessageBox.Show(this, "地图制作列表中没有找到对应地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-    }
-
     private async Task JumpBattlefieldScenarioStructureAsync()
     {
         var scenario = _currentBattlefieldDocument?.Scenario;
         if (scenario == null) return;
         if (await SelectScriptScenarioByNameAsync(scenario.FileName))
         {
-            SetStatus($"已从战场制作跳转到剧本制作：{scenario.FileName}");
+            SetStatus($"已从战场编辑跳转到剧本编辑：{scenario.FileName}");
         }
         else
         {
-            SelectTabPageByText("剧本制作");
-            MessageBox.Show(this, "剧本制作页没有找到对应关卡：" + scenario.FileName, "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            SelectTabPageByText("剧本编辑");
+            MessageBox.Show(this, "剧本编辑页没有找到对应关卡：" + scenario.FileName, "无法跳转", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 }

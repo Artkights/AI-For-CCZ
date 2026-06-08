@@ -141,8 +141,8 @@ public sealed class MapImageReplaceService
             ChangedBytes = changedBytes,
             Summary = $"替换地图底图 {targetRelative}，尺寸 {oldWidth}x{oldHeight} -> {newWidth}x{newHeight}，估算改动 {changedBytes:N0} 字节。",
             SafetyNotes = project.IsTestCopy
-                ? "该报告由测试副本地图制作流程自动生成。还原时请使用备份历史/回滚页的预览和再备份流程。"
-                : "该报告由当前 MOD 项目地图制作流程直接保存生成。保存前已备份原地图底图；如需回退，请使用备份文件或备份历史功能。",
+                ? "该报告由测试副本地图制作流程自动生成。还原时请使用保存前生成的备份文件手动恢复。"
+                : "该报告由当前 MOD 项目地图制作流程直接保存生成。保存前已备份原地图底图；如需回退，请使用备份文件手动恢复。",
             FormatCheckSummary = formatCheck,
             RiskSummary = string.IsNullOrWhiteSpace(warning)
                 ? "地图底图仍为 JPEG，尺寸未变化；仍建议进游戏确认战场显示和坐标对齐。"

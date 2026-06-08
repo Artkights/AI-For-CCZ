@@ -78,7 +78,7 @@ internal partial class Program
     
             var battlefieldService = new BattlefieldEditorService();
             var battlefieldDocs = battlefieldScenarios
-                .Select(scenario => battlefieldService.Load(project, scenario, sceneDoc, tables, Array.Empty<ScenarioMapLinkInfo>()))
+                .Select(scenario => battlefieldService.Load(project, scenario, sceneDoc, tables))
                 .ToList();
             foreach (var battlefieldDoc in battlefieldDocs)
             {
@@ -87,16 +87,6 @@ internal partial class Program
                     throw new InvalidOperationException($"Battlefield editor did not produce command/unit candidates for {battlefieldDoc.Scenario.FileName}.");
                 }
             }
-    
-            var battlefieldResources = new GameResourceIndexer().Index(project);
-            var battlefieldTerrainLookup = HexzmapProbeReader.BuildTerrainNameLookup(new MaterialLibraryIndexer().Index(project));
-            var battlefieldHexzmap = File.Exists(project.ResolveGameFile("Hexzmap.e5"))
-                ? new HexzmapProbeReader().Read(project, battlefieldTerrainLookup)
-                : null;
-            var battlefieldMapLinks = new ScenarioMapLinkService().BuildLinks(battlefieldScenarios, battlefieldResources, battlefieldHexzmap);
-            var battlefieldDocsWithMaps = battlefieldScenarios
-                .Select(scenario => battlefieldService.Load(project, scenario, sceneDoc, tables, battlefieldMapLinks))
-                .ToList();
     
             if (battlefieldDocs.Count > 1 &&
                 string.Equals(BuildBattlefieldCommandSignature(battlefieldDocs[0]), BuildBattlefieldCommandSignature(battlefieldDocs[1]), StringComparison.Ordinal))
@@ -108,12 +98,6 @@ internal partial class Program
                 string.Equals(BuildBattlefieldUnitSignature(battlefieldDocs[0]), BuildBattlefieldUnitSignature(battlefieldDocs[1]), StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"Battlefield unit candidates did not change between {battlefieldDocs[0].Scenario.FileName} and {battlefieldDocs[1].Scenario.FileName}.");
-            }
-    
-            if (battlefieldDocsWithMaps.Count > 1 &&
-                string.Equals(BuildBattlefieldMapSignature(battlefieldDocsWithMaps[0]), BuildBattlefieldMapSignature(battlefieldDocsWithMaps[1]), StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException($"Battlefield map link preview did not change between {battlefieldDocsWithMaps[0].Scenario.FileName} and {battlefieldDocsWithMaps[1].Scenario.FileName}.");
             }
     
             var battlefieldCoordinateCandidate = battlefieldDocs[0].UnitCandidates.FirstOrDefault(candidate => BattlefieldEditorService.TryExtractFirstCoordinate(candidate, out _, out _))
@@ -155,7 +139,7 @@ internal partial class Program
                 throw new InvalidOperationException($"Battlefield candidate cannot be located in legacy script tree: {battlefieldDocs[0].Scenario.FileName} {battlefieldCoordinateCandidate.TargetKey}");
             }
     
-            Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")} map={BuildBattlefieldMapSignature(battlefieldDocsWithMaps[0])} allySlots={allyDeploymentSlotScenario.FileName}:{allyDeploymentSlots.Count} first=#{firstAllyDeploymentSlot.DisplayOrder}@({firstAllyDeploymentSlot.GridX},{firstAllyDeploymentSlot.GridY}) forced={allyDeploymentSlots.Count(slot => slot.IsForced)}");
+            Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")} allySlots={allyDeploymentSlotScenario.FileName}:{allyDeploymentSlots.Count} first=#{firstAllyDeploymentSlot.DisplayOrder}@({firstAllyDeploymentSlot.GridX},{firstAllyDeploymentSlot.GridY}) forced={allyDeploymentSlots.Count(slot => slot.IsForced)}");
         }
         else
         {

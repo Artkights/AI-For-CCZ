@@ -60,14 +60,12 @@ public sealed partial class MainForm
         _scriptContextDeleteItem.Click += (_, _) => DeleteSelectedLegacyScriptCommand();
         _scriptContextEditItem.Click += (_, _) => FocusSelectedScriptObjectEditor();
         _scriptContextApplyParameterItem.Click += (_, _) => EditSelectedLegacyItemDataCommand();
-        _scriptContextSaveTextItem.Click += (_, _) => SaveCurrentScriptRemark();
         _scriptContextCopyItem.Click += (_, _) => CopySelectedScriptCommandSummary();
         _scriptContextPreviewPasteItem.Click += (_, _) => PreviewPasteScriptCommandCandidate();
         _scriptContextPasteBeforeItem.Click += (_, _) => PasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true);
         _scriptContextPasteAfterItem.Click += (_, _) => PasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false);
         _scriptContextMoveUpItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: true);
         _scriptContextMoveDownItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: false);
-        _scriptContextNoteItem.Click += (_, _) => CreateScriptNote();
 
         _scriptTreeContextMenu.Opening += (_, e) =>
         {
@@ -82,10 +80,7 @@ public sealed partial class MainForm
         {
             _scriptContextEditItem,
             new ToolStripSeparator(),
-            _scriptContextApplyParameterItem,
-            _scriptContextSaveTextItem,
-            new ToolStripSeparator(),
-            _scriptContextNoteItem
+            _scriptContextApplyParameterItem
         });
     }
 
@@ -333,7 +328,7 @@ public sealed partial class MainForm
         _scriptContextAppendChildItem.Enabled = false;
         _scriptContextDeleteItem.Enabled = false;
         _scriptContextApplyParameterItem.Enabled = TryGetSelectedLegacyItemData(out var selectedItemData) && LegacyCommandEditDispatcher.CanEdit(selectedItemData.Id);
-        _scriptContextSaveTextItem.Text = "保存备注";
+        _scriptContextSaveTextItem.Text = "保存当前文本";
         _scriptContextSaveTextItem.Enabled = _saveScriptTextButton.Enabled;
         _scriptContextCopyItem.Enabled = selectedCommand || selectedSectionNode || checkedCommands.Count > 0;
         _scriptContextCopyItem.Text = checkedCommands.Count > 1
@@ -349,7 +344,6 @@ public sealed partial class MainForm
         _scriptContextPasteAfterItem.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false, out _);
         _scriptContextMoveUpItem.Enabled = false;
         _scriptContextMoveDownItem.Enabled = false;
-        _scriptContextNoteItem.Enabled = _createScriptNoteButton.Enabled;
 
         var commandName = FormatScriptNewCommandMenuText();
         _scriptContextAppendSectionItem.Text = string.IsNullOrWhiteSpace(commandName)

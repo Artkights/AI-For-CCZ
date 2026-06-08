@@ -1,10 +1,10 @@
 namespace CCZModStudio.Models;
 
-public sealed class ResourceIndexItem
+public sealed class MapResourceItem
 {
     public const int MapTilePixelSize = 48;
 
-    public string Category { get; init; } = string.Empty;
+    public string Category { get; init; } = "地图图片";
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string Extension { get; init; } = string.Empty;

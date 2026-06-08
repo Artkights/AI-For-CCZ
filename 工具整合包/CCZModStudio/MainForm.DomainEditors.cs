@@ -52,7 +52,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("打开全局设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("打开全局设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "打开全局设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -82,7 +82,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _roleEditorInfoBox.Text = ex.ToString();
-            Log("读取角色设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取角色设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取角色设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -611,8 +611,8 @@ public sealed partial class MainForm
             LoadRoleTextTables();
             ShowRoleTextDetails(roleRow);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存角色文本：{roleId} {roleName}，保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("角色文本备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存角色文本：{roleId} {roleName}，保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("角色文本备份：" + save.BackupPath);
             SetStatus($"角色文本保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -622,7 +622,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存角色文本失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存角色文本失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存角色文本失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -658,10 +658,10 @@ public sealed partial class MainForm
             var saves = SaveRoleEditorData(_project, _tables, _currentRoleEditorData);
             LoadRoleEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存角色设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            System.Diagnostics.Debug.WriteLine($"已保存角色设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves)
             {
-                Log($"角色设定备份：{save.BackupPath}");
+                System.Diagnostics.Debug.WriteLine($"角色设定备份：{save.BackupPath}");
             }
             SetStatus($"角色设定保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
@@ -672,7 +672,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存角色设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存角色设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存角色设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -790,7 +790,475 @@ public sealed partial class MainForm
 
     private void OpenRolePersonalEffectEditor()
     {
-        OpenCoreTable("6.5-7-3 人物专属、套装专属");
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (_tables.Count == 0)
+        {
+            ReloadCurrentProject();
+            if (_tables.Count == 0) return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var data = BuildRolePersonalEffectEditorData(_project, _tables);
+            Cursor = Cursors.Default;
+            ShowRolePersonalEffectEditorDialog(data);
+        }
+        catch (Exception ex)
+        {
+            Cursor = Cursors.Default;
+            System.Diagnostics.Debug.WriteLine("读取个人专属失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取个人专属失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private DataTable BuildRolePersonalEffectEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        _jobEffectNameTable = FindTable(tables, "6.5-7 兵种特效");
+        _rolePersonalEffectNames = ReadJobEffectNames(project, _jobEffectNameTable);
+        _rolePersonalEffectRead = _tableReader.Read(project, FindTable(tables, "6.5-7-3 人物专属、套装专属"), tables);
+        _rolePersonalEffectPersonNames = BuildIdNameLookup(project, tables, "6.5-0 人物");
+        _rolePersonalEffectItemNames = BuildItemNameLookup(project, tables);
+        if (!_rolePersonalEffectRead.Validation.IsUsable)
+        {
+            throw new InvalidOperationException("人物专属/套装专属表有不可读取项，请先查看数据表诊断。");
+        }
+
+        var output = new DataTable("个人专属");
+        output.Columns.Add("ID", typeof(int));
+        output.Columns.Add("名称", typeof(string));
+        output.Columns.Add("武将1", typeof(int));
+        output.Columns.Add("武将1名", typeof(string));
+        output.Columns.Add("装备1", typeof(int));
+        output.Columns.Add("装备1名", typeof(string));
+        output.Columns.Add("特效值1", typeof(int));
+        output.Columns.Add("武将2", typeof(int));
+        output.Columns.Add("武将2名", typeof(string));
+        output.Columns.Add("装备2", typeof(int));
+        output.Columns.Add("装备2名", typeof(string));
+        output.Columns.Add("特效值2", typeof(int));
+        output.Columns.Add("装备3-1", typeof(int));
+        output.Columns.Add("装备3-1名", typeof(string));
+        output.Columns.Add("装备3-2", typeof(int));
+        output.Columns.Add("装备3-2名", typeof(string));
+        output.Columns.Add("装备3-3", typeof(int));
+        output.Columns.Add("装备3-3名", typeof(string));
+        output.Columns.Add("特效值3", typeof(int));
+        output.Columns.Add("装备4-1", typeof(int));
+        output.Columns.Add("装备4-1名", typeof(string));
+        output.Columns.Add("装备4-2", typeof(int));
+        output.Columns.Add("装备4-2名", typeof(string));
+        output.Columns.Add("装备4-3", typeof(int));
+        output.Columns.Add("装备4-3名", typeof(string));
+        output.Columns.Add("特效值4", typeof(int));
+
+        foreach (DataRow sourceRow in _rolePersonalEffectRead.Data.Rows)
+        {
+            var id = Convert.ToInt32(sourceRow["ID"], CultureInfo.InvariantCulture);
+            var row = output.NewRow();
+            row["ID"] = id;
+            row["名称"] = BuildRolePersonalEffectName(id, sourceRow);
+            foreach (var columnName in GetRolePersonalEffectRawColumns())
+            {
+                row[columnName] = Convert.ToInt32(sourceRow[columnName], CultureInfo.InvariantCulture);
+            }
+            RefreshRolePersonalEffectDerivedCells(row);
+            output.Rows.Add(row);
+        }
+
+        output.AcceptChanges();
+        foreach (DataColumn column in output.Columns)
+        {
+            column.ReadOnly =
+                column.ColumnName is "ID" or "名称" ||
+                column.ColumnName.EndsWith("名", StringComparison.Ordinal);
+        }
+        return output;
+    }
+
+    private IReadOnlyDictionary<int, string> BuildItemNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var result = new Dictionary<int, string>();
+        foreach (var tableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+        {
+            var read = _tableReader.Read(project, FindTable(tables, tableName), tables);
+            if (!read.Validation.IsUsable || !read.Data.Columns.Contains("名称")) continue;
+            foreach (DataRow row in read.Data.Rows)
+            {
+                var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+                result[id] = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+            }
+        }
+        return result;
+    }
+
+    private string BuildRolePersonalEffectName(int id, DataRow sourceRow)
+    {
+        if (_rolePersonalEffectNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name))
+        {
+            return name;
+        }
+
+        var tableName = sourceRow.Table.Columns.Contains("名称")
+            ? Convert.ToString(sourceRow["名称"], CultureInfo.InvariantCulture)
+            : string.Empty;
+        if (!string.IsNullOrWhiteSpace(tableName) && !tableName.StartsWith("#", StringComparison.Ordinal))
+        {
+            return tableName;
+        }
+
+        return $"#{id}";
+    }
+
+    private static string[] GetRolePersonalEffectRawColumns() =>
+    [
+        "武将1",
+        "装备1",
+        "特效值1",
+        "武将2",
+        "装备2",
+        "特效值2",
+        "装备3-1",
+        "装备3-2",
+        "装备3-3",
+        "特效值3",
+        "装备4-1",
+        "装备4-2",
+        "装备4-3",
+        "特效值4"
+    ];
+
+    private void RefreshRolePersonalEffectDerivedCells(DataRow row)
+    {
+        row["武将1名"] = BuildRolePersonalEffectPersonName(Convert.ToInt32(row["武将1"], CultureInfo.InvariantCulture));
+        row["武将2名"] = BuildRolePersonalEffectPersonName(Convert.ToInt32(row["武将2"], CultureInfo.InvariantCulture));
+        foreach (var columnName in new[] { "装备1", "装备2", "装备3-1", "装备3-2", "装备3-3", "装备4-1", "装备4-2", "装备4-3" })
+        {
+            row[columnName + "名"] = BuildRolePersonalEffectItemName(Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture));
+        }
+    }
+
+    private string BuildRolePersonalEffectPersonName(int id)
+    {
+        if (id >= 1024) return "无/不限";
+        return _rolePersonalEffectPersonNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : $"{id}：未找到人物名";
+    }
+
+    private string BuildRolePersonalEffectItemName(int id)
+    {
+        if (id >= 255) return "空/不限";
+        return _rolePersonalEffectItemNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : $"{id}：未找到物品名";
+    }
+
+    private void ShowRolePersonalEffectEditorDialog(DataTable data)
+    {
+        using var dialog = new Form
+        {
+            Text = "个人专属",
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = true
+        };
+        ApplyAdaptiveDialogSizing(dialog, new Size(1180, 720), new Size(820, 520));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1,
+            Padding = new Padding(8)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+        dialog.Controls.Add(layout);
+
+        var toolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        var saveButton = new Button { Text = "保存个人专属", AutoSize = true };
+        var filterBox = new TextBox { Width = 220, PlaceholderText = "特效名/武将/装备/编号" };
+        var filterButton = new Button { Text = "筛选", AutoSize = true };
+        var clearButton = new Button { Text = "清除", AutoSize = true };
+        var closeButton = new Button { Text = "关闭", AutoSize = true };
+        toolbar.Controls.AddRange(new Control[]
+        {
+            saveButton,
+            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            filterBox,
+            filterButton,
+            clearButton,
+            closeButton
+        });
+        layout.Controls.Add(toolbar, 0, 0);
+
+        var grid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            DataSource = data,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells,
+            SelectionMode = DataGridViewSelectionMode.CellSelect
+        };
+        ConfigureRolePersonalEffectGrid(grid);
+        layout.Controls.Add(grid, 0, 1);
+
+        var infoBox = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            WordWrap = true,
+            Text = BuildRolePersonalEffectSummary(data)
+        };
+        layout.Controls.Add(infoBox, 0, 2);
+
+        void ShowSelectedCell()
+        {
+            if (grid.CurrentCell == null) return;
+            var columnName = grid.Columns[grid.CurrentCell.ColumnIndex].DataPropertyName;
+            var row = grid.Rows[grid.CurrentCell.RowIndex];
+            infoBox.Text =
+                $"个人专属：ID={row.Cells["ID"].Value}    名称={row.Cells["名称"].Value}\r\n" +
+                $"字段：{columnName}    当前值：{grid.CurrentCell.Value}\r\n\r\n" +
+                BuildRolePersonalEffectColumnAnnotation(columnName);
+        }
+
+        void RefreshRowStyle(int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
+            var row = TryGetDataRow(grid.Rows[rowIndex]);
+            if (row == null) return;
+            grid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(row) ? Color.LightCyan : Color.Empty;
+        }
+
+        void ApplyFilter()
+        {
+            var keyword = filterBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(keyword))
+            {
+                data.DefaultView.RowFilter = string.Empty;
+                SetStatus("个人专属筛选已清除");
+                return;
+            }
+
+            var escaped = EscapeDataViewLikeValue(keyword);
+            var filters = data.Columns
+                .Cast<DataColumn>()
+                .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '*{escaped}*'");
+            data.DefaultView.RowFilter = string.Join(" OR ", filters);
+            SetStatus($"个人专属筛选：{data.DefaultView.Count}/{data.Rows.Count}");
+        }
+
+        grid.SelectionChanged += (_, _) => ShowSelectedCell();
+        grid.CellEndEdit += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && TryGetDataRow(grid.Rows[e.RowIndex]) is { } row)
+            {
+                RefreshRolePersonalEffectDerivedCells(row);
+            }
+            RefreshRowStyle(e.RowIndex);
+            ShowSelectedCell();
+        };
+        grid.CellValidating += (_, e) => ValidateRolePersonalEffectCell(grid, infoBox, e);
+        filterButton.Click += (_, _) => ApplyFilter();
+        filterBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyFilter();
+            e.SuppressKeyPress = true;
+        };
+        clearButton.Click += (_, _) =>
+        {
+            filterBox.Clear();
+            data.DefaultView.RowFilter = string.Empty;
+            SetStatus("个人专属筛选已清除");
+        };
+        saveButton.Click += (_, _) => SaveRolePersonalEffectEditor(dialog, grid, data, infoBox);
+        closeButton.Click += (_, _) => dialog.Close();
+
+        RefreshRolePersonalEffectRowStyles(grid);
+        ShowSelectedCell();
+        dialog.ShowDialog(this);
+    }
+
+    private void ConfigureRolePersonalEffectGrid(DataGridView grid)
+    {
+        grid.ReadOnly = false;
+        foreach (DataGridViewColumn column in grid.Columns)
+        {
+            column.ReadOnly =
+                column.DataPropertyName is "ID" or "名称" ||
+                column.DataPropertyName.EndsWith("名", StringComparison.Ordinal);
+            column.HeaderText = BuildRolePersonalEffectColumnHeader(column.DataPropertyName);
+            column.ToolTipText = BuildRolePersonalEffectColumnAnnotation(column.DataPropertyName);
+            if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+            column.Width = column.DataPropertyName switch
+            {
+                "ID" => 60,
+                "名称" => 150,
+                _ when column.DataPropertyName.EndsWith("名", StringComparison.Ordinal) => 150,
+                _ => 86
+            };
+        }
+    }
+
+    private static string BuildRolePersonalEffectColumnHeader(string columnName)
+    {
+        return columnName switch
+        {
+            "ID" => "ID\n特效编号",
+            "名称" => "名称\n只读",
+            "武将1" or "武将2" => columnName + "\n人物ID",
+            "装备1" or "装备2" or "装备3-1" or "装备3-2" or "装备3-3" or "装备4-1" or "装备4-2" or "装备4-3" => columnName + "\n物品ID",
+            "特效值1" or "特效值2" or "特效值3" or "特效值4" => columnName + "\n1B",
+            _ => columnName
+        };
+    }
+
+    private static string BuildRolePersonalEffectColumnAnnotation(string columnName)
+    {
+        if (columnName == "ID") return "个人专属/套装专属编号。名称来自 6.5-7 兵种特效名称区，绑定写入 6.5-7-3。";
+        if (columnName == "名称") return "特效名称只读显示，读取方式与兵种特效一致，来自 6.5-7 兵种特效原始名称区。";
+        if (columnName is "武将1" or "武将2") return columnName + "：人物专属槽的武将 ID，写入 6.5-7-3。0..1023 通常对应人物 ID，1024 可作为无/不限候选。";
+        if (columnName.EndsWith("武将1名", StringComparison.Ordinal) || columnName.EndsWith("武将2名", StringComparison.Ordinal)) return "根据人物表自动解析出的武将名称，只读显示。";
+        if (columnName.StartsWith("装备", StringComparison.Ordinal) && !columnName.EndsWith("名", StringComparison.Ordinal)) return columnName + "：装备/套装物品 ID，写入 6.5-7-3。255 常作为空/不限候选。";
+        if (columnName.EndsWith("名", StringComparison.Ordinal)) return "根据物品表自动解析出的装备名称，只读显示。";
+        if (columnName.StartsWith("特效值", StringComparison.Ordinal)) return columnName + "：专属/套装特效参数值，写入 6.5-7-3。具体含义随特效而变，修改后应实机验证。";
+        return columnName;
+    }
+
+    private static string BuildRolePersonalEffectSummary(DataTable data)
+    {
+        var named = data.Rows.Cast<DataRow>().Count(row => !string.IsNullOrWhiteSpace(Convert.ToString(row["名称"], CultureInfo.InvariantCulture)) && !Convert.ToString(row["名称"], CultureInfo.InvariantCulture)!.StartsWith("#", StringComparison.Ordinal));
+        return
+            $"个人专属已读取：总行 {data.Rows.Count}，可识别名称 {named}。\r\n" +
+            "来源表：6.5-7 兵种特效（名称只读显示）、6.5-7-3 人物专属、套装专属。\r\n" +
+            "保存会写回 Ekd5.exe，保存前自动备份，保存后重新读取校验。";
+    }
+
+    private void RefreshRolePersonalEffectRowStyles(DataGridView grid)
+    {
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            var dataRow = TryGetDataRow(row);
+            row.DefaultCellStyle.BackColor = dataRow != null && IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
+        }
+    }
+
+    private void ValidateRolePersonalEffectCell(DataGridView grid, TextBox infoBox, DataGridViewCellValidatingEventArgs e)
+    {
+        if (grid.ReadOnly || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        var column = grid.Columns[e.ColumnIndex];
+        if (column.ReadOnly) return;
+        var columnName = column.DataPropertyName;
+        var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        string? error = null;
+        if (columnName is "武将1" or "武将2")
+        {
+            error = TryParseInteger(value, 0, ushort.MaxValue, columnName, _currentPageHexButton.Checked);
+        }
+        else if (columnName.StartsWith("装备", StringComparison.Ordinal) || columnName.StartsWith("特效值", StringComparison.Ordinal))
+        {
+            error = TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
+        }
+
+        grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
+        if (error == null) return;
+        e.Cancel = true;
+        infoBox.Text = error;
+        SetStatus(error);
+    }
+
+    private void SaveRolePersonalEffectEditor(Form owner, DataGridView grid, DataTable data, TextBox infoBox)
+    {
+        if (_project == null || _rolePersonalEffectRead == null) return;
+        grid.EndEdit();
+        if (data.GetChanges() == null)
+        {
+            MessageBox.Show(owner, "个人专属没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var preview = BuildChangePreview(data, maxItems: 80);
+        if (MessageBox.Show(owner,
+                $"即将保存个人专属/套装专属到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Ekd5.exe，保存后会重新读取校验。是否继续？",
+                "确认保存个人专属",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var saves = SaveRolePersonalEffectEditorData(_project, data);
+            var reloaded = BuildRolePersonalEffectEditorData(_project, _tables);
+            data.Clear();
+            foreach (DataRow row in reloaded.Rows)
+            {
+                data.ImportRow(row);
+            }
+            data.AcceptChanges();
+            grid.DataSource = data;
+            ConfigureRolePersonalEffectGrid(grid);
+            RefreshRolePersonalEffectRowStyles(grid);
+            var changedBytes = saves.Sum(x => x.ChangedBytes);
+            infoBox.Text =
+                $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}";
+            System.Diagnostics.Debug.WriteLine($"已保存个人专属：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("个人专属备份：" + save.BackupPath);
+            SetStatus($"个人专属保存完成并已复读：变化 {changedBytes} 字节");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("保存个人专属失败：" + ex);
+            MessageBox.Show(owner, ex.Message, "保存个人专属失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<TableSaveResult> SaveRolePersonalEffectEditorData(CczProject project, DataTable data)
+    {
+        if (_rolePersonalEffectRead == null) return Array.Empty<TableSaveResult>();
+        foreach (DataRow effectRow in data.Rows)
+        {
+            if (effectRow.RowState != DataRowState.Modified) continue;
+            var id = Convert.ToInt32(effectRow["ID"], CultureInfo.InvariantCulture);
+            var targetRow = FindRowById(_rolePersonalEffectRead.Data, id);
+            foreach (var columnName in GetRolePersonalEffectRawColumns())
+            {
+                if (IsRoleColumnChanged(effectRow, columnName))
+                {
+                    targetRow[columnName] = effectRow[columnName, DataRowVersion.Current];
+                }
+            }
+        }
+
+        var saves = new List<TableSaveResult>();
+        if (_rolePersonalEffectRead.Data.GetChanges() != null)
+        {
+            saves.Add(_tableWriter.Save(project, _rolePersonalEffectRead.Table, _rolePersonalEffectRead.Data));
+        }
+        return saves;
     }
 
     private void LoadJobEditor()
@@ -819,7 +1287,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _jobEditorInfoBox.Text = ex.ToString();
-            Log("读取兵种设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -982,6 +1450,59 @@ public sealed partial class MainForm
         UpdateJobEditorHistoryButtons();
     }
 
+    private void SnapshotJobEditorSelectionForEdit()
+    {
+        var targets = CaptureJobEditorSelectedTargets();
+        if (targets.Count > 1)
+        {
+            _jobEditorSelectionSnapshotTargets = targets;
+        }
+    }
+
+    private void MarkJobEditorSelectionChangeFromMouse()
+    {
+        _jobEditorSelectionChangeStartedByMouse = true;
+        _jobEditorSelectionSnapshotTargets = [];
+    }
+
+    private static bool IsPotentialJobEditorTextInput(KeyEventArgs e)
+    {
+        if (e.Control || e.Alt) return false;
+        if (e.KeyCode is Keys.Enter or Keys.Escape or Keys.Tab or Keys.Delete or Keys.Back) return false;
+        if (e.KeyCode >= Keys.Left && e.KeyCode <= Keys.Down) return false;
+        if (e.KeyCode >= Keys.F1 && e.KeyCode <= Keys.F24) return false;
+        if (e.KeyCode >= Keys.D0 && e.KeyCode <= Keys.D9) return true;
+        if (e.KeyCode >= Keys.NumPad0 && e.KeyCode <= Keys.NumPad9) return true;
+        if (e.KeyCode >= Keys.A && e.KeyCode <= Keys.Z) return true;
+        if (e.KeyCode is Keys.OemMinus or Keys.Subtract or Keys.Oemplus or Keys.Decimal or Keys.OemPeriod or Keys.Space) return true;
+        return false;
+    }
+
+    private void HandleJobEditorSelectionChanged()
+    {
+        if (!_applyingJobEditorHistory && !_jobEditorGrid.IsCurrentCellInEditMode)
+        {
+            var targets = CaptureJobEditorSelectedTargets();
+            if (_jobEditorSelectionChangeStartedByMouse)
+            {
+                _jobEditorSelectionSnapshotTargets = targets;
+                _jobEditorSelectionChangeStartedByMouse = false;
+                ShowSelectedJobEditorCell();
+                return;
+            }
+
+            if (targets.Count > 1 ||
+                targets.Count == 0 ||
+                _jobEditorSelectionSnapshotTargets.Count == 0 ||
+                !JobEditorTargetListContains(_jobEditorSelectionSnapshotTargets, targets[0]))
+            {
+                _jobEditorSelectionSnapshotTargets = targets;
+            }
+        }
+
+        ShowSelectedJobEditorCell();
+    }
+
     private void BeginJobEditorCellEdit(int rowIndex, int columnIndex)
     {
         if (_applyingJobEditorHistory || rowIndex < 0 || columnIndex < 0)
@@ -1137,8 +1658,8 @@ public sealed partial class MainForm
             return;
         }
 
-        var value = FormatGridValueForBatchInput(_jobEditorGrid.CurrentCell.Value);
-        var targets = GetJobEditorSelectedEditableCells();
+        var value = GetJobEditorCurrentInputText();
+        var targets = GetJobEditorBatchFillTargets();
         if (targets.Count <= 1)
         {
             SetStatus("请先滑动选中多个要批量填列的单元格。");
@@ -1146,40 +1667,145 @@ public sealed partial class MainForm
         }
 
         var edits = new List<JobEditorCellEdit>();
-        foreach (var cell in targets)
+        var lastError = string.Empty;
+        foreach (var target in targets)
         {
-            TrySetJobEditorCellValue(cell.RowIndex, cell.ColumnIndex, value, edits, out _);
+            if (!TrySetJobEditorCellTargetValue(target, value, edits, out var error))
+            {
+                lastError = error;
+            }
         }
 
         PushJobEditorHistory(edits);
         if (edits.Count > 0) RefreshJobEditorAfterBulkEdit();
-        SetStatus($"兵种设定批量填列完成：更新 {edits.Count} 个单元格。");
+        SetStatus(edits.Count > 0
+            ? $"兵种设定批量填列完成：更新 {edits.Count} 个单元格。"
+            : string.IsNullOrWhiteSpace(lastError) ? "兵种设定批量填列没有产生改动。" : lastError);
     }
 
     private List<JobEditorCellEdit> CaptureJobEditorSelectionOriginals(int fallbackRowIndex, int fallbackColumnIndex)
     {
-        var targets = GetJobEditorSelectedEditableCells();
-        if (targets.Count == 0 &&
-            fallbackRowIndex >= 0 &&
-            fallbackRowIndex < _jobEditorGrid.Rows.Count &&
-            fallbackColumnIndex >= 0 &&
-            fallbackColumnIndex < _jobEditorGrid.Columns.Count)
+        var targets = CaptureJobEditorSelectedTargets();
+        var fallbackTarget = TryCreateJobEditorCellTarget(fallbackRowIndex, fallbackColumnIndex, out var currentTarget)
+            ? currentTarget
+            : null;
+        if (fallbackTarget != null &&
+            targets.Count <= 1 &&
+            _jobEditorSelectionSnapshotTargets.Count > 1 &&
+            JobEditorTargetListContains(_jobEditorSelectionSnapshotTargets, fallbackTarget))
         {
-            targets.Add(_jobEditorGrid.Rows[fallbackRowIndex].Cells[fallbackColumnIndex]);
+            targets = _jobEditorSelectionSnapshotTargets;
+        }
+        else if (targets.Count == 0 && fallbackTarget != null)
+        {
+            targets.Add(fallbackTarget);
         }
 
         return targets
-            .Select(cell => TryCreateJobEditorOriginal(cell.RowIndex, cell.ColumnIndex, out var edit) ? edit : null)
-            .OfType<JobEditorCellEdit>()
+            .Where(target => IsJobEditorTargetValid(target))
+            .Select(target => new JobEditorCellEdit(target.Row, target.ColumnName, NormalizeGridCellValue(target.Row[target.ColumnName]), null))
             .ToList();
     }
 
-    private bool TryCreateJobEditorOriginal(int rowIndex, int columnIndex, out JobEditorCellEdit edit)
+    private List<JobEditorCellTarget> GetJobEditorBatchFillTargets()
     {
-        edit = null!;
+        var targets = CaptureJobEditorSelectedTargets();
+        if (targets.Count > 1 || _jobEditorGrid.CurrentCell == null)
+        {
+            return targets;
+        }
+
+        if (TryCreateJobEditorCellTarget(
+                _jobEditorGrid.CurrentCell.RowIndex,
+                _jobEditorGrid.CurrentCell.ColumnIndex,
+                out var currentTarget) &&
+            _jobEditorSelectionSnapshotTargets.Count > 1 &&
+            JobEditorTargetListContains(_jobEditorSelectionSnapshotTargets, currentTarget))
+        {
+            return _jobEditorSelectionSnapshotTargets;
+        }
+
+        return targets;
+    }
+
+    private string GetJobEditorCurrentInputText()
+    {
+        if (_jobEditorGrid.IsCurrentCellInEditMode &&
+            _jobEditorGrid.EditingControl is TextBoxBase textBox)
+        {
+            return textBox.Text;
+        }
+
+        return FormatGridValueForBatchInput(_jobEditorGrid.CurrentCell?.Value);
+    }
+
+    private List<JobEditorCellTarget> CaptureJobEditorSelectedTargets()
+        => GetJobEditorSelectedEditableCells()
+            .Select(cell => TryCreateJobEditorCellTarget(cell.RowIndex, cell.ColumnIndex, out var target) ? target : null)
+            .OfType<JobEditorCellTarget>()
+            .ToList();
+
+    private bool TryCreateJobEditorCellTarget(int rowIndex, int columnIndex, out JobEditorCellTarget target)
+    {
+        target = null!;
         if (!TryResolveJobEditorCell(rowIndex, columnIndex, out var row, out var columnName)) return false;
-        edit = new JobEditorCellEdit(row, columnName, NormalizeGridCellValue(row[columnName]), null);
+        target = new JobEditorCellTarget(row, columnName);
         return true;
+    }
+
+    private static bool JobEditorTargetListContains(IReadOnlyList<JobEditorCellTarget> targets, JobEditorCellTarget target)
+        => targets.Any(candidate => ReferenceEquals(candidate.Row, target.Row) &&
+                                    string.Equals(candidate.ColumnName, target.ColumnName, StringComparison.Ordinal));
+
+    private bool IsJobEditorTargetValid(JobEditorCellTarget target)
+        => target.Row.RowState != DataRowState.Detached &&
+           _currentJobEditorData?.Columns.Contains(target.ColumnName) == true;
+
+    private bool TrySetJobEditorCellTargetValue(
+        JobEditorCellTarget target,
+        string text,
+        List<JobEditorCellEdit> edits,
+        out string error)
+    {
+        error = string.Empty;
+        if (!IsJobEditorTargetValid(target)) return false;
+        if (!TryValidateJobEditorCellText(target.ColumnName, text, out error))
+        {
+            SetJobEditorCellError(target, error);
+            return false;
+        }
+
+        try
+        {
+            var oldValue = NormalizeGridCellValue(target.Row[target.ColumnName]);
+            var newValue = ConvertJobEditorValueForColumn(target.ColumnName, text);
+            if (Equals(oldValue, newValue)) return false;
+
+            target.Row[target.ColumnName] = newValue ?? DBNull.Value;
+            SetJobEditorCellError(target, string.Empty);
+            edits.Add(new JobEditorCellEdit(target.Row, target.ColumnName, oldValue, NormalizeGridCellValue(target.Row[target.ColumnName])));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            SetJobEditorCellError(target, error);
+            return false;
+        }
+    }
+
+    private void SetJobEditorCellError(JobEditorCellTarget target, string error)
+    {
+        foreach (DataGridViewRow row in _jobEditorGrid.Rows)
+        {
+            if (!ReferenceEquals(TryGetDataRow(row), target.Row)) continue;
+            foreach (DataGridViewColumn column in _jobEditorGrid.Columns)
+            {
+                if (!string.Equals(column.DataPropertyName, target.ColumnName, StringComparison.Ordinal)) continue;
+                row.Cells[column.Index].ErrorText = error;
+                return;
+            }
+        }
     }
 
     private List<DataGridViewCell> GetJobEditorSelectedEditableCells()
@@ -1380,7 +2006,9 @@ public sealed partial class MainForm
     {
         _jobEditorUndoStack.Clear();
         _jobEditorRedoStack.Clear();
+        _jobEditorSelectionSnapshotTargets = [];
         _jobEditorPendingCellEditOriginals = [];
+        _jobEditorSelectionChangeStartedByMouse = false;
         UpdateJobEditorHistoryButtons();
     }
 
@@ -1521,8 +2149,8 @@ public sealed partial class MainForm
             var saves = SaveJobEditorData(_project, _currentJobEditorData);
             LoadJobEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存兵种设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("兵种设定备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存兵种设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种设定备份：" + save.BackupPath);
             SetStatus($"兵种设定保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -1532,7 +2160,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存兵种设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存兵种设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存兵种设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -1607,7 +2235,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _itemEditorInfoBox.Text = ex.ToString();
-            Log("读取宝物设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取宝物设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取宝物设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -1911,7 +2539,7 @@ public sealed partial class MainForm
             }
             catch (Exception ex)
             {
-                Log("保存宝物特效目录失败：" + ex);
+                System.Diagnostics.Debug.WriteLine("保存宝物特效目录失败：" + ex);
                 MessageBox.Show(dialog, ex.Message, "保存宝物特效失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         };
@@ -2406,8 +3034,8 @@ public sealed partial class MainForm
             var saves = SaveItemEditorData(_project, _currentItemEditorData);
             LoadItemEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存宝物设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("宝物设定备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存宝物设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("宝物设定备份：" + save.BackupPath);
             SetStatus($"宝物设定保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -2417,7 +3045,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存宝物设定失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存宝物设定失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存宝物设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -2494,7 +3122,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _shopEditorInfoBox.Text = ex.ToString();
-            Log("读取商店编辑失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取商店编辑失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取商店编辑失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3011,8 +3639,8 @@ public sealed partial class MainForm
             var saves = SaveShopEditorData(_project, _currentShopEditorData);
             LoadShopEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存商店编辑：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("商店编辑备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存商店编辑：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("商店编辑备份：" + save.BackupPath);
             SetStatus($"商店编辑保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -3022,7 +3650,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存商店编辑失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存商店编辑失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存商店编辑失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3112,7 +3740,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _jobTerrainInfoBox.Text = ex.ToString();
-            Log("读取兵种系/地形失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种系/地形失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种系/地形失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3364,8 +3992,8 @@ public sealed partial class MainForm
             var saves = SaveJobTerrainEditorData(_project, _currentJobTerrainData);
             LoadJobTerrainEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存兵种系/地形：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("兵种系/地形备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存兵种系/地形：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种系/地形备份：" + save.BackupPath);
             SetStatus($"兵种系/地形保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -3375,7 +4003,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存兵种系/地形失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存兵种系/地形失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存兵种系/地形失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3441,7 +4069,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _jobStrategyEditorInfoBox.Text = ex.ToString();
-            Log("读取兵种策略失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种策略失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种策略失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -3959,8 +4587,8 @@ public sealed partial class MainForm
             var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);
             LoadJobStrategyEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存兵种策略：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("兵种策略备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存兵种策略：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种策略备份：" + save.BackupPath);
             SetStatus($"兵种策略保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -3970,7 +4598,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存兵种策略失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存兵种策略失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存兵种策略失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4080,7 +4708,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _jobMatrixInfoBox.Text = ex.ToString();
-            Log("读取兵种相克/属性矩阵失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种相克/属性矩阵失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种矩阵失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4224,8 +4852,8 @@ public sealed partial class MainForm
             if (_jobAttributeRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _jobAttributeRead.Table, _jobAttributeRead.Data));
             LoadJobMatrixEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存兵种相克/属性矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("兵种矩阵备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存兵种相克/属性矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种矩阵备份：" + save.BackupPath);
             SetStatus($"兵种矩阵保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -4235,7 +4863,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存兵种矩阵失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存兵种矩阵失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存兵种矩阵失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4266,7 +4894,7 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _jobEffectEditorInfoBox.Text = ex.ToString();
-            Log("读取兵种特效失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种特效失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种特效失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4551,8 +5179,8 @@ public sealed partial class MainForm
             var saves = SaveJobEffectEditorData(_project, _currentJobEffectData);
             LoadJobEffectEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            Log($"已保存兵种特效：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) Log("兵种特效备份：" + save.BackupPath);
+            System.Diagnostics.Debug.WriteLine($"已保存兵种特效：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种特效备份：" + save.BackupPath);
             SetStatus($"兵种特效保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -4562,7 +5190,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存兵种特效失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存兵种特效失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存兵种特效失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally

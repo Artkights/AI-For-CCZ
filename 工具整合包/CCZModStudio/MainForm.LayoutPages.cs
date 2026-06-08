@@ -16,6 +16,257 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private TabPage BuildMapEditorPage()
+    {
+        var mapViewerPage = new TabPage("地图编辑");
+        var mapLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        mapViewerPage.Controls.Add(mapLayout);
+        var mapToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _loadMapImagesButton.Text = "读取 Map 图片";
+        _loadMapImagesButton.AutoSize = true;
+        _mapMakerNewDraftButton.Text = "新建草稿";
+        _mapMakerNewDraftButton.AutoSize = true;
+        _mapMakerLoadLastDraftButton.Text = "载入上次草稿";
+        _mapMakerLoadLastDraftButton.AutoSize = true;
+        _mapMakerSaveDraftButton.Text = "保存草稿";
+        _mapMakerSaveDraftButton.AutoSize = true;
+        _mapMakerSaveDraftButton.Enabled = false;
+        _mapMakerGridWidthInput.Minimum = 1;
+        _mapMakerGridWidthInput.Maximum = 256;
+        _mapMakerGridWidthInput.Value = 30;
+        _mapMakerGridWidthInput.Width = 58;
+        _mapMakerGridHeightInput.Minimum = 1;
+        _mapMakerGridHeightInput.Maximum = 256;
+        _mapMakerGridHeightInput.Value = 30;
+        _mapMakerGridHeightInput.Width = 58;
+        _mapMakerBrushModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mapMakerBrushModeCombo.Width = 105;
+        _mapMakerBrushModeCombo.Items.AddRange(new object[] { "浏览", "地图画笔", "地形画笔" });
+        _mapMakerBrushModeCombo.SelectedIndex = 0;
+        _mapMakerSelectMaterialRootButton.Text = "选择素材库";
+        _mapMakerSelectMaterialRootButton.AutoSize = true;
+        _mapFitButton.Text = "适应窗口";
+        _mapFitButton.AutoSize = true;
+        _mapActualButton.Text = "100%";
+        _mapActualButton.AutoSize = true;
+        _mapZoomTrackBar.Minimum = 10;
+        _mapZoomTrackBar.Maximum = 300;
+        _mapZoomTrackBar.Value = 100;
+        _mapZoomTrackBar.TickFrequency = 50;
+        _mapZoomTrackBar.Width = 140;
+        _mapMakerShowTerrainCheckBox.Text = "叠加地形";
+        _mapMakerShowTerrainCheckBox.AutoSize = true;
+        _mapMakerShowTerrainCheckBox.Checked = true;
+        _mapMakerShowGridCheckBox.Text = "显示网格";
+        _mapMakerShowGridCheckBox.AutoSize = true;
+        _mapMakerShowGridCheckBox.Checked = true;
+        _mapMakerEditTerrainCheckBox.Text = "地形画笔";
+        _mapMakerEditTerrainCheckBox.AutoSize = true;
+        _mapMakerEditTerrainCheckBox.Enabled = false;
+        _mapMakerTerrainOpacityTrackBar.Minimum = 0;
+        _mapMakerTerrainOpacityTrackBar.Maximum = 100;
+        _mapMakerTerrainOpacityTrackBar.Value = 45;
+        _mapMakerTerrainOpacityTrackBar.TickFrequency = 25;
+        _mapMakerTerrainOpacityTrackBar.Width = 110;
+        _mapMakerTerrainOpacityLabel.Text = "地形透明度 45%";
+        _mapMakerTerrainOpacityLabel.AutoSize = true;
+        _mapMakerTerrainOpacityLabel.Padding = new Padding(0, 7, 0, 0);
+        _mapMakerTerrainPresetCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mapMakerTerrainPresetCombo.Width = 170;
+        _mapMakerTerrainBrushInput.Minimum = 0;
+        _mapMakerTerrainBrushInput.Maximum = 255;
+        _mapMakerTerrainBrushInput.Width = 62;
+        _mapMakerBrushNameLabel.Text = "地形：0x00";
+        _mapMakerBrushNameLabel.AutoSize = true;
+        _mapMakerBrushNameLabel.Padding = new Padding(0, 7, 0, 0);
+        _mapMakerSaveTerrainButton.Text = "保存草稿地形";
+        _mapMakerSaveTerrainButton.AutoSize = true;
+        _mapMakerSaveTerrainButton.Enabled = false;
+        _mapMakerUndoTerrainButton.Text = "撤销";
+        _mapMakerUndoTerrainButton.AutoSize = true;
+        _mapMakerUndoTerrainButton.Enabled = false;
+        _mapMakerRedoTerrainButton.Text = "重做";
+        _mapMakerRedoTerrainButton.AutoSize = true;
+        _mapMakerRedoTerrainButton.Enabled = false;
+        _mapMakerReplaceMapImageButton.Text = "旧版替换底图";
+        _mapMakerReplaceMapImageButton.AutoSize = true;
+        _mapMakerReplaceMapImageButton.Enabled = false;
+        _mapMakerExportPreviewButton.Text = "导出预览";
+        _mapMakerExportPreviewButton.AutoSize = true;
+        _mapMakerExportPreviewButton.Enabled = false;
+        _mapMakerExportJpgButton.Text = "导出JPG";
+        _mapMakerExportJpgButton.AutoSize = true;
+        _mapMakerExportJpgButton.Enabled = false;
+        _mapMakerPublishMapButton.Text = "发布到底图";
+        _mapMakerPublishMapButton.AutoSize = true;
+        _mapMakerPublishMapButton.Enabled = false;
+        _mapMakerPublishTerrainButton.Text = "发布到地形层";
+        _mapMakerPublishTerrainButton.AutoSize = true;
+        _mapMakerPublishTerrainButton.Enabled = false;
+        mapToolbar.Controls.AddRange(new Control[]
+        {
+            _loadMapImagesButton,
+            _mapMakerNewDraftButton,
+            _mapMakerLoadLastDraftButton,
+            new Label { Text = "尺寸：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _mapMakerGridWidthInput,
+            new Label { Text = "x", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            _mapMakerGridHeightInput,
+            _mapMakerSaveDraftButton,
+            _mapMakerSelectMaterialRootButton,
+            new Label { Text = "模式：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _mapMakerBrushModeCombo,
+            _mapFitButton,
+            _mapActualButton,
+            new Label { Text = "缩放：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _mapZoomTrackBar,
+            _mapMakerShowTerrainCheckBox,
+            _mapMakerShowGridCheckBox,
+            _mapMakerTerrainOpacityLabel,
+            _mapMakerTerrainOpacityTrackBar,
+            _mapMakerEditTerrainCheckBox,
+            new Label { Text = "常用地形：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _mapMakerTerrainPresetCombo,
+            new Label { Text = "画笔ID：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _mapMakerTerrainBrushInput,
+            _mapMakerBrushNameLabel,
+            _mapMakerSaveTerrainButton,
+            _mapMakerUndoTerrainButton,
+            _mapMakerRedoTerrainButton,
+            _mapMakerReplaceMapImageButton,
+            _mapMakerExportPreviewButton,
+            _mapMakerExportJpgButton,
+            _mapMakerPublishMapButton,
+            _mapMakerPublishTerrainButton
+        });
+        mapLayout.Controls.Add(mapToolbar, 0, 0);
+        var mapSplit = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical,
+        };
+        ConfigureSplitContainerDistanceAfterLayout(mapSplit, desiredDistance: 260, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        _mapImageList.Dock = DockStyle.Fill;
+        _mapImageList.HorizontalScrollbar = true;
+        var mapEditorSplit = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical
+        };
+        ConfigureSplitContainerDistanceAfterLayout(mapEditorSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        var mapRightLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        mapRightLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mapRightLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _mapViewerCellPreviewLabel.Dock = DockStyle.Fill;
+        _mapViewerCellPreviewLabel.AutoSize = false;
+        _mapViewerCellPreviewLabel.Height = 30;
+        _mapViewerCellPreviewLabel.Padding = new Padding(8, 6, 8, 0);
+        _mapViewerCellPreviewLabel.BackColor = Color.FromArgb(245, 245, 245);
+        _mapViewerCellPreviewLabel.ForeColor = Color.FromArgb(32, 32, 32);
+        _mapViewerCellPreviewLabel.BorderStyle = BorderStyle.FixedSingle;
+        _mapViewerCellPreviewLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _mapViewerCellPreviewLabel.Text = "地形：-    坐标：-";
+        var mapScroll = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            TabStop = true,
+            BackColor = Color.FromArgb(36, 36, 36)
+        };
+        mapScroll.MouseWheel += (_, e) => HandleMapViewerMouseWheel(e);
+        mapScroll.MouseEnter += (_, _) => mapScroll.Focus();
+        _mapViewerBox.Location = new Point(0, 0);
+        _mapViewerBox.SizeMode = PictureBoxSizeMode.StretchImage;
+        _mapViewerBox.MouseWheel += (_, e) => HandleMapViewerMouseWheel(e);
+        _mapViewerBox.MouseEnter += (_, _) => mapScroll.Focus();
+        mapScroll.Controls.Add(_mapViewerBox);
+        _mapViewerInfoBox.Dock = DockStyle.Fill;
+        _mapViewerInfoBox.Multiline = true;
+        _mapViewerInfoBox.ReadOnly = true;
+        _mapViewerInfoBox.ScrollBars = ScrollBars.Vertical;
+        _mapViewerInfoBox.WordWrap = true;
+        _mapViewerInfoBox.Text = "地图编辑：统一地图绘制工作台。新建草稿默认 30x30，每格 48x48；地图画笔覆盖格图片，地形画笔编辑草稿地形层；绑定现有 Mxxx 槽位且尺寸一致时才允许发布到游戏。";
+        mapRightLayout.Controls.Add(_mapViewerCellPreviewLabel, 0, 0);
+        mapRightLayout.Controls.Add(mapScroll, 0, 1);
+        var mapMakerMaterialLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var mapMakerMaterialToolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _mapMakerMaterialCategoryCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mapMakerMaterialCategoryCombo.Width = 120;
+        _mapMakerMaterialSearchBox.Width = 140;
+        _mapMakerMaterialSearchBox.PlaceholderText = "素材关键字";
+        _mapMakerFilterMaterialsButton.Text = "筛选";
+        _mapMakerFilterMaterialsButton.AutoSize = true;
+        _mapMakerClearMaterialFilterButton.Text = "清除";
+        _mapMakerClearMaterialFilterButton.AutoSize = true;
+        mapMakerMaterialToolbar.Controls.AddRange(new Control[]
+        {
+            new Label { Text = "分类：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            _mapMakerMaterialCategoryCombo,
+            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(8, 7, 0, 0) },
+            _mapMakerMaterialSearchBox,
+            _mapMakerFilterMaterialsButton,
+            _mapMakerClearMaterialFilterButton
+        });
+        _mapMakerMaterialGrid.Dock = DockStyle.Fill;
+        _mapMakerMaterialGrid.ReadOnly = true;
+        _mapMakerMaterialGrid.AllowUserToAddRows = false;
+        _mapMakerMaterialGrid.AllowUserToDeleteRows = false;
+        _mapMakerMaterialGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+        _mapMakerMaterialGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _mapMakerMaterialGrid.DataBindingComplete += (_, _) => HideMapMakerMaterialTechnicalColumns();
+        _mapMakerMaterialPreview.Dock = DockStyle.Fill;
+        _mapMakerMaterialPreview.BackColor = Color.Black;
+        _mapMakerMaterialPreview.SizeMode = PictureBoxSizeMode.Zoom;
+        _mapMakerMaterialInfoBox.Dock = DockStyle.Fill;
+        _mapMakerMaterialInfoBox.Multiline = true;
+        _mapMakerMaterialInfoBox.ReadOnly = true;
+        _mapMakerMaterialInfoBox.ScrollBars = ScrollBars.Vertical;
+        _mapMakerMaterialInfoBox.WordWrap = true;
+        _mapMakerMaterialInfoBox.Text = "素材库：点击“选择素材库”后从本地目录读取图片。地图画笔会把选中素材整张缩放到 48x48 并覆盖当前格。";
+        mapMakerMaterialLayout.Controls.Add(mapMakerMaterialToolbar, 0, 0);
+        var mapMaterialSplit = CreateResizableSplit("BuildLayout.MapMaterialGridPreview", Orientation.Horizontal, 320);
+        mapMaterialSplit.Panel1.Controls.Add(_mapMakerMaterialGrid);
+        mapMaterialSplit.Panel2.Controls.Add(_mapMakerMaterialPreview);
+        mapMakerMaterialLayout.Controls.Add(mapMaterialSplit, 0, 1);
+        mapSplit.Panel1.Controls.Add(_mapImageList);
+        mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
+        mapEditorSplit.Panel2.Controls.Add(mapMakerMaterialLayout);
+        mapSplit.Panel2.Controls.Add(mapEditorSplit);
+        mapLayout.Controls.Add(mapSplit, 0, 1);
+        return mapViewerPage;
+    }
     private TabPage BuildRoleEditorPage()
     {
         var page = new TabPage("角色设定");
@@ -44,8 +295,10 @@ public sealed partial class MainForm
         _saveRoleEditorButton.Enabled = false;
         _openRoleInTableEditorButton.Text = "打开通用人物表";
         _openRoleInTableEditorButton.AutoSize = true;
-        _openRolePersonalEffectButton.Text = "个人特效";
+        _openRolePersonalEffectButton.Text = "个人专属";
         _openRolePersonalEffectButton.AutoSize = true;
+        _openRoleEffectButton.Text = "个人特效";
+        _openRoleEffectButton.AutoSize = true;
         _openGlobalSettingsButton.Text = "全局设定";
         _openGlobalSettingsButton.AutoSize = true;
         _exportRoleEditorCsvButton.Text = "导出CSV";
@@ -71,6 +324,7 @@ public sealed partial class MainForm
             _loadRoleEditorButton,
             _saveRoleEditorButton,
             _openRolePersonalEffectButton,
+            _openRoleEffectButton,
             _openGlobalSettingsButton,
             _exportRoleEditorCsvButton,
             _importRoleEditorCsvButton,
@@ -649,7 +903,7 @@ public sealed partial class MainForm
 
     private TabPage BuildBattlefieldEditorPage()
     {
-        var page = new TabPage("战场制作");
+        var page = new TabPage("战场编辑");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -681,13 +935,10 @@ public sealed partial class MainForm
         _writeBattlefieldDeploymentButton.Text = "写回出场到S剧本";
         _writeBattlefieldDeploymentButton.AutoSize = true;
         _writeBattlefieldDeploymentButton.Enabled = false;
-        _createBattlefieldNoteButton.Text = "记录战场备注";
-        _createBattlefieldNoteButton.AutoSize = true;
-        _createBattlefieldNoteButton.Enabled = false;
-        _jumpBattlefieldMapButton.Text = "跳到地图制作";
+        _jumpBattlefieldMapButton.Text = "跳到地图编辑";
         _jumpBattlefieldMapButton.AutoSize = true;
         _jumpBattlefieldMapButton.Enabled = false;
-        _jumpBattlefieldScenarioButton.Text = "跳到剧本制作";
+        _jumpBattlefieldScenarioButton.Text = "跳到剧本编辑";
         _jumpBattlefieldScenarioButton.AutoSize = true;
         _jumpBattlefieldScenarioButton.Enabled = false;
         toolbar.Controls.AddRange(new Control[]
@@ -698,7 +949,6 @@ public sealed partial class MainForm
             _saveBattlefieldTextsButton,
             _saveBattlefieldUnitReviewsButton,
             _writeBattlefieldDeploymentButton,
-            _createBattlefieldNoteButton,
             _jumpBattlefieldMapButton,
             _jumpBattlefieldScenarioButton
         });
@@ -803,7 +1053,7 @@ public sealed partial class MainForm
         _battlefieldInfoBox.ReadOnly = true;
         _battlefieldInfoBox.ScrollBars = ScrollBars.Vertical;
         _battlefieldInfoBox.WordWrap = true;
-        _battlefieldInfoBox.Text = "战场制作：读取关卡后可编辑标题/胜败条件文本，并联动显示地图底图、地形层和战场命令候选。未知 R/S eex 命令结构不强写。";
+        _battlefieldInfoBox.Text = "战场编辑：读取关卡后可编辑标题/胜败条件文本，并联动显示地图底图、地形层和战场命令候选。未知 R/S eex 命令结构不强写。";
         var titleConditionSplit = CreateResizableSplit("BuildBattlefieldEditorPage.TitleCondition", Orientation.Horizontal, 96, 54, 80);
         titleConditionSplit.Panel1.Controls.Add(titlePanel);
         titleConditionSplit.Panel2.Controls.Add(conditionsPanel);
@@ -869,17 +1119,15 @@ public sealed partial class MainForm
             WrapContents = true,
             Padding = new Padding(0, 4, 0, 0)
         };
-        _battlefieldMapClickMemoCheckBox.Text = "点选写备注";
-        _battlefieldMapClickMemoCheckBox.AutoSize = true;
         _battlefieldMapZoomLabel.Text = "缩放 100%";
         _battlefieldMapZoomLabel.AutoSize = true;
         _battlefieldMapZoomLabel.Padding = new Padding(8, 4, 0, 0);
         _battlefieldMapZoomResetButton.Text = "1:1";
         _battlefieldMapZoomResetButton.AutoSize = true;
-        _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子，或选择候选后点选写备注。";
+        _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子；可右键选中已摆放单位并调整。";
         _battlefieldMapHintLabel.AutoSize = true;
         _battlefieldMapHintLabel.Padding = new Padding(0, 4, 0, 0);
-        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapClickMemoCheckBox, _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _battlefieldMapHintLabel });
+        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _battlefieldMapHintLabel });
         mapLayout.Controls.Add(battlefieldMapHintPanel, 0, 1);
 
         var controlOptionsPanel = new TableLayoutPanel
@@ -1016,7 +1264,7 @@ public sealed partial class MainForm
 
     private TabPage BuildRSceneEditorPage()
     {
-        var page = new TabPage("R场景制作");
+        var page = new TabPage("场景编辑");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1048,7 +1296,7 @@ public sealed partial class MainForm
         _showRSceneVariablesButton.Text = "变量 Ctrl+L";
         _showRSceneVariablesButton.AutoSize = true;
         _showRSceneVariablesButton.Enabled = false;
-        _jumpRSceneScriptButton.Text = "跳到剧本制作";
+        _jumpRSceneScriptButton.Text = "跳到剧本编辑";
         _jumpRSceneScriptButton.AutoSize = true;
         _jumpRSceneScriptButton.Enabled = false;
         toolbar.Controls.AddRange(new Control[]
@@ -1295,7 +1543,7 @@ public sealed partial class MainForm
 
     private TabPage BuildScriptEditorPage()
     {
-        var page = new TabPage("剧本制作");
+        var page = new TabPage("剧本编辑");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1373,9 +1621,6 @@ public sealed partial class MainForm
         _saveScriptStructureButton.Text = "完整保存剧本 Ctrl+S";
         _saveScriptStructureButton.AutoSize = true;
         _saveScriptStructureButton.Enabled = false;
-        _createScriptNoteButton.Text = "备注";
-        _createScriptNoteButton.AutoSize = true;
-        _createScriptNoteButton.Enabled = false;
         _jumpScriptBattlefieldButton.Text = "战场";
         _jumpScriptBattlefieldButton.AutoSize = true;
         _jumpScriptBattlefieldButton.Enabled = false;

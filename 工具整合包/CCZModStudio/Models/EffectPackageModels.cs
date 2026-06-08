@@ -15,7 +15,7 @@ public sealed class EffectPackage
     public List<EffectPatchSegment> PatchSegments { get; set; } = [];
     public List<string> SourceLinks { get; set; } = [];
     public string SourcePrompt { get; set; } = string.Empty;
-    public string RollbackNote { get; set; } = string.Empty;
+    public string BackupNote { get; set; } = string.Empty;
     public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
@@ -110,7 +110,7 @@ public sealed class EffectManifest
     public int EffectId { get; set; }
     public string PackageId { get; set; } = string.Empty;
     public string SourcePrompt { get; set; } = string.Empty;
-    public string RollbackNote { get; set; } = string.Empty;
+    public string BackupNote { get; set; } = string.Empty;
     public EffectPackage Package { get; set; } = new();
     public List<EffectManifestChange> Changes { get; set; } = [];
     public List<EffectManifestBackup> Backups { get; set; } = [];
@@ -151,15 +151,6 @@ public sealed class EffectTemplate
     public string SafetyLevel { get; set; } = "draft_only";
     public List<string> RequiredParameters { get; set; } = [];
     public string Description { get; set; } = string.Empty;
-}
-
-public sealed class EffectManifestRollbackResult
-{
-    public string ManifestId { get; set; } = string.Empty;
-    public string ManifestPath { get; set; } = string.Empty;
-    public bool RolledBack { get; set; }
-    public string Summary { get; set; } = string.Empty;
-    public List<string> RestoredFiles { get; set; } = [];
 }
 
 public sealed class EffectPatchPreviewResult

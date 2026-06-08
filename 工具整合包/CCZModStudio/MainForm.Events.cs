@@ -23,7 +23,6 @@ public sealed partial class MainForm
         _rScenePlaybackTimer.Tick += (_, _) => AdvanceRScenePlayback();
         _openProjectButton.Click += (_, _) => OpenProjectDialog();
         _reloadButton.Click += (_, _) => ReloadCurrentProject();
-        _testCopyButton.Click += (_, _) => CreateTestCopy();
         _saveTableButton.Click += (_, _) => SaveCurrentTable();
         _exportCsvButton.Click += (_, _) => ExportCurrentTableCsv();
         _importCsvButton.Click += (_, _) => ImportCurrentTableCsv();
@@ -31,52 +30,12 @@ public sealed partial class MainForm
         _pasteTableSelectionButton.Click += (_, _) => PasteGridSelection(_dataGrid, (_, _) => { }, RefreshDataGridRowStyles);
         _batchFillTableColumnButton.Click += (_, _) => FillSelectedGridColumnWithCurrentValue(_dataGrid, (_, _) => { }, RefreshDataGridRowStyles);
         _openPlanButton.Click += (_, _) => OpenPlan();
-        _workflowRefreshButton.Click += (_, _) => RefreshWorkflowGuide();
-        _workflowOpenProjectButton.Click += (_, _) => OpenProjectDialog();
-        _workflowCreateTestCopyButton.Click += (_, _) => CreateTestCopy();
-        _workflowRunAuditButton.Click += (_, _) =>
-        {
-            SelectTabPageByText("项目体检/发布检查");
-            RunProjectAudit();
-        };
-        _workflowLoadCreatorNotesButton.Click += (_, _) =>
-        {
-            SelectTabPageByText("创作者备注");
-            LoadCreatorNotes();
-        };
-        _workflowAnalyzeDiffButton.Click += (_, _) =>
-        {
-            SelectTabPageByText("测试副本差异/发布");
-            AnalyzeProjectDiff();
-        };
-        _workflowWriteDeliveryReportButton.Click += (_, _) =>
-        {
-            SelectTabPageByText("测试副本差异/发布");
-            WriteProjectDeliveryReport();
-        };
-        _workflowOpenTablePageButton.Click += (_, _) => SelectTabPageByText("角色设定");
-        _workflowOpenResourcePageButton.Click += (_, _) => SelectTabPageByText("游戏资源索引");
-        _workflowOpenScenarioPageButton.Click += (_, _) => SelectTabPageByText("剧本制作");
-        _workflowOpenScenarioMapPageButton.Click += (_, _) => SelectTabPageByText("关卡地图联动");
-        _workflowHandleActionButton.Click += (_, _) => HandleSelectedWorkflowActionItem();
-        _workflowHandleActionAndNoteButton.Click += (_, _) => HandleSelectedWorkflowActionAndCreateLocatedNote();
-        _workflowCreateActionNoteButton.Click += (_, _) => CreateCreatorNoteFromSelectedWorkflowAction();
-        _workflowActionGrid.SelectionChanged += (_, _) => ShowSelectedWorkflowActionItem();
-        _workflowActionGrid.CellDoubleClick += (_, _) => HandleSelectedWorkflowActionItem();
-        _workflowHandleDashboardButton.Click += (_, _) => HandleSelectedWorkflowDashboardItem();
-        _workflowDashboardGrid.SelectionChanged += (_, _) => ShowSelectedWorkflowDashboardItem();
-        _workflowDashboardGrid.CellDoubleClick += (_, _) => HandleSelectedWorkflowDashboardItem();
-        _workflowRefreshEvidenceButton.Click += (_, _) => RefreshProjectEvidence();
-        _workflowOpenEvidenceButton.Click += (_, _) => OpenSelectedProjectEvidence();
-        _workflowLocateEvidenceButton.Click += (_, _) => LocateSelectedProjectEvidence();
-        _workflowEvidenceGrid.SelectionChanged += (_, _) => ShowSelectedProjectEvidenceItem();
-        _workflowEvidenceGrid.CellDoubleClick += (_, _) => OpenSelectedProjectEvidence();
-        _workflowGuideGrid.SelectionChanged += (_, _) => ShowSelectedWorkflowStep();
         _loadRoleEditorButton.Click += (_, _) => LoadRoleEditor();
         _saveRoleEditorButton.Click += (_, _) => SaveRoleEditor();
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
         _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
+        _openRoleEffectButton.Click += (_, _) => OpenJobEffectEditor();
         _openGlobalSettingsButton.Click += (_, _) => OpenGlobalSettingsDialog();
         _exportRoleEditorCsvButton.Click += (_, _) => ExportRoleEditorCsv();
         _importRoleEditorCsvButton.Click += (_, _) => ImportRoleEditorCsv();
@@ -117,7 +76,12 @@ public sealed partial class MainForm
             ApplyJobEditorFilter();
             e.SuppressKeyPress = true;
         };
-        _jobEditorGrid.SelectionChanged += (_, _) => ShowSelectedJobEditorCell();
+        _jobEditorGrid.SelectionChanged += (_, _) => HandleJobEditorSelectionChanged();
+        _jobEditorGrid.CellMouseDown += (_, _) => MarkJobEditorSelectionChangeFromMouse();
+        _jobEditorGrid.KeyDown += (_, e) =>
+        {
+            if (IsPotentialJobEditorTextInput(e)) SnapshotJobEditorSelectionForEdit();
+        };
         _jobEditorGrid.CellBeginEdit += (_, e) => BeginJobEditorCellEdit(e.RowIndex, e.ColumnIndex);
         _jobEditorGrid.CellValidating += (_, e) => ValidateJobEditorCell(e);
         _jobEditorGrid.CellEndEdit += (_, e) =>
@@ -247,35 +211,7 @@ public sealed partial class MainForm
             RefreshJobEffectRowStyle(e.RowIndex);
             ShowSelectedJobEffectCell();
         };
-        _runAuditButton.Click += (_, _) => RunProjectAudit();
-        _writeAuditReportButton.Click += (_, _) => WriteAuditReport();
-        _analyzeProjectDiffButton.Click += (_, _) => AnalyzeProjectDiff();
-        _writeProjectDiffReportButton.Click += (_, _) => WriteProjectDiffReport();
-        _createReleaseCopyButton.Click += (_, _) => CreateReleaseCopy();
-        _writeDeliveryReportButton.Click += (_, _) => WriteProjectDeliveryReport();
-        _showDiffBackupTimelineButton.Click += (_, _) => ShowBackupTimelineForSelectedProjectDiff();
-        _filterProjectDiffButton.Click += (_, _) => ApplyProjectDiffFilter();
-        _clearProjectDiffFilterButton.Click += (_, _) => ClearProjectDiffFilter();
-        _projectDiffStatusFilterCombo.SelectedIndexChanged += (_, _) => ApplyProjectDiffFilter();
-        _projectDiffGrid.SelectionChanged += (_, _) => ShowSelectedProjectDiffItem();
-        _loadBackupHistoryButton.Click += (_, _) => LoadBackupHistory();
-        _restoreBackupHistoryButton.Click += (_, _) => RestoreSelectedBackupHistoryItem();
-        _openBackupHistoryLocationButton.Click += (_, _) => OpenSelectedBackupHistoryLocation();
-        _openBackupHistoryReportButton.Click += (_, _) => OpenSelectedBackupHistoryReport();
-        _exportBackupHistoryCsvButton.Click += (_, _) => ExportBackupHistoryCsv();
-        _backupHistoryGrid.SelectionChanged += (_, _) => ShowSelectedBackupHistoryItem();
-        _loadCreatorNotesButton.Click += (_, _) => LoadCreatorNotes();
-        _captureCreatorNoteContextButton.Click += (_, _) => CaptureCreatorNoteContextFromSelection();
-        _locateCreatorNoteTargetButton.Click += (_, _) => LocateSelectedCreatorNoteTarget();
-        _newCreatorNoteButton.Click += (_, _) => ClearCreatorNoteEditor();
-        _saveCreatorNoteButton.Click += (_, _) => SaveCreatorNoteFromEditor();
-        _deleteCreatorNoteButton.Click += (_, _) => DeleteSelectedCreatorNote();
-        _exportCreatorNotesCsvButton.Click += (_, _) => ExportCreatorNotesCsv();
-        _filterCreatorNotesButton.Click += (_, _) => ApplyCreatorNoteFilter();
-        _clearCreatorNoteFilterButton.Click += (_, _) => ClearCreatorNoteFilter();
-        _creatorNoteGrid.SelectionChanged += (_, _) => ShowSelectedCreatorNote();
         _showAllTables.CheckedChanged += (_, _) => RefreshTableList();
-        _refreshProjectFileStatusButton.Click += (_, _) => RefreshProjectFileStatusView(updateStatus: true);
         _currentPageDecimalButton.CheckedChanged += (_, _) => RefreshCurrentPageNumberBaseDisplay(updateStatus: true);
         _currentPageHexButton.CheckedChanged += (_, _) => RefreshCurrentPageNumberBaseDisplay(updateStatus: true);
         AttachNumberBaseHandlers(this);
@@ -348,99 +284,11 @@ public sealed partial class MainForm
         _imageAssignmentGrid.CellValidating += (_, e) => ValidateImageAssignmentCell(e);
         _imageAssignmentGrid.CellEndEdit += (_, e) => UpdateImageAssignmentResourceStatus(e.RowIndex);
         _imageAssignmentGrid.SelectionChanged += (_, _) => ShowSelectedImageAssignmentDetail();
-        _selectPatchButton.Click += (_, _) => SelectPatchFile();
-        _previewPatchButton.Click += (_, _) => PreviewPatch();
-        _applyPatchButton.Click += (_, _) => ApplyPatchToTestCopy();
-        _patchTargetCombo.SelectedIndexChanged += (_, _) =>
-        {
-            if (!string.IsNullOrWhiteSpace(_patchPathBox.Text)) PreviewPatch();
-        };
-        _selectMoveButton.Click += (_, _) => SelectBatchMoveFile();
-        _previewMoveButton.Click += (_, _) => PreviewBatchMove();
-        _loadSceneDictionaryButton.Click += (_, _) => LoadSceneDictionary();
-        _indexMaterialLibraryButton.Click += (_, _) => IndexMaterialLibrary();
-        _materialGrid.SelectionChanged += (_, _) => ShowSelectedMaterialPreview();
-        _indexGameResourcesButton.Click += (_, _) => IndexGameResources();
-        _openGameResourceButton.Click += (_, _) => OpenSelectedGameResourceLocation();
-        _replaceGameResourceButton.Click += (_, _) => ReplaceSelectedGameResourceInTestCopy();
-        _restoreGameResourceBackupButton.Click += (_, _) => RestoreSelectedGameResourceFromBackup();
-        _exportGameResourcesCsvButton.Click += (_, _) => ExportGameResourcesCsv();
-        _filterGameResourcesButton.Click += (_, _) => ApplyGameResourceFilter();
-        _clearGameResourceFilterButton.Click += (_, _) => ClearGameResourceFilter();
-        _gameResourceCategoryFilterCombo.SelectedIndexChanged += (_, _) => ApplyGameResourceFilter();
-        _gameResourceGrid.SelectionChanged += (_, _) => ShowSelectedGameResourcePreview();
-        _runResourceDiagnosticsButton.Click += (_, _) => RunResourceDiagnostics();
-        _exportResourceDiagnosticsCsvButton.Click += (_, _) => ExportResourceDiagnosticsCsv();
-        _locateDiagnosticResourceButton.Click += (_, _) => LocateSelectedDiagnosticResourceInIndex();
-        _jumpDiagnosticImageAssignmentButton.Click += (_, _) => JumpSelectedDiagnosticImageAssignment();
-        _jumpDiagnosticTableCellButton.Click += (_, _) => JumpSelectedDiagnosticTableCell();
-        _jumpDiagnosticScenarioMapButton.Click += (_, _) => JumpSelectedDiagnosticScenarioMapLink();
-        _jumpDiagnosticScenarioButton.Click += (_, _) => JumpSelectedDiagnosticScenario();
-        _jumpDiagnosticHexzmapButton.Click += (_, _) => JumpSelectedDiagnosticHexzmap();
-        _jumpDiagnosticMapViewerButton.Click += (_, _) => JumpSelectedDiagnosticMapViewer();
-        _filterResourceDiagnosticsButton.Click += (_, _) => ApplyResourceDiagnosticFilter();
-        _clearResourceDiagnosticFilterButton.Click += (_, _) => ClearResourceDiagnosticFilter();
-        _resourceDiagnosticSeverityFilterCombo.SelectedIndexChanged += (_, _) => ApplyResourceDiagnosticFilter();
-        _resourceDiagnosticCategoryFilterCombo.SelectedIndexChanged += (_, _) => ApplyResourceDiagnosticFilter();
-        _resourceDiagnosticGrid.SelectionChanged += (_, _) => ShowSelectedResourceDiagnostic();
-        _loadEexArchivesButton.Click += (_, _) => LoadEexArchives();
-        _openEexArchiveButton.Click += (_, _) => OpenSelectedEexArchiveLocation();
-        _exportEexArchivesCsvButton.Click += (_, _) => ExportEexArchivesCsv();
-        _probeEexEntriesButton.Click += (_, _) => ProbeSelectedEexEntries();
-        _exportEexEntryProbeCsvButton.Click += (_, _) => ExportEexEntryProbeCsv();
-        _compareEexCrossFilesButton.Click += (_, _) => CompareSelectedEexAcrossFiles();
-        _renderEexHeatmapButton.Click += (_, _) => RenderSelectedEexHeatmap();
-        _exportEexHeatmapPngButton.Click += (_, _) => ExportEexHeatmapPng();
-        _filterEexArchivesButton.Click += (_, _) => ApplyEexArchiveFilter();
-        _clearEexArchiveFilterButton.Click += (_, _) => ClearEexArchiveFilter();
-        _eexArchiveCategoryFilterCombo.SelectedIndexChanged += (_, _) => ApplyEexArchiveFilter();
-        _eexArchiveGrid.SelectionChanged += (_, _) => ShowSelectedEexArchive();
-        _eexEntryProbeGrid.SelectionChanged += (_, _) => ShowSelectedEexEntryProbeRow();
-        _eexCrossFileGrid.SelectionChanged += (_, _) => ShowSelectedEexCrossFileRow();
-        _loadScenarioFilesButton.Click += (_, _) => LoadScenarioFiles();
-        _openScenarioFileButton.Click += (_, _) => OpenSelectedScenarioFileLocation();
-        _exportScenarioFileIndexCsvButton.Click += (_, _) => ExportScenarioFileIndexCsv();
-        _filterScenarioFilesButton.Click += (_, _) => ApplyScenarioFileFilter();
-        _clearScenarioFileFilterButton.Click += (_, _) => ClearScenarioFileFilter();
-        _scenarioKindFilterCombo.SelectedIndexChanged += (_, _) => ApplyScenarioFileFilter();
-        _scenarioFilesWithTextOnly.CheckedChanged += (_, _) => ApplyScenarioFileFilter();
-        _scenarioFileGrid.SelectionChanged += (_, _) => ShowSelectedScenarioFile();
-        _probeScenarioCommandsButton.Click += (_, _) => ProbeSelectedScenarioCommands();
-        _buildScenarioStructureButton.Click += (_, _) => BuildSelectedScenarioStructure();
-        _exportScenarioStructureXmlButton.Click += (_, _) => ExportScenarioStructureXml();
-        _exportScenarioCommandTemplateCatalogButton.Click += (_, _) => ExportScenarioCommandTemplateCatalog();
-        _refreshScenarioCommandTemplatesButton.Click += (_, _) => LoadScenarioCommandTemplates();
-        _filterScenarioCommandTemplatesButton.Click += (_, _) => ApplyScenarioCommandTemplateFilter();
-        _clearScenarioCommandTemplateFilterButton.Click += (_, _) => ClearScenarioCommandTemplateFilter();
-        _showScenarioCommandTemplateInStructureButton.Click += (_, _) => FilterScenarioStructureBySelectedCommandTemplate();
-        _scenarioCommandTemplateCategoryCombo.SelectedIndexChanged += (_, _) => ApplyScenarioCommandTemplateFilter();
-        _scenarioCommandTemplateStatusCombo.SelectedIndexChanged += (_, _) => ApplyScenarioCommandTemplateFilter();
-        _scenarioCommandTemplateGrid.SelectionChanged += (_, _) => ShowSelectedScenarioCommandTemplate();
-        _filterScenarioStructureButton.Click += (_, _) => ApplyScenarioStructureFilter();
-        _clearScenarioStructureFilterButton.Click += (_, _) => ClearScenarioStructureFilter();
-        _scenarioStructureTemplatesOnly.CheckedChanged += (_, _) => ApplyScenarioStructureFilter();
-        _scenarioStructureTextOnly.CheckedChanged += (_, _) => ApplyScenarioStructureFilter();
-        _scenarioStructureMapOnly.CheckedChanged += (_, _) => ApplyScenarioStructureFilter();
-        _scenarioStructureHighRiskOnly.CheckedChanged += (_, _) => ApplyScenarioStructureFilter();
-        _scenarioStructureGrid.SelectionChanged += (_, _) => ShowSelectedScenarioStructureRow();
-        _jumpScenarioCommandReferenceButton.Click += (_, _) => JumpSelectedScenarioCommandReference();
-        _exportScenarioCommandReferenceChecklistButton.Click += (_, _) => ExportScenarioCommandReferenceChecklist();
-        _createScenarioCommandReferenceNoteButton.Click += (_, _) => CreateScenarioCommandReferenceNote();
-        _probeScenarioTextsButton.Click += (_, _) => ProbeSelectedScenarioTexts();
-        _exportScenarioTextsButton.Click += (_, _) => ExportScenarioTexts();
-        _saveScenarioTextsButton.Click += (_, _) => SaveScenarioTextsToTestCopy();
-        _scenarioTextFilterButton.Click += (_, _) => ApplyScenarioTextFilter();
-        _scenarioTextFilterClearButton.Click += (_, _) => ClearScenarioTextFilter();
-        _scenarioTextChangedOnly.CheckedChanged += (_, _) => ApplyScenarioTextFilter();
-        _scenarioTextGrid.CellEndEdit += (_, e) => RefreshScenarioTextRow(e.RowIndex);
-        _scenarioTextGrid.SelectionChanged += (_, _) => ShowSelectedScenarioTextEntry();
         _loadBattlefieldButton.Click += async (_, _) => await LoadBattlefieldScenariosAsync();
         _battlefieldScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedBattlefieldScenarioAsync();
         _saveBattlefieldTextsButton.Click += (_, _) => SaveBattlefieldTexts();
         _saveBattlefieldUnitReviewsButton.Click += (_, _) => SaveBattlefieldUnitReviews();
         _writeBattlefieldDeploymentButton.Click += async (_, _) => await WriteBattlefieldDeploymentAsync();
-        _createBattlefieldNoteButton.Click += (_, _) => CreateBattlefieldNote();
-        _jumpBattlefieldMapButton.Click += (_, _) => JumpBattlefieldMapMaker();
         _jumpBattlefieldScenarioButton.Click += async (_, _) => await JumpBattlefieldScenarioStructureAsync();
         _battlefieldTitleBox.TextChanged += (_, _) => UpdateBattlefieldCapacityLabels();
         _battlefieldConditionsBox.TextChanged += (_, _) => UpdateBattlefieldCapacityLabels();
@@ -596,9 +444,7 @@ public sealed partial class MainForm
         _pasteScriptCommandAfterButton.Click += (_, _) => PasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false);
         _moveScriptCommandUpButton.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: true);
         _moveScriptCommandDownButton.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: false);
-        _saveScriptTextButton.Click += (_, _) => SaveCurrentScriptRemark();
         _saveScriptStructureButton.Click += async (_, _) => await SaveCurrentLegacyScriptStructureAsync();
-        _createScriptNoteButton.Click += (_, _) => CreateScriptNote();
         _jumpScriptBattlefieldButton.Click += async (_, _) => await JumpScriptBattlefieldAsync();
         _scriptTree.AfterSelect += (_, _) => ShowSelectedScriptTreeNode();
         _scriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedScriptSearchResult();
@@ -615,39 +461,6 @@ public sealed partial class MainForm
         _applyScriptInlineDialogButton.Click += (_, _) => ApplyInlineLegacyScriptDialog();
         _resetScriptInlineDialogButton.Click += (_, _) => LoadInlineLegacyScriptDialogForSelection();
         _scriptTextEditorBox.TextChanged += (_, _) => UpdateScriptTextCapacityLabel();
-        _loadLsResourcesButton.Click += (_, _) => LoadLsResources();
-        _openLsResourceButton.Click += (_, _) => OpenSelectedLsResourceLocation();
-        _exportLsResourcesCsvButton.Click += (_, _) => ExportLsResourcesCsv();
-        _renderLsResourceHeatmapButton.Click += (_, _) => RenderSelectedLsResourceHeatmap();
-        _exportLsResourceHeatmapPngButton.Click += (_, _) => ExportLsResourceHeatmapPng();
-        _filterLsResourcesButton.Click += (_, _) => ApplyLsResourceFilter();
-        _clearLsResourceFilterButton.Click += (_, _) => ClearLsResourceFilter();
-        _lsResourceCategoryFilterCombo.SelectedIndexChanged += (_, _) => ApplyLsResourceFilter();
-        _lsResourceGrid.SelectionChanged += (_, _) => ShowSelectedLsResource();
-        _loadHexzmapProbeButton.Click += (_, _) => LoadHexzmapProbe();
-        _exportHexzmapProbeCsvButton.Click += (_, _) => ExportHexzmapProbeCsv();
-        _exportHexzmapOverlayPngButton.Click += (_, _) => ExportHexzmapOverlayPng();
-        _hexzmapOverlayMapCheckBox.CheckedChanged += (_, _) => ShowSelectedHexzmapBlock();
-        _hexzmapOverlayOpacityTrackBar.ValueChanged += (_, _) =>
-        {
-            _hexzmapOverlayOpacityLabel.Text = $"地形透明度 {_hexzmapOverlayOpacityTrackBar.Value}%";
-            ShowSelectedHexzmapBlock();
-        };
-        _hexzmapGrid.SelectionChanged += (_, _) => ShowSelectedHexzmapBlock();
-        _loadScenarioMapLinksButton.Click += (_, _) => LoadScenarioMapLinks();
-        _exportScenarioMapLinksCsvButton.Click += (_, _) => ExportScenarioMapLinksCsv();
-        _locateScenarioMapScenarioButton.Click += (_, _) => LocateSelectedScenarioMapScenarioFile();
-        _locateScenarioMapImageButton.Click += (_, _) => LocateSelectedScenarioMapImage();
-        _jumpScenarioMapScenarioButton.Click += (_, _) => JumpSelectedScenarioMapScenario();
-        _jumpScenarioMapHexzmapButton.Click += (_, _) => JumpSelectedScenarioMapHexzmap();
-        _jumpScenarioMapViewerButton.Click += (_, _) => JumpSelectedScenarioMapViewer();
-        _exportScenarioMapPreviewPngButton.Click += (_, _) => ExportSelectedScenarioMapPreviewPng();
-        _writeScenarioMapReportButton.Click += (_, _) => WriteScenarioMapLinkReport();
-        _filterScenarioMapLinksButton.Click += (_, _) => ApplyScenarioMapLinkFilter();
-        _clearScenarioMapLinkFilterButton.Click += (_, _) => ClearScenarioMapLinkFilter();
-        _scenarioMapLinksIncompleteOnly.CheckedChanged += (_, _) => ApplyScenarioMapLinkFilter();
-        _scenarioMapLinkStatusFilterCombo.SelectedIndexChanged += (_, _) => ApplyScenarioMapLinkFilter();
-        _scenarioMapLinkGrid.SelectionChanged += (_, _) => ShowSelectedScenarioMapLink();
         _loadMapImagesButton.Click += (_, _) => LoadMapImages();
         _mapImageList.SelectedIndexChanged += (_, _) => LoadSelectedMapImage();
         _mapMakerNewDraftButton.Click += (_, _) => CreateNewMapWorkbenchDraftFromInputs();
@@ -714,6 +527,22 @@ public sealed partial class MainForm
         _mapViewerBox.MouseDown += (_, e) => BeginMapMakerTerrainPaint(e);
         _mapViewerBox.MouseMove += (_, e) => ContinueMapMakerTerrainPaint(e);
         _mapViewerBox.MouseUp += (_, _) => EndMapMakerTerrainPaint();
-        _mapViewerBox.MouseLeave += (_, _) => EndMapMakerTerrainPaint();
+        _mapViewerBox.MouseLeave += (_, _) =>
+        {
+            EndMapMakerTerrainPaint();
+            ClearMapMakerCellPreview();
+        };
+        _loadHexzmapProbeButton.Click += (_, _) => LoadHexzmapProbe();
+        _exportHexzmapProbeCsvButton.Click += (_, _) => ExportHexzmapProbeCsv();
+        _exportHexzmapOverlayPngButton.Click += (_, _) => ExportHexzmapOverlayPng();
+        _hexzmapGrid.SelectionChanged += (_, _) => ShowSelectedHexzmapBlock();
+        _hexzmapOverlayMapCheckBox.CheckedChanged += (_, _) => ShowSelectedHexzmapBlock();
+        _hexzmapOverlayOpacityTrackBar.ValueChanged += (_, _) =>
+        {
+            _hexzmapOverlayOpacityLabel.Text = $"地形透明度 {_hexzmapOverlayOpacityTrackBar.Value}%";
+            ShowSelectedHexzmapBlock();
+        };
+        _hexzmapPreviewBox.MouseMove += (_, e) => UpdateHexzmapCellPreview(e.Location);
+        _hexzmapPreviewBox.MouseLeave += (_, _) => ClearHexzmapCellPreview();
     }
 }

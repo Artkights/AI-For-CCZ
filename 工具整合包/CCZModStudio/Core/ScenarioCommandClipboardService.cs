@@ -57,7 +57,7 @@ public sealed class ScenarioCommandClipboardService
         }
 
         builder.AppendLine();
-        builder.AppendLine("安全边界：以上内容是复制候选和中文注释，用于旧工具对照、策划记录、创作者备注和实机验证；尚未确认完整命令长度时，不作为直接写回命令结构的依据。");
+        builder.AppendLine("安全边界：以上内容是复制候选和中文注释，用于旧工具对照、策划记录、外部制作记录和实机验证；尚未确认完整命令长度时，不作为直接写回命令结构的依据。");
         return builder.ToString().TrimEnd();
     }
 

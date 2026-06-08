@@ -16,8 +16,7 @@ public sealed class BattlefieldEditorService
         CczProject project,
         ScenarioFileInfo scenario,
         SceneStringDocument? dictionary,
-        IReadOnlyList<HexTableDefinition> tables,
-        IReadOnlyList<ScenarioMapLinkInfo> mapLinks)
+        IReadOnlyList<HexTableDefinition> tables)
     {
         var texts = File.Exists(scenario.Path)
             ? _textReader.Read(scenario.Path).ToList()
@@ -25,22 +24,18 @@ public sealed class BattlefieldEditorService
         var titleEntry = PickTitleEntry(texts, scenario.TitleHint);
         var conditionEntry = texts.FirstOrDefault(x => x.Kind == "胜败条件")
                              ?? texts.FirstOrDefault(x => x.Text.Contains("胜利条件", StringComparison.Ordinal)
-                                                       || x.Text.Contains("失败条件", StringComparison.Ordinal));
-        var mapLink = mapLinks.FirstOrDefault(x => x.ScenarioFileName.Equals(scenario.FileName, StringComparison.OrdinalIgnoreCase));
-        var candidates = LoadBattlefieldCommandCandidates(project, scenario, dictionary, tables);
+                                                       || x.Text.Contains("失败条件", StringComparison.Ordinal));        var candidates = LoadBattlefieldCommandCandidates(project, scenario, dictionary, tables);
         var unitCandidates = BuildUnitCandidates(candidates);
 
         return new BattlefieldEditorDocument
         {
-            Scenario = scenario,
-            MapLink = mapLink,
-            TextEntries = texts,
+            Scenario = scenario,            TextEntries = texts,
             TitleEntry = titleEntry,
             ConditionEntry = conditionEntry,
             CommandCandidates = candidates,
             UnitCandidates = unitCandidates,
-            Summary = BuildSummary(scenario, titleEntry, conditionEntry, mapLink, candidates.Count, unitCandidates.Count),
-            Annotation = BuildAnnotation(scenario, titleEntry, conditionEntry, mapLink, candidates.Count, unitCandidates.Count)
+            Summary = BuildSummary(scenario, titleEntry, conditionEntry, candidates.Count, unitCandidates.Count),
+            Annotation = BuildAnnotation(scenario, titleEntry, conditionEntry, candidates.Count, unitCandidates.Count)
         };
     }
 
@@ -52,15 +47,13 @@ public sealed class BattlefieldEditorService
         var unitCandidates = BuildUnitCandidates(candidates);
         return new BattlefieldEditorDocument
         {
-            Scenario = current.Scenario,
-            MapLink = current.MapLink,
-            TextEntries = current.TextEntries,
+            Scenario = current.Scenario,            TextEntries = current.TextEntries,
             TitleEntry = current.TitleEntry,
             ConditionEntry = current.ConditionEntry,
             CommandCandidates = candidates,
             UnitCandidates = unitCandidates,
-            Summary = BuildSummary(current.Scenario, current.TitleEntry, current.ConditionEntry, current.MapLink, candidates.Count, unitCandidates.Count),
-            Annotation = BuildAnnotation(current.Scenario, current.TitleEntry, current.ConditionEntry, current.MapLink, candidates.Count, unitCandidates.Count)
+            Summary = BuildSummary(current.Scenario, current.TitleEntry, current.ConditionEntry, candidates.Count, unitCandidates.Count),
+            Annotation = BuildAnnotation(current.Scenario, current.TitleEntry, current.ConditionEntry, candidates.Count, unitCandidates.Count)
         };
     }
 
@@ -891,31 +884,23 @@ public sealed class BattlefieldEditorService
         ScenarioFileInfo scenario,
         ScenarioTextEntry? titleEntry,
         ScenarioTextEntry? conditionEntry,
-        ScenarioMapLinkInfo? mapLink,
         int candidateCount,
         int unitCandidateCount)
     {
         var title = titleEntry?.Text ?? scenario.TitleHint;
-        var map = mapLink == null
-            ? "未建立地图联动"
-            : $"{mapLink.MapId} / {(mapLink.MapImageExists ? mapLink.MapImageName : "缺地图图片")} / {(mapLink.HexzmapBlockExists ? "有地形块" : "缺地形块")}";
-        return $"关卡 {scenario.FileName}：标题={title}，地图={map}，胜败条件={(conditionEntry == null ? "未匹配" : conditionEntry.OffsetHex)}，战场命令候选={candidateCount}，出场/坐标候选={unitCandidateCount}。";
+        return $"关卡 {scenario.FileName}：标题={title}，胜败条件={(conditionEntry == null ? "未匹配" : conditionEntry.OffsetHex)}，战场命令候选={candidateCount}，出场/坐标候选={unitCandidateCount}。";
     }
 
     private static string BuildAnnotation(
         ScenarioFileInfo scenario,
         ScenarioTextEntry? titleEntry,
         ScenarioTextEntry? conditionEntry,
-        ScenarioMapLinkInfo? mapLink,
         int candidateCount,
         int unitCandidateCount)
     {
         var titleStatus = titleEntry == null ? "未找到标题文本线索" : $"标题偏移 {titleEntry.OffsetHex}，容量 {titleEntry.ByteLength}B";
         var conditionStatus = conditionEntry == null ? "未找到胜败条件文本线索" : $"胜败条件偏移 {conditionEntry.OffsetHex}，容量 {conditionEntry.ByteLength}B";
-        var mapStatus = mapLink == null
-            ? "未在关卡地图联动中找到同名关卡"
-            : $"联动 {mapLink.MapId}，状态 {mapLink.Status}，主地形 {mapLink.DominantTerrain}";
-        return $"战场制作文档：{scenario.FileName}。{titleStatus}；{conditionStatus}；{mapStatus}；战场命令候选 {candidateCount} 条，出场/坐标候选 {unitCandidateCount} 条。已知文本支持原地短写回，未知 R/S eex 命令结构保留原样。";
+        return $"战场制作文档：{scenario.FileName}。{titleStatus}；{conditionStatus}；战场命令候选 {candidateCount} 条，出场/坐标候选 {unitCandidateCount} 条。已知文本支持原地短写回，未知 R/S eex 命令结构保留原样。";
     }
 
     private sealed class DeploymentCommandDefinition

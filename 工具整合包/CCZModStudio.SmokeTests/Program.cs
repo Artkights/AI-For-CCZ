@@ -26,7 +26,6 @@ var jobStrategyWriteSmokeOnly = args.Contains("--job-strategy-write-smoke", Stri
 var globalSettingsWriteSmokeOnly = args.Contains("--global-settings-write-smoke", StringComparer.OrdinalIgnoreCase);
 var globalSettingsDialogSmokeOnly = args.Contains("--global-settings-dialog-smoke", StringComparer.OrdinalIgnoreCase);
 var effectPackageSmokeOnly = args.Contains("--effect-package-smoke", StringComparer.OrdinalIgnoreCase);
-var legacyAllSmoke = args.Contains("--legacy-all-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
 var project = detector.DetectDefaultProject();
@@ -146,18 +145,12 @@ if (effectPackageSmokeOnly)
     return;
 }
 
-if (enableWriteTest && !legacyAllSmoke)
+if (enableWriteTest)
 {
-    Console.WriteLine("WRITE_MODE=RS_CORE (--write 当前只运行 R/S eex 核心写入烟测；旧 E5S 探针请显式使用 --legacy-e5s-smoke 或 --legacy-all-smoke)");
+    Console.WriteLine("WRITE_MODE=RS_CORE (--write 当前运行 R/S eex 核心写入烟测；E5S 兼容检查请显式使用 --legacy-e5s-smoke)");
     RunRsWriteSmoke(project, tables);
     return;
 }
 
-if (!legacyAllSmoke)
-{
-    Console.WriteLine("DEFAULT_MODE=RS_CORE (旧全量探针已拆到 --legacy-all-smoke，E5S 兼容检查为 --legacy-e5s-smoke)");
-    RunRsSmoke(project, tables);
-    return;
-}
-
-RunLegacyAllSmoke(project, tables, detector, enableWriteTest);
+Console.WriteLine("DEFAULT_MODE=RS_CORE (E5S 兼容检查为 --legacy-e5s-smoke)");
+RunRsSmoke(project, tables);

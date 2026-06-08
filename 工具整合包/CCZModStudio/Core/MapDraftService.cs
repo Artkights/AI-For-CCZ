@@ -54,7 +54,7 @@ public sealed class MapDraftService
             DraftId = Guid.NewGuid().ToString("N"),
             GridWidth = Math.Max(1, gridWidth),
             GridHeight = Math.Max(1, gridHeight),
-            TileSize = ResourceIndexItem.MapTilePixelSize,
+            TileSize = MapResourceItem.MapTilePixelSize,
             MaterialRoot = materialRoot ?? string.Empty,
             CreatedAtText = now,
             UpdatedAtText = now
@@ -63,7 +63,7 @@ public sealed class MapDraftService
         return draft;
     }
 
-    public MapWorkbenchDraft CreateDraftFromMap(CczProject project, ResourceIndexItem item, string materialRoot)
+    public MapWorkbenchDraft CreateDraftFromMap(CczProject project, MapResourceItem item, string materialRoot)
     {
         var gridWidth = item.GridWidth > 0 ? item.GridWidth : 30;
         var gridHeight = item.GridHeight > 0 ? item.GridHeight : 30;
@@ -207,8 +207,8 @@ public sealed class MapDraftService
         if (string.IsNullOrWhiteSpace(draft.DraftId)) draft.DraftId = Guid.NewGuid().ToString("N");
         draft.GridWidth = Math.Max(1, draft.GridWidth);
         draft.GridHeight = Math.Max(1, draft.GridHeight);
-        draft.TileSize = draft.TileSize <= 0 ? ResourceIndexItem.MapTilePixelSize : draft.TileSize;
-        if (draft.TileSize != ResourceIndexItem.MapTilePixelSize) draft.TileSize = ResourceIndexItem.MapTilePixelSize;
+        draft.TileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
+        if (draft.TileSize != MapResourceItem.MapTilePixelSize) draft.TileSize = MapResourceItem.MapTilePixelSize;
         var cellCount = checked(draft.GridWidth * draft.GridHeight);
         if (draft.TerrainCells == null || draft.TerrainCells.Length != cellCount)
         {
@@ -235,7 +235,7 @@ public sealed class MapDraftService
         return draft;
     }
 
-    private static string GetMapId(ResourceIndexItem item)
+    private static string GetMapId(MapResourceItem item)
     {
         var name = Path.GetFileNameWithoutExtension(item.Name);
         if (name.Length > 1 && (name[0] == 'M' || name[0] == 'm') &&

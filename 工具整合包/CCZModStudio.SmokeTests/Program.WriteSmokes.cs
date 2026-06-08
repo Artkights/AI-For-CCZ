@@ -1,4 +1,4 @@
-﻿using CCZModStudio.Core;
+using CCZModStudio.Core;
 using CCZModStudio.Formats;
 using CCZModStudio.Models;
 using CCZModStudio;
@@ -645,7 +645,7 @@ internal partial class Program
             .FirstOrDefault(x => x.FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"战场制作写入烟测未找到测试副本剧本：{scenarioFileName}");
         var battlefieldService = new BattlefieldEditorService();
-        var document = battlefieldService.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var document = battlefieldService.Load(testProject, scenario, dictionary, tables);
         if (document.TitleEntry == null)
         {
             throw new InvalidOperationException($"战场制作写入烟测未在 {scenarioFileName} 找到标题文本线索。");
@@ -703,7 +703,7 @@ internal partial class Program
             .FirstOrDefault(x => x.FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"Battlefield deployment write smoke could not find {scenarioFileName}.");
         var service = new BattlefieldEditorService();
-        var document = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var document = service.Load(testProject, scenario, dictionary, tables);
         var candidate = document.UnitCandidates.FirstOrDefault(x =>
             x.TargetKey.Contains("Record=", StringComparison.OrdinalIgnoreCase) &&
             BattlefieldEditorService.TryExtractFirstCoordinate(x, out _, out _) &&
@@ -733,7 +733,7 @@ internal partial class Program
             GridX = changedX,
             GridY = changedY,
             Source = "S剧本预览",
-            Memo = "Smoke battlefield deployment write"
+            PlacementNote = "Smoke battlefield deployment write"
         };
     
         var write = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
@@ -750,7 +750,7 @@ internal partial class Program
             throw new InvalidOperationException("Battlefield deployment write did not produce reread, backup, or report evidence.");
         }
     
-        var verifyDocument = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var verifyDocument = service.Load(testProject, scenario, dictionary, tables);
         var verifyCandidate = verifyDocument.UnitCandidates.FirstOrDefault(x => x.TargetKey.Equals(candidate.TargetKey, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("Battlefield deployment write reread lost target candidate.");
         if (!BattlefieldEditorService.TryExtractFirstCoordinate(verifyCandidate, out var actualX, out var actualY) ||
@@ -773,7 +773,7 @@ internal partial class Program
             GridX = 2,
             GridY = 2,
             Source = "拖放",
-            Memo = "Smoke local-only placement"
+            PlacementNote = "Smoke local-only placement"
         };
         var reviewPath = reviewService.Save(testProject, verifyDocument, verifyDocument.UnitCandidates, new[] { placement, localPlacement });
         var savedPlacementReviews = reviewService.Load(testProject)
@@ -802,14 +802,14 @@ internal partial class Program
                 GridX = changedX == 0 ? 1 : 0,
                 GridY = changedY,
                 Source = "纯拖放自动绑定",
-                Memo = "Smoke battlefield empty slot auto-bind write"
+                PlacementNote = "Smoke battlefield empty slot auto-bind write"
             };
             var emptyWrite = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
                 testProject,
                 scenario,
                 dictionary,
                 new[] { emptyPlacement });
-            var emptyVerifyDocument = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+            var emptyVerifyDocument = service.Load(testProject, scenario, dictionary, tables);
             var emptyVerify = emptyVerifyDocument.UnitCandidates.FirstOrDefault(x => x.TargetKey.Equals(emptySlot.TargetKey, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("Battlefield empty deployment slot write did not become a visible candidate after reread.");
             var emptyPersonParsed = BattlefieldEditorService.TryExtractPersonId(emptyVerify, out var emptyPersonId);
@@ -830,7 +830,7 @@ internal partial class Program
             .ReadAllIndex(testProject)
             .FirstOrDefault(x => x.FileName.Equals("S_01.eex", StringComparison.OrdinalIgnoreCase))
             ?? scenario;
-        var allyDocument = service.Load(testProject, allyScenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var allyDocument = service.Load(testProject, allyScenario, dictionary, tables);
         var allySlot = BattlefieldEditorService.BuildDeploymentSlotInfos(allyDocument)
             .FirstOrDefault(x => x.IsAllySlot && x.GridX >= 0 && x.GridY >= 0);
         if (allySlot != null)
@@ -847,14 +847,14 @@ internal partial class Program
                 GridX = allySlot.GridX == 0 ? 1 : 0,
                 GridY = allySlot.GridY,
                 Source = "纯拖放自动绑定",
-                Memo = "Smoke battlefield 4B slot auto-bind write"
+                PlacementNote = "Smoke battlefield 4B slot auto-bind write"
             };
             var allyWrite = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
                 testProject,
                 allyScenario,
                 dictionary,
                 new[] { allyPlacement });
-            var allyVerifyDocument = service.Load(testProject, allyScenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+            var allyVerifyDocument = service.Load(testProject, allyScenario, dictionary, tables);
             var allyVerify = allyVerifyDocument.UnitCandidates.FirstOrDefault(x => x.TargetKey.Equals(allySlot.TargetKey, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException("Battlefield 4B slot write reread lost target candidate.");
             if (!BattlefieldEditorService.TryExtractFirstCoordinate(allyVerify, out var allyActualX, out var allyActualY) ||
@@ -875,7 +875,7 @@ internal partial class Program
         BattlefieldEditorService service,
         IReadOnlyList<HexTableDefinition> tables)
     {
-        var document = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+        var document = service.Load(testProject, scenario, dictionary, tables);
         var existing = BattlefieldEditorService.BuildDeploymentSlotInfos(document)
             .FirstOrDefault(x => !x.IsAllySlot && x.IsBlank && x.WritesPerson);
         if (existing != null) return existing;
@@ -906,7 +906,7 @@ internal partial class Program
                 dictionary,
                 "Smoke synthesize empty battlefield 46/47 deployment slot");
     
-            var reread = service.Load(testProject, scenario, dictionary, tables, Array.Empty<ScenarioMapLinkInfo>());
+            var reread = service.Load(testProject, scenario, dictionary, tables);
             return BattlefieldEditorService.BuildDeploymentSlotInfos(reread)
                 .FirstOrDefault(x => !x.IsAllySlot && x.IsBlank && x.WritesPerson);
         }
@@ -1037,7 +1037,7 @@ internal partial class Program
         var material = materials.FirstOrDefault()
             ?? throw new InvalidOperationException("Map workbench smoke could not find any material image.");
     
-        var resources = new GameResourceIndexer().Index(testProject);
+        var resources = new MapResourceIndexer().Index(testProject);
         var mapItem = resources
             .Where(x => x.Category == "地图图片" && x.GridWidth > 0 && x.GridHeight > 0)
             .OrderBy(x => x.Id)
@@ -1110,8 +1110,8 @@ internal partial class Program
         composePublishService.ExportJpeg(reloaded, exportPath);
         using (var exported = System.Drawing.Image.FromFile(exportPath))
         {
-            var expectedWidth = draft.GridWidth * ResourceIndexItem.MapTilePixelSize;
-            var expectedHeight = draft.GridHeight * ResourceIndexItem.MapTilePixelSize;
+            var expectedWidth = draft.GridWidth * MapResourceItem.MapTilePixelSize;
+            var expectedHeight = draft.GridHeight * MapResourceItem.MapTilePixelSize;
             if (exported.Width != expectedWidth || exported.Height != expectedHeight)
             {
                 throw new InvalidOperationException($"Map workbench export dimensions failed: {exported.Width}x{exported.Height}, expected {expectedWidth}x{expectedHeight}.");
@@ -1168,14 +1168,6 @@ internal partial class Program
     static string BuildBattlefieldUnitSignature(BattlefieldEditorDocument document)
         => string.Join("|", document.UnitCandidates.Take(30).Select(unit =>
             $"{unit.TargetKey}:{unit.Category}:{unit.SourceCommand}:{unit.PersonHint}:{unit.CoordinateHint}:{unit.AiHint}"));
-    
-    static string BuildBattlefieldMapSignature(BattlefieldEditorDocument document)
-    {
-        var link = document.MapLink;
-        return link == null
-            ? $"{document.Scenario.FileName}:<no-map>"
-            : $"{document.Scenario.FileName}:{link.MapId}:{link.MapImageName}:{link.MapImageExists}:{link.HexzmapBlockExists}:{link.HexzmapOffsetHex}";
-    }
     
     static int CountColorfulPixels(System.Drawing.Bitmap bitmap)
     {

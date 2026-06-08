@@ -365,12 +365,12 @@ public sealed partial class MainForm
         try
         {
             CsvService.Export(table, dialog.FileName);
-            Log("已导出 CSV：" + dialog.FileName);
+            System.Diagnostics.Debug.WriteLine("已导出 CSV：" + dialog.FileName);
             SetStatus("CSV 导出完成");
         }
         catch (Exception ex)
         {
-            Log("CSV 导出失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("CSV 导出失败：" + ex);
             MessageBox.Show(this, ex.Message, "CSV 导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -389,12 +389,12 @@ public sealed partial class MainForm
         {
             var count = CsvService.ImportInto(table, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
             afterImport?.Invoke();
-            Log($"已导入 {editorName} CSV：{dialog.FileName}，更新行 {count}");
+            System.Diagnostics.Debug.WriteLine($"已导入 {editorName} CSV：{dialog.FileName}，更新行 {count}");
             SetStatus($"{editorName} CSV 导入完成：更新 {count} 行，请检查后保存。");
         }
         catch (Exception ex)
         {
-            Log($"{editorName} CSV 导入失败：" + ex);
+            System.Diagnostics.Debug.WriteLine($"{editorName} CSV 导入失败：" + ex);
             MessageBox.Show(this, ex.Message, $"{editorName} CSV 导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }

@@ -61,7 +61,7 @@ public sealed class EffectPackageService
             Name = entry.Name,
             Description = entry.Description,
             EffectValue = entry.EffectValue,
-            RollbackNote = "导出包用于重新导入或替换同编号特效；删除仍按固定槽位清空处理。",
+            BackupNote = "导出包用于重新导入或替换同编号特效；删除仍按固定槽位清空处理。",
             Metadata =
             {
                 ["Source"] = entry.Source,
@@ -253,7 +253,7 @@ public sealed class EffectPackageService
             EffectId = package.EffectId,
             PackageId = NormalizePackageId(package),
             SourcePrompt = package.SourcePrompt,
-            RollbackNote = package.RollbackNote,
+            BackupNote = package.BackupNote,
             Package = package
         };
 
@@ -283,56 +283,6 @@ public sealed class EffectPackageService
         aggregate.ManifestPath = SaveManifest(project, manifest);
         aggregate.Summary = $"Patch effect {package.EffectId} applied with {aggregate.ChangeCount} segments.";
         return aggregate;
-    }
-
-    public EffectManifestRollbackResult RollbackManifest(CczProject project, string manifestId)
-    {
-        var manifestPath = ResolveManifestPath(project, manifestId);
-        var manifest = JsonSerializer.Deserialize<EffectManifest>(File.ReadAllText(manifestPath, Encoding.UTF8), JsonOptions)
-                       ?? throw new InvalidOperationException("Effect manifest JSON is empty: " + manifestPath);
-        var result = new EffectManifestRollbackResult
-        {
-            ManifestId = manifest.ManifestId,
-            ManifestPath = manifestPath
-        };
-
-        var backups = manifest.Backups.Count > 0
-            ? manifest.Backups
-            : manifest.BackupPaths
-                .Where(File.Exists)
-                .Select(path => new EffectManifestBackup
-                {
-                    BackupPath = path,
-                    TargetPath = Path.Combine(project.GameRoot, ExtractBackupTargetName(Path.GetFileName(path)))
-                })
-                .ToList();
-
-        foreach (var backup in backups)
-        {
-            var targetPath = ResolveRollbackTarget(project, backup);
-            if (string.IsNullOrWhiteSpace(targetPath)) continue;
-
-            if (!backup.TargetExisted)
-            {
-                if (File.Exists(targetPath))
-                {
-                    File.Delete(targetPath);
-                }
-                result.RestoredFiles.Add(targetPath);
-                continue;
-            }
-
-            if (!File.Exists(backup.BackupPath)) continue;
-            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            File.Copy(backup.BackupPath, targetPath, overwrite: true);
-            result.RestoredFiles.Add(targetPath);
-        }
-
-        result.RolledBack = result.RestoredFiles.Count > 0;
-        result.Summary = result.RolledBack
-            ? $"Restored {result.RestoredFiles.Count} file(s) from manifest {manifest.ManifestId}."
-            : $"No restorable file backup was found for manifest {manifest.ManifestId}.";
-        return result;
     }
 
     public IReadOnlyList<EffectTemplate> ListTemplates()
@@ -392,7 +342,7 @@ public sealed class EffectPackageService
             Name = ReadString(parameters, "name", template.Name),
             Description = ReadString(parameters, "description", template.Description),
             SourcePrompt = ReadString(parameters, "source_prompt", string.Empty),
-            RollbackNote = "由模板生成。应用前必须先调用 preview_effect_package 或 preview_effect_patch。",
+            BackupNote = "由模板生成。应用前必须先调用 preview_effect_package 或 preview_effect_patch。",
             Metadata =
             {
                 ["TemplateId"] = template.TemplateId,
@@ -467,7 +417,7 @@ public sealed class EffectPackageService
                 Item = "Clear item references to effect_id=0/effect_value=0.",
                 Job = "Clear assignment row to person=1024/job=255/effect_value=0 and clear description.",
                 Personal = "Clear the fixed 6.5-7-3 row to zeroes.",
-                Patch = "Use rollback_effect_manifest for previously applied patch manifests."
+                Patch = "Patch deletion has no automatic entry. Use manifest backup files manually when needed."
             }
         };
 
@@ -702,7 +652,7 @@ public sealed class EffectPackageService
     {
         if (mode == "delete")
         {
-            preview.Warnings.Add("Patch effects cannot be deleted by clearing a fixed row. Use rollback_effect_manifest with a manifest id.");
+            preview.Warnings.Add("Patch effects cannot be deleted by clearing a fixed row. No automatic delete entry is exposed; use manifest backup files manually when needed.");
             return;
         }
 
@@ -802,7 +752,7 @@ public sealed class EffectPackageService
     {
         if (mode == "delete")
         {
-            throw new InvalidOperationException("Patch delete requires rollback_effect_manifest.");
+            throw new InvalidOperationException("Patch delete is not exposed as an automatic operation. Use manifest backup files manually when needed.");
         }
 
         foreach (var segment in package.PatchSegments)
@@ -1014,7 +964,7 @@ public sealed class EffectPackageService
             EffectId = package.EffectId,
             PackageId = NormalizePackageId(package),
             SourcePrompt = package.SourcePrompt,
-            RollbackNote = package.RollbackNote,
+            BackupNote = package.BackupNote,
             Package = package,
             Metadata =
             {
@@ -1219,27 +1169,6 @@ public sealed class EffectPackageService
         {
             return path;
         }
-    }
-
-    private static string ExtractBackupTargetName(string fileName)
-    {
-        var parts = fileName.Split('_', 4);
-        return parts.Length == 4 ? parts[3] : string.Empty;
-    }
-
-    private static string ResolveRollbackTarget(CczProject project, EffectManifestBackup backup)
-    {
-        if (!string.IsNullOrWhiteSpace(backup.TargetPath)) return backup.TargetPath;
-        if (!string.IsNullOrWhiteSpace(backup.TargetRelativePath))
-        {
-            var normalized = backup.TargetRelativePath
-                .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-                .TrimStart(Path.DirectorySeparatorChar);
-            return Path.Combine(project.WorkspaceRoot, normalized);
-        }
-
-        var targetName = ExtractBackupTargetName(Path.GetFileName(backup.BackupPath));
-        return string.IsNullOrWhiteSpace(targetName) ? string.Empty : Path.Combine(project.GameRoot, targetName);
     }
 
     private static bool HexBytesEqual(string left, string right)

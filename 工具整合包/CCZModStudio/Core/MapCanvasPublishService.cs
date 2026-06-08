@@ -10,7 +10,7 @@ public sealed class MapCanvasPublishService
     private readonly WriteOperationReportService _reportService = new();
     private readonly MapCanvasComposeService _composeService = new();
 
-    public MapImageSaveResult PublishToMapImage(CczProject project, MapWorkbenchDraft draft, ResourceIndexItem target)
+    public MapImageSaveResult PublishToMapImage(CczProject project, MapWorkbenchDraft draft, MapResourceItem target)
     {
         if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
         {
@@ -117,7 +117,7 @@ public sealed class MapCanvasPublishService
 
     private string WriteStructuredReport(
         CczProject project,
-        ResourceIndexItem target,
+        MapResourceItem target,
         MapWorkbenchDraft draft,
         string backupPath,
         byte[] oldBytes,
@@ -147,7 +147,7 @@ public sealed class MapCanvasPublishService
             Summary = $"发布地图工作台草稿到 {targetRelative}，尺寸 {oldWidth}x{oldHeight} -> {newWidth}x{newHeight}，估算改动 {changedBytes:N0} 字节。",
             SafetyNotes = project.IsTestCopy
                 ? "该报告由测试副本地图工作台发布流程生成。发布前已备份原地图底图。"
-                : "该报告由当前 MOD 项目地图工作台发布流程生成。发布前已备份原地图底图；如需回退，请使用备份文件或备份历史功能。",
+                : "该报告由当前 MOD 项目地图工作台发布流程生成。发布前已备份原地图底图；如需回退，请使用备份文件手动恢复。",
             FormatCheckSummary = formatCheck,
             RiskSummary = string.IsNullOrWhiteSpace(warning)
                 ? "地图底图仍为 JPEG，草稿尺寸与绑定槽位一致；仍建议进游戏确认战场显示和坐标对齐。"

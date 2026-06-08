@@ -15,5 +15,5 @@ public sealed class BattlefieldUnitCandidate
     public string Annotation { get; init; } = string.Empty;
     public string TargetKey { get; init; } = string.Empty;
     public string ReviewStatus { get; set; } = string.Empty;
-    public string CreatorMemo { get; set; } = string.Empty;
+    public string ReviewNote { get; set; } = string.Empty;
 }

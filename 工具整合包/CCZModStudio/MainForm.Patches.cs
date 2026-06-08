@@ -81,15 +81,15 @@ public sealed partial class MainForm
                 $"可应用：{_currentPatchPreview.CanApply}    不可应用项：{_currentPatchPreview.WarningCount}    总字节：{_currentPatchPreview.TotalBytes}    将改变字节：{_currentPatchPreview.ChangedBytes}\r\n" +
                 "当前项目允许应用补丁；写入前会自动备份目标文件，写入后生成报告。";
 
-            Log($"已预览补丁：{patchPath}");
-            Log($"补丁项：{_currentPatchDocument.Entries.Count}，目标：{target}，可应用：{_currentPatchPreview.CanApply}");
+            System.Diagnostics.Debug.WriteLine($"已预览补丁：{patchPath}");
+            System.Diagnostics.Debug.WriteLine($"补丁项：{_currentPatchDocument.Entries.Count}，目标：{target}，可应用：{_currentPatchPreview.CanApply}");
             SetStatus(_currentPatchPreview.CanApply ? "补丁预览完成" : "补丁存在不可应用项，请查看补丁页");
         }
         catch (Exception ex)
         {
             _applyPatchButton.Enabled = false;
             _patchInfoBox.Text = ex.ToString();
-            Log("补丁预览失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("补丁预览失败：" + ex);
             MessageBox.Show(this, ex.Message, "补丁预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -154,11 +154,11 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _patchService.Apply(_project, _currentPatchDocument, target);
-            Log($"已应用补丁：{_currentPatchDocument.SourcePath}");
-            Log($"目标文件：{result.TargetFilePath}");
-            Log($"备份：{result.BackupPath}");
-            Log($"报告：{result.ReportPath}");
-            Log($"结构化报告：{result.ReportJsonPath}");
+            System.Diagnostics.Debug.WriteLine($"已应用补丁：{_currentPatchDocument.SourcePath}");
+            System.Diagnostics.Debug.WriteLine($"目标文件：{result.TargetFilePath}");
+            System.Diagnostics.Debug.WriteLine($"备份：{result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"报告：{result.ReportPath}");
+            System.Diagnostics.Debug.WriteLine($"结构化报告：{result.ReportJsonPath}");
             SetStatus($"补丁应用完成：{result.EntriesApplied} 项，变化 {result.ChangedBytes} 字节");
             MessageBox.Show(this,
                 $"补丁应用完成。\r\n项数：{result.EntriesApplied}\r\n写入字节：{result.BytesWritten}\r\n变化字节：{result.ChangedBytes}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportPath}\r\n结构化报告：{result.ReportJsonPath}",
@@ -169,7 +169,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("补丁应用失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("补丁应用失败：" + ex);
             MessageBox.Show(this, ex.Message, "补丁应用失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -178,48 +178,4 @@ public sealed partial class MainForm
         }
     }
 
-    private void SelectBatchMoveFile()
-    {
-        var initial = ResolvePatchConfigInitialDirectory();
-
-        using var dialog = new OpenFileDialog
-        {
-            Title = "选择普罗批量搬运配置",
-            Filter = "文本配置 (*.txt)|*.txt|所有文件 (*.*)|*.*",
-            InitialDirectory = Directory.Exists(initial) ? initial : Directory.GetCurrentDirectory()
-        };
-
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        _movePathBox.Text = dialog.FileName;
-        PreviewBatchMove();
-    }
-
-    private void PreviewBatchMove()
-    {
-        var path = _movePathBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-        {
-            MessageBox.Show(this, "请先选择有效搬运配置文件。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
-
-        try
-        {
-            _currentBatchMoveDocument = _batchMoveParser.Parse(path);
-            _moveGrid.DataSource = new BindingList<BatchMoveEntry>(_currentBatchMoveDocument.Entries.ToList());
-            var totalLength = _currentBatchMoveDocument.Entries.Sum(e => e.Length);
-            _moveInfoBox.Text =
-                $"配置：{_currentBatchMoveDocument.SourcePath}\r\n" +
-                $"条目：{_currentBatchMoveDocument.Entries.Count}    总长度（按十进制长度解释）：{totalLength} 字节\r\n" +
-                "当前阶段只做配置解析和报告预览，不执行跨版本搬运写入；写入功能必须在确认源/目标版本和长度单位后再开放。";
-            Log($"已预览搬运配置：{path}，条目 {_currentBatchMoveDocument.Entries.Count}");
-            SetStatus("搬运配置预览完成");
-        }
-        catch (Exception ex)
-        {
-            _moveInfoBox.Text = ex.ToString();
-            Log("搬运配置预览失败：" + ex);
-            MessageBox.Show(this, ex.Message, "搬运配置预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
 }

@@ -61,12 +61,11 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log($"读取表失败：{table.TableName}\r\n{ex}");
+            System.Diagnostics.Debug.WriteLine($"读取表失败：{table.TableName}\r\n{ex}");
             SetStatus("读取失败");
         }
         finally
         {
-            RefreshWorkflowGuide(updateStatus: false);
             Cursor = Cursors.Default;
         }
     }
@@ -164,25 +163,12 @@ public sealed partial class MainForm
         var rowId = row.Cells[0].Value is null ? rowIndex : Convert.ToInt32(row.Cells[0].Value, CultureInfo.InvariantCulture);
         var value = row.Cells[columnIndex].Value;
         var annotation = _fieldAnnotationService.BuildCellAnnotation(_currentTableResult.Table, field, rowId, value);
-        var targetKey = BuildTableCellCreatorNoteTargetKey(_currentTableResult.Table.TableName, rowId, field.ColumnName);
-        SetLastCreatorNoteContext(
-            "数据表单元格",
-            targetKey,
-            $"{_currentTableResult.Table.TableName} / ID {rowId} / {field.ColumnName}",
-            $"从数据表编辑页抓取；当前值={Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty}",
-            $"用途/修改理由：\r\n风险：\r\n实机验证：\r\n当前值：{Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty}");
         UpdateCurrentTableReferenceNavigation(_currentTableResult.Table, field, value, rowId);
         _fieldAnnotationBox.Text = annotation
                                    + BuildImageResourceEvidence(field.ColumnName, value)
-                                   + BuildTableReferenceEvidence(_currentTableResult.Table, field, value, rowId)
-                                   + BuildRelatedCreatorNotesText("数据表单元格", targetKey);
+                                   + BuildTableReferenceEvidence(_currentTableResult.Table, field, value, rowId);
     }
 
-    private static string BuildTableCellCreatorNoteTargetKey(string tableName, int rowId, string fieldName)
-        => BuildTableCellCreatorNoteTargetKey(tableName, rowId.ToString(CultureInfo.InvariantCulture), fieldName);
-
-    private static string BuildTableCellCreatorNoteTargetKey(string tableName, string rowId, string fieldName)
-        => $"{tableName}#ID={rowId}#字段={fieldName}";
 
     private string BuildTableReferenceEvidence(HexTableDefinition table, HexFieldDefinition field, object? value, int rowId)
     {
@@ -197,7 +183,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("\u8de8\u8868\u5f15\u7528\u89e3\u91ca\u5931\u8d25\uff1a" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("\u8de8\u8868\u5f15\u7528\u89e3\u91ca\u5931\u8d25\uff1a" + ex.Message);
             return "\r\n\r\n\u8de8\u8868\u5f15\u7528\u89e3\u91ca\uff1a\u5f53\u524d\u5b57\u6bb5\u53ef\u80fd\u5173\u8054\u5176\u4ed6\u8868\uff0c\u4f46\u672c\u6b21\u89e3\u6790\u5931\u8d25\u3002\u5efa\u8bae\u4fdd\u7559\u539f\u503c\u5e76\u7ed3\u5408\u539f\u5de5\u5177\u9a8c\u8bc1\u3002";
         }
     }
@@ -223,7 +209,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("数据表引用导航解析失败：" + ex.Message);
+            System.Diagnostics.Debug.WriteLine("数据表引用导航解析失败：" + ex.Message);
             ClearCurrentTableReferenceTarget("跨表引用导航解析失败；请查看字段说明并结合原工具验证。");
         }
     }
@@ -462,13 +448,13 @@ public sealed partial class MainForm
                 _currentTableResult.Validation,
                 _currentTableResult.Data,
                 field => _tableReferenceLookupService.BuildFieldReferenceHint(currentTable, field));
-            Log("已导出字段注释：" + path);
+            System.Diagnostics.Debug.WriteLine("已导出字段注释：" + path);
             SetStatus("字段注释导出完成");
             MessageBox.Show(this, "字段注释导出完成：\r\n" + path, "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {
-            Log("字段注释导出失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("字段注释导出失败：" + ex);
             MessageBox.Show(this, ex.Message, "字段注释导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -562,11 +548,11 @@ public sealed partial class MainForm
             _dataGrid.DataSource = verifyRead.Data;
             ConfigureDataGrid(verifyRead);
             ConfigureChartColumns(verifyRead.Data);
-            Log($"已保存表：{result.Table.TableName}");
-            Log($"写入文件：{result.FilePath}");
-            Log($"写入行数：{result.RowsWritten}，变化字节数：{result.ChangedBytes}");
-            Log($"保存前备份：{result.BackupPath}");
-            Log($"结构化报告：{result.ReportJsonPath}");
+            System.Diagnostics.Debug.WriteLine($"已保存表：{result.Table.TableName}");
+            System.Diagnostics.Debug.WriteLine($"写入文件：{result.FilePath}");
+            System.Diagnostics.Debug.WriteLine($"写入行数：{result.RowsWritten}，变化字节数：{result.ChangedBytes}");
+            System.Diagnostics.Debug.WriteLine($"保存前备份：{result.BackupPath}");
+            System.Diagnostics.Debug.WriteLine($"结构化报告：{result.ReportJsonPath}");
             SetStatus($"保存完成并已复读：变化 {result.ChangedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n变化字节数：{result.ChangedBytes}\r\n备份：{result.BackupPath}\r\n结构化报告：{result.ReportJsonPath}",
@@ -576,12 +562,11 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            Log("保存失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("保存失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
-            RefreshWorkflowGuide(updateStatus: false);
             Cursor = Cursors.Default;
         }
     }
@@ -688,12 +673,12 @@ public sealed partial class MainForm
         try
         {
             CsvService.Export(_currentTableResult.Data, dialog.FileName);
-            Log("已导出 CSV：" + dialog.FileName);
+            System.Diagnostics.Debug.WriteLine("已导出 CSV：" + dialog.FileName);
             SetStatus("CSV 导出完成");
         }
         catch (Exception ex)
         {
-            Log("CSV 导出失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("CSV 导出失败：" + ex);
             MessageBox.Show(this, ex.Message, "CSV 导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -743,12 +728,12 @@ public sealed partial class MainForm
             }
 
             var noteText = _visibleColumnsCsvWithNotes.Checked ? "，含字段说明行" : string.Empty;
-            Log($"已导出可见行列 CSV：{dialog.FileName}，行数 {visibleRows.Count}/{_currentTableResult.Data.Rows.Count}，列数 {visibleColumns.Count}/{_currentTableResult.Data.Columns.Count}{noteText}");
+            System.Diagnostics.Debug.WriteLine($"已导出可见行列 CSV：{dialog.FileName}，行数 {visibleRows.Count}/{_currentTableResult.Data.Rows.Count}，列数 {visibleColumns.Count}/{_currentTableResult.Data.Columns.Count}{noteText}");
             SetStatus($"可见行列 CSV 导出完成：{visibleRows.Count} 行，{visibleColumns.Count} 列{noteText}");
         }
         catch (Exception ex)
         {
-            Log("可见列 CSV 导出失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("可见列 CSV 导出失败：" + ex);
             MessageBox.Show(this, ex.Message, "可见列 CSV 导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -816,7 +801,6 @@ public sealed partial class MainForm
             RefreshDataGridRowStyle(row.Index);
         }
 
-        HighlightCurrentTableCellsWithCreatorNotes();
     }
 
     private void RefreshDataGridRowStyle(int rowIndex)
@@ -838,57 +822,6 @@ public sealed partial class MainForm
         }
     }
 
-    private void HighlightCurrentTableCellsWithCreatorNotes()
-    {
-        if (_currentTableResult == null || _dataGrid.Columns.Count == 0)
-        {
-            return;
-        }
-
-        foreach (DataGridViewRow gridRow in _dataGrid.Rows)
-        {
-            if (gridRow.IsNewRow) continue;
-
-            var rowId = gridRow.Cells.Count > 0
-                ? Convert.ToString(gridRow.Cells[0].Value, CultureInfo.InvariantCulture) ?? gridRow.Index.ToString(CultureInfo.InvariantCulture)
-                : gridRow.Index.ToString(CultureInfo.InvariantCulture);
-            var rowNoteCount = 0;
-
-            foreach (DataGridViewCell cell in gridRow.Cells)
-            {
-                cell.Style.BackColor = Color.Empty;
-                cell.Style.SelectionBackColor = Color.Empty;
-                cell.ToolTipText = string.Empty;
-
-                if (_currentCreatorNotes.Count == 0) continue;
-                if (cell.ColumnIndex < 0 || cell.ColumnIndex >= _dataGrid.Columns.Count) continue;
-
-                var propertyName = _dataGrid.Columns[cell.ColumnIndex].DataPropertyName;
-                if (string.IsNullOrWhiteSpace(propertyName) || propertyName == "ID") continue;
-                if (!_currentTableResult.Data.Columns.Contains(propertyName)) continue;
-
-                var targetKey = BuildTableCellCreatorNoteTargetKey(_currentTableResult.Table.TableName, rowId, propertyName);
-                var count = _creatorNoteRelationService.CountExact(_currentCreatorNotes, "数据表单元格", targetKey);
-                if (count <= 0) continue;
-
-                rowNoteCount += count;
-                cell.Style.BackColor = BlendRowColor(gridRow.DefaultCellStyle.BackColor, Color.FromArgb(232, 245, 255));
-                cell.Style.SelectionBackColor = Color.SteelBlue;
-                cell.ToolTipText = BuildCreatorNoteTip(count);
-            }
-
-            if (rowNoteCount > 0)
-            {
-                gridRow.HeaderCell.Value = "注";
-                gridRow.HeaderCell.ToolTipText = BuildCreatorNoteTip(rowNoteCount);
-            }
-            else if (Equals(gridRow.HeaderCell.Value, "注"))
-            {
-                gridRow.HeaderCell.Value = null;
-                gridRow.HeaderCell.ToolTipText = string.Empty;
-            }
-        }
-    }
 
     private void ImportCurrentTableCsv()
     {
@@ -904,12 +837,12 @@ public sealed partial class MainForm
         try
         {
             var count = CsvService.ImportInto(_currentTableResult.Data, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
-            Log("已导入 CSV：" + dialog.FileName);
+            System.Diagnostics.Debug.WriteLine("已导入 CSV：" + dialog.FileName);
             SetStatus($"CSV 导入完成：更新 {count} 行，请检查变更后点击保存；保存前会自动备份。");
         }
         catch (Exception ex)
         {
-            Log("CSV 导入失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("CSV 导入失败：" + ex);
             MessageBox.Show(this, ex.Message, "CSV 导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -1032,14 +965,14 @@ public sealed partial class MainForm
 
     private void LogTableValidation(HexTableValidationResult validation)
     {
-        Log(new string('-', 80));
-        Log($"表：{validation.Table.Id} {validation.Table.TableName}");
-        Log($"文件：{validation.FilePath}");
-        Log($"文件存在：{validation.FileExists}，长度：{validation.FileLength}，结束偏移：{validation.Table.EndOffsetExclusive}");
-        Log($"列/Bytes 匹配：{validation.ColumnsMatchBytes}，范围有效：{validation.FitsInFile}，保留/未命名字节：{validation.PaddingBytes}");
+        System.Diagnostics.Debug.WriteLine(new string('-', 80));
+        System.Diagnostics.Debug.WriteLine($"表：{validation.Table.Id} {validation.Table.TableName}");
+        System.Diagnostics.Debug.WriteLine($"文件：{validation.FilePath}");
+        System.Diagnostics.Debug.WriteLine($"文件存在：{validation.FileExists}，长度：{validation.FileLength}，结束偏移：{validation.Table.EndOffsetExclusive}");
+        System.Diagnostics.Debug.WriteLine($"列/Bytes 匹配：{validation.ColumnsMatchBytes}，范围有效：{validation.FitsInFile}，保留/未命名字节：{validation.PaddingBytes}");
         foreach (var warning in validation.Warnings)
         {
-            Log("警告：" + warning);
+            System.Diagnostics.Debug.WriteLine("警告：" + warning);
         }
     }
 }
