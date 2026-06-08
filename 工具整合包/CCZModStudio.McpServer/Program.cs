@@ -14,6 +14,8 @@ builder.Services.AddSingleton<CczMcpRuntime>();
 builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()
-    .WithToolsFromAssembly();
+    .WithToolsFromAssembly()
+    .WithResourcesFromAssembly()
+    .WithPromptsFromAssembly();
 
 await builder.Build().RunAsync();

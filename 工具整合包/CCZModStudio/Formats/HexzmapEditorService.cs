@@ -15,7 +15,6 @@ public sealed class HexzmapEditorService
         byte[] newCells,
         IReadOnlyDictionary<byte, string>? terrainNames = null)
     {
-        ProjectVersionGuardService.EnsureCoreFileCompatibleForWrite(project, "Hexzmap.e5");
         var expectedLength = checked(block.Width * block.Height);
         if (expectedLength <= 0 || newCells.Length != expectedLength)
         {

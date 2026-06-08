@@ -1,0 +1,130 @@
+﻿using System.Data;
+using System.Drawing.Imaging;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using CCZModStudio.Core;
+using CCZModStudio.Formats;
+using CCZModStudio.Models;
+
+namespace CCZModStudio.McpServer;
+
+public sealed partial class CczMcpRuntime
+{
+    public object ListTables(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var tables = LoadTables(project);
+        return new
+        {
+            project.GameRoot,
+            project.HexTableXmlPath,
+            Count = tables.Count,
+            Tables = tables.Select(table => new
+            {
+                table.TableName,
+                table.Version,
+                table.FileName,
+                BeginId = table.BeginId,
+                table.RowCount,
+                table.RowSize,
+                DataPosHex = "0x" + table.DataPos.ToString("X", CultureInfo.InvariantCulture),
+                table.ReadOnly,
+                Fields = table.Fields.Select(field => new
+                {
+                    field.ColumnName,
+                    Kind = field.Kind.ToString(),
+                    field.Size,
+                    field.ConsumesBytes
+                })
+            })
+        };
+    }
+
+    public object ReadTable(string? gameRoot, string tableName, List<int>? rowIds, List<string>? columns, string? keyword, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var tables = LoadTables(project);
+        var table = FindTable(tables, tableName);
+        var result = _tableReader.Read(project, table, tables);
+        var selectedColumns = ResolveColumns(result.Data, columns, includeId: true);
+        var rowIdSet = rowIds is { Count: > 0 } ? rowIds.ToHashSet() : null;
+        var effectiveLimit = NormalizeLimit(limit, 50, 500);
+
+        var rows = result.Data.AsEnumerable()
+            .Where(row => rowIdSet == null || rowIdSet.Contains(Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)))
+            .Where(row => MatchesKeyword(row, selectedColumns, keyword))
+            .Take(effectiveLimit)
+            .Select(row => RowToDictionary(row, selectedColumns))
+            .ToList();
+
+        return new
+        {
+            table.TableName,
+            table.FileName,
+            Validation = new
+            {
+                result.Validation.IsUsable,
+                result.Validation.FilePath,
+                result.Validation.FileExists,
+                result.Validation.FileLength,
+                result.Validation.Warnings
+            },
+            TotalRows = result.Data.Rows.Count,
+            ReturnedRows = rows.Count,
+            Columns = selectedColumns.Select(x => x.ColumnName),
+            Rows = rows
+        };
+    }
+
+    public object WriteTableRows(string? gameRoot, string tableName, List<TableRowUpdate> updates, string? writeMode)
+    {
+        if (updates.Count == 0) throw new InvalidOperationException("updates must contain at least one row update.");
+
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var tables = LoadTables(project);
+        var table = FindTable(tables, tableName);
+
+        var result = _tableReader.Read(project, table, tables);
+        if (!result.Validation.IsUsable)
+        {
+            throw new InvalidOperationException("The selected table is not usable for writing.");
+        }
+
+        foreach (var update in updates)
+        {
+            var row = result.Data.AsEnumerable()
+                .FirstOrDefault(x => Convert.ToInt32(x["ID"], CultureInfo.InvariantCulture) == update.RowId)
+                ?? throw new InvalidOperationException($"Row ID {update.RowId} was not found in table {table.TableName}.");
+
+            foreach (var (columnName, value) in update.Values)
+            {
+                if (columnName.Equals("ID", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("ID is synthetic and cannot be written.");
+                }
+
+                var column = FindColumn(result.Data, columnName);
+                var field = column.ExtendedProperties["FieldDefinition"] as HexFieldDefinition;
+                if (field == null || !field.ConsumesBytes)
+                {
+                    throw new InvalidOperationException($"Column {columnName} is derived or non-writable.");
+                }
+
+                row[column] = ConvertJsonValue(value);
+            }
+        }
+
+        var save = _tableWriter.Save(project, table, result.Data);
+        return new
+        {
+            save.FilePath,
+            save.BackupPath,
+            save.ReportJsonPath,
+            save.RowsWritten,
+            save.ChangedBytes,
+            table.TableName
+        };
+    }
+}

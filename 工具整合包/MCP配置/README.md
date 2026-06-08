@@ -70,12 +70,15 @@ Claude Desktop 可使用同形态 JSON：
 
 ## 可用工具分组
 
-- 项目流程：`detect_project`、`audit_project`、`create_test_copy`、`diff_test_copy`、`create_release_copy`
+- 项目流程：`detect_project`、`audit_project`、`create_test_copy`、`diff_test_copy`、`create_release_copy`、`list_workflow_guide`、`list_project_evidence`、`read_project_evidence`、`write_project_delivery_report`
 - 数据表：`list_tables`、`read_table`、`write_table_rows`
 - R/S 剧本：`list_scenario_files`、`read_scenario_commands`、`search_scenario_scripts`、`read_scenario_texts`、`write_scenario_texts`
 - 指令模板与知识库：`list_scenario_command_templates`、`read_scenario_command_template`、`list_knowledge_entries`、`search_knowledge_entries`、`read_knowledge_entry`
-- 地图和资源：`list_project_resources`、`run_resource_diagnostics`、`list_hexzmap_blocks`、`read_hexzmap_block`、`write_hexzmap_block`、`replace_map_image`、`replace_resource`
-- E5 图片条目：`list_e5_image_entries`、`preview_e5_image_replace`、`replace_e5_image_entry`
+- 地图和资源：`list_project_resources`、`run_resource_diagnostics`、`list_hexzmap_blocks`、`read_hexzmap_block`、`write_hexzmap_block`、`replace_map_image`、`preview_resource_replace`、`replace_resource`
+- 图片资源目录/预览：`list_image_resources`、`list_image_resource_entries`、`export_image_resource_preview`
+- AI 绘图素材：`list_ccz_image_asset_presets`、`build_ccz_image_prompt`、`prepare_ccz_generated_image`、`draw_ccz_image_asset`
+- E5 图片条目：`list_e5_image_entries`、`preview_e5_image_replace`、`replace_e5_image_entry`、`preview_e5_image_batch_replace`、`replace_e5_image_batch`
+- DLL 图标：`preview_dll_icon_replace`、`replace_dll_icon`、`preview_clear_dll_icon`、`clear_dll_icon`
 - 制作留痕：`list_creator_notes`、`upsert_creator_note`、`delete_creator_note`、`export_creator_notes_csv`
 
 ## 验证
@@ -95,7 +98,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置
 应输出：
 
 ```text
-MCP_VALIDATE_OK server=CCZModStudio.McpServer protocol=2025-06-18 tools=32
+MCP_VALIDATE_OK server=CCZModStudio.McpServer protocol=2025-06-18 tools=62
 ```
 
 客户端重启后可继续调用：
@@ -112,6 +115,11 @@ list_tables
 
 - MCP Server 只通过 stdout 输出 JSON-RPC，普通日志不得写 stdout。
 - `replace_resource` 禁止覆盖 `Ekd5.exe`、`Data.e5`、`Imsg.e5`、`Star.e5`、`Hexzmap.e5` 等核心文件。
+- E5 图片写入只开放可读取 `0x110` 索引表的图片载荷资源；批量写入使用单次备份和逐条复读校验。
+- DLL 图标写入只开放 `Itemicon.dll`、`Mgcicon.dll`、`Cmdicon.dll` 的 RT_BITMAP 位图资源。
+- AI 绘图素材只写 `CCZModStudio_Exports\AiImageAssets`，并调用 E5/DLL 预览工具，不直接写入游戏资源；上游 API Key 只能通过本机环境变量或非提交配置提供。
+- `export_image_resource_preview` 只写 `CCZModStudio_Exports\ImagePreviews`，不修改游戏文件。
+- `list_workflow_guide`、`list_project_evidence`、`read_project_evidence` 只读工作流状态和已生成证据；`read_project_evidence` 可用 `latest_delivery_report` 读取最新综合报告，避免中文路径在非 UTF-8 脚本客户端里乱码；`write_project_delivery_report` 只写 `CCZModStudio_Reports` 下的 Markdown 综合报告，不修改游戏文件。
 - 写入工具继续走备份、结构化报告、写后复读/哈希校验和版本护栏。
 - `write_mode=test_copy` 要求目标目录存在 `_CCZModStudio_TestCopy.txt`。
 - `CCZMODSTUDIO_GAME_ROOT` 用于固定游戏目录；未设置时按工作区自动检测。

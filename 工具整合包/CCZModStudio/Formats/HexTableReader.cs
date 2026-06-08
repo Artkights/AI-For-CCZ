@@ -26,7 +26,7 @@ public sealed class HexTableReader
         }
         else if (padding > 0)
         {
-            warnings.Add($"每行存在 {padding} 字节未命名/保留区。读取时会跳过，保存功能暂不开放。 ");
+            warnings.Add($"每行存在 {padding} 字节未命名/保留区。保存已拆分字段时会保留这些原始字节。 ");
         }
 
         var fits = info.Exists && info.Length >= table.EndOffsetExclusive;
@@ -61,6 +61,12 @@ public sealed class HexTableReader
         if (ItemEffectNameReader.IsItemEffectNameTable(table))
         {
             ReadItemEffectNameTable(project, table, data);
+            return new TableReadResult { Table = table, Data = data, Validation = validation };
+        }
+
+        if (JobEffectNameReader.IsJobEffectNameTable(table))
+        {
+            data = new JobEffectNameReader().ReadTable(project, table);
             return new TableReadResult { Table = table, Data = data, Validation = validation };
         }
 
@@ -126,15 +132,23 @@ public sealed class HexTableReader
 
     private DataTable? TryLoadIndexTable(CczProject project, string indexTableName, IReadOnlyList<HexTableDefinition> allTables)
     {
-        if (_indexCache.TryGetValue(indexTableName, out var cached)) return cached;
+        var cacheKey = project.GameRoot + "\0" + indexTableName;
+        if (_indexCache.TryGetValue(cacheKey, out var cached)) return cached;
 
         if (!HexTableNameResolver.TryResolve(allTables, indexTableName, out var indexDefinition)) return null;
 
         var validation = Validate(project, indexDefinition);
         if (!validation.IsUsable) return null;
 
+        if (JobEffectNameReader.IsJobEffectNameTable(indexDefinition))
+        {
+            var jobEffectNames = new JobEffectNameReader().ReadTable(project, indexDefinition);
+            _indexCache[cacheKey] = jobEffectNames;
+            return jobEffectNames;
+        }
+
         var result = Read(project, indexDefinition, allTables);
-        _indexCache[indexTableName] = result.Data;
+        _indexCache[cacheKey] = result.Data;
         return result.Data;
     }
 

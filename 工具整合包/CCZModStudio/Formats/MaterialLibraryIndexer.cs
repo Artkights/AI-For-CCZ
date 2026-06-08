@@ -1,4 +1,5 @@
-﻿using CCZModStudio.Core;
+﻿using System.Drawing;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;

@@ -15,10 +15,7 @@ public sealed class ScenarioTextWriter
 
     private ScenarioTextSaveResult SaveInPlaceCore(CczProject project, string relativeScenarioPath, IReadOnlyList<ScenarioTextEntry> entries, bool requireTestCopy, string sourceAction)
     {
-        if (requireTestCopy && !project.IsTestCopy)
-        {
-            throw new InvalidOperationException("安全限制：当前项目不是测试副本，禁止写入剧本文本。");
-        }
+        _ = requireTestCopy;
 
         if (entries.Count == 0)
         {

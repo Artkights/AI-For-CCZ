@@ -5,19 +5,22 @@ using CCZModStudio.Models;
 namespace CCZModStudio.Core;
 
 /// <summary>
-/// 6.X 读取 / 6.5 写入安全护栏。
-/// 读取侧允许加载 HexTable.xml 中声明的 6.X 表；写入侧仍只开放已验证的 6.5 表和 6.5 基准核心尺寸，
-/// 避免把 6.5 偏移写到 6.6x 或其他改版文件。
+/// 6.X 读取 / 写入兼容报告。
+/// 历史版本曾在这里按 6.5 表版本和核心文件尺寸阻止写入；当前写入保护已取消，
+/// 这里仅保留体检报告和尺寸参考，不再拦截保存。
 /// </summary>
 public static class ProjectVersionGuardService
 {
+    public const long CurrentObservedHexzmapSampleSize = 44_840;
+    public const long Expected65HexzmapGuardSize = 45_254;
+
     public static readonly IReadOnlyDictionary<string, long> Expected65CoreSizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
     {
         ["Ekd5.exe"] = 1_196_032,
         ["Data.e5"] = 61_379,
         ["Imsg.e5"] = 450_000,
         ["Star.e5"] = 6_359,
-        ["Hexzmap.e5"] = 45_254
+        ["Hexzmap.e5"] = Expected65HexzmapGuardSize
     };
 
     public static IReadOnlyList<ProjectAuditItem> Analyze(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -45,15 +48,15 @@ public static class ProjectVersionGuardService
 
         var missing = coreStates.Where(x => !x.Exists).ToList();
         var mismatched = coreStates.Where(x => x.Exists && !x.SizeMatches65).ToList();
-        var severity = missing.Count > 0 || enabled6x.Count == 0
+        var severity = enabled6x.Count == 0
             ? "Error"
-            : mismatched.Count > 0 || enabledOtherVersions.Count > 0
+            : missing.Count > 0 || mismatched.Count > 0 || enabledOtherVersions.Count > 0
                 ? "Warn"
                 : "Info";
         var status = severity switch
         {
-            "Info" => "6.5 读写基准通过",
-            "Warn" => "6.X 可读；非 6.5 写入受保护",
+            "Info" => "6.5 尺寸参考匹配",
+            "Warn" => "尺寸/版本仅提示；写入不再拦截",
             _ => "核心文件不完整或缺少 6.X 表定义"
         };
 
@@ -73,8 +76,8 @@ public static class ProjectVersionGuardService
             new()
             {
                 Severity = severity,
-                Category = "版本/偏移护栏",
-                Name = "6.5/6.6x 防混用",
+                Category = "版本/偏移提示",
+                Name = "6.X 表与核心尺寸参考",
                 Status = status,
                 Detail = string.Join("；", detailParts),
                 Path = project.GameRoot
@@ -82,10 +85,10 @@ public static class ProjectVersionGuardService
             new()
             {
                 Severity = "Info",
-                Category = "版本/偏移护栏",
+                Category = "版本/偏移提示",
                 Name = "写入规则",
-                Status = "6.X 读取；6.5 写入",
-                Detail = "读取侧按当前 HexTable.xml 中的 6.X 表定义工作；写入侧只允许 Version=6.5 且 Ekd5.exe/Data.e5/Imsg.e5/Star.e5/Hexzmap.e5 尺寸匹配 6.5 基准的目标。尺寸不符或表版本不是 6.5 时拒绝写入。补丁、资源替换、SV 短文本等高风险写入仍按各自模块规则控制。",
+                Status = "写入保护已取消",
+                Detail = "读取侧按当前 HexTable.xml 中的 6.X 表定义工作；写入侧不再因为 Version 不是 6.5、核心文件尺寸不匹配或表 ReadOnly 标记而拒绝保存。仍会保留文件存在、偏移范围、字段类型、字段长度、路径归属和自动备份等基础校验。",
                 Path = project.GameRoot
             }
         };
@@ -95,34 +98,14 @@ public static class ProjectVersionGuardService
 
     public static void EnsureTableCompatibleForWrite(CczProject project, HexTableDefinition table)
     {
-        if (!string.Equals(table.Version, "6.5", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException($"6.5/6.6x 偏移防混用：当前只允许写入 Version=6.5 的表，表“{table.TableName}”标记为 {table.Version}。");
-        }
-
-        EnsureCoreFileCompatibleForWrite(project, table.FileName);
+        _ = project;
+        _ = table;
     }
 
     public static void EnsureCoreFileCompatibleForWrite(CczProject project, string fileName)
     {
-        var coreName = Path.GetFileName(fileName);
-        if (!Expected65CoreSizes.TryGetValue(coreName, out var expectedSize))
-        {
-            return;
-        }
-
-        var path = project.ResolveGameFile(coreName);
-        if (!File.Exists(path))
-        {
-            throw new FileNotFoundException($"6.5/6.6x 偏移防混用：目标核心文件不存在，禁止写入 {coreName}。", path);
-        }
-
-        var actualSize = new FileInfo(path).Length;
-        if (actualSize != expectedSize)
-        {
-            throw new InvalidOperationException(
-                $"6.5/6.6x 偏移防混用：{coreName} 尺寸为 {actualSize} 字节，6.5 基准应为 {expectedSize} 字节。为避免按错误偏移写坏 6.6x/其他改版文件，已拒绝写入。");
-        }
+        _ = project;
+        _ = fileName;
     }
 
     private sealed record CoreState(string FileName, long ExpectedSize, bool Exists, long ActualSize, bool SizeMatches65, string Path);

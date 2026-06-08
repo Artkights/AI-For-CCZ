@@ -131,6 +131,11 @@ internal sealed class LegacyMfcDialogDataSources
         return result;
     }
 
+    public string GestureLabel(int id)
+        => id >= 0 && id < Gesture.Count
+            ? $"{id.ToString(CultureInfo.InvariantCulture)}:{Gesture[id]}"
+            : id.ToString(CultureInfo.InvariantCulture);
+
     public string CommandName(int id, string fallback)
         => id >= 0 && id < CommandNames.Count && !string.IsNullOrWhiteSpace(CommandNames[id])
             ? CommandNames[id]

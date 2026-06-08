@@ -3,6 +3,8 @@ namespace CCZModStudio.Models;
 public sealed class RSceneActorState
 {
     public int PersonId { get; init; }
+    public int PersonReference { get; init; }
+    public int? PersonVariableAddress { get; init; }
     public int GridX { get; init; }
     public int GridY { get; init; }
     public string Facing { get; init; } = "下";

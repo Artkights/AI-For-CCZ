@@ -71,17 +71,17 @@ public sealed class FieldAnnotationService
 
     public string BuildTableSummary(HexTableDefinition table, HexTableValidationResult validation, bool canWrite)
     {
-        var writable = canWrite && validation.IsUsable && !table.ReadOnly;
+        var writable = canWrite && validation.IsUsable;
         var writeMode = writable
             ? "当前表可编辑：保存会直接写入当前 MOD 项目，并在写入前自动备份目标文件。"
             : validation.IsUsable
-                ? "当前表被标记为只读或暂未开放写入。"
+                ? "当前表可读取；如界面仍无法编辑，请检查具体列是否为 ID/辅助显示列。"
                 : "当前表结构检查未通过，不能保存。";
         var warnings = validation.Warnings.Count == 0 ? "无结构警告。" : string.Join("；", validation.Warnings);
         return
             $"表说明：{table.TableName}\r\n" +
             $"文件：{table.FileName}    行数：{table.RowCount}    行长：{table.RowSize} 字节    起始偏移：0x{table.DataPos:X}\r\n" +
-            $"字段数：{table.Fields.Count}    版本：{table.Version}    ReadOnly={table.ReadOnly}\r\n" +
+            $"字段数：{table.Fields.Count}    版本：{table.Version}    ReadOnly标记={table.ReadOnly}（不再作为写入拦截）\r\n" +
             $"{writeMode}\r\n" +
             $"结构检查：{warnings}\r\n" +
             "操作建议：先选中单元格查看字段说明；不确定含义的原始字节字段不要直接大批量修改。";
@@ -138,7 +138,7 @@ public sealed class FieldAnnotationService
         }
 
         lines.Add(string.Empty);
-        lines.Add(Csv(BuildTableSummary(table, validation, validation.IsUsable && !table.ReadOnly)));
+        lines.Add(Csv(BuildTableSummary(table, validation, validation.IsUsable)));
         File.WriteAllLines(path, lines, Encoding.UTF8);
         return path;
     }

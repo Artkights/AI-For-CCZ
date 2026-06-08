@@ -66,6 +66,45 @@ public sealed class E5ImageReplaceService
         return ReplaceCore(project, targetPath, imageNumber, $"{sourceE5Path}#{sourceImageNumber}", sourceBytes);
     }
 
+    public E5ImageBatchReplacePreviewResult PreviewBatchReplacement(CczProject project, string targetPath, IEnumerable<E5ImageBatchReplaceRequest> requests)
+        => BuildBatchPreview(project, targetPath, requests).ToPreviewResult();
+
+    public E5ImageBatchReplaceResult ReplaceBatch(CczProject project, string targetPath, IEnumerable<E5ImageBatchReplaceRequest> requests)
+    {
+        var preview = BuildBatchPreview(project, targetPath, requests);
+        var backupPath = CreateBeforeSaveBackup(project, preview.TargetPath);
+        var tempPath = preview.TargetPath + ".CCZModStudio.tmp";
+        File.WriteAllBytes(tempPath, preview.NewFileBytes);
+        File.Move(tempPath, preview.TargetPath, overwrite: true);
+
+        var writtenData = File.ReadAllBytes(preview.TargetPath);
+        var writtenEntries = ReadIndex(writtenData);
+        foreach (var operation in preview.Operations)
+        {
+            if (operation.ImageNumber <= 0 || operation.ImageNumber > writtenEntries.Count)
+            {
+                throw new InvalidOperationException($"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 越界。");
+            }
+
+            var writtenEntry = writtenEntries[operation.ImageNumber - 1];
+            if (writtenEntry.DataOffset != operation.NewDataOffset || writtenEntry.Length != operation.NewSizeBytes)
+            {
+                throw new InvalidOperationException(
+                    $"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 索引项不匹配。预期 offset=0x{operation.NewDataOffset:X}, size={operation.NewSizeBytes}；实际 offset=0x{writtenEntry.DataOffset:X}, size={writtenEntry.Length}。");
+            }
+
+            var writtenBytes = ReadEntryBytes(writtenData, writtenEntry);
+            if (!writtenBytes.SequenceEqual(operation.SourceBytes))
+            {
+                throw new InvalidOperationException($"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 条目字节与来源不一致。");
+            }
+        }
+
+        var reportPath = WriteBatchTextReport(project, preview, backupPath);
+        var reportJsonPath = WriteBatchStructuredReport(project, preview, backupPath, reportPath);
+        return preview.ToResult(backupPath, reportPath, reportJsonPath);
+    }
+
     private E5ImageReplaceResult ReplaceCore(CczProject project, string targetPath, int imageNumber, string sourcePath, byte[] sourceBytes)
     {
         var preview = BuildPreview(project, targetPath, imageNumber, sourcePath, sourceBytes);
@@ -187,6 +226,106 @@ public sealed class E5ImageReplaceService
             warnings,
             riskSummary,
             newFileBytes);
+    }
+
+    private BatchReplacementPreviewData BuildBatchPreview(CczProject project, string targetPath, IEnumerable<E5ImageBatchReplaceRequest> requests)
+    {
+        targetPath = Path.GetFullPath(targetPath);
+        EnsureTargetInsideProject(project, targetPath);
+        if (!File.Exists(targetPath)) throw new FileNotFoundException("目标 E5 文件不存在。", targetPath);
+
+        var requestList = requests.ToList();
+        if (requestList.Count == 0)
+        {
+            throw new InvalidOperationException("没有可执行的 E5 图片批量操作。");
+        }
+
+        var duplicated = requestList.GroupBy(x => x.ImageNumber).FirstOrDefault(group => group.Count() > 1);
+        if (duplicated != null)
+        {
+            throw new InvalidOperationException($"E5 批量操作中图号 #{duplicated.Key} 重复。请保证每个图号只出现一次。");
+        }
+
+        var oldFileBytes = File.ReadAllBytes(targetPath);
+        var baseEntries = ReadIndex(oldFileBytes);
+        if (baseEntries.Count == 0)
+        {
+            throw new InvalidOperationException("目标 E5 未读取到有效图片索引项，已拒绝批量写入。");
+        }
+
+        var currentBytes = oldFileBytes;
+        var operations = new List<BatchOperationData>();
+        foreach (var request in requestList.OrderBy(x => x.ImageNumber))
+        {
+            if (request.ImageNumber <= 0 || request.ImageNumber > baseEntries.Count)
+            {
+                throw new InvalidOperationException($"E5 图号越界：#{request.ImageNumber}/{baseEntries.Count}。");
+            }
+
+            var sourceBytes = ResolveRequestSourceBytes(request);
+            if (sourceBytes.Length == 0)
+            {
+                throw new InvalidOperationException($"图号 #{request.ImageNumber} 的来源图片为空，不能写入 E5。");
+            }
+
+            var sourceInfo = ValidateReplacementBytes(sourceBytes);
+            var entries = ReadIndex(currentBytes);
+            var entry = entries[request.ImageNumber - 1];
+            var newOffset = sourceBytes.Length <= entry.StoredLength ? entry.DataOffset : currentBytes.Length;
+            if ((uint)newOffset != newOffset || (uint)sourceBytes.Length != sourceBytes.Length)
+            {
+                throw new InvalidOperationException("E5 条目偏移或图片长度超过 32 位索引可表达范围，已拒绝批量写入。");
+            }
+
+            var nextBytes = BuildNewFileBytes(currentBytes, entry, sourceBytes, newOffset);
+            var warnings = BuildWarnings(currentBytes, entry, sourceInfo, nextBytes.LongLength, newOffset);
+            var displaySource = string.IsNullOrWhiteSpace(request.DisplaySource)
+                ? $"<内存来源 #{request.ImageNumber}>"
+                : request.DisplaySource;
+            operations.Add(new BatchOperationData(
+                request.ImageNumber,
+                entry.IndexOffset,
+                entry.DataOffset,
+                newOffset,
+                entry.Length,
+                sourceBytes.Length,
+                entry.Kind,
+                sourceInfo.Kind,
+                displaySource,
+                string.IsNullOrWhiteSpace(request.OperationKind) ? "替换" : request.OperationKind,
+                WriteOperationReportService.ComputeSha256(sourceBytes),
+                sourceInfo.Width,
+                sourceInfo.Height,
+                newOffset == entry.DataOffset ? "原址覆盖" : "追加到文件末尾并更新索引",
+                warnings,
+                sourceBytes));
+            currentBytes = nextBytes;
+        }
+
+        var allWarnings = operations.SelectMany(x => x.FormatWarnings).Distinct(StringComparer.Ordinal).ToArray();
+        return new BatchReplacementPreviewData(
+            targetPath,
+            WriteOperationReportService.ToProjectRelativePath(project, targetPath),
+            oldFileBytes.LongLength,
+            currentBytes.LongLength,
+            EstimateChangedBytes(oldFileBytes, currentBytes),
+            WriteOperationReportService.ComputeSha256(oldFileBytes),
+            WriteOperationReportService.ComputeSha256(currentBytes),
+            operations,
+            allWarnings,
+            BuildBatchRiskSummary(operations, oldFileBytes.LongLength, currentBytes.LongLength, allWarnings),
+            currentBytes);
+    }
+
+    private static byte[] ResolveRequestSourceBytes(E5ImageBatchReplaceRequest request)
+    {
+        if (request.SourceBytes is { Length: > 0 } bytes) return bytes;
+        if (string.IsNullOrWhiteSpace(request.SourcePath))
+        {
+            throw new InvalidOperationException($"图号 #{request.ImageNumber} 缺少来源文件。");
+        }
+
+        return File.ReadAllBytes(request.SourcePath);
     }
 
     private static IReadOnlyList<E5ImageEntryInfo> ReadIndex(byte[] data)
@@ -450,6 +589,42 @@ public sealed class E5ImageReplaceService
             : string.Join("；", risks);
     }
 
+    private static string BuildBatchRiskSummary(
+        IReadOnlyList<BatchOperationData> operations,
+        long oldFileLength,
+        long newFileLength,
+        IReadOnlyList<string> warnings)
+    {
+        var risks = new List<string>
+        {
+            $"批量操作 {operations.Count} 条；写入前会备份，写入后逐条复读索引和条目字节。"
+        };
+
+        if (newFileLength != oldFileLength)
+        {
+            risks.Add($"文件大小变化 {newFileLength - oldFileLength:+#;-#;0} 字节；大于原槽位的条目会追加到文件末尾，旧条目数据保留但不再被索引引用。");
+        }
+
+        var compressedCount = operations.Count(x => x.OldKind.Equals("LS12", StringComparison.OrdinalIgnoreCase));
+        if (compressedCount > 0)
+        {
+            risks.Add($"其中 {compressedCount} 条原为 LS12 压缩条目，写入后会转为未压缩条目。");
+        }
+
+        var rawCount = operations.Count(x => x.NewKind.Equals("RAW", StringComparison.OrdinalIgnoreCase));
+        if (rawCount > 0)
+        {
+            risks.Add($"其中 {rawCount} 条来源为 RAW，工具无法校验宽高和调色板。");
+        }
+
+        if (warnings.Count > 0)
+        {
+            risks.Add("格式提示：" + string.Join("；", warnings));
+        }
+
+        return string.Join("；", risks);
+    }
+
     private static int EstimateChangedBytes(byte[] oldBytes, byte[] newBytes)
     {
         long count = Math.Abs((long)oldBytes.Length - newBytes.Length);
@@ -588,7 +763,172 @@ public sealed class E5ImageReplaceService
         return _reportService.WriteJsonReport(report, backupPath);
     }
 
+    private static string WriteBatchTextReport(CczProject project, BatchReplacementPreviewData preview, string backupPath)
+    {
+        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        Directory.CreateDirectory(backupRoot);
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
+        var reportPath = Path.Combine(backupRoot, $"{stamp}_E5ImageBatchReplaceReport.txt");
+        var lines = new List<string>
+        {
+            "CCZModStudio E5 Image Batch Replace Report",
+            "CreatedAt=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            "GameRoot=" + project.GameRoot,
+            "Target=" + preview.TargetPath,
+            "TargetRelative=" + preview.TargetRelativePath,
+            "OperationCount=" + preview.Operations.Count.ToString(CultureInfo.InvariantCulture),
+            "Backup=" + backupPath,
+            "OldFileSize=" + preview.OldFileSizeBytes.ToString(CultureInfo.InvariantCulture),
+            "NewFileSize=" + preview.NewFileSizeBytes.ToString(CultureInfo.InvariantCulture),
+            "ChangedBytesEstimate=" + preview.ChangedBytesEstimate.ToString(CultureInfo.InvariantCulture),
+            "OldFileSHA256=" + preview.OldFileSha256,
+            "NewFileSHA256=" + preview.NewFileSha256,
+            "Warnings=" + (preview.FormatWarnings.Count == 0 ? "无" : string.Join(" | ", preview.FormatWarnings)),
+            "RiskSummary=" + preview.RiskSummary,
+            string.Empty,
+            "Operations:"
+        };
+        foreach (var operation in preview.Operations)
+        {
+            lines.Add(
+                $"#{operation.ImageNumber} {operation.OperationKind} source={operation.SourcePath} oldOffset=0x{operation.OldDataOffset:X} newOffset=0x{operation.NewDataOffset:X} oldSize={operation.OldSizeBytes} newSize={operation.NewSizeBytes} kind={operation.OldKind}->{operation.NewKind} placement={operation.Placement}");
+        }
+
+        File.WriteAllLines(reportPath, lines, Encoding.UTF8);
+        return reportPath;
+    }
+
+    private string WriteBatchStructuredReport(CczProject project, BatchReplacementPreviewData preview, string backupPath, string reportPath)
+    {
+        var report = new WriteOperationReport
+        {
+            OperationKind = "E5图片条目批量替换",
+            SourceAction = "E5 0x110 图片索引表多条目写入前自动备份",
+            ProjectRoot = project.GameRoot,
+            TargetRelativePath = preview.TargetRelativePath,
+            TargetPath = preview.TargetPath,
+            BackupPath = backupPath,
+            TextReportPath = reportPath,
+            BeforeSha256 = preview.OldFileSha256,
+            AfterSha256 = preview.NewFileSha256,
+            ChangedBytes = preview.ChangedBytesEstimate,
+            Summary = $"批量写入 {preview.TargetRelativePath} 的 {preview.Operations.Count} 个 E5 图片条目，文件大小 {preview.OldFileSizeBytes:N0} -> {preview.NewFileSizeBytes:N0} 字节。",
+            SafetyNotes = "批量写入仍只更新 0x110 图片索引表中的指定条目，不重排其它条目；写入后逐条复读校验。",
+            FormatCheckSummary = preview.FormatWarnings.Count == 0 ? "批量来源格式检查通过" : string.Join("；", preview.FormatWarnings),
+            RiskSummary = preview.RiskSummary,
+            Changes = preview.Operations.Select(operation => new WriteOperationChange
+            {
+                Category = "E5图片条目批量",
+                TableName = preview.TargetRelativePath,
+                RowIndex = operation.ImageNumber,
+                ColumnName = $"图#{operation.ImageNumber}",
+                OffsetHex = "0x" + operation.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
+                ByteLength = operation.NewSizeBytes,
+                OldValue = $"offset=0x{operation.OldDataOffset:X}; size={operation.OldSizeBytes}; kind={operation.OldKind}",
+                NewValue = $"offset=0x{operation.NewDataOffset:X}; size={operation.NewSizeBytes}; kind={operation.NewKind}; source={operation.SourcePath}",
+                Annotation = $"{operation.OperationKind}；{operation.Placement}"
+            }).ToList(),
+            Metadata =
+            {
+                ["OperationCount"] = preview.Operations.Count.ToString(CultureInfo.InvariantCulture),
+                ["OldFileSizeBytes"] = preview.OldFileSizeBytes.ToString(CultureInfo.InvariantCulture),
+                ["NewFileSizeBytes"] = preview.NewFileSizeBytes.ToString(CultureInfo.InvariantCulture),
+                ["FormatWarnings"] = preview.FormatWarnings.Count == 0 ? "无" : string.Join("；", preview.FormatWarnings)
+            }
+        };
+
+        return _reportService.WriteJsonReport(report, backupPath);
+    }
+
     private sealed record ReplacementSourceInfo(string Kind, int? Width, int? Height);
+
+    private sealed record BatchOperationData(
+        int ImageNumber,
+        int IndexOffset,
+        int OldDataOffset,
+        int NewDataOffset,
+        int OldSizeBytes,
+        int NewSizeBytes,
+        string OldKind,
+        string NewKind,
+        string SourcePath,
+        string OperationKind,
+        string SourceSha256,
+        int? SourceWidth,
+        int? SourceHeight,
+        string Placement,
+        IReadOnlyList<string> FormatWarnings,
+        byte[] SourceBytes)
+    {
+        public E5ImageBatchOperationPreviewResult ToPreviewResult()
+            => new()
+            {
+                ImageNumber = ImageNumber,
+                IndexOffset = IndexOffset,
+                OldDataOffset = OldDataOffset,
+                NewDataOffset = NewDataOffset,
+                OldSizeBytes = OldSizeBytes,
+                NewSizeBytes = NewSizeBytes,
+                OldKind = OldKind,
+                NewKind = NewKind,
+                SourcePath = SourcePath,
+                OperationKind = OperationKind,
+                SourceSha256 = SourceSha256,
+                SourceWidth = SourceWidth,
+                SourceHeight = SourceHeight,
+                Placement = Placement,
+                FormatWarnings = FormatWarnings
+            };
+    }
+
+    private sealed record BatchReplacementPreviewData(
+        string TargetPath,
+        string TargetRelativePath,
+        long OldFileSizeBytes,
+        long NewFileSizeBytes,
+        int ChangedBytesEstimate,
+        string OldFileSha256,
+        string NewFileSha256,
+        IReadOnlyList<BatchOperationData> Operations,
+        IReadOnlyList<string> FormatWarnings,
+        string RiskSummary,
+        byte[] NewFileBytes)
+    {
+        public E5ImageBatchReplacePreviewResult ToPreviewResult()
+            => new()
+            {
+                TargetPath = TargetPath,
+                TargetRelativePath = TargetRelativePath,
+                OperationCount = Operations.Count,
+                OldFileSizeBytes = OldFileSizeBytes,
+                NewFileSizeBytes = NewFileSizeBytes,
+                ChangedBytesEstimate = ChangedBytesEstimate,
+                OldFileSha256 = OldFileSha256,
+                NewFileSha256 = NewFileSha256,
+                Operations = Operations.Select(x => x.ToPreviewResult()).ToArray(),
+                FormatWarnings = FormatWarnings,
+                RiskSummary = RiskSummary
+            };
+
+        public E5ImageBatchReplaceResult ToResult(string backupPath, string reportPath, string reportJsonPath)
+            => new()
+            {
+                TargetPath = TargetPath,
+                TargetRelativePath = TargetRelativePath,
+                OperationCount = Operations.Count,
+                OldFileSizeBytes = OldFileSizeBytes,
+                NewFileSizeBytes = NewFileSizeBytes,
+                ChangedBytesEstimate = ChangedBytesEstimate,
+                OldFileSha256 = OldFileSha256,
+                NewFileSha256 = NewFileSha256,
+                Operations = Operations.Select(x => x.ToPreviewResult()).ToArray(),
+                FormatWarnings = FormatWarnings,
+                RiskSummary = RiskSummary,
+                BackupPath = backupPath,
+                ReportPath = reportPath,
+                ReportJsonPath = reportJsonPath
+            };
+    }
 
     private sealed record ReplacementPreviewData(
         string TargetPath,

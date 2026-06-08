@@ -1,7 +1,4 @@
 using System.Data;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.Text;
 using CCZModStudio.Core;
@@ -53,8 +50,6 @@ if (args.Any(x => x.Equals("--dump-battle-summary", StringComparison.OrdinalIgno
 WriteRoles(project, tables, reader, writer);
 WriteJobs(project, tables, reader, writer);
 WriteScenarioScripts(project);
-WriteBattlefieldScripts(project);
-WriteBattlefieldMaps(project.GameRoot);
 WriteDesignDocuments(project.GameRoot);
 Verify(project, tables, reader);
 
@@ -205,6 +200,42 @@ static void DumpBattlefieldCommands(CczProject project)
         {
             Console.WriteLine($"{relativePath} scene={command.SceneIndex} section={command.SectionIndex} cmd={command.CommandIndex} off=0x{command.FileOffset:X6} id={command.CommandIdHex} name={command.CommandName} child={(command.ChildBlock == null ? 0 : command.ChildBlock.Commands.Count)} params={FormatParameters(command)}");
         }
+    }
+}
+
+static void DumpBattlefieldSummary(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableReader reader)
+{
+    _ = reader;
+
+    var dictionary = new SceneStringParser().Parse(ProjectDetector.FindSceneDictionaryPath(project));
+    var scenarios = new ScenarioFileReader()
+        .ReadAllIndex(project)
+        .Where(scenario => ScenarioFileReader.IsBattlefieldScriptFile(scenario.FileName))
+        .ToList();
+    var resources = new GameResourceIndexer().Index(project);
+    var terrainLookup = HexzmapProbeReader.BuildTerrainNameLookup(new MaterialLibraryIndexer().Index(project));
+    var hexzmapPath = project.ResolveGameFile("Hexzmap.e5");
+    var hexzmap = File.Exists(hexzmapPath)
+        ? new HexzmapProbeReader().Read(project, terrainLookup)
+        : null;
+    var mapLinks = new ScenarioMapLinkService().BuildLinks(scenarios, resources, hexzmap);
+    var battlefieldService = new BattlefieldEditorService();
+
+    Console.WriteLine($"BATTLE_SUMMARY count={scenarios.Count}");
+    foreach (var scenario in scenarios)
+    {
+        var document = battlefieldService.Load(project, scenario, dictionary, tables, mapLinks);
+        var deployments = document.UnitCandidates
+            .Select(candidate => candidate.Category)
+            .Where(category => category is "我军出场" or "友军出场" or "敌军出场")
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(category => category, StringComparer.Ordinal)
+            .ToList();
+        var map = document.MapLink == null
+            ? "-"
+            : $"{document.MapLink.MapId}:{document.MapLink.Status}:{document.MapLink.MapImageName}:{document.MapLink.HexzmapOffsetHex}";
+        var title = document.TitleEntry?.Text ?? scenario.TitleHint;
+        Console.WriteLine($"BATTLE_SUMMARY_ROW file={scenario.FileName} title=\"{OneLine(title)}\" map={map} commands={document.CommandCandidates.Count} units={document.UnitCandidates.Count} deployment={string.Join("/", deployments)} condition={document.ConditionEntry?.OffsetHex ?? "-"}");
     }
 }
 

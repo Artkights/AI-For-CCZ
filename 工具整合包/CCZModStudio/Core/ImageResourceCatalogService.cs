@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using CCZModStudio.Models;
@@ -7,6 +8,7 @@ namespace CCZModStudio.Core;
 public sealed class ImageResourceCatalogService
 {
     private readonly E5ImageReplaceService _e5ImageService = new();
+    private readonly E5ImageRenderService _e5ImageRenderService = new();
     private readonly ItemIconPreviewService _iconPreviewService = new();
     private readonly Dictionary<string, IReadOnlyList<E5ImageEntryInfo>> _indexCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -26,7 +28,8 @@ public sealed class ImageResourceCatalogService
                 ? GetExternalIconCount(project, resource)
                 : 0;
             var entryCount = resource.Kind == ImageResourceKind.ExternalIcon ? externalIconCount : entries.Count;
-            var canReplace = resource.Kind == ImageResourceKind.E5Indexed && entries.Count > 0 && resource.CanReplace;
+            var canReplace = entryCount > 0 && resource.CanReplace &&
+                             (resource.Kind == ImageResourceKind.ExternalIcon || entries.Count > 0);
             var kindSummary = resource.Kind == ImageResourceKind.ExternalIcon
                 ? externalIconCount > 0 ? $"DLL图标:{externalIconCount}" : string.Empty
                 : entries.Count > 0
@@ -96,7 +99,7 @@ public sealed class ImageResourceCatalogService
                     IsCompressed = false,
                     Kind = "DLL图标",
                     Usage = BuildEntryUsage(resource, iconIndex),
-                    CanReplace = false
+                    CanReplace = resource.CanReplace
                 })
                 .ToList();
         }
@@ -143,8 +146,7 @@ public sealed class ImageResourceCatalogService
             return null;
         }
 
-        using var image = TryDecodeStandardImage(bytes) ?? TryRenderRawEntry(project, entry, bytes);
-        return image == null ? null : RenderToCanvas(image, canvasWidth, canvasHeight);
+        return _e5ImageRenderService.RenderEntry(project, entry.FileName, bytes, canvasWidth, canvasHeight, out _);
     }
 
     public ImageResourceEntryInfo? TryGetEntry(ImageResourceFileInfo resource, int imageNumber)
@@ -514,7 +516,7 @@ public sealed class ImageResourceCatalogService
         if (resource.Kind == ImageResourceKind.ExternalIcon)
         {
             return entryCount > 0
-                ? "DLL 图标资源可按字段编号预览；写回需要 PE 资源表重建规则，暂不开放替换。"
+                ? "DLL 图标资源可按字段编号预览，并可替换对应 RT_BITMAP 位图资源；写入前备份，写后生成报告。"
                 : "DLL 文件存在但未解析到候选图标；当前只做定位说明。";
         }
 
@@ -545,9 +547,9 @@ public sealed class ImageResourceCatalogService
         new("Gate", "界面图片", "Gate.e5", "Gate.e5", ["gete.e5", "gate.e5"], "剧情/过场门类图片候选，旧剧本编辑器源码可见 Gate 引用。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Gate.e5")),
         new("Weather", "界面图片", "Weather.e5", "Weather.e5", ["warther.e5", "天气图"], "天气相关图片/动画候选。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Weather.e5")),
         new("Mark", "界面图片", "Mark.e5", "Mark.e5", ["mark.e5", "标记图"], "标记、小图标或状态图候选；当前样本不是 0x110 索引封包。", ImageResourceKind.E5Indexed, false, Path.Combine("E5", "Mark.e5")),
-        new("ItemIcon", "DLL图标", "道具图标 Itemicon.dll", "Itemicon.dll", ["道具图标", "物品图标"], "道具/物品图标，当前按 RT_BITMAP 候选预览。", ImageResourceKind.ExternalIcon, false),
-        new("MgcIcon", "DLL图标", "策略图标 Mgcicon.dll", "Mgcicon.dll", ["策略图标", "法术图标"], "策略/法术图标，当前按 DLL 图标/RT_BITMAP 候选预览。", ImageResourceKind.ExternalIcon, false),
-        new("CmdIcon", "DLL图标", "命令图标 Cmdicon.dll", "Cmdicon.dll", ["命令图标"], "命令图标候选，当前只读定位/预览。", ImageResourceKind.ExternalIcon, false)
+        new("ItemIcon", "DLL图标", "道具图标 Itemicon.dll", "Itemicon.dll", ["道具图标", "物品图标"], "道具/物品图标，按 RT_BITMAP 成对候选预览和替换。", ImageResourceKind.ExternalIcon, true),
+        new("MgcIcon", "DLL图标", "策略图标 Mgcicon.dll", "Mgcicon.dll", ["策略图标", "法术图标"], "策略/法术图标，按 RT_BITMAP 成对候选预览和替换。", ImageResourceKind.ExternalIcon, true),
+        new("CmdIcon", "DLL图标", "命令图标 Cmdicon.dll", "Cmdicon.dll", ["命令图标"], "命令图标候选，按 RT_BITMAP 成对候选预览和替换。", ImageResourceKind.ExternalIcon, true)
     ];
 
     private sealed record ImageResourceDefinition(

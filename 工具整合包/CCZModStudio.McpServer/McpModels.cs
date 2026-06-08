@@ -32,3 +32,18 @@ public sealed class HexzmapCellUpdate
     [JsonPropertyName("terrain_id")]
     public int TerrainId { get; init; }
 }
+
+public sealed class E5ImageBatchUpdate
+{
+    [JsonPropertyName("image_number")]
+    public int ImageNumber { get; init; }
+
+    [JsonPropertyName("replacement_path")]
+    public string ReplacementPath { get; init; } = string.Empty;
+
+    [JsonPropertyName("source_image_number")]
+    public int? SourceImageNumber { get; init; }
+
+    [JsonPropertyName("operation_kind")]
+    public string OperationKind { get; init; } = "replace";
+}

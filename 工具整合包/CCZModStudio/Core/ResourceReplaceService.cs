@@ -1,3 +1,4 @@
+﻿using System.Drawing;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -19,7 +20,7 @@ public sealed class ResourceReplaceService
     }
 
     public ResourceReplaceResult ReplaceInTestCopy(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
-        => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: false);
+        => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: true);
 
     public ResourceReplaceResult Replace(CczProject project, string targetPath, string replacementPath, bool requireSameExtension = true)
         => ReplaceCore(project, targetPath, replacementPath, requireSameExtension, requireTestCopy: false);
@@ -118,6 +119,8 @@ public sealed class ResourceReplaceService
             throw new InvalidOperationException("目标资源不在当前项目目录内，禁止替换：" + targetPath);
         }
 
+        _ = requireTestCopy;
+
         if (!File.Exists(targetPath)) throw new FileNotFoundException("目标资源文件不存在。", targetPath);
         if (!File.Exists(replacementPath)) throw new FileNotFoundException("替换来源文件不存在。", replacementPath);
 
@@ -127,9 +130,6 @@ public sealed class ResourceReplaceService
         {
             throw new InvalidOperationException($"为避免格式误替换，要求扩展名一致：目标 {targetExtension}，来源 {replacementExtension}。");
         }
-
-        ProjectVersionGuardService.EnsureCoreFileCompatibleForWrite(project, Path.GetFileName(targetPath));
-        EnsureReplacementDoesNotBreakCoreSizeGuard(targetPath, replacementPath);
 
         var formatCheck = ValidateReplacementFormat(targetPath, replacementPath);
         var oldBytes = File.ReadAllBytes(targetPath);
@@ -141,22 +141,6 @@ public sealed class ResourceReplaceService
         var riskSummary = BuildRiskSummary(targetPath, oldHash, newHash, oldBytes.LongLength, newBytes.LongLength, changedBytes, formatCheck);
 
         return new ReplacementPreviewData(targetPath, replacementPath, relative, targetExtension, oldBytes, newBytes, oldHash, newHash, changedBytes, formatCheck, riskSummary);
-    }
-
-    private static void EnsureReplacementDoesNotBreakCoreSizeGuard(string targetPath, string replacementPath)
-    {
-        var coreName = Path.GetFileName(targetPath);
-        if (!ProjectVersionGuardService.Expected65CoreSizes.TryGetValue(coreName, out var expectedSize))
-        {
-            return;
-        }
-
-        var replacementSize = new FileInfo(replacementPath).Length;
-        if (replacementSize != expectedSize)
-        {
-            throw new InvalidOperationException(
-                $"核心文件整文件替换护栏：{coreName} 属于 6.5 固定偏移核心文件，替换来源尺寸为 {replacementSize} 字节，6.5 基准应为 {expectedSize} 字节。为避免把 6.6x/其他版本文件误替换进当前项目，已拒绝。");
-        }
     }
 
     private static FormatCheckResult ValidateReplacementFormat(string targetPath, string replacementPath)
@@ -545,9 +529,12 @@ public sealed class ResourceReplaceService
             risks.Add("来源文件与目标文件 SHA256 完全一致，替换后不会产生内容变化。");
         }
 
-        if (ProjectVersionGuardService.Expected65CoreSizes.ContainsKey(fileName))
+        if (ProjectVersionGuardService.Expected65CoreSizes.TryGetValue(fileName, out var expectedCoreSize))
         {
-            risks.Add("目标是 6.5 固定偏移核心文件；已检查来源尺寸，但仍建议优先使用表格/补丁模块而不是整文件替换。");
+            var sizeText = newSize == expectedCoreSize
+                ? "来源尺寸与 6.5 参考尺寸一致。"
+                : $"来源尺寸 {newSize} 字节与 6.5 参考尺寸 {expectedCoreSize} 字节不一致。";
+            risks.Add("目标是固定偏移核心文件；写入保护已取消，不再因尺寸差异拒绝整文件替换。" + sizeText);
         }
 
         if (extension is ".eex" or ".e5")

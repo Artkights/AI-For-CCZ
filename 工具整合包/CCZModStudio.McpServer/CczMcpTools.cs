@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using CCZModStudio.Models;
 using ModelContextProtocol.Server;
 
 namespace CCZModStudio.McpServer;
@@ -202,6 +203,164 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceMapImage(game_root, target_relative_path, replacement_path, write_mode);
 
     [McpServerTool]
+    [Description("Preview replacement of a non-core project resource file without writing. Returns size, hash, format checks, and risk notes.")]
+    public object preview_resource_replace(
+        [Description("Project-relative target resource path.")]
+        string target_relative_path,
+        [Description("Replacement file path. Relative paths resolve from workspace root first.")]
+        string replacement_path,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Require target and replacement extensions to match.")]
+        bool require_same_extension = true)
+        => runtime.PreviewResourceReplace(game_root, target_relative_path, replacement_path, require_same_extension);
+
+    [McpServerTool]
+    [Description("List known image resource files, including E5 indexed resources and DLL bitmap icon resources.")]
+    public object list_image_resources(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional category/key/name/path keyword filter.")]
+        string? keyword = null,
+        [Description("Only return resources with at least one previewable entry.")]
+        bool previewable_only = false,
+        [Description("Only return resources that support replacement.")]
+        bool replaceable_only = false,
+        [Description("Maximum resources to return. Defaults to 100; capped at 1000.")]
+        int limit = 100)
+        => runtime.ListImageResources(game_root, keyword, previewable_only, replaceable_only, limit);
+
+    [McpServerTool]
+    [Description("List entries inside one image resource resolved by key, display name, or file name. Supports E5 indexed images and DLL icon resources.")]
+    public object list_image_resource_entries(
+        [Description("Image resource key, file name, display name, or project-relative path such as Face, Unit_mov.e5, or Itemicon.dll.")]
+        string resource,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional keyword across usage/kind/category/resource names.")]
+        string? keyword = null,
+        [Description("Maximum entries to return. Defaults to 200; capped at 10000.")]
+        int limit = 200)
+        => runtime.ListImageResourceEntries(game_root, resource, keyword, limit);
+
+    [McpServerTool]
+    [Description("Render one image resource entry to a PNG file under CCZModStudio_Exports/ImagePreviews. Read-only.")]
+    public object export_image_resource_preview(
+        [Description("Image resource key, file name, display name, or project-relative path.")]
+        string resource,
+        [Description("E5 image number is 1-based; DLL icon index is 0-based.")]
+        int image_number,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Preview canvas width. Defaults to 360; capped at 2048.")]
+        int width = 360,
+        [Description("Preview canvas height. Defaults to 260; capped at 2048.")]
+        int height = 260)
+        => runtime.ExportImageResourcePreview(game_root, resource, image_number, width, height);
+
+    [McpServerTool]
+    [Description("List AI drawable CCZ image asset presets for Image Studio style headless generation.")]
+    public object list_ccz_image_asset_presets()
+        => runtime.ListCczImageAssetPresets();
+
+    [McpServerTool]
+    [Description("Build an AI image prompt and target mapping plan for a CCZ 6.5 image asset. Does not call the network.")]
+    public object build_ccz_image_prompt(
+        [Description("Preset key: r_background, dll_icon, face, r_actor, or s_unit.")]
+        string preset,
+        [Description("Natural-language description of the desired image.")]
+        string description,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional project-relative target resource path. Defaults from preset.")]
+        string? target_relative_path = null,
+        [Description("Optional direct target image number. E5 numbers are 1-based; DLL icon indexes are 0-based.")]
+        int? image_number = null,
+        [Description("Optional R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int? r_image_id = null,
+        [Description("Optional S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int? s_image_id = null,
+        [Description("Optional Data face id. face maps Data face id to Face.e5 image number.")]
+        int? face_id = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional final output format: png, jpg, or bmp.")]
+        string? output_format = null,
+        [Description("Optional final output width.")]
+        int? width = null,
+        [Description("Optional final output height.")]
+        int? height = null)
+        => runtime.BuildCczImagePrompt(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height);
+
+    [McpServerTool]
+    [Description("Prepare an existing generated image for a CCZ 6.5 asset and run replacement preview. Writes only CCZModStudio_Exports.")]
+    public object prepare_ccz_generated_image(
+        [Description("Preset key: r_background, dll_icon, face, r_actor, or s_unit.")]
+        string preset,
+        [Description("Natural-language description used for prompt/manifest context.")]
+        string description,
+        [Description("Source image path. Relative paths resolve from workspace, project root, then cwd.")]
+        string source_image_path,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional project-relative target resource path. Defaults from preset.")]
+        string? target_relative_path = null,
+        [Description("Optional direct target image number. E5 numbers are 1-based; DLL icon indexes are 0-based.")]
+        int? image_number = null,
+        [Description("Optional R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int? r_image_id = null,
+        [Description("Optional S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int? s_image_id = null,
+        [Description("Optional Data face id. face maps Data face id to Face.e5 image number.")]
+        int? face_id = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional final output format: png, jpg, or bmp.")]
+        string? output_format = null,
+        [Description("Optional final output width.")]
+        int? width = null,
+        [Description("Optional final output height.")]
+        int? height = null)
+        => runtime.PrepareCczGeneratedImage(game_root, preset, description, source_image_path, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height);
+
+    [McpServerTool]
+    [Description("Draw a CCZ 6.5 image asset, then post-process and preview replacement. R/S use RetroDiffusion by default; other presets use Image Studio. Does not write game resources.")]
+    public object draw_ccz_image_asset(
+        [Description("Preset key: r_background, dll_icon, face, r_actor, or s_unit.")]
+        string preset,
+        [Description("Natural-language description of the desired image.")]
+        string description,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional project-relative target resource path. Defaults from preset.")]
+        string? target_relative_path = null,
+        [Description("Optional direct target image number. E5 numbers are 1-based; DLL icon indexes are 0-based.")]
+        int? image_number = null,
+        [Description("Optional R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int? r_image_id = null,
+        [Description("Optional S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int? s_image_id = null,
+        [Description("Optional Data face id. face maps Data face id to Face.e5 image number.")]
+        int? face_id = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional final output format: png, jpg, or bmp.")]
+        string? output_format = null,
+        [Description("Optional final output width.")]
+        int? width = null,
+        [Description("Optional final output height.")]
+        int? height = null,
+        [Description("When true, only returns prompt and target plan without network calls.")]
+        bool dry_run = true)
+        => runtime.DrawCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height, dry_run);
+
+    [McpServerTool]
     [Description("List image index entries from an E5 image resource such as Face.e5 or Unit_mov.e5.")]
     public object list_e5_image_entries(
         [Description("Project-relative E5 resource path, for example Unit_mov.e5.")]
@@ -243,6 +402,82 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional 1-based image number to read from replacement_path when replacement_path is an E5 file.")]
         int? source_image_number = null)
         => runtime.ReplaceE5ImageEntry(game_root, target_relative_path, image_number, replacement_path, write_mode, source_image_number);
+
+    [McpServerTool]
+    [Description("Preview batch replacement of multiple E5 image index entries without writing.")]
+    public object preview_e5_image_batch_replace(
+        [Description("Project-relative E5 resource path, for example Unit_mov.e5.")]
+        string target_relative_path,
+        [Description("Batch operations. Each item uses image_number plus replacement_path, and optionally source_image_number when replacement_path is another E5 file.")]
+        List<E5ImageBatchUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewE5ImageBatchReplace(game_root, target_relative_path, updates);
+
+    [McpServerTool]
+    [Description("Replace multiple E5 image index entries in one write. Creates one backup, writes reports, and verifies each entry by rereading.")]
+    public object replace_e5_image_batch(
+        [Description("Project-relative E5 resource path, for example Unit_mov.e5.")]
+        string target_relative_path,
+        [Description("Batch operations. Each item uses image_number plus replacement_path, and optionally source_image_number when replacement_path is another E5 file.")]
+        List<E5ImageBatchUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceE5ImageBatch(game_root, target_relative_path, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Preview replacement of one DLL RT_BITMAP icon resource without writing.")]
+    public object preview_dll_icon_replace(
+        [Description("Project-relative DLL path or known file name such as Itemicon.dll, Mgcicon.dll, or Cmdicon.dll.")]
+        string target_relative_path,
+        [Description("Icon field index. DLL icon resources use 0-based field indexes.")]
+        int icon_index,
+        [Description("Replacement image path. Supports GDI+ readable BMP/JPG/PNG and scales to resource size.")]
+        string replacement_path,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewDllIconReplace(game_root, target_relative_path, icon_index, replacement_path);
+
+    [McpServerTool]
+    [Description("Replace one DLL RT_BITMAP icon resource. Creates a backup and structured report.")]
+    public object replace_dll_icon(
+        [Description("Project-relative DLL path or known file name such as Itemicon.dll, Mgcicon.dll, or Cmdicon.dll.")]
+        string target_relative_path,
+        [Description("Icon field index. DLL icon resources use 0-based field indexes.")]
+        int icon_index,
+        [Description("Replacement image path. Supports GDI+ readable BMP/JPG/PNG and scales to resource size.")]
+        string replacement_path,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceDllIcon(game_root, target_relative_path, icon_index, replacement_path, write_mode);
+
+    [McpServerTool]
+    [Description("Preview clearing one DLL RT_BITMAP icon resource without writing.")]
+    public object preview_clear_dll_icon(
+        [Description("Project-relative DLL path or known file name such as Itemicon.dll, Mgcicon.dll, or Cmdicon.dll.")]
+        string target_relative_path,
+        [Description("Icon field index. DLL icon resources use 0-based field indexes.")]
+        int icon_index,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewClearDllIcon(game_root, target_relative_path, icon_index);
+
+    [McpServerTool]
+    [Description("Clear one DLL RT_BITMAP icon resource by writing transparent placeholders at the original resource sizes.")]
+    public object clear_dll_icon(
+        [Description("Project-relative DLL path or known file name such as Itemicon.dll, Mgcicon.dll, or Cmdicon.dll.")]
+        string target_relative_path,
+        [Description("Icon field index. DLL icon resources use 0-based field indexes.")]
+        int icon_index,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ClearDllIcon(game_root, target_relative_path, icon_index, write_mode);
 
     [McpServerTool]
     [Description("List indexed project resources such as E5, Map, RS eex, E5S, WAV, and MP3 files. Read-only.")]
@@ -326,6 +561,56 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.CreateReleaseCopy(game_root);
 
     [McpServerTool]
+    [Description("Build the CCZModStudio creator workflow guide, dashboard, and prioritized action items. Read-only.")]
+    public object list_workflow_guide(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Run resource diagnostics and scenario-map linking while building the guide. Defaults to true.")]
+        bool include_diagnostics = true,
+        [Description("Maximum prioritized action items to return. Defaults to 6; capped at 10.")]
+        int max_actions = 6)
+        => runtime.ListWorkflowGuide(game_root, include_diagnostics, max_actions);
+
+    [McpServerTool]
+    [Description("List recent CCZModStudio reports, exports, previews, and write reports used as project evidence. Read-only.")]
+    public object list_project_evidence(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional evidence category filter, for example 发布证据, 安全检查证据, 写入/回滚证据.")]
+        string? category = null,
+        [Description("Optional evidence kind filter, for example 发布前综合报告 or 结构化写入报告.")]
+        string? kind = null,
+        [Description("Optional keyword across file name, path, annotation, suggested use, and safety note.")]
+        string? keyword = null,
+        [Description("Maximum evidence rows to return. Defaults to 80; capped at 500.")]
+        int limit = 80)
+        => runtime.ListProjectEvidence(game_root, category, kind, keyword, limit);
+
+    [McpServerTool]
+    [Description("Read one project evidence file by file name, relative path, full path, or aliases like latest_delivery_report. Text files only; PNG returns metadata.")]
+    public object read_project_evidence(
+        [Description("Evidence file name, project/workspace-relative path, full path from list_project_evidence, or alias: latest, latest_delivery_report, latest_write_report.")]
+        string path_or_file,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Maximum text characters to return. Defaults to 20000; capped at 100000.")]
+        int max_chars = 20000)
+        => runtime.ReadProjectEvidence(game_root, path_or_file, max_chars);
+
+    [McpServerTool]
+    [Description("Write a Markdown pre-release delivery report under CCZModStudio_Reports. Does not modify game files.")]
+    public object write_project_delivery_report(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Include resource diagnostics in the report. Defaults to true.")]
+        bool include_resource_diagnostics = true,
+        [Description("Include scenario-map link candidates in the report. Defaults to true.")]
+        bool include_scenario_map_links = true,
+        [Description("Include creator notes in the report. Defaults to true.")]
+        bool include_creator_notes = true)
+        => runtime.WriteProjectDeliveryReport(game_root, include_resource_diagnostics, include_scenario_map_links, include_creator_notes);
+
+    [McpServerTool]
     [Description("List project-side creator notes used to track design intent, risks, TODOs, rollback points, and verification. Read-only.")]
     public object list_creator_notes(
         [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
@@ -398,7 +683,125 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Read one CCZModStudio local knowledge-base markdown file by name.")]
     public object read_knowledge_entry(
-        [Description("Markdown file name, for example 08_开发执行规则.md.")]
+        [Description("Markdown file name or relative path, for example 00-总览与规范/开发执行规则.md.")]
         string name)
         => runtime.ReadKnowledgeEntry(name);
+
+    [McpServerTool]
+    [Description("List item/job/personal/patch effects from CCZModStudio catalogs and 6.5 tables.")]
+    public object list_effects(
+        [Description("Effect domain: item, job, personal, or patch.")]
+        string domain,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional keyword across effect id, name, description, source, and status.")]
+        string? keyword = null,
+        [Description("Maximum effects to return. Defaults to 100; capped at 1000.")]
+        int limit = 100)
+        => runtime.ListEffects(game_root, domain, keyword, limit);
+
+    [McpServerTool]
+    [Description("Read one effect entry by domain and effect id.")]
+    public object read_effect(
+        [Description("Effect domain: item, job, personal, or patch.")]
+        string domain,
+        [Description("Effect id / fixed row id.")]
+        int effect_id,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ReadEffect(game_root, domain, effect_id);
+
+    [McpServerTool]
+    [Description("Export one effect as an EffectPackage object.")]
+    public object export_effect_package(
+        [Description("Effect domain: item, job, personal, or patch.")]
+        string domain,
+        [Description("Effect id / fixed row id.")]
+        int effect_id,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ExportEffectPackage(game_root, domain, effect_id);
+
+    [McpServerTool]
+    [Description("Preview importing, replacing, or deleting an EffectPackage without writing.")]
+    public object preview_effect_package(
+        [Description("EffectPackage JSON object.")]
+        EffectPackage package,
+        [Description("Operation mode: import, replace, or delete.")]
+        string? mode = "import",
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewEffectPackage(game_root, package, mode);
+
+    [McpServerTool]
+    [Description("Apply an EffectPackage to the current project. Writes backups, reports, and an effect manifest.")]
+    public object apply_effect_package(
+        [Description("EffectPackage JSON object.")]
+        EffectPackage package,
+        [Description("Operation mode: import, replace, or delete.")]
+        string? mode = "import",
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct",
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ApplyEffectPackage(game_root, package, mode, write_mode);
+
+    [McpServerTool]
+    [Description("List declarative effect templates for AI-assisted EffectPackage creation.")]
+    public object list_effect_templates()
+        => runtime.ListEffectTemplates();
+
+    [McpServerTool]
+    [Description("Build a draft EffectPackage from a named template and string parameters.")]
+    public object build_effect_package_from_template(
+        [Description("Template id from list_effect_templates.")]
+        string template_id,
+        [Description("String parameters keyed by template field names.")]
+        Dictionary<string, string>? parameters = null)
+        => runtime.BuildEffectPackageFromTemplate(template_id, parameters);
+
+    [McpServerTool]
+    [Description("Preview patch segments in a patch-domain EffectPackage.")]
+    public object preview_effect_patch(
+        [Description("Patch-domain EffectPackage JSON object.")]
+        EffectPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewEffectPatch(game_root, package);
+
+    [McpServerTool]
+    [Description("Apply patch segments in a patch-domain EffectPackage using PatchApplyService.")]
+    public object apply_effect_patch(
+        [Description("Patch-domain EffectPackage JSON object.")]
+        EffectPackage package,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct",
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ApplyEffectPatch(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("Rollback files from a previously written effect manifest where file backups are available.")]
+    public object rollback_effect_manifest(
+        [Description("Manifest id returned by apply_effect_package or apply_effect_patch.")]
+        string manifest_id,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.RollbackEffectManifest(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("Read effect pseudo-resources such as ccz://effects/schema, ccz://effects/catalog/item, ccz://effects/templates, ccz://effects/manifests, and ccz://knowledge/effects.")]
+    public object read_effect_resource(
+        [Description("Effect resource URI.")]
+        string uri,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ReadEffectResource(game_root, uri);
+
+    [McpServerTool]
+    [Description("Read AI prompt instructions for make_ccz_effect, import_ccz_effect, or delete_ccz_effect.")]
+    public object read_effect_prompt(
+        [Description("Prompt name, or empty to list prompts.")]
+        string name = "")
+        => runtime.ReadEffectPrompt(name);
 }

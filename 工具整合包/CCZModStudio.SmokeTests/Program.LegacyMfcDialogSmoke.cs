@@ -43,6 +43,9 @@ internal partial class Program
         AssertEqual("Dialog_33.IDC_COMBO1", string.Join(",", sortedCombos), "CBS_SORT combo controls");
 
         var dataSources = LegacyMfcDialogDataSources.Create(project, tables);
+        AssertEqual("0:普通", dataSources.GestureLabel(0), "Dialog_52 gesture preview label 0");
+        AssertEqual("1:下跪", dataSources.GestureLabel(1), "Dialog_52 gesture preview label 1");
+        AssertEqual("19:变量", dataSources.GestureLabel(19), "Dialog_52 gesture preview label 19");
         foreach (var group in oldDispatchMap.GroupBy(x => x.Value, StringComparer.Ordinal).OrderBy(x => x.Key, StringComparer.Ordinal))
         {
             var commandId = group.Min(x => x.Key);
@@ -81,7 +84,7 @@ internal partial class Program
         var rSceneAppearance = BuildDisplayCommand(0x30, "武将出现", [LegacyMfcDialogDataSources.Per2ListToCode(12), 13, 12, 0, 0], string.Empty);
         var rSceneMove = BuildDisplayCommand(0x32, "武将移动", [0, LegacyMfcDialogDataSources.Per2ListToCode(12), 0, 40, 15, 0], string.Empty);
         var rSceneMoveText = formatter.FormatCommand(rSceneMove);
-        AssertTrue(rSceneMoveText.Contains("12:", StringComparison.Ordinal), "command 0x32 display resolves data-role person slot");
+        AssertTrue(rSceneMoveText.Contains("12", StringComparison.Ordinal), "command 0x32 display keeps data-role person number");
         AssertTrue(!rSceneMoveText.Contains("data角色", StringComparison.Ordinal), "command 0x32 data-role display matches command 0x30 person label style");
         AssertTrue(!rSceneMoveText.Contains("战场编号 0", StringComparison.Ordinal), "command 0x32 display does not misread mode 0 as battle number");
         rSection.Commands.Add(rSceneAppearance);
@@ -95,6 +98,31 @@ internal partial class Program
         AssertTrue(rSceneCandidates[0].CommandName.Contains("13,12", StringComparison.Ordinal), "R scene candidate command name uses legacy display coordinates");
         AssertTrue(rSceneCandidates[0].ParameterPreview.Contains("13,12", StringComparison.Ordinal), "R scene candidate parameter preview uses legacy display coordinates");
         AssertTrue(!rSceneCandidates[0].ParameterPreview.Contains("P0=", StringComparison.Ordinal), "R scene candidate parameter preview hides raw parameter tokens");
+
+        var variablePersonCode = ScriptVariableValueResolver.EncodePerson2VariableReference(44);
+        var variableAppearance = BuildDisplayCommand(0x30, "R scene variable appearance", [variablePersonCode, 7, 8, 0, 0], string.Empty);
+        AssertTrue(formatter.FormatCommand(variableAppearance).Contains("V44", StringComparison.Ordinal), "command 0x30 variable person displays as V-number");
+        var variableDocument = new LegacyScenarioDocument { FilePath = "R_01.eex" };
+        var variableScene = new LegacyScenarioScene { SceneIndex = 0 };
+        var variableSection = new LegacyScenarioSection { SceneIndex = 0, SectionIndex = 0 };
+        var variableBackground = BuildDisplayCommand(0x27, "R scene background", [0, 1], string.Empty);
+        var variableAssign = BuildDisplayCommand(0x77, "integer variable set", [2, 44, 2, 0, 12], string.Empty);
+        variableBackground.CommandIndex = 1;
+        variableAssign.CommandIndex = 2;
+        variableAppearance.CommandIndex = 3;
+        variableSection.Commands.Add(variableBackground);
+        variableSection.Commands.Add(variableAssign);
+        variableSection.Commands.Add(variableAppearance);
+        variableScene.Sections.Add(variableSection);
+        variableDocument.Scenes.Add(variableScene);
+        var valueResolver = new ScriptVariableValueResolver();
+        var variableSnapshot = new RSceneDraftService().BuildStateSnapshot(
+            variableSection,
+            currentCommandIndex: variableAppearance.CommandIndex,
+            (command, _) => valueResolver.BuildSnapshotToCommand(variableDocument, command));
+        AssertEqual(1, variableSnapshot.Actors.Count, "R scene variable actor count");
+        AssertEqual(12, variableSnapshot.Actors[0].PersonId, "R scene variable actor resolves to data person");
+        AssertEqual(44, variableSnapshot.Actors[0].PersonVariableAddress ?? -1, "R scene actor keeps variable address");
     }
 
     private static LegacyScenarioCommandNode BuildDisplayCommand(int commandId, string name, IReadOnlyList<int> values, string text)

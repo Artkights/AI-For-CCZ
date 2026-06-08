@@ -90,7 +90,8 @@ public sealed class RSceneDraftService
     public IReadOnlyList<RSceneCommandCandidate> BuildCommandCandidates(
         LegacyScenarioDocument document,
         Func<LegacyScenarioCommandNode, string>? commandDisplayText = null,
-        Func<LegacyScenarioCommandNode, string>? parameterDisplayText = null)
+        Func<LegacyScenarioCommandNode, string>? parameterDisplayText = null,
+        Func<LegacyScenarioCommandNode, int, int?>? personResolver = null)
     {
         var result = new List<RSceneCommandCandidate>();
         foreach (var command in document.EnumerateCommands())
@@ -111,7 +112,7 @@ public sealed class RSceneDraftService
                 ParameterPreview = string.IsNullOrWhiteSpace(displayParameters)
                     ? BuildParameterPreview(command, values)
                     : displayParameters,
-                PersonId = TryGetPersonId(command.CommandId, values),
+                PersonId = TryGetPersonId(command.CommandId, values, command, personResolver),
                 X = TryGetCoordinate(command.CommandId, values, xSlot: true),
                 Y = TryGetCoordinate(command.CommandId, values, xSlot: false),
                 BackgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values),
@@ -123,7 +124,9 @@ public sealed class RSceneDraftService
         return result;
     }
 
-    public IReadOnlyList<RSceneStateCandidate> BuildSceneStateCandidates(LegacyScenarioDocument document)
+    public IReadOnlyList<RSceneStateCandidate> BuildSceneStateCandidates(
+        LegacyScenarioDocument document,
+        Func<LegacyScenarioCommandNode, int, ScriptVariableValueSnapshot?>? variableSnapshotProvider = null)
     {
         var result = new List<RSceneStateCandidate>();
         foreach (var section in document.Scenes.SelectMany(scene => scene.Sections))
@@ -136,7 +139,7 @@ public sealed class RSceneDraftService
 
                 var nextStart = commands.Skip(i + 1).FirstOrDefault(candidate => candidate.CommandId == 0x27);
                 var endCommandIndex = nextStart?.CommandIndex - 1;
-                var snapshot = BuildStateSnapshot(section, command.CommandIndex);
+                var snapshot = BuildStateSnapshot(section, command.CommandIndex, variableSnapshotProvider);
                 var backgroundText = snapshot.BackgroundImageNumber.HasValue
                     ? "背景 " + snapshot.BackgroundImageNumber.Value.ToString(CultureInfo.InvariantCulture)
                     : "背景未识别";
@@ -161,7 +164,10 @@ public sealed class RSceneDraftService
         return result;
     }
 
-    public RSceneStateSnapshot BuildStateSnapshot(LegacyScenarioSection section, int currentCommandIndex)
+    public RSceneStateSnapshot BuildStateSnapshot(
+        LegacyScenarioSection section,
+        int currentCommandIndex,
+        Func<LegacyScenarioCommandNode, int, ScriptVariableValueSnapshot?>? variableSnapshotProvider = null)
     {
         var actors = new Dictionary<int, MutableActorState>();
         int? backgroundImageNumber = null;
@@ -182,19 +188,19 @@ public sealed class RSceneDraftService
                     actors.Clear();
                     break;
                 case 0x30:
-                    ApplyShowActor(actors, command, values, targetKey);
+                    ApplyShowActor(actors, command, values, targetKey, variableSnapshotProvider?.Invoke(command, 0));
                     break;
                 case 0x31:
-                    ApplyHideActor(actors, values);
+                    ApplyHideActor(actors, values, variableSnapshotProvider?.Invoke(command, 1));
                     break;
                 case 0x32:
-                    ApplyMoveActor(actors, command, values, targetKey);
+                    ApplyMoveActor(actors, command, values, targetKey, variableSnapshotProvider?.Invoke(command, 1));
                     break;
                 case 0x33:
-                    ApplyTurnActor(actors, command, values, targetKey);
+                    ApplyTurnActor(actors, command, values, targetKey, variableSnapshotProvider?.Invoke(command, 0));
                     break;
                 case 0x34:
-                    ApplyActionActor(actors, command, values, targetKey);
+                    ApplyActionActor(actors, command, values, targetKey, variableSnapshotProvider?.Invoke(command, 0));
                     break;
             }
         }
@@ -213,6 +219,8 @@ public sealed class RSceneDraftService
                 .Select(actor => new RSceneActorState
                 {
                     PersonId = actor.PersonId,
+                    PersonReference = actor.PersonReference,
+                    PersonVariableAddress = actor.PersonVariableAddress,
                     GridX = actor.GridX,
                     GridY = actor.GridY,
                     Facing = actor.Facing,
@@ -293,15 +301,34 @@ public sealed class RSceneDraftService
         return imageNumber is > 0 and <= 999 ? imageNumber : null;
     }
 
-    private static int? TryGetPersonId(int commandId, IReadOnlyList<int> values)
+    private static int? TryGetPersonId(
+        int commandId,
+        IReadOnlyList<int> values,
+        LegacyScenarioCommandNode? command = null,
+        Func<LegacyScenarioCommandNode, int, int?>? personResolver = null)
     {
-        int? candidate = commandId switch
+        var slot = commandId switch
         {
-            0x29 or 0x2A or 0x30 or 0x33 or 0x34 or 0x35 when values.Count > 0 => values[0],
-            0x31 when values.Count > 1 && values[0] == 0 => values[1],
-            0x32 when values.Count > 1 && values[0] != 1 => values[1],
-            _ => null
+            0x29 or 0x2A or 0x30 or 0x33 or 0x34 or 0x35 when values.Count > 0 => 0,
+            0x31 when values.Count > 1 && values[0] == 0 => 1,
+            0x32 when values.Count > 1 && values[0] != 1 => 1,
+            _ => -1
         };
+        if (slot < 0 || slot >= values.Count)
+        {
+            return null;
+        }
+
+        if (command != null && personResolver != null)
+        {
+            var resolved = personResolver(command, slot);
+            if (resolved is >= 0 and <= 1023)
+            {
+                return resolved;
+            }
+        }
+
+        var candidate = values[slot];
         return candidate is >= 0 and <= 1023 ? candidate : null;
     }
 
@@ -344,14 +371,16 @@ public sealed class RSceneDraftService
         IDictionary<int, MutableActorState> actors,
         LegacyScenarioCommandNode command,
         IReadOnlyList<int> values,
-        string targetKey)
+        string targetKey,
+        ScriptVariableValueSnapshot? variableSnapshot)
     {
         if (values.Count < 3) return;
-        var personId = values[0];
-        if (personId is < 0 or > 1023) return;
+        if (!ScriptVariableValueResolver.TryResolvePerson2Reference(values[0], variableSnapshot, out var personId, out var variableAddress)) return;
         actors[personId] = new MutableActorState
         {
             PersonId = personId,
+            PersonReference = values[0],
+            PersonVariableAddress = variableAddress,
             GridX = ClampCoordinate(values[1]),
             GridY = ClampCoordinate(values[2]),
             Facing = DirectionToFacing(values.Count > 3 ? values[3] : -1),
@@ -362,12 +391,18 @@ public sealed class RSceneDraftService
         };
     }
 
-    private static void ApplyHideActor(IDictionary<int, MutableActorState> actors, IReadOnlyList<int> values)
+    private static void ApplyHideActor(
+        IDictionary<int, MutableActorState> actors,
+        IReadOnlyList<int> values,
+        ScriptVariableValueSnapshot? variableSnapshot)
     {
         if (values.Count == 0) return;
         if (values[0] == 0 && values.Count > 1)
         {
-            actors.Remove(values[1]);
+            if (ScriptVariableValueResolver.TryResolvePerson2Reference(values[1], variableSnapshot, out var personId, out _))
+            {
+                actors.Remove(personId);
+            }
         }
         else if (values[0] != 0)
         {
@@ -379,10 +414,11 @@ public sealed class RSceneDraftService
         IDictionary<int, MutableActorState> actors,
         LegacyScenarioCommandNode command,
         IReadOnlyList<int> values,
-        string targetKey)
+        string targetKey,
+        ScriptVariableValueSnapshot? variableSnapshot)
     {
         if (values.Count < 5 || values[0] == 1) return;
-        var personId = values[1];
+        if (!ScriptVariableValueResolver.TryResolvePerson2Reference(values[1], variableSnapshot, out var personId, out _)) return;
         if (!actors.TryGetValue(personId, out var actor)) return;
         actor.GridX = ClampCoordinate(values[3]);
         actor.GridY = ClampCoordinate(values[4]);
@@ -399,10 +435,11 @@ public sealed class RSceneDraftService
         IDictionary<int, MutableActorState> actors,
         LegacyScenarioCommandNode command,
         IReadOnlyList<int> values,
-        string targetKey)
+        string targetKey,
+        ScriptVariableValueSnapshot? variableSnapshot)
     {
         if (values.Count < 1) return;
-        var personId = values[0];
+        if (!ScriptVariableValueResolver.TryResolvePerson2Reference(values[0], variableSnapshot, out var personId, out _)) return;
         if (!actors.TryGetValue(personId, out var actor)) return;
         if (values.Count > 1)
         {
@@ -421,10 +458,11 @@ public sealed class RSceneDraftService
         IDictionary<int, MutableActorState> actors,
         LegacyScenarioCommandNode command,
         IReadOnlyList<int> values,
-        string targetKey)
+        string targetKey,
+        ScriptVariableValueSnapshot? variableSnapshot)
     {
         if (values.Count < 1) return;
-        var personId = values[0];
+        if (!ScriptVariableValueResolver.TryResolvePerson2Reference(values[0], variableSnapshot, out var personId, out _)) return;
         if (!actors.TryGetValue(personId, out var actor)) return;
         if (values.Count > 1)
         {
@@ -495,6 +533,8 @@ public sealed class RSceneDraftService
     private sealed class MutableActorState
     {
         public int PersonId { get; init; }
+        public int PersonReference { get; init; }
+        public int? PersonVariableAddress { get; init; }
         public int GridX { get; set; }
         public int GridY { get; set; }
         public string Facing { get; set; } = "下";

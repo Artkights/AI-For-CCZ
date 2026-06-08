@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
@@ -43,7 +44,7 @@ public sealed class ImageAssignmentPreviewService
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
 
-        var baseFont = SystemFonts.MessageBoxFont ?? Control.DefaultFont;
+        using var baseFont = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         using var titleFont = new Font(baseFont, FontStyle.Bold);
         using var normalFont = new Font(baseFont, FontStyle.Regular);
         using var smallFont = new Font(baseFont.FontFamily, 8, FontStyle.Regular);
@@ -139,23 +140,22 @@ public sealed class ImageAssignmentPreviewService
             return null;
         }
 
-        var imageNumber = checked(rImageId * 2 + 1);
         var normalizedFacing = NormalizeRSceneFacing(facing);
-        var safeStanceGroup = Math.Clamp(stanceGroup, 0, 4);
-        var frameIndex = ResolveRSceneFrameIndex(normalizedFacing, safeStanceGroup);
+        var gestureIndex = NormalizeRSceneGestureIndex(stanceGroup);
+        var frameMapping = ResolveRSceneFrameMapping(rImageId, normalizedFacing, gestureIndex);
         var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
         var frame = TryRenderE5EntryFrameAt(
             project,
             path,
-            imageNumber,
+            frameMapping.ImageNumber,
             RawPreviewSpecs.PmapObjWidth,
             RawPreviewSpecs.PmapObjFrameHeight,
-            frameIndex,
-            normalizedFacing == "右",
+            frameMapping.FrameIndex,
+            frameMapping.FlipHorizontal,
             out var readDetail);
         detail = frame == null
-            ? $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 方向={normalizedFacing} 站姿组={safeStanceGroup} 帧={frameIndex} 未读取：{readDetail}"
-            : $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 方向={normalizedFacing} 站姿组={safeStanceGroup} 帧={frameIndex}";
+            ? $"R{rImageId} -> Pmapobj.e5 #{frameMapping.ImageNumber} 方向={normalizedFacing} 动作帧={gestureIndex} 条带帧={frameMapping.FrameIndex} 未读取：{readDetail}"
+            : $"R{rImageId} -> Pmapobj.e5 #{frameMapping.ImageNumber} 方向={normalizedFacing} 动作帧={gestureIndex} 条带帧={frameMapping.FrameIndex}";
         return frame;
     }
 
@@ -168,22 +168,50 @@ public sealed class ImageAssignmentPreviewService
             return null;
         }
 
-        var imageNumber = checked(rImageId * 2 + 1);
         var normalizedFacing = NormalizeRSceneFacing(facing);
-        var safeFrameIndex = Math.Clamp(frameIndex, 0, 19);
+        var gestureIndex = NormalizeRSceneGestureIndex(frameIndex);
+        var frameMapping = ResolveRSceneFrameMapping(rImageId, normalizedFacing, gestureIndex);
         var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
         var frame = TryRenderE5EntryFrameAt(
             project,
             path,
-            imageNumber,
+            frameMapping.ImageNumber,
             RawPreviewSpecs.PmapObjWidth,
             RawPreviewSpecs.PmapObjFrameHeight,
-            safeFrameIndex,
-            normalizedFacing == "右",
+            frameMapping.FrameIndex,
+            frameMapping.FlipHorizontal,
             out var readDetail);
         detail = frame == null
-            ? $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 动作帧={safeFrameIndex} 方向={normalizedFacing} 未读取：{readDetail}"
-            : $"R{rImageId} -> Pmapobj.e5 #{imageNumber} 动作帧={safeFrameIndex} 方向={normalizedFacing}";
+            ? $"R{rImageId} -> Pmapobj.e5 #{frameMapping.ImageNumber} 动作帧={gestureIndex} 方向={normalizedFacing} 条带帧={frameMapping.FrameIndex} 未读取：{readDetail}"
+            : $"R{rImageId} -> Pmapobj.e5 #{frameMapping.ImageNumber} 动作帧={gestureIndex} 方向={normalizedFacing} 条带帧={frameMapping.FrameIndex}";
+        return frame;
+    }
+
+    public Bitmap? TryRenderRScenePhysicalStripFrame(CczProject project, int rImageId, int stripFrameIndex, string facing, out string detail)
+    {
+        detail = string.Empty;
+        if (rImageId < 0)
+        {
+            detail = $"R 形象编号 {rImageId} 无效。";
+            return null;
+        }
+
+        var normalizedFacing = NormalizeRSceneFacing(facing);
+        var physicalFrameIndex = Math.Clamp(stripFrameIndex, 0, RawPreviewSpecs.PmapObjFrameCount - 1);
+        var frameMapping = ResolveRScenePhysicalFrameMapping(rImageId, normalizedFacing, physicalFrameIndex);
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        var frame = TryRenderE5EntryFrameAt(
+            project,
+            path,
+            frameMapping.ImageNumber,
+            RawPreviewSpecs.PmapObjWidth,
+            RawPreviewSpecs.PmapObjFrameHeight,
+            frameMapping.FrameIndex,
+            frameMapping.FlipHorizontal,
+            out var readDetail);
+        detail = frame == null
+            ? $"R{rImageId} -> Pmapobj.e5 #{frameMapping.ImageNumber} 方向={normalizedFacing} 条带帧={frameMapping.FrameIndex} 未读取：{readDetail}"
+            : $"R{rImageId} -> Pmapobj.e5 #{frameMapping.ImageNumber} 方向={normalizedFacing} 条带帧={frameMapping.FrameIndex}";
         return frame;
     }
 
@@ -1355,16 +1383,32 @@ public sealed class ImageAssignmentPreviewService
             _ => "下"
         };
 
-    private static int ResolveRSceneFrameIndex(string facing, int stanceGroup)
+    private static RSceneFrameMapping ResolveRSceneFrameMapping(int rImageId, string facing, int gestureIndex)
     {
-        var directionSlot = facing switch
-        {
-            "上" => 1,
-            "左" or "右" => 2,
-            _ => 0
-        };
-        return Math.Clamp(stanceGroup * 4 + directionSlot, 0, 19);
+        var frame = RSceneGestureToPmapObjStripFrame(gestureIndex);
+        return ResolveRScenePhysicalFrameMapping(rImageId, facing, frame);
     }
+
+    private static RSceneFrameMapping ResolveRScenePhysicalFrameMapping(int rImageId, string facing, int frame)
+    {
+        var frontImageNumber = checked(rImageId * 2 + 1);
+        var backImageNumber = checked(rImageId * 2 + 2);
+        return facing switch
+        {
+            "上" => new RSceneFrameMapping(backImageNumber, frame, false),
+            "左" => new RSceneFrameMapping(backImageNumber, frame, true),
+            "右" => new RSceneFrameMapping(frontImageNumber, frame, true),
+            _ => new RSceneFrameMapping(frontImageNumber, frame, false)
+        };
+    }
+
+    private static int NormalizeRSceneGestureIndex(int value)
+        => Math.Clamp(value < 0 ? 0 : value, 0, RawPreviewSpecs.RSceneGestureCount - 1);
+
+    private static int RSceneGestureToPmapObjStripFrame(int gestureIndex)
+        => gestureIndex <= 0
+            ? 0
+            : Math.Clamp(gestureIndex + 2, 0, RawPreviewSpecs.PmapObjFrameCount - 1);
 
     private static readonly byte[] PngMagic = { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
 
@@ -1380,6 +1424,8 @@ public sealed class ImageAssignmentPreviewService
     private sealed record UnitFramePreview(string Label, Bitmap Image);
 
     private sealed record UnitImagePreviewGroup(int ImageNumber, IReadOnlyList<UnitFramePreview> Frames);
+
+    private sealed record RSceneFrameMapping(int ImageNumber, int FrameIndex, bool FlipHorizontal);
 
     private sealed record EexPreviewMetadata(
         bool MagicValid,
@@ -1399,5 +1445,7 @@ public sealed class ImageAssignmentPreviewService
     {
         public const int PmapObjWidth = 48;
         public const int PmapObjFrameHeight = 64;
+        public const int PmapObjFrameCount = 20;
+        public const int RSceneGestureCount = 20;
     }
 }

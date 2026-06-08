@@ -24,7 +24,7 @@ public sealed class ItemEffectNameReader
 
     public static bool IsItemEffectNameTable(HexTableDefinition table)
     {
-        var key = HexTableNameResolver.BuildRangeAgnosticSemanticKey(table.TableName);
+        var key = HexTableNameResolver.BuildRangeAgnosticSemanticKey(table.TableName).TrimStart('-', ' ');
         return key is "1-2 装备特效名称" or "1-3 装备特效名称";
     }
 

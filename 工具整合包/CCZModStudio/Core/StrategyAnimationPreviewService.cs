@@ -1,12 +1,12 @@
+using System.Drawing;
 using CCZModStudio.Models;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 
 namespace CCZModStudio.Core;
 
 public sealed class StrategyAnimationPreviewService
 {
     private readonly E5ImageReplaceService _e5ImageService = new();
+    private readonly E5ImageRenderService _renderService = new();
     private readonly Dictionary<string, IReadOnlyList<E5ImageEntryInfo>> _indexCache = new(StringComparer.OrdinalIgnoreCase);
 
     public void ClearCache()
@@ -56,9 +56,9 @@ public sealed class StrategyAnimationPreviewService
         try
         {
             var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
-            using var decoded = TryDecodeImage(bytes);
             var entry = entries[imageNumber - 1];
-            if (decoded == null)
+            var bitmap = _renderService.RenderEntry(project, Path.GetFileName(sourcePath), bytes, canvasSize, canvasSize, out var renderMode);
+            if (bitmap == null)
             {
                 return new StrategyAnimationPreviewResult(
                     sourcePath,
@@ -66,14 +66,14 @@ public sealed class StrategyAnimationPreviewService
                     imageNumber,
                     entries.Count,
                     null,
-                    $"策略动画字段值 {animationValue} -> Meff.e5 图号 #{imageNumber}（字段值+1）；条目存在，但不是可直接解码的 BMP/JPG/PNG。索引：offset=0x{entry.DataOffset:X}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。");
+                    $"策略动画字段值 {animationValue} -> Meff.e5 图号 #{imageNumber}（字段值+1）；条目存在，但不是当前可渲染的图片/字节图。索引：offset=0x{entry.DataOffset:X}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。");
             }
 
-            var bitmap = RenderCanvas(decoded, canvasSize);
             var info = new FileInfo(sourcePath);
             var message =
                 $"策略动画字段值 {animationValue} -> Meff.e5 图号 #{imageNumber}（字段值+1）；条目数={entries.Count}。\r\n" +
                 $"索引：offset=0x{entry.DataOffset:X}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。\r\n" +
+                $"预览模式：{renderMode}；若显示为未知字节图候选，需用旧工具或实机确认真实帧宽高。\r\n" +
                 $"文件：{info.Length:N0} 字节，修改时间 {info.LastWriteTime:yyyy-MM-dd HH:mm:ss}。";
             return new StrategyAnimationPreviewResult(
                 sourcePath,
@@ -119,52 +119,6 @@ public sealed class StrategyAnimationPreviewService
         return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
     }
 
-    private static Bitmap? TryDecodeImage(byte[] bytes)
-    {
-        if (bytes.Length < 2) return null;
-        var isBmp = bytes[0] == (byte)'B' && bytes[1] == (byte)'M';
-        var isJpeg = bytes[0] == 0xFF && bytes[1] == 0xD8;
-        var isPng = bytes.Length >= 8 &&
-                    bytes[0] == 0x89 &&
-                    bytes[1] == (byte)'P' &&
-                    bytes[2] == (byte)'N' &&
-                    bytes[3] == (byte)'G';
-        if (!isBmp && !isJpeg && !isPng) return null;
-
-        try
-        {
-            using var memory = new MemoryStream(bytes, writable: false);
-            using var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: false);
-            return new Bitmap(image);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static Bitmap RenderCanvas(Image source, int canvasSize)
-    {
-        var size = Math.Max(96, canvasSize);
-        var canvas = new Bitmap(size, size, PixelFormat.Format32bppArgb);
-        using var g = Graphics.FromImage(canvas);
-        g.Clear(Color.White);
-        g.InterpolationMode = InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.CompositingQuality = CompositingQuality.HighSpeed;
-
-        var scale = Math.Min((size - 16) / (float)source.Width, (size - 16) / (float)source.Height);
-        if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0) scale = 1;
-        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
-        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
-        var left = (size - width) / 2;
-        var top = (size - height) / 2;
-        g.DrawImage(source, new Rectangle(left, top, width, height));
-
-        using var borderPen = new Pen(Color.FromArgb(120, 128, 136));
-        g.DrawRectangle(borderPen, 0, 0, size - 1, size - 1);
-        return canvas;
-    }
 }
 
 public sealed record StrategyAnimationPreviewResult(

@@ -94,10 +94,10 @@ public sealed class ProjectWorkflowGuideService
                 Level = tableDefinitionCount > 0 ? "正常" : "风险",
                 Value = $"{tableDefinitionCount} 个表定义",
                 Summary = tableDefinitionCount > 0
-                    ? "HexTable.xml 已读取，数据表页可显示字段中文注释、风险说明、样例值和跨表引用。"
+                    ? "HexTable.xml 已读取，角色、兵种、宝物、商店等专用编辑页可使用字段定义和中文解释。"
                     : "尚未读取到表定义，数据表解析不可用。",
-                Suggestion = tableDefinitionCount > 0 ? "优先阅读字段说明，再修改人物、物品、策略等核心表。" : "检查 HexTable.xml 路径或重新打开项目。",
-                RelatedPage = "数据表编辑",
+                Suggestion = tableDefinitionCount > 0 ? "优先使用角色、兵种、宝物、商店等专用编辑页修改核心表。" : "检查 HexTable.xml 路径或重新打开项目。",
+                RelatedPage = "角色设定 / 兵种设定 / 宝物设定 / 商店编辑",
                 Evidence = project.HexTableXmlPath
             },
             new WorkflowDashboardItem
@@ -168,23 +168,11 @@ public sealed class ProjectWorkflowGuideService
                 Summary = scenarioStructure == null
                     ? "尚未生成当前 SV 的结构草图，无法汇总高风险命令。"
                     : $"当前结构草图：{scenarioStructure.FileName}，Scene {scenarioStructure.SceneCount}，Section {scenarioStructure.SectionCount}。",
-                Suggestion = scenarioStructure == null ? "在 SV 剧本页选择关卡并生成结构草图；优先查看“高风险/需核对”。" : "优先为高风险命令添加备注，修改剧情流程前必须和旧编辑器/实机核对。",
-                RelatedPage = "R/S eex高级探针",
+                Suggestion = scenarioStructure == null ? "在剧本制作页选择关卡，优先查看高风险/需核对命令。" : "优先为高风险命令添加备注，修改剧情流程前必须和旧编辑器/实机核对。",
+                RelatedPage = "剧本制作",
                 Evidence = scenarioStructure == null
                     ? "无结构草图"
                     : string.Join("；", scenarioStructure.Rows.Where(scenarioRiskService.IsHighRisk).Take(3).Select(row => $"{row.OffsetHex}:{row.CommandName}"))
-            },
-            new WorkflowDashboardItem
-            {
-                Area = "EEX/Ls/Hexzmap探针",
-                Level = eexInvalid > 0 || lsInvalid > 0 || hexzmapUnknown > 0 ? "提醒" : (eexArchives.Count + lsResources.Count + hexzmapBlocks) > 0 ? "正常" : "提醒",
-                Value = $"EEX {eexArchives.Count} / Ls {lsResources.Count} / 地形块 {hexzmapBlocks}",
-                Summary = "汇总 R/S/Map EEX、Ls/E5 封装资源和 Hexzmap 地形探针的只读研究状态。",
-                Suggestion = (eexArchives.Count + lsResources.Count + hexzmapBlocks) == 0
-                    ? "按需读取 EEX、Ls/E5 或 Hexzmap 探针；未确认内部写回规则前保持只读。"
-                    : "优先查看无效 Magic、未知地形 ID 或大体量资源，为可疑区段添加备注。",
-                RelatedPage = "EEX资源探针 / Ls/E5地图资源探针 / Hexzmap地形探针",
-                Evidence = $"EEX无效 {eexInvalid}；Ls无效 {lsInvalid}；未知地形块 {hexzmapUnknown}"
             },
             new WorkflowDashboardItem
             {
@@ -259,8 +247,8 @@ public sealed class ProjectWorkflowGuideService
                 Stage = "理解",
                 Title = "读取数据表、字段注释和跨表解释",
                 Status = tableDefinitionCount > 0 ? "可使用" : hasHexTable ? "待读取" : "等待 HexTable",
-                RecommendedAction = "在左侧选择 6.X 数据表，查看中文字段说明、样例值、风险字段、跨表引用和可见列 CSV 导出。",
-                RelatedPage = "数据表编辑",
+                RecommendedAction = "在角色、兵种、宝物、商店等专用编辑页查看和修改对应 MOD 数据。",
+                RelatedPage = "角色设定 / 兵种设定 / 宝物设定 / 商店编辑",
                 WhyItMatters = "表格是人物、物品、策略、兵种等 MOD 内容的基础；中文注释能降低误改概率。",
                 SafetyNote = "读取按当前 HexTable.xml 的 6.X 表定义执行；保存仅在表版本为 6.5 且 6.5 核心尺寸匹配时开放，保存前备份，保存后复读。"
             },
@@ -271,7 +259,7 @@ public sealed class ProjectWorkflowGuideService
                 Title = "安全编辑表格、文本、形象和资源",
                 Status = hasProject ? "可编辑" : "等待项目",
                 RecommendedAction = "修改表格、R/S 短文本、人物 R/S、补丁、图片和资源整文件；写入后查看备份和结构化报告。",
-                RelatedPage = "数据表编辑 / R/S eex高级探针 / 人物R/S形象 / 游戏资源索引",
+                RelatedPage = "角色设定 / 兵种设定 / 宝物设定 / 剧本制作 / 图片处理 / 游戏资源索引",
                 WhyItMatters = "创作者常用改动需要可复读、可回滚、可发布，不能只靠手工覆盖文件。",
                 SafetyNote = "EEX、Ls/E5 内部重封包、完整 R/S 命令树、扩容和跨 Section 重排仍未开放。"
             },
@@ -473,7 +461,6 @@ public sealed class ProjectWorkflowGuideService
             "差异与备份" => "看到测试副本相对原始目录的改动，并联动到可回滚备份。",
             "关卡地图联动" => "定位缺地图图、缺 Hexzmap 地形块或需要核对的关卡联动。",
             "SV高风险命令" => "定位影响剧情分支、变量、奖励、人物状态或地图资源的高风险命令。",
-            "EEX/Ls/Hexzmap探针" => "定位未知地形、无效 Magic 或需要继续研究的资源封包。",
             "最近报告/发布证据" => "打开或生成发布前综合报告，留下可追溯证据。",
             _ => $"处理“{item.Area}”后刷新工作台，确认当前值从“{item.Value}”变为更安全的状态。"
         };
@@ -485,7 +472,6 @@ public sealed class ProjectWorkflowGuideService
             : "当前项目可写；";
         var suffix = item.Area switch
         {
-            "EEX/Ls/Hexzmap探针" => "该类格式仍保持只读研究，不开放内部重封包写入。",
             "SV高风险命令" => "完整 SV 命令树写回未开放；修改前请用备注记录证据并实机核对。",
             "关卡地图联动" => "联动页用于核对资源成套状态，替换资源后建议重新生成联动和预览图。",
             "写入模式" => "可继续编辑，但每次写入后要复读验证和查看备份。",

@@ -1,4 +1,5 @@
 using System.Data;
+using System.Drawing.Imaging;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +9,7 @@ using CCZModStudio.Models;
 
 namespace CCZModStudio.McpServer;
 
-public sealed class CczMcpRuntime
+public sealed partial class CczMcpRuntime
 {
     private static readonly HashSet<string> CoreFileDenyList = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -50,1035 +51,26 @@ public sealed class CczMcpRuntime
     private readonly MaterialLibraryIndexer _materialLibraryIndexer = new();
     private readonly MapImageReplaceService _mapImageReplace = new();
     private readonly E5ImageReplaceService _e5ImageReplace = new();
+    private readonly ImageResourceCatalogService _imageResourceCatalog = new();
+    private readonly IconResourceReplaceService _iconResourceReplace = new();
+    private readonly AiImageAssetService _aiImageAssetService = new();
     private readonly ResourceReplaceService _resourceReplace = new();
     private readonly GameResourceIndexer _gameResourceIndexer = new();
     private readonly ResourceDiagnosticService _resourceDiagnosticService = new();
     private readonly ProjectAuditService _projectAudit = new();
     private readonly BackupManager _backupManager = new();
+    private readonly BackupHistoryService _backupHistoryService = new();
     private readonly TestCopyDiffService _testCopyDiff = new();
     private readonly ReleasePackageService _releasePackage = new();
+    private readonly ProjectEvidenceService _projectEvidenceService = new();
+    private readonly ProjectDeliveryReportService _projectDeliveryReportService = new();
+    private readonly ProjectWorkflowGuideService _projectWorkflowGuideService = new();
     private readonly SceneStringParser _sceneStringParser = new();
+    private readonly ScenarioMapLinkService _scenarioMapLinkService = new();
     private readonly ScenarioCommandParameterTemplateService _scenarioCommandTemplates = new();
     private readonly CreatorNoteService _creatorNoteService = new();
     private readonly CreatorNoteNavigationService _creatorNoteNavigationService = new();
-
-    public object DetectProject(string? gameRoot)
-    {
-        var project = LoadProject(gameRoot);
-        return new
-        {
-            project.Name,
-            project.WorkspaceRoot,
-            project.GameRoot,
-            project.HexTableXmlPath,
-            project.SceneDictionaryPath,
-            project.SceneEditorDirectory,
-            project.ImageAssignerDirectory,
-            project.MaterialLibraryRoot,
-            project.PatchConfigRoot,
-            project.IsTestCopy,
-            Files = project.GetFileStatuses().Select(x => new
-            {
-                x.Name,
-                x.Path,
-                x.Exists,
-                x.SizeBytes,
-                x.Kind
-            }),
-            project.PathDiagnostics
-        };
-    }
-
-    public object ListTables(string? gameRoot)
-    {
-        var project = LoadProject(gameRoot);
-        var tables = LoadTables(project);
-        return new
-        {
-            project.GameRoot,
-            project.HexTableXmlPath,
-            Count = tables.Count,
-            Tables = tables.Select(table => new
-            {
-                table.TableName,
-                table.Version,
-                table.FileName,
-                BeginId = table.BeginId,
-                table.RowCount,
-                table.RowSize,
-                DataPosHex = "0x" + table.DataPos.ToString("X", CultureInfo.InvariantCulture),
-                table.ReadOnly,
-                Fields = table.Fields.Select(field => new
-                {
-                    field.ColumnName,
-                    Kind = field.Kind.ToString(),
-                    field.Size,
-                    field.ConsumesBytes
-                })
-            })
-        };
-    }
-
-    public object ReadTable(string? gameRoot, string tableName, List<int>? rowIds, List<string>? columns, string? keyword, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var tables = LoadTables(project);
-        var table = FindTable(tables, tableName);
-        var result = _tableReader.Read(project, table, tables);
-        var selectedColumns = ResolveColumns(result.Data, columns, includeId: true);
-        var rowIdSet = rowIds is { Count: > 0 } ? rowIds.ToHashSet() : null;
-        var effectiveLimit = NormalizeLimit(limit, 50, 500);
-
-        var rows = result.Data.AsEnumerable()
-            .Where(row => rowIdSet == null || rowIdSet.Contains(Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)))
-            .Where(row => MatchesKeyword(row, selectedColumns, keyword))
-            .Take(effectiveLimit)
-            .Select(row => RowToDictionary(row, selectedColumns))
-            .ToList();
-
-        return new
-        {
-            table.TableName,
-            table.FileName,
-            Validation = new
-            {
-                result.Validation.IsUsable,
-                result.Validation.FilePath,
-                result.Validation.FileExists,
-                result.Validation.FileLength,
-                result.Validation.Warnings
-            },
-            TotalRows = result.Data.Rows.Count,
-            ReturnedRows = rows.Count,
-            Columns = selectedColumns.Select(x => x.ColumnName),
-            Rows = rows
-        };
-    }
-
-    public object WriteTableRows(string? gameRoot, string tableName, List<TableRowUpdate> updates, string? writeMode)
-    {
-        if (updates.Count == 0) throw new InvalidOperationException("updates must contain at least one row update.");
-
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var tables = LoadTables(project);
-        var table = FindTable(tables, tableName);
-        if (table.ReadOnly) throw new InvalidOperationException("The selected table is read-only.");
-
-        var result = _tableReader.Read(project, table, tables);
-        if (!result.Validation.IsUsable)
-        {
-            throw new InvalidOperationException("The selected table is not usable for writing.");
-        }
-
-        foreach (var update in updates)
-        {
-            var row = result.Data.AsEnumerable()
-                .FirstOrDefault(x => Convert.ToInt32(x["ID"], CultureInfo.InvariantCulture) == update.RowId)
-                ?? throw new InvalidOperationException($"Row ID {update.RowId} was not found in table {table.TableName}.");
-
-            foreach (var (columnName, value) in update.Values)
-            {
-                if (columnName.Equals("ID", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException("ID is synthetic and cannot be written.");
-                }
-
-                var column = FindColumn(result.Data, columnName);
-                var field = column.ExtendedProperties["FieldDefinition"] as HexFieldDefinition;
-                if (field == null || !field.ConsumesBytes)
-                {
-                    throw new InvalidOperationException($"Column {columnName} is derived or non-writable.");
-                }
-
-                row[column] = ConvertJsonValue(value);
-            }
-        }
-
-        var save = _tableWriter.Save(project, table, result.Data);
-        return new
-        {
-            save.FilePath,
-            save.BackupPath,
-            save.ReportJsonPath,
-            save.RowsWritten,
-            save.ChangedBytes,
-            table.TableName
-        };
-    }
-
-    public object ReadScenarioTexts(string? gameRoot, string relativePath, string? keyword, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var filePath = ResolveProjectFile(project, relativePath, mustExist: true);
-        EnsureScenarioTargetAllowed(project, filePath);
-        var effectiveLimit = NormalizeLimit(limit, 100, 2000);
-        var entries = _scenarioTextReader.Read(filePath, maxItems: 4096)
-            .Where(entry => string.IsNullOrWhiteSpace(keyword) ||
-                            entry.Text.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                            entry.Preview.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            .Take(effectiveLimit)
-            .Select(entry => new
-            {
-                entry.Index,
-                entry.OffsetHex,
-                entry.ByteLength,
-                entry.CharLength,
-                entry.Kind,
-                entry.HasNewLines,
-                entry.Preview,
-                entry.Text,
-                entry.GbkByteCount,
-                entry.RemainingBytes,
-                entry.WriteStatus,
-                entry.Annotation
-            })
-            .ToList();
-
-        return new
-        {
-            RelativePath = NormalizeProjectRelativePath(project, filePath),
-            FilePath = filePath,
-            ReturnedRows = entries.Count,
-            Entries = entries
-        };
-    }
-
-    public object ListScenarioFiles(string? gameRoot, string? kind, string? keyword, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var effectiveLimit = NormalizeLimit(limit, 200, 1000);
-        var files = _scenarioFileReader.ReadAllIndex(project)
-            .Where(file => MatchesScenarioFileKind(file, kind))
-            .Where(file => string.IsNullOrWhiteSpace(keyword) ||
-                           file.FileName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                           file.Id.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                           file.Kind.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                           file.Annotation.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        return new
-        {
-            project.GameRoot,
-            TotalFiles = files.Count,
-            ReturnedFiles = Math.Min(files.Count, effectiveLimit),
-            RFiles = files.Count(file => file.Kind.Equals("R剧本", StringComparison.Ordinal)),
-            SFiles = files.Count(file => file.Kind.Equals("S剧本", StringComparison.Ordinal)),
-            Files = files.Take(effectiveLimit).Select(BuildScenarioFilePayload)
-        };
-    }
-
-    public object ReadScenarioCommands(
-        string? gameRoot,
-        string relativePath,
-        int? sceneIndex,
-        int? sectionIndex,
-        string? commandFilter,
-        string? keyword,
-        int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var filePath = ResolveScenarioFile(project, relativePath);
-        var dictionary = LoadRequiredScenarioCommandDictionary(project);
-        var document = _legacyScenarioReader.Read(filePath, dictionary);
-        var effectiveLimit = NormalizeLimit(limit, 200, 2000);
-        var commands = document.EnumerateCommands()
-            .Where(command => !sceneIndex.HasValue || command.SceneIndex == sceneIndex.Value)
-            .Where(command => !sectionIndex.HasValue || command.SectionIndex == sectionIndex.Value)
-            .Where(command => MatchesLegacyCommandFilter(command, commandFilter))
-            .Where(command => MatchesLegacyCommandKeyword(command, keyword))
-            .ToList();
-
-        return new
-        {
-            FilePath = filePath,
-            RelativePath = NormalizeProjectRelativePath(project, filePath),
-            document.Summary,
-            document.SceneCount,
-            document.SectionCount,
-            document.CommandCount,
-            TotalMatches = commands.Count,
-            ReturnedCommands = Math.Min(commands.Count, effectiveLimit),
-            Commands = commands.Take(effectiveLimit).Select(BuildLegacyScenarioCommandPayload),
-            SafetyNote = "Read-only legacy scenario command view. Command structure writes must continue to use the verified legacy writer path and are not exposed by this MCP tool."
-        };
-    }
-
-    public object SearchScenarioScripts(
-        string? gameRoot,
-        string keyword,
-        string? relativePath,
-        string? fileKind,
-        int limit,
-        int maxFiles)
-    {
-        if (string.IsNullOrWhiteSpace(keyword))
-        {
-            throw new InvalidOperationException("keyword is required.");
-        }
-
-        var project = LoadProject(gameRoot);
-        var dictionary = LoadRequiredScenarioCommandDictionary(project);
-        var effectiveLimit = NormalizeLimit(limit, 100, 1000);
-        var effectiveMaxFiles = NormalizeLimit(maxFiles, 20, 200);
-        var candidatePaths = ResolveScenarioSearchFiles(project, relativePath, fileKind)
-            .Take(effectiveMaxFiles)
-            .ToList();
-        var matches = new List<object>();
-        var errors = new List<object>();
-
-        foreach (var path in candidatePaths)
-        {
-            try
-            {
-                var document = _legacyScenarioReader.Read(path, dictionary);
-                foreach (var command in document.EnumerateCommands().Where(command => MatchesLegacyCommandKeyword(command, keyword)))
-                {
-                    if (matches.Count >= effectiveLimit) break;
-                    matches.Add(new
-                    {
-                        Kind = "Command",
-                        FileName = Path.GetFileName(path),
-                        RelativePath = NormalizeProjectRelativePath(project, path),
-                        Command = BuildLegacyScenarioCommandPayload(command)
-                    });
-                }
-
-                if (matches.Count < effectiveLimit)
-                {
-                    foreach (var text in _scenarioTextReader.Read(path, maxItems: 4096).Where(text => MatchesScenarioTextKeyword(text, keyword)))
-                    {
-                        if (matches.Count >= effectiveLimit) break;
-                        matches.Add(new
-                        {
-                            Kind = "Text",
-                            FileName = Path.GetFileName(path),
-                            RelativePath = NormalizeProjectRelativePath(project, path),
-                            text.Index,
-                            text.OffsetHex,
-                            text.ByteLength,
-                            TextKind = text.Kind,
-                            Preview = TrimForMcp(FirstNonEmpty(text.Preview, text.Text), 400),
-                            Text = TrimForMcp(text.Text, 800),
-                            text.Annotation
-                        });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                errors.Add(new
-                {
-                    FileName = Path.GetFileName(path),
-                    RelativePath = NormalizeProjectRelativePath(project, path),
-                    Error = ex.Message
-                });
-            }
-
-            if (matches.Count >= effectiveLimit) break;
-        }
-
-        return new
-        {
-            project.GameRoot,
-            Keyword = keyword,
-            FilesScanned = candidatePaths.Count,
-            ReturnedMatches = matches.Count,
-            Errors = errors,
-            Matches = matches,
-            SafetyNote = "Read-only R/S eex search. Use read_scenario_commands before any manual planning; structure writes are not exposed here."
-        };
-    }
-
-    public object WriteScenarioTexts(string? gameRoot, string relativePath, List<ScenarioTextUpdate> updates, string? writeMode)
-    {
-        if (updates.Count == 0) throw new InvalidOperationException("updates must contain at least one scenario text update.");
-
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var filePath = ResolveProjectFile(project, relativePath, mustExist: true);
-        EnsureScenarioTargetAllowed(project, filePath);
-        var normalizedRelative = NormalizeProjectRelativePath(project, filePath);
-        var entries = _scenarioTextReader.Read(filePath, maxItems: 4096).ToList();
-
-        foreach (var update in updates)
-        {
-            var entry = entries.FirstOrDefault(x => x.Index == update.Index)
-                ?? throw new InvalidOperationException($"Scenario text index {update.Index} was not found.");
-            entry.Text = update.Text ?? string.Empty;
-        }
-
-        var save = _scenarioTextWriter.SaveInPlace(project, normalizedRelative, entries, "MCP scenario text write");
-
-        return new
-        {
-            save.FilePath,
-            save.BackupPath,
-            save.ReportJsonPath,
-            save.EntriesWritten,
-            save.ChangedBytes,
-            RelativePath = normalizedRelative
-        };
-    }
-
-    public object ListHexzmapBlocks(string? gameRoot, string? keyword, bool editableOnly, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var terrainLookup = BuildTerrainNameLookup(project);
-        var probe = _hexzmapProbeReader.Read(project, terrainLookup);
-        var effectiveLimit = NormalizeLimit(limit, 200, 1000);
-        var filtered = probe.Blocks
-            .Where(block => !editableOnly || block.CanEdit)
-            .Where(block => MatchesHexzmapBlockKeyword(block, keyword))
-            .ToList();
-
-        return new
-        {
-            project.GameRoot,
-            HexzmapPath = probe.Path,
-            probe.Magic,
-            probe.MagicValid,
-            probe.PayloadOffset,
-            probe.PayloadLength,
-            DirectoryTableOffsetHex = "0x" + probe.DirectoryTableOffset.ToString("X", CultureInfo.InvariantCulture),
-            DirectoryEntryCount = probe.DirectoryEntries.Count,
-            TotalBlocks = filtered.Count,
-            ReturnedBlocks = Math.Min(filtered.Count, effectiveLimit),
-            EditableBlocks = filtered.Count(block => block.CanEdit),
-            TerrainDictionaryCount = terrainLookup.Count,
-            probe.TrailingBytes,
-            Blocks = filtered.Take(effectiveLimit).Select(BuildHexzmapBlockPayload),
-            SafetyNote = "Read-only Hexzmap block listing. Use read_hexzmap_block to inspect cells before write_hexzmap_block."
-        };
-    }
-
-    public object ReadHexzmapBlock(string? gameRoot, string mapId, bool includeCells, int maxRows)
-    {
-        if (string.IsNullOrWhiteSpace(mapId))
-        {
-            throw new InvalidOperationException("map_id is required, for example M000.");
-        }
-
-        var project = LoadProject(gameRoot);
-        var terrainLookup = BuildTerrainNameLookup(project);
-        var probe = _hexzmapProbeReader.Read(project, terrainLookup);
-        var block = probe.Blocks.FirstOrDefault(x => x.MapId.Equals(mapId.Trim(), StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"Hexzmap block {mapId} was not found.");
-        var cells = _hexzmapProbeReader.GetBlockCells(probe, block);
-        var effectiveMaxRows = NormalizeLimit(maxRows, 120, 500);
-        var cellRows = includeCells
-            ? BuildHexzmapCellRows(cells, block.Width, terrainLookup, effectiveMaxRows)
-            : Array.Empty<object>();
-
-        return new
-        {
-            project.GameRoot,
-            HexzmapPath = probe.Path,
-            Block = BuildHexzmapBlockPayload(block),
-            CellCount = cells.Length,
-            ExpectedCellCount = block.Width * block.Height,
-            IncludeCells = includeCells,
-            MaxRows = effectiveMaxRows,
-            ReturnedRows = includeCells ? Math.Min(block.Height, effectiveMaxRows) : 0,
-            RowsTruncated = includeCells && block.Height > effectiveMaxRows,
-            TopTerrains = BuildHexzmapTerrainCounts(cells, terrainLookup),
-            Rows = cellRows,
-            SafetyNote = "Read-only Hexzmap cells. Bounds are x=0..width-1 and y=0..height-1; write_hexzmap_block still enforces write_mode, version guard, backup, and reread verification."
-        };
-    }
-
-    public object WriteHexzmapBlock(string? gameRoot, string mapId, List<HexzmapCellUpdate> changes, string? writeMode)
-    {
-        if (changes.Count == 0) throw new InvalidOperationException("changes must contain at least one Hexzmap cell update.");
-
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var probe = _hexzmapProbeReader.Read(project);
-        var block = probe.Blocks.FirstOrDefault(x => x.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"Hexzmap block {mapId} was not found.");
-        var cells = _hexzmapProbeReader.GetBlockCells(probe, block);
-        if (cells.Length == 0) throw new InvalidOperationException($"Hexzmap block {mapId} has no editable cells.");
-
-        foreach (var change in changes)
-        {
-            if (change.X < 0 || change.X >= block.Width || change.Y < 0 || change.Y >= block.Height)
-            {
-                throw new InvalidOperationException($"Cell ({change.X},{change.Y}) is outside {mapId} bounds {block.Width}x{block.Height}.");
-            }
-
-            if (change.TerrainId < byte.MinValue || change.TerrainId > byte.MaxValue)
-            {
-                throw new InvalidOperationException($"terrain_id must be 0..255. Received {change.TerrainId}.");
-            }
-
-            cells[change.Y * block.Width + change.X] = (byte)change.TerrainId;
-        }
-
-        var save = _hexzmapEditor.SaveBlock(project, probe, block, cells);
-        return new
-        {
-            save.FilePath,
-            save.BackupPath,
-            save.ReportJsonPath,
-            save.BlockIndex,
-            save.MapId,
-            save.OffsetHex,
-            save.ChangedCells,
-            save.ChangedBytes
-        };
-    }
-
-    public object ReplaceMapImage(string? gameRoot, string targetRelativePath, string replacementPath, string? writeMode)
-    {
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
-        var sourcePath = ResolveExternalFile(project, replacementPath);
-        var result = _mapImageReplace.ReplaceMapImage(project, targetPath, sourcePath);
-        return new
-        {
-            result.TargetPath,
-            result.ReplacementPath,
-            result.BackupPath,
-            result.ReportJsonPath,
-            result.OldSizeBytes,
-            result.NewSizeBytes,
-            result.OldWidth,
-            result.OldHeight,
-            result.NewWidth,
-            result.NewHeight,
-            result.ChangedBytesEstimate,
-            result.FormatCheckSummary,
-            result.Warning
-        };
-    }
-
-    public object ListE5ImageEntries(string? gameRoot, string targetRelativePath, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
-        EnsureE5ImageTargetAllowed(project, targetPath);
-        var effectiveLimit = NormalizeLimit(limit, 2000, 10000);
-        var entries = _e5ImageReplace.ReadIndex(targetPath);
-        return new
-        {
-            TargetPath = targetPath,
-            TargetRelativePath = NormalizeProjectRelativePath(project, targetPath),
-            TotalEntries = entries.Count,
-            ReturnedEntries = Math.Min(entries.Count, effectiveLimit),
-            Entries = entries.Take(effectiveLimit).Select(entry => new
-            {
-                entry.ImageNumber,
-                entry.Kind,
-                entry.Length,
-                entry.StoredLength,
-                entry.DecodedLength,
-                entry.IsCompressed,
-                IndexOffsetHex = "0x" + entry.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
-                DataOffsetHex = "0x" + entry.DataOffset.ToString("X", CultureInfo.InvariantCulture),
-                entry.IndexOffset,
-                entry.DataOffset
-            })
-        };
-    }
-
-    public object PreviewE5ImageReplace(string? gameRoot, string targetRelativePath, int imageNumber, string replacementPath, int? sourceImageNumber)
-    {
-        var project = LoadProject(gameRoot);
-        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
-        EnsureE5ImageTargetAllowed(project, targetPath);
-        var sourcePath = ResolveExternalFile(project, replacementPath);
-        var preview = sourceImageNumber.HasValue
-            ? _e5ImageReplace.PreviewReplacementFromEntry(project, targetPath, imageNumber, sourcePath, sourceImageNumber.Value)
-            : _e5ImageReplace.PreviewReplacement(project, targetPath, imageNumber, sourcePath);
-        return BuildE5ImageReplacePayload(preview);
-    }
-
-    public object ReplaceE5ImageEntry(string? gameRoot, string targetRelativePath, int imageNumber, string replacementPath, string? writeMode, int? sourceImageNumber)
-    {
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
-        EnsureE5ImageTargetAllowed(project, targetPath);
-        var sourcePath = ResolveExternalFile(project, replacementPath);
-        var result = sourceImageNumber.HasValue
-            ? _e5ImageReplace.ReplaceFromEntry(project, targetPath, imageNumber, sourcePath, sourceImageNumber.Value)
-            : _e5ImageReplace.Replace(project, targetPath, imageNumber, sourcePath);
-        return new
-        {
-            result.BackupPath,
-            result.ReportPath,
-            result.ReportJsonPath,
-            Preview = BuildE5ImageReplacePayload(result)
-        };
-    }
-
-    public object ReplaceResource(string? gameRoot, string targetRelativePath, string replacementPath, string? writeMode, bool requireSameExtension)
-    {
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
-        EnsureGenericResourceAllowed(project, targetPath);
-        var sourcePath = ResolveExternalFile(project, replacementPath);
-
-        var result = _resourceReplace.Replace(project, targetPath, sourcePath, requireSameExtension);
-
-        return new
-        {
-            result.TargetPath,
-            result.ReplacementPath,
-            result.BackupPath,
-            result.ReportPath,
-            result.ReportJsonPath,
-            result.OldSizeBytes,
-            result.NewSizeBytes,
-            result.ChangedBytesEstimate,
-            result.OldSha256,
-            result.NewSha256,
-            result.FormatCheckSummary,
-            result.FormatWarnings,
-            result.RiskSummary
-        };
-    }
-
-    public object ListProjectResources(string? gameRoot, string? category, string? keyword, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var resources = _gameResourceIndexer.Index(project);
-        var effectiveLimit = NormalizeLimit(limit, 200, 5000);
-        var filtered = resources
-            .Where(item => MatchesResourceCategory(item, category))
-            .Where(item => MatchesResourceKeyword(item, keyword))
-            .ToList();
-
-        return new
-        {
-            project.GameRoot,
-            TotalResources = filtered.Count,
-            ReturnedResources = Math.Min(filtered.Count, effectiveLimit),
-            CategoryCounts = resources
-                .GroupBy(item => item.Category)
-                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new { Category = group.Key, Count = group.Count() }),
-            Resources = filtered.Take(effectiveLimit).Select(item => BuildResourceIndexPayload(project, item)),
-            SafetyNote = "Read-only resource index. Use dedicated write tools for tables, scenario text, Hexzmap, Map images, and E5 image entries; use replace_resource only for non-core resources."
-        };
-    }
-
-    public object RunResourceDiagnostics(string? gameRoot, string? severity, string? category, string? keyword, bool writeReport, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var resources = _gameResourceIndexer.Index(project);
-        var diagnostics = _resourceDiagnosticService.Analyze(resources);
-        var effectiveLimit = NormalizeLimit(limit, 200, 2000);
-        var filtered = diagnostics
-            .Where(item => MatchesResourceDiagnosticSeverity(item, severity))
-            .Where(item => string.IsNullOrWhiteSpace(category) || item.Category.Contains(category, StringComparison.OrdinalIgnoreCase))
-            .Where(item => MatchesResourceDiagnosticKeyword(item, keyword))
-            .ToList();
-        var reportPath = writeReport ? WriteResourceDiagnosticReport(project, filtered) : null;
-
-        return new
-        {
-            project.GameRoot,
-            ReportPath = reportPath,
-            TotalItems = filtered.Count,
-            ReturnedItems = Math.Min(filtered.Count, effectiveLimit),
-            ErrorCount = diagnostics.Count(item => item.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)),
-            WarningCount = diagnostics.Count(item => item.Severity.Equals("Warn", StringComparison.OrdinalIgnoreCase)),
-            InfoCount = diagnostics.Count(item => item.Severity.Equals("Info", StringComparison.OrdinalIgnoreCase)),
-            Categories = diagnostics.Select(item => item.Category).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList(),
-            Items = filtered.Take(effectiveLimit).Select(BuildResourceDiagnosticPayload),
-            SafetyNote = "Read-only resource diagnostics. Findings identify missing, duplicate, naming, format, and map-dimension risks before replacement or release."
-        };
-    }
-
-    public object AuditProject(string? gameRoot, bool writeReport, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var tables = LoadTables(project);
-        var items = _projectAudit.Analyze(project, tables);
-        var effectiveLimit = NormalizeLimit(limit, 200, 1000);
-        var reportPath = writeReport ? _projectAudit.WriteReport(project, items) : null;
-        return new
-        {
-            project.GameRoot,
-            project.IsTestCopy,
-            ReportPath = reportPath,
-            TotalItems = items.Count,
-            ReturnedItems = Math.Min(items.Count, effectiveLimit),
-            ErrorCount = items.Count(item => item.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)),
-            WarningCount = items.Count(item => item.Severity.Equals("Warn", StringComparison.OrdinalIgnoreCase)),
-            InfoCount = items.Count(item => item.Severity.Equals("Info", StringComparison.OrdinalIgnoreCase)),
-            Items = items.Take(effectiveLimit).Select(item => new
-            {
-                item.Severity,
-                item.Category,
-                item.Name,
-                item.Status,
-                item.Detail,
-                item.Path
-            })
-        };
-    }
-
-    public object CreateTestCopy(string? gameRoot)
-    {
-        var project = LoadProject(gameRoot);
-        if (project.IsTestCopy)
-        {
-            throw new InvalidOperationException("create_test_copy must be run from a source project, not an existing test copy.");
-        }
-
-        var progressLines = new List<string>();
-        var progress = new Progress<string>(line =>
-        {
-            if (progressLines.Count < 80) progressLines.Add(line);
-        });
-        var testCopyRoot = _backupManager.CreateTestCopy(project, progress);
-        var testProject = _projectDetector.CreateProjectFromGameRoot(testCopyRoot);
-        return new
-        {
-            SourceGameRoot = project.GameRoot,
-            TestCopyRoot = testCopyRoot,
-            MarkerPath = Path.Combine(testCopyRoot, "_CCZModStudio_TestCopy.txt"),
-            testProject.IsTestCopy,
-            Files = testProject.GetFileStatuses().Select(x => new
-            {
-                x.Name,
-                x.Path,
-                x.Exists,
-                x.SizeBytes,
-                x.Kind
-            }),
-            Progress = progressLines
-        };
-    }
-
-    public object DiffTestCopy(string? gameRoot, bool writeReport, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var items = _testCopyDiff.Analyze(project);
-        var effectiveLimit = NormalizeLimit(limit, 200, 2000);
-        var reportPath = writeReport ? _testCopyDiff.WriteReport(project, items) : null;
-        return new
-        {
-            TestCopyRoot = project.GameRoot,
-            SourceRoot = _testCopyDiff.ReadSourceRoot(project),
-            ReportPath = reportPath,
-            TotalItems = items.Count,
-            ReturnedItems = Math.Min(items.Count, effectiveLimit),
-            ModifiedItems = items.Count(item => item.Status.Equals("已修改", StringComparison.Ordinal)),
-            AddedItems = items.Count(item => item.Status.Equals("新增", StringComparison.Ordinal)),
-            MissingItems = items.Count(item => item.Status.Equals("缺失", StringComparison.Ordinal)),
-            Items = items.Take(effectiveLimit).Select(item => new
-            {
-                item.Status,
-                item.RelativePath,
-                item.SourceSize,
-                item.TestSize,
-                item.SourceSha256,
-                item.TestSha256,
-                item.Detail,
-                item.SourcePath,
-                item.TestPath
-            })
-        };
-    }
-
-    public object CreateReleaseCopy(string? gameRoot)
-    {
-        var project = LoadProject(gameRoot);
-        var diffItems = project.IsTestCopy ? _testCopyDiff.Analyze(project) : Array.Empty<ProjectDiffItem>();
-        var progressLines = new List<string>();
-        var progress = new Progress<string>(line =>
-        {
-            if (progressLines.Count < 120) progressLines.Add(line);
-        });
-        var result = _releasePackage.CreateReleaseCopy(project, diffItems, progress);
-        return new
-        {
-            result.ReleaseRoot,
-            result.ManifestPath,
-            result.FilesCopied,
-            result.BytesCopied,
-            result.ChangedItems,
-            result.ModifiedItems,
-            result.AddedItems,
-            result.MissingItems,
-            Progress = progressLines
-        };
-    }
-
-    public object ListCreatorNotes(string? gameRoot, string? scope, string? keyword, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var notes = _creatorNoteService.Load(project);
-        var effectiveLimit = NormalizeLimit(limit, 100, 1000);
-        var filtered = notes
-            .Where(note => string.IsNullOrWhiteSpace(scope) || note.Scope.Contains(scope, StringComparison.OrdinalIgnoreCase))
-            .Where(note => string.IsNullOrWhiteSpace(keyword) || MatchesCreatorNoteKeyword(note, keyword))
-            .ToList();
-
-        return new
-        {
-            project.GameRoot,
-            StorePath = _creatorNoteService.GetStorePath(project),
-            TotalNotes = filtered.Count,
-            ReturnedNotes = Math.Min(filtered.Count, effectiveLimit),
-            ScopeCounts = notes
-                .GroupBy(note => note.Scope)
-                .OrderByDescending(group => group.Count())
-                .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new { Scope = group.Key, Count = group.Count() }),
-            Summary = _creatorNoteService.BuildSummary(project, notes),
-            Notes = filtered.Take(effectiveLimit).Select(BuildCreatorNotePayload),
-            SafetyNote = "Creator notes are project-side JSON records under CCZModStudio_Notes. They do not modify game files and are excluded from release copies."
-        };
-    }
-
-    public object UpsertCreatorNote(
-        string? gameRoot,
-        string? id,
-        string? scope,
-        string? targetKey,
-        string? title,
-        string content,
-        string? tags,
-        string? sourceHint)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            throw new InvalidOperationException("content is required for a creator note.");
-        }
-
-        var project = LoadProject(gameRoot);
-        var saved = _creatorNoteService.Upsert(project, new CreatorNote
-        {
-            Id = id ?? string.Empty,
-            Scope = scope ?? "全局项目",
-            TargetKey = targetKey ?? string.Empty,
-            Title = title ?? string.Empty,
-            Content = content,
-            Tags = tags ?? string.Empty,
-            SourceHint = sourceHint ?? "MCP"
-        });
-
-        return new
-        {
-            project.GameRoot,
-            StorePath = _creatorNoteService.GetStorePath(project),
-            Note = BuildCreatorNotePayload(saved),
-            SafetyNote = "Saved under CCZModStudio_Notes with JSON backup on overwrite; no game files were modified."
-        };
-    }
-
-    public object DeleteCreatorNote(string? gameRoot, string id)
-    {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            throw new InvalidOperationException("id is required.");
-        }
-
-        var project = LoadProject(gameRoot);
-        var removed = _creatorNoteService.Delete(project, id);
-        return new
-        {
-            project.GameRoot,
-            StorePath = _creatorNoteService.GetStorePath(project),
-            Id = id,
-            Removed = removed,
-            SafetyNote = "Deletion only updates the project-side creator notes JSON under CCZModStudio_Notes."
-        };
-    }
-
-    public object ExportCreatorNotesCsv(string? gameRoot, string? scope, string? keyword)
-    {
-        var project = LoadProject(gameRoot);
-        var notes = _creatorNoteService.Load(project)
-            .Where(note => string.IsNullOrWhiteSpace(scope) || note.Scope.Contains(scope, StringComparison.OrdinalIgnoreCase))
-            .Where(note => string.IsNullOrWhiteSpace(keyword) || MatchesCreatorNoteKeyword(note, keyword))
-            .ToList();
-        var path = _creatorNoteService.ExportCsv(project, notes);
-        return new
-        {
-            project.GameRoot,
-            ExportPath = path,
-            ExportedNotes = notes.Count,
-            SafetyNote = "CSV export is written under CCZModStudio_Exports/CreatorNotes and does not modify game files."
-        };
-    }
-
-    public object ListKnowledgeEntries()
-    {
-        var root = FindKnowledgeRoot();
-        var entries = Directory.Exists(root)
-            ? Directory.GetFiles(root, "*.md", SearchOption.TopDirectoryOnly)
-                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .Select(path => new
-                {
-                    Name = Path.GetFileName(path),
-                    Path = path,
-                    SizeBytes = new FileInfo(path).Length
-                })
-                .ToList()
-            : [];
-
-        return new
-        {
-            KnowledgeRoot = root,
-            Count = entries.Count,
-            Entries = entries
-        };
-    }
-
-    public object ReadKnowledgeEntry(string name)
-    {
-        var root = FindKnowledgeRoot();
-        if (!Directory.Exists(root)) throw new DirectoryNotFoundException(root);
-        var fullPath = ResolveKnowledgeEntryPath(root, name);
-
-        if (!File.Exists(fullPath)) throw new FileNotFoundException("Knowledge entry was not found.", fullPath);
-        return new
-        {
-            Name = Path.GetFileName(fullPath),
-            Path = fullPath,
-            Text = File.ReadAllText(fullPath)
-        };
-    }
-
-    public object SearchKnowledgeEntries(string keyword, int limit, int contextLines)
-    {
-        if (string.IsNullOrWhiteSpace(keyword))
-        {
-            throw new InvalidOperationException("keyword is required.");
-        }
-
-        var root = FindKnowledgeRoot();
-        if (!Directory.Exists(root)) throw new DirectoryNotFoundException(root);
-        var effectiveLimit = NormalizeLimit(limit, 50, 500);
-        var effectiveContextLines = contextLines < 0 ? 0 : Math.Min(contextLines, 3);
-        var matches = new List<object>();
-        var totalMatches = 0;
-
-        foreach (var path in Directory.GetFiles(root, "*.md", SearchOption.TopDirectoryOnly)
-                     .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
-        {
-            var lines = File.ReadAllLines(path);
-            for (var i = 0; i < lines.Length; i++)
-            {
-                if (!lines[i].Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                totalMatches++;
-                if (matches.Count >= effectiveLimit)
-                {
-                    continue;
-                }
-
-                var snippetStart = Math.Max(0, i - effectiveContextLines);
-                var snippetEnd = Math.Min(lines.Length - 1, i + effectiveContextLines);
-                matches.Add(new
-                {
-                    Name = Path.GetFileName(path),
-                    Path = path,
-                    LineNumber = i + 1,
-                    MatchedLine = lines[i].Trim(),
-                    Snippet = string.Join(Environment.NewLine, lines.Skip(snippetStart).Take(snippetEnd - snippetStart + 1))
-                });
-            }
-        }
-
-        return new
-        {
-            KnowledgeRoot = root,
-            Keyword = keyword,
-            TotalMatches = totalMatches,
-            ReturnedMatches = matches.Count,
-            ContextLines = effectiveContextLines,
-            Matches = matches
-        };
-    }
-
-    public object ListScenarioCommandTemplates(string? gameRoot, string? keyword, string? category, string? status, int limit)
-    {
-        var project = LoadProject(gameRoot);
-        var (dictionary, dictionaryPath) = LoadScenarioCommandDictionary(project);
-        var effectiveLimit = NormalizeLimit(limit, 100, 1000);
-        var filtered = _scenarioCommandTemplates.BuildCatalogItems(dictionary)
-            .Where(item => MatchesScenarioCommandKeyword(item, keyword))
-            .Where(item => string.IsNullOrWhiteSpace(category) || item.Category.Contains(category, StringComparison.OrdinalIgnoreCase))
-            .Where(item => string.IsNullOrWhiteSpace(status) || item.Status.Contains(status, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        return new
-        {
-            project.GameRoot,
-            SceneDictionaryPath = dictionaryPath,
-            DictionaryLoaded = dictionary != null,
-            DictionaryCommandCount = dictionary?.Commands.Count ?? 0,
-            TotalItems = filtered.Count,
-            ReturnedItems = Math.Min(filtered.Count, effectiveLimit),
-            CoveredItems = filtered.Count(item => item.Status.Equals("已覆盖", StringComparison.Ordinal)),
-            MissingItems = filtered.Count(item => item.Status.Equals("待补充", StringComparison.Ordinal)),
-            Categories = filtered.Select(item => item.Category).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList(),
-            Items = filtered.Take(effectiveLimit).Select(BuildScenarioCommandTemplatePayload)
-        };
-    }
-
-    public object ReadScenarioCommandTemplate(string command, string? gameRoot)
-    {
-        if (string.IsNullOrWhiteSpace(command))
-        {
-            throw new InvalidOperationException("command is required. Use a command id such as 0x78 or a command/template name.");
-        }
-
-        var project = LoadProject(gameRoot);
-        var (dictionary, dictionaryPath) = LoadScenarioCommandDictionary(project);
-        var items = _scenarioCommandTemplates.BuildCatalogItems(dictionary);
-        var matches = FindScenarioCommandTemplates(items, command.Trim()).ToList();
-
-        if (matches.Count == 0)
-        {
-            return new
-            {
-                project.GameRoot,
-                SceneDictionaryPath = dictionaryPath,
-                DictionaryLoaded = dictionary != null,
-                Query = command,
-                MatchCount = 0,
-                Message = "No scenario command template matched the query."
-            };
-        }
-
-        if (matches.Count > 1)
-        {
-            return new
-            {
-                project.GameRoot,
-                SceneDictionaryPath = dictionaryPath,
-                DictionaryLoaded = dictionary != null,
-                Query = command,
-                MatchCount = matches.Count,
-                Message = "Multiple scenario command templates matched the query. Use a precise id such as 0x78.",
-                Candidates = matches.Take(20).Select(BuildScenarioCommandTemplatePayload)
-            };
-        }
-
-        var item = matches[0];
-        return new
-        {
-            project.GameRoot,
-            SceneDictionaryPath = dictionaryPath,
-            DictionaryLoaded = dictionary != null,
-            Query = command,
-            MatchCount = 1,
-            Template = BuildScenarioCommandTemplatePayload(item),
-            Detail = _scenarioCommandTemplates.BuildCatalogItemDetail(item)
-        };
-    }
+    private readonly EffectPackageService _effectPackageService = new();
 
     private CczProject LoadProject(string? gameRoot)
     {
@@ -1578,6 +570,332 @@ public sealed class CczMcpRuntime
             item.Path
         };
 
+    private static bool MatchesImageResourceKeyword(ImageResourceFileInfo resource, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        keyword = keyword.Trim();
+        return resource.Key.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.Category.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.DisplayName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.FileName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.Aliases.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.Usage.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.RelativePath.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.Path.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.ResourceFormat.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.KindSummary.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               resource.Status.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesImageResourceEntryKeyword(ImageResourceEntryInfo entry, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        keyword = keyword.Trim();
+        return entry.ResourceKey.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               entry.Category.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               entry.ResourceName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               entry.FileName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               entry.Kind.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               entry.Usage.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+               entry.Path.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private ImageResourceFileInfo ResolveImageResource(CczProject project, string resource)
+    {
+        if (string.IsNullOrWhiteSpace(resource))
+        {
+            throw new InvalidOperationException("resource is required.");
+        }
+
+        var query = resource.Trim();
+        var catalog = _imageResourceCatalog.BuildCatalog(project);
+        var normalizedQuery = query.Replace('/', Path.DirectorySeparatorChar);
+        var exact = catalog.FirstOrDefault(item =>
+            item.Key.Equals(query, StringComparison.OrdinalIgnoreCase) ||
+            item.FileName.Equals(query, StringComparison.OrdinalIgnoreCase) ||
+            item.DisplayName.Equals(query, StringComparison.OrdinalIgnoreCase) ||
+            item.RelativePath.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase) ||
+            item.Path.Equals(query, StringComparison.OrdinalIgnoreCase));
+        if (exact != null) return exact;
+
+        var targetPath = ResolveOptionalProjectFile(project, query);
+        if (targetPath != null)
+        {
+            exact = catalog.FirstOrDefault(item => item.Path.Equals(targetPath, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+        }
+
+        var matches = catalog.Where(item => MatchesImageResourceKeyword(item, query)).ToList();
+        if (matches.Count == 1) return matches[0];
+        if (matches.Count > 1)
+        {
+            var names = string.Join(", ", matches.Take(12).Select(item => item.Key + "/" + item.FileName));
+            throw new InvalidOperationException($"Image resource query matched multiple resources. Use a more precise key or file name. Matches: {names}");
+        }
+
+        throw new InvalidOperationException("Image resource was not found: " + resource);
+    }
+
+    private static object BuildImageResourcePayload(CczProject project, ImageResourceFileInfo resource)
+        => new
+        {
+            resource.Key,
+            resource.Category,
+            resource.DisplayName,
+            resource.FileName,
+            resource.Aliases,
+            resource.Usage,
+            resource.RelativePath,
+            ProjectRelativePath = TryNormalizeProjectRelativePath(project, resource.Path),
+            resource.Path,
+            resource.Exists,
+            resource.SizeBytes,
+            resource.EntryCount,
+            resource.SupportsE5Index,
+            resource.SupportsPreview,
+            resource.CanReplace,
+            resource.ResourceFormat,
+            resource.KindSummary,
+            resource.Status,
+            resource.SafetyNote
+        };
+
+    private static object BuildImageResourceEntryPayload(CczProject project, ImageResourceEntryInfo entry)
+        => new
+        {
+            entry.ResourceKey,
+            entry.Category,
+            entry.ResourceName,
+            entry.FileName,
+            ProjectRelativePath = TryNormalizeProjectRelativePath(project, entry.Path),
+            entry.Path,
+            entry.ImageNumber,
+            IndexOffsetHex = "0x" + entry.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
+            DataOffsetHex = "0x" + entry.DataOffset.ToString("X", CultureInfo.InvariantCulture),
+            entry.IndexOffset,
+            entry.DataOffset,
+            entry.StoredLength,
+            entry.DecodedLength,
+            entry.IsCompressed,
+            entry.Kind,
+            entry.Usage,
+            entry.CanReplace
+        };
+
+    private object BuildAiImageReplacementPreview(CczProject project, AiImagePromptPlan plan, string outputPath)
+    {
+        if (plan.Preset.TargetKind == "dll_icon")
+        {
+            var targetPath = ResolveDllIconTarget(project, plan.TargetRelativePath);
+            var iconIndex = plan.TargetImageNumbers.FirstOrDefault();
+            return BuildDllIconReplacePayload(_iconResourceReplace.PreviewReplaceBitmapIcon(project, targetPath, iconIndex, outputPath));
+        }
+
+        if (plan.TargetImageNumbers.Count > 1 || plan.Preset.TargetKind == "e5_batch")
+        {
+            var targetPath = ResolveProjectFile(project, plan.TargetRelativePath, mustExist: true);
+            EnsureE5ImageTargetAllowed(project, targetPath);
+            var requests = plan.TargetImageNumbers.Select(imageNumber => new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = imageNumber,
+                SourcePath = outputPath,
+                SourceLabel = outputPath,
+                OperationKind = "AI生成预览替换"
+            }).ToArray();
+            return BuildE5ImageBatchReplacePayload(_e5ImageReplace.PreviewBatchReplacement(project, targetPath, requests));
+        }
+
+        var e5TargetPath = ResolveProjectFile(project, plan.TargetRelativePath, mustExist: true);
+        EnsureE5ImageTargetAllowed(project, e5TargetPath);
+        return BuildE5ImageReplacePayload(_e5ImageReplace.PreviewReplacement(project, e5TargetPath, plan.TargetImageNumbers.First(), outputPath));
+    }
+
+    private static object BuildAiImagePromptPlanPayload(AiImagePromptPlan plan)
+        => new
+        {
+            Preset = plan.Preset,
+            plan.Description,
+            plan.Prompt,
+            plan.NegativePrompt,
+            plan.TargetRelativePath,
+            plan.TargetImageNumbers,
+            plan.TargetWidth,
+            plan.TargetHeight,
+            plan.OutputFormat,
+            plan.GenerationSize,
+            plan.Quality,
+            plan.MappingSummary,
+            plan.Warnings,
+            SafetyNote = "AI 绘图计划只描述生成、后处理和替换预览，不直接写入游戏资源。"
+        };
+
+    private static object BuildAiImagePreparePayload(AiImagePrepareResult result)
+        => new
+        {
+            Plan = BuildAiImagePromptPlanPayload(result.Plan),
+            result.SourcePath,
+            result.OutputPath,
+            result.ManifestPath,
+            result.SourceWidth,
+            result.SourceHeight,
+            result.OutputWidth,
+            result.OutputHeight,
+            result.OutputFormat,
+            result.SourceSha256,
+            result.OutputSha256,
+            result.PostProcessSummary,
+            result.ReplacementPreview,
+            PreparedFiles = result.PreparedFiles.Select(BuildAiImagePreparedFilePayload)
+        };
+
+    private static object BuildAiImagePreparedFilePayload(AiImagePreparedFile file)
+        => new
+        {
+            file.Role,
+            file.TargetRelativePath,
+            file.TargetImageNumbers,
+            file.OutputPath,
+            file.OutputWidth,
+            file.OutputHeight,
+            file.OutputSha256,
+            file.ReplacementPreview
+        };
+
+    private static object BuildAiImageDrawPayload(AiImageDrawResult result)
+        => new
+        {
+            result.DryRun,
+            Plan = BuildAiImagePromptPlanPayload(result.Plan),
+            result.Provider,
+            result.ApiMode,
+            result.BaseUrl,
+            result.TextModel,
+            result.ImageModel,
+            result.RawResponsePath,
+            result.GeneratedSourcePath,
+            Prepared = result.Prepared == null ? null : BuildAiImagePreparePayload(result.Prepared),
+            result.Logs
+        };
+
+    private List<E5ImageBatchReplaceRequest> BuildE5ImageBatchRequests(CczProject project, IReadOnlyList<E5ImageBatchUpdate> updates)
+    {
+        if (updates.Count == 0)
+        {
+            throw new InvalidOperationException("updates must contain at least one E5 image batch update.");
+        }
+
+        var requests = new List<E5ImageBatchReplaceRequest>();
+        foreach (var update in updates)
+        {
+            if (update.ImageNumber <= 0)
+            {
+                throw new InvalidOperationException("image_number must be positive.");
+            }
+
+            var sourcePath = ResolveExternalFile(project, update.ReplacementPath);
+            var sourceLabel = sourcePath;
+            byte[]? sourceBytes = null;
+            if (update.SourceImageNumber.HasValue)
+            {
+                if (update.SourceImageNumber.Value <= 0)
+                {
+                    throw new InvalidOperationException("source_image_number must be positive when supplied.");
+                }
+
+                sourceBytes = _e5ImageReplace.ReadEntryBytes(sourcePath, update.SourceImageNumber.Value);
+                sourceLabel = $"{sourcePath}#{update.SourceImageNumber.Value}";
+            }
+
+            requests.Add(new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = update.ImageNumber,
+                SourcePath = sourcePath,
+                SourceBytes = sourceBytes,
+                SourceLabel = sourceLabel,
+                OperationKind = string.IsNullOrWhiteSpace(update.OperationKind) ? "replace" : update.OperationKind
+            });
+        }
+
+        return requests;
+    }
+
+    private static object BuildE5ImageBatchReplacePayload(E5ImageBatchReplacePreviewResult preview)
+        => new
+        {
+            preview.TargetPath,
+            preview.TargetRelativePath,
+            preview.OperationCount,
+            preview.OldFileSizeBytes,
+            preview.NewFileSizeBytes,
+            preview.FileSizeDeltaBytes,
+            preview.ChangedBytesEstimate,
+            preview.OldFileSha256,
+            preview.NewFileSha256,
+            preview.FormatWarnings,
+            preview.RiskSummary,
+            Operations = preview.Operations.Select(operation => new
+            {
+                operation.ImageNumber,
+                IndexOffsetHex = "0x" + operation.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
+                OldDataOffsetHex = "0x" + operation.OldDataOffset.ToString("X", CultureInfo.InvariantCulture),
+                NewDataOffsetHex = "0x" + operation.NewDataOffset.ToString("X", CultureInfo.InvariantCulture),
+                operation.IndexOffset,
+                operation.OldDataOffset,
+                operation.NewDataOffset,
+                operation.OldSizeBytes,
+                operation.NewSizeBytes,
+                operation.OldKind,
+                operation.NewKind,
+                operation.SourcePath,
+                operation.OperationKind,
+                operation.SourceSha256,
+                operation.SourceWidth,
+                operation.SourceHeight,
+                operation.Placement,
+                operation.FormatWarnings
+            })
+        };
+
+    private static object BuildDllIconReplacePayload(IconResourceReplacePreviewResult preview)
+        => new
+        {
+            preview.TargetPath,
+            preview.TargetRelativePath,
+            preview.IconIndex,
+            preview.ResourceIds,
+            preview.SourcePath,
+            preview.OperationKind,
+            preview.OldFileSizeBytes,
+            preview.SourceSizeBytes,
+            preview.OldFileSha256,
+            preview.SourceSha256,
+            preview.SourceWidth,
+            preview.SourceHeight,
+            preview.ResourceFormat,
+            preview.FormatWarnings,
+            preview.RiskSummary
+        };
+
+    private static object BuildResourceReplacePreviewPayload(ResourceReplacePreviewResult preview)
+        => new
+        {
+            preview.TargetPath,
+            preview.TargetRelativePath,
+            preview.ReplacementPath,
+            preview.Extension,
+            preview.OldSizeBytes,
+            preview.NewSizeBytes,
+            preview.SizeDeltaBytes,
+            preview.ChangedBytesEstimate,
+            preview.ChangedPercent,
+            preview.OldSha256,
+            preview.NewSha256,
+            preview.IsContentIdentical,
+            preview.FormatCheckSummary,
+            preview.FormatWarnings,
+            preview.RiskSummary
+        };
+
     private static bool MatchesResourceDiagnosticSeverity(ResourceDiagnosticItem item, string? severity)
     {
         if (string.IsNullOrWhiteSpace(severity)) return true;
@@ -1709,6 +1027,191 @@ public sealed class CczMcpRuntime
         };
     }
 
+    private IReadOnlyList<ProjectDiffItem> SafeAnalyzeDiff(CczProject project)
+    {
+        if (!project.IsTestCopy)
+        {
+            return Array.Empty<ProjectDiffItem>();
+        }
+
+        try
+        {
+            return _testCopyDiff.Analyze(project);
+        }
+        catch
+        {
+            return Array.Empty<ProjectDiffItem>();
+        }
+    }
+
+    private IReadOnlyList<BackupHistoryItem> SafeScanBackups(CczProject project)
+    {
+        try
+        {
+            return _backupHistoryService.Scan(project);
+        }
+        catch
+        {
+            return Array.Empty<BackupHistoryItem>();
+        }
+    }
+
+    private IReadOnlyList<ScenarioMapLinkInfo> BuildScenarioMapLinks(CczProject project, IReadOnlyList<ResourceIndexItem> resources)
+    {
+        try
+        {
+            var scenarios = _scenarioFileReader.ReadAllIndex(project)
+                .Where(file => MatchesScenarioFileKind(file, "S"))
+                .ToList();
+            var terrainLookup = BuildTerrainNameLookup(project);
+            var hexzmap = _hexzmapProbeReader.Read(project, terrainLookup);
+            return _scenarioMapLinkService.BuildLinks(scenarios, resources, hexzmap);
+        }
+        catch
+        {
+            return Array.Empty<ScenarioMapLinkInfo>();
+        }
+    }
+
+    private static bool MatchesProjectEvidenceKeyword(ProjectEvidenceItem item, string? keyword)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return true;
+        keyword = keyword.Trim();
+        return ContainsIgnoreCase(item.Category, keyword) ||
+               ContainsIgnoreCase(item.Kind, keyword) ||
+               ContainsIgnoreCase(item.FileName, keyword) ||
+               ContainsIgnoreCase(item.SourceRoot, keyword) ||
+               ContainsIgnoreCase(item.FullPath, keyword) ||
+               ContainsIgnoreCase(item.Annotation, keyword) ||
+               ContainsIgnoreCase(item.SuggestedUse, keyword) ||
+               ContainsIgnoreCase(item.SafetyNote, keyword);
+    }
+
+    private static object BuildProjectEvidencePayload(ProjectEvidenceItem item)
+        => new
+        {
+            item.Category,
+            item.Kind,
+            item.FileName,
+            item.SourceRoot,
+            item.FullPath,
+            item.LastWriteTimeText,
+            item.SizeBytes,
+            item.SizeText,
+            item.Annotation,
+            item.SuggestedUse,
+            item.SafetyNote
+        };
+
+    private ProjectEvidenceItem ResolveProjectEvidenceItem(CczProject project, string pathOrFile)
+    {
+        var evidence = _projectEvidenceService.Scan(project, maxItems: 1000);
+        var query = pathOrFile.Trim();
+        var aliasMatch = ResolveProjectEvidenceAlias(evidence, query);
+        if (aliasMatch != null)
+        {
+            return aliasMatch;
+        }
+
+        var normalizedQuery = query.Replace('/', Path.DirectorySeparatorChar);
+
+        var exactFullPath = evidence
+            .FirstOrDefault(item => item.FullPath.Equals(Path.GetFullPath(normalizedQuery), StringComparison.OrdinalIgnoreCase));
+        if (exactFullPath != null)
+        {
+            return exactFullPath;
+        }
+
+        var relativeMatches = evidence
+            .Where(item =>
+                TryRelativeEvidencePath(project, item.FullPath).Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase) ||
+                Path.GetFileName(item.FullPath).Equals(query, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (relativeMatches.Count == 1)
+        {
+            return relativeMatches[0];
+        }
+
+        if (relativeMatches.Count > 1)
+        {
+            var candidates = string.Join(", ", relativeMatches.Take(12).Select(item => TryRelativeEvidencePath(project, item.FullPath)));
+            throw new InvalidOperationException("Evidence file name matched multiple files. Use a more specific relative path. Matches: " + candidates);
+        }
+
+        throw new FileNotFoundException("Project evidence was not found by list_project_evidence.", query);
+    }
+
+    private static ProjectEvidenceItem? ResolveProjectEvidenceAlias(IReadOnlyList<ProjectEvidenceItem> evidence, string query)
+    {
+        if (evidence.Count == 0 || string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        var normalized = query.Trim().TrimStart('@').Replace("-", "_", StringComparison.Ordinal).ToLowerInvariant();
+        if (normalized is "latest" or "latest_evidence")
+        {
+            return evidence
+                .OrderByDescending(item => item.LastWriteTime)
+                .FirstOrDefault();
+        }
+
+        if (normalized is "latest_important" or "important")
+        {
+            return evidence.FirstOrDefault();
+        }
+
+        if (normalized is "latest_delivery_report" or "delivery_report" or "project_delivery_report")
+        {
+            return evidence
+                .Where(item => item.Kind.Equals("发布前综合报告", StringComparison.Ordinal))
+                .OrderByDescending(item => item.LastWriteTime)
+                .FirstOrDefault();
+        }
+
+        if (normalized is "latest_write_report" or "write_report")
+        {
+            return evidence
+                .Where(item => item.Kind.Equals("结构化写入报告", StringComparison.Ordinal))
+                .OrderByDescending(item => item.LastWriteTime)
+                .FirstOrDefault();
+        }
+
+        return null;
+    }
+
+    private static string TryRelativeEvidencePath(CczProject project, string fullPath)
+    {
+        try
+        {
+            var workspaceRoot = Path.GetFullPath(project.WorkspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var gameRoot = Path.GetFullPath(project.GameRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalized = Path.GetFullPath(fullPath);
+            if (normalized.StartsWith(workspaceRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetRelativePath(workspaceRoot, normalized);
+            }
+
+            if (normalized.StartsWith(gameRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetRelativePath(gameRoot, normalized);
+            }
+        }
+        catch
+        {
+            // Fall through to file name for malformed paths.
+        }
+
+        return Path.GetFileName(fullPath);
+    }
+
+    private static bool IsTextEvidenceExtension(string extension)
+        => extension.Equals(".md", StringComparison.OrdinalIgnoreCase) ||
+           extension.Equals(".txt", StringComparison.OrdinalIgnoreCase) ||
+           extension.Equals(".json", StringComparison.OrdinalIgnoreCase) ||
+           extension.Equals(".csv", StringComparison.OrdinalIgnoreCase);
+
     private static string WriteResourceDiagnosticReport(CczProject project, IReadOnlyList<ResourceDiagnosticItem> items)
     {
         var reportRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Reports");
@@ -1760,11 +1263,6 @@ public sealed class CczMcpRuntime
             throw new InvalidOperationException("write_mode must be direct or test_copy.");
         }
 
-        if (normalized == "test_copy" && !project.IsTestCopy)
-        {
-            throw new InvalidOperationException("write_mode=test_copy requires a project with _CCZModStudio_TestCopy.txt.");
-        }
-
         return normalized;
     }
 
@@ -1791,6 +1289,18 @@ public sealed class CczMcpRuntime
         }
 
         return fullPath;
+    }
+
+    private static string? ResolveOptionalProjectFile(CczProject project, string relativeOrAbsolutePath)
+    {
+        try
+        {
+            return ResolveProjectFile(project, relativeOrAbsolutePath, mustExist: false);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string NormalizeProjectRelativePath(CczProject project, string fullPath)
@@ -1840,6 +1350,25 @@ public sealed class CczMcpRuntime
         return found;
     }
 
+    private static string ResolveDllIconTarget(CczProject project, string targetRelativePath)
+    {
+        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
+        if (!Path.GetExtension(targetPath).Equals(".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("DLL icon target must be a .dll file.");
+        }
+
+        var fileName = Path.GetFileName(targetPath);
+        if (!fileName.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase) &&
+            !fileName.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase) &&
+            !fileName.Equals("Cmdicon.dll", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("DLL icon replacement is currently limited to Itemicon.dll, Mgcicon.dll, and Cmdicon.dll.");
+        }
+
+        return targetPath;
+    }
+
     private static void EnsureGenericResourceAllowed(CczProject project, string targetPath)
     {
         var fileName = Path.GetFileName(targetPath);
@@ -1855,6 +1384,18 @@ public sealed class CczMcpRuntime
         }
 
         _ = NormalizeProjectRelativePath(project, targetPath);
+    }
+
+    private static string MakeSafeFileStem(string value)
+    {
+        var stem = Path.GetFileNameWithoutExtension(value);
+        if (string.IsNullOrWhiteSpace(stem)) stem = "preview";
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            stem = stem.Replace(invalid, '_');
+        }
+
+        return stem.Replace(' ', '_');
     }
 
     private static void EnsureE5ImageTargetAllowed(CczProject project, string targetPath)

@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Drawing;
+using System.Text.RegularExpressions;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;

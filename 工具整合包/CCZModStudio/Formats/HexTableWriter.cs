@@ -22,16 +22,6 @@ public sealed class HexTableWriter
             throw new InvalidOperationException("表结构或目标文件不可写，请先查看诊断信息。 ");
         }
 
-        if (table.ReadOnly)
-        {
-            throw new InvalidOperationException("该表被标记为 ReadOnly，当前版本不允许写入。 ");
-        }
-
-        if (ItemEffectNameReader.IsItemEffectNameTable(table))
-        {
-            throw new InvalidOperationException("装备特效名称表使用 00 分隔的变长字符串，当前只开放正确读取；请通过“宝物设定 -> 宝物特效”维护项目侧特效目录。 ");
-        }
-
         if (data.Rows.Count != table.RowCount)
         {
             throw new InvalidOperationException($"行数不匹配：表定义 {table.RowCount} 行，当前数据 {data.Rows.Count} 行。 ");
@@ -56,6 +46,19 @@ public sealed class HexTableWriter
             {
                 if (!field.ConsumesBytes)
                 {
+                    if (CanWriteSingleZeroSizeRowStringField(table, field) && dataColumnIndex < data.Columns.Count)
+                    {
+                        var zeroSizeValue = data.Rows[rowIndex][dataColumnIndex];
+                        if (IsCellChanged(data.Rows[rowIndex], dataColumnIndex))
+                        {
+                            var encoded = EncodingService.EncodeFixedString(
+                                Convert.ToString(zeroSizeValue, CultureInfo.InvariantCulture) ?? string.Empty,
+                                table.RowSize);
+                            Buffer.BlockCopy(encoded, 0, rowBuffer, 0, table.RowSize);
+                            changes.Add(BuildFieldChange(table, data.Rows[rowIndex], rowIndex, dataColumnIndex, field, rowOffset, table.RowSize));
+                        }
+                    }
+
                     dataColumnIndex++;
                     continue;
                 }
@@ -141,13 +144,20 @@ public sealed class HexTableWriter
         return _reportService.WriteJsonReport(report, backupPath);
     }
 
+    private static bool CanWriteSingleZeroSizeRowStringField(HexTableDefinition table, HexFieldDefinition field)
+        => table.Fields.Count == 1 &&
+           field.Size == 0 &&
+           table.RowSize > 0 &&
+           !field.Kind.Equals(HexFieldKind.Derived);
+
     private static WriteOperationChange BuildFieldChange(
         HexTableDefinition table,
         System.Data.DataRow row,
         int rowIndex,
         int columnIndex,
         HexFieldDefinition field,
-        long absoluteOffset)
+        long absoluteOffset,
+        int? byteLength = null)
     {
         var oldValue = row.HasVersion(System.Data.DataRowVersion.Original)
             ? Convert.ToString(row[columnIndex, System.Data.DataRowVersion.Original], CultureInfo.InvariantCulture) ?? string.Empty
@@ -160,7 +170,7 @@ public sealed class HexTableWriter
             RowIndex = rowIndex,
             ColumnName = field.ColumnName,
             OffsetHex = "0x" + absoluteOffset.ToString("X", CultureInfo.InvariantCulture),
-            ByteLength = field.Size,
+            ByteLength = byteLength ?? field.Size,
             OldValue = oldValue,
             NewValue = newValue,
             Annotation = $"表“{table.TableName}”第 {rowIndex} 行字段“{field.ColumnName}”从“{oldValue}”改为“{newValue}”。"

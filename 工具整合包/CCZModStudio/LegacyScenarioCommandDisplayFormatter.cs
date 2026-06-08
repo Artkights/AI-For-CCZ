@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio;
@@ -192,7 +193,7 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
         => At(_dataSources.Person1, LegacyMfcDialogDataSources.Per1CodeToList(code));
 
     private string Per2(int code)
-        => At(_dataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(code));
+        => ScriptVariableValueResolver.FormatPerson2Reference(code);
 
     private string ItemName(int index)
         => At(_dataSources.Item, Math.Clamp(index, 0, Math.Max(0, _dataSources.Item.Count - 1)));
