@@ -553,6 +553,26 @@ internal partial class Program
             {
                 throw new InvalidOperationException($"R 场景对白预览头像缺失占位断言失败：face={missingFacePixels}, text={missingFaceTextPixels}, command={missingFaceCommand.CommandIdHex}");
             }
+
+            var unresolvedSpeakerCommand = BuildRSceneDialoguePreviewUnresolvedSpeakerCommand(talkCommand);
+            using var unresolvedSpeakerCanvas = new Bitmap(640, 400);
+            using (var graphics = Graphics.FromImage(unresolvedSpeakerCanvas))
+            {
+                graphics.Clear(Color.FromArgb(36, 56, 72));
+            }
+
+            var unresolvedSpeakerResult = service.RenderPreviewOnImage(unresolvedSpeakerCanvas, project, unresolvedSpeakerCommand, people);
+            if (!unresolvedSpeakerResult.Applied)
+            {
+                throw new InvalidOperationException("R 场景对白预览未解析说话人用例未应用：" + unresolvedSpeakerResult.Message);
+            }
+
+            var unresolvedSpeakerFacePixels = CountBrightPixels(unresolvedSpeakerCanvas, new Rectangle(508, 286, 120, 112));
+            var unresolvedSpeakerTextPixels = CountBrightPixels(unresolvedSpeakerCanvas, new Rectangle(108, 306, 492, 70));
+            if (unresolvedSpeakerFacePixels < 20 || unresolvedSpeakerTextPixels < 20)
+            {
+                throw new InvalidOperationException($"R 场景对白预览未解析说话人占位断言失败：face={unresolvedSpeakerFacePixels}, text={unresolvedSpeakerTextPixels}, command={unresolvedSpeakerCommand.CommandIdHex}");
+            }
         }
 
         var output = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", $"Smoke_RSceneDialoguePreview_{Guid.NewGuid():N}.png");
@@ -598,6 +618,37 @@ internal partial class Program
         return command;
     }
 
+    static LegacyScenarioCommandNode BuildRSceneDialoguePreviewUnresolvedSpeakerCommand(LegacyScenarioCommandNode source)
+    {
+        var text = source.TextParameters.FirstOrDefault(parameter => !string.IsNullOrWhiteSpace(parameter.Text))?.Text ?? "说话人头像占位测试";
+        var command = new LegacyScenarioCommandNode
+        {
+            SceneIndex = source.SceneIndex,
+            SectionIndex = source.SectionIndex,
+            CommandIndex = source.CommandIndex,
+            CommandOrdinal = source.CommandOrdinal,
+            CommandId = source.CommandId is 0x14 or 0x15 or 0x7A ? source.CommandId : 0x14,
+            CommandName = source.CommandId is 0x14 or 0x15 or 0x7A ? source.CommandName : "对话",
+            FileOffset = source.FileOffset,
+            ConsumedBytes = source.ConsumedBytes
+        };
+        command.Parameters.Add(new LegacyScenarioCommandParameter
+        {
+            Index = 0,
+            Kind = LegacyScenarioParameterKind.Word16,
+            IntValue = -9999,
+            ByteLength = 2
+        });
+        command.Parameters.Add(new LegacyScenarioCommandParameter
+        {
+            Index = 1,
+            Kind = LegacyScenarioParameterKind.Text,
+            Text = text,
+            ByteLength = text.Length
+        });
+        return command;
+    }
+
     static void RunRSceneFramePreviewSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var imageAssignments = new ImageAssignmentService().Load(project, tables);
@@ -628,6 +679,7 @@ internal partial class Program
             throw new InvalidOperationException($"R 场景左右方向图号映射错误：left={leftDetail} right={rightDetail} expectedLeft=#{backImageNumber} expectedRight=#{frontImageNumber}");
         }
         AssertRSceneActionCommandUsesSecondParameter();
+        AssertRSceneMapFaceStateUsesPixelCoordinates();
         AssertRSceneGestureMapsToStripFrame(previewService, project, rImageId);
         AssertRSceneMovementStripFramesRender(previewService, project, rImageId);
 
@@ -691,6 +743,39 @@ internal partial class Program
         if (actor.FrameIndex != 6)
         {
             throw new InvalidOperationException($"R 场景 0x34 动作枚举应读取第二参数 6，实际={actor.FrameIndex}");
+        }
+    }
+
+    static void AssertRSceneMapFaceStateUsesPixelCoordinates()
+    {
+        const int personId = 145;
+        var section = new LegacyScenarioSection
+        {
+            SceneIndex = 3,
+            SectionIndex = 1
+        };
+        section.Commands.Add(CreateNumericCommand(3, 1, 10, 0x27, 0x200, 1, -1, 0, -1, -1));
+        section.Commands.Add(CreateNumericCommand(3, 1, 11, 0x29, 0x220, personId, 361, 45));
+        section.Commands.Add(CreateNumericCommand(3, 1, 12, 0x2A, 0x240, personId, 425, 125));
+        section.Commands.Add(CreateNumericCommand(3, 1, 13, 0x2B, 0x260, personId));
+
+        var moved = new RSceneDraftService().BuildStateSnapshot(section, currentCommandIndex: 12);
+        if (moved.BackgroundImageNumber != 1)
+        {
+            throw new InvalidOperationException($"R 场景中国地图 0 应映射到 Mmap.e5 预览图 #1，实际={moved.BackgroundImageNumber?.ToString(CultureInfo.InvariantCulture) ?? "null"}");
+        }
+
+        var face = moved.MapFaces.SingleOrDefault(x => x.PersonId == personId)
+                   ?? throw new InvalidOperationException("R 场景地图头像烟测没有推演出 0x29/0x2A 头像。");
+        if (face.X != 425 || face.Y != 125)
+        {
+            throw new InvalidOperationException($"R 场景地图头像坐标应保留画布像素 (425,125)，实际=({face.X},{face.Y})");
+        }
+
+        var hidden = new RSceneDraftService().BuildStateSnapshot(section, currentCommandIndex: 13);
+        if (hidden.MapFaces.Count != 0)
+        {
+            throw new InvalidOperationException($"R 场景 0x2B 应移除地图头像，实际残留 {hidden.MapFaces.Count} 个。");
         }
     }
 

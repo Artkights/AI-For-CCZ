@@ -8,4 +8,5 @@ public sealed class RSceneStateSnapshot
     public int CurrentCommandIndex { get; init; }
     public int? BackgroundImageNumber { get; init; }
     public List<RSceneActorState> Actors { get; init; } = [];
+    public List<RSceneMapFaceState> MapFaces { get; init; } = [];
 }

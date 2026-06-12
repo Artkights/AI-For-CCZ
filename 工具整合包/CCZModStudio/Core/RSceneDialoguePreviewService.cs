@@ -39,14 +39,19 @@ public sealed class RSceneDialoguePreviewService
         _imageAssignmentPreviewService = imageAssignmentPreviewService;
     }
 
-    public RSceneDialoguePreviewResult DrawPreview(Graphics graphics, CczProject project, LegacyScenarioCommandNode? command, IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
+    public RSceneDialoguePreviewResult DrawPreview(
+        Graphics graphics,
+        CczProject project,
+        LegacyScenarioCommandNode? command,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null)
     {
         if (command == null)
         {
             return RSceneDialoguePreviewResult.CreateNotApplied("未选择 R 剧本命令。");
         }
 
-        var model = BuildPreviewModel(command, people);
+        var model = BuildPreviewModel(command, people, personReferenceResolver);
         if (model == null)
         {
             return RSceneDialoguePreviewResult.CreateNotApplied($"命令 {command.CommandIdHex} 不是对白预览命令。");
@@ -66,13 +71,21 @@ public sealed class RSceneDialoguePreviewService
         return RSceneDialoguePreviewResult.CreateApplied(model.Detail);
     }
 
-    public RSceneDialoguePreviewResult RenderPreviewOnImage(Bitmap image, CczProject project, LegacyScenarioCommandNode? command, IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
+    public RSceneDialoguePreviewResult RenderPreviewOnImage(
+        Bitmap image,
+        CczProject project,
+        LegacyScenarioCommandNode? command,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null)
     {
         using var graphics = Graphics.FromImage(image);
-        return DrawPreview(graphics, project, command, people);
+        return DrawPreview(graphics, project, command, people, personReferenceResolver);
     }
 
-    public RSceneDialoguePreviewModel? BuildPreviewModel(LegacyScenarioCommandNode command, IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
+    public RSceneDialoguePreviewModel? BuildPreviewModel(
+        LegacyScenarioCommandNode command,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null)
     {
         var text = NormalizeText(command.TextParameters.FirstOrDefault()?.Text ?? string.Empty);
         if (string.IsNullOrWhiteSpace(text) && command.CommandId != 0x2C)
@@ -80,10 +93,14 @@ public sealed class RSceneDialoguePreviewService
             return null;
         }
 
-        var firstValue = GetParameterValue(command, 0);
         return command.CommandId switch
         {
-            0x14 or 0x15 or 0x7A => BuildTalkModel(command, text, firstValue, people),
+            0x14 or 0x15 or 0x7A => BuildTalkModel(
+                command,
+                text,
+                GetParameterValue(command, 0),
+                ResolveSpeakerId(command, GetParameterValue(command, 0), personReferenceResolver),
+                people),
             0x16 => new RSceneDialoguePreviewModel(
                 RSceneDialoguePreviewKind.Information,
                 SpeakerId: null,
@@ -118,6 +135,7 @@ public sealed class RSceneDialoguePreviewService
     private static RSceneDialoguePreviewModel BuildTalkModel(
         LegacyScenarioCommandNode command,
         string text,
+        int? rawSpeakerValue,
         int? speakerId,
         IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
     {
@@ -132,9 +150,11 @@ public sealed class RSceneDialoguePreviewService
             : speakerId.HasValue
                 ? $"人物 {speakerId.Value}"
                 : "说话人";
-        var faceId = person?.FaceId;
+        var faceId = person?.FaceId ?? speakerId;
         var speakerDetail = speakerId.HasValue
-            ? $"人物={speakerId.Value}"
+            ? rawSpeakerValue.HasValue && rawSpeakerValue.Value != speakerId.Value
+                ? $"人物={speakerId.Value}（参数={rawSpeakerValue.Value}）"
+                : $"人物={speakerId.Value}"
             : "人物=未读取";
         var faceDetail = faceId.HasValue
             ? $"头像={faceId.Value}"
@@ -145,7 +165,7 @@ public sealed class RSceneDialoguePreviewService
             FaceId: faceId,
             SpeakerName: speakerName,
             Text: text,
-            HasFace: speakerId.HasValue && speakerId.Value >= 0,
+            HasFace: true,
             Detail: $"{command.CommandIdHex} {command.CommandName}：{speakerName}（{speakerDetail}，{faceDetail}）");
     }
 
@@ -160,7 +180,7 @@ public sealed class RSceneDialoguePreviewService
         FillRoundedRectangle(graphics, fill, box, 6);
         DrawRoundedRectangle(graphics, border, box, 6);
 
-        if (model.HasFace)
+        if (model.Kind == RSceneDialoguePreviewKind.Talk)
         {
             DrawFace(graphics, project, model.FaceId, profile.FaceBounds);
             DrawTextWithShadow(graphics, model.SpeakerName, profile.NameBounds, profile.NameFont, profile.HighlightColor, ContentAlignment.MiddleLeft, trim: true);
@@ -208,7 +228,7 @@ public sealed class RSceneDialoguePreviewService
     private static void DrawMapText(Graphics graphics, RSceneDialoguePreviewModel model)
     {
         var profile = DefaultProfile;
-        using var fill = new SolidBrush(Color.FromArgb(214, 0, 0, 0));
+        using var fill = new SolidBrush(Color.FromArgb(246, 255, 255, 255));
         using var border = new Pen(profile.BorderColor, 1);
         var box = profile.MapTextBounds;
         graphics.FillRectangle(fill, box);
@@ -343,6 +363,23 @@ public sealed class RSceneDialoguePreviewService
     {
         var parameter = command.Parameters.FirstOrDefault(parameter => parameter.Index == index && parameter.Kind is LegacyScenarioParameterKind.Word16 or LegacyScenarioParameterKind.Dword32);
         return parameter?.IntValue;
+    }
+
+    private static int? ResolveSpeakerId(
+        LegacyScenarioCommandNode command,
+        int? rawSpeakerValue,
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver)
+    {
+        if (personReferenceResolver != null)
+        {
+            var resolved = personReferenceResolver(command, 0);
+            if (resolved.HasValue)
+            {
+                return resolved;
+            }
+        }
+
+        return rawSpeakerValue is >= 0 and <= 1023 ? rawSpeakerValue : null;
     }
 
     private sealed record DialoguePreviewProfile(

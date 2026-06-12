@@ -3360,6 +3360,12 @@ public sealed partial class MainForm
 
     private static string FormatLegacyParameterPreviewValue(LegacyScenarioCommandNode command, LegacyScenarioCommandParameter parameter)
     {
+        if (command.CommandId == 0x76 && parameter.Kind == LegacyScenarioParameterKind.Dword32)
+        {
+            return command.JumpTargetOrdinal?.ToString(CultureInfo.InvariantCulture)
+                   ?? parameter.IntValue.ToString(CultureInfo.InvariantCulture);
+        }
+
         if (IsPerson2Parameter(command, parameter.Index))
         {
             return ScriptVariableValueResolver.FormatPerson2Reference(parameter.IntValue);

@@ -6,6 +6,8 @@ namespace CCZModStudio;
 
 internal sealed class LegacyScriptParameterEditDialog : Form
 {
+    private const string LowerSplitLayoutKey = "LegacyScriptParameterEditDialog.ValueDetail";
+
     private readonly BindingList<LegacyScriptParameterEditRow> _rows;
     private readonly DataGridView _grid = new();
     private readonly TextBox _valueBox = new();
@@ -77,7 +79,7 @@ internal sealed class LegacyScriptParameterEditDialog : Form
         };
         lowerSplit.Panel1.Controls.Add(CreateTitledPanel("选中槽位值", _valueBox));
         lowerSplit.Panel2.Controls.Add(CreateTitledPanel("参数说明", _detailBox));
-        lowerSplit.SizeChanged += (_, _) => ApplyLowerSplitterDistance(lowerSplit);
+        ConfigurePersistentLowerSplit(lowerSplit);
         root.Controls.Add(lowerSplit, 0, 2);
 
         _valueBox.Dock = DockStyle.Fill;
@@ -136,6 +138,43 @@ internal sealed class LegacyScriptParameterEditDialog : Form
         CancelButton = cancelButton;
     }
 
+    private static void ConfigurePersistentLowerSplit(SplitContainer split)
+    {
+        var applyingProgrammaticDistance = false;
+        var userMovingSplitter = false;
+
+        void Apply()
+        {
+            applyingProgrammaticDistance = true;
+            try
+            {
+                ApplyLowerSplitterDistance(split);
+            }
+            finally
+            {
+                applyingProgrammaticDistance = false;
+            }
+        }
+
+        split.SizeChanged += (_, _) => Apply();
+        split.HandleCreated += (_, _) => Apply();
+        split.SplitterMoving += (_, _) =>
+        {
+            if (applyingProgrammaticDistance) return;
+            if (Control.MouseButtons == MouseButtons.None) return;
+
+            userMovingSplitter = true;
+        };
+        split.SplitterMoved += (_, _) =>
+        {
+            if (applyingProgrammaticDistance) return;
+            if (!userMovingSplitter) return;
+
+            SaveLowerSplitterDistance(split);
+            userMovingSplitter = false;
+        };
+    }
+
     private static void ApplyLowerSplitterDistance(SplitContainer split)
     {
         var availableWidth = split.ClientSize.Width - split.SplitterWidth;
@@ -151,7 +190,12 @@ internal sealed class LegacyScriptParameterEditDialog : Form
             return;
         }
 
-        var target = Math.Clamp(420, minimumPanelWidth, maxDistance);
+        var settings = UiLayoutSettingsStore.Load();
+        var savedRatio = UiLayoutSettingsStore.GetSplitRatio(settings, LowerSplitLayoutKey);
+        var target = savedRatio.HasValue
+            ? (int)Math.Round(availableWidth * savedRatio.Value)
+            : 420;
+        target = Math.Clamp(target, minimumPanelWidth, maxDistance);
         if (split.SplitterDistance != target)
         {
             try
@@ -163,6 +207,15 @@ internal sealed class LegacyScriptParameterEditDialog : Form
                 // SplitContainer can briefly report inconsistent bounds during DPI/layout changes.
             }
         }
+    }
+
+    private static void SaveLowerSplitterDistance(SplitContainer split)
+    {
+        var availableWidth = split.ClientSize.Width - split.SplitterWidth;
+        if (availableWidth <= 0) return;
+
+        var ratio = Math.Clamp(split.SplitterDistance / (double)availableWidth, 0.01, 0.99);
+        UiLayoutSettingsStore.SaveSplitRatio(LowerSplitLayoutKey, ratio);
     }
 
     private void ConfigureGrid()

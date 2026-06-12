@@ -126,6 +126,18 @@ internal partial class Program
         AssertScriptVariableEqual(4, target.CommandOrdinal, "command ordinal");
         AssertScriptVariableEqual(0x80, target.CommandOffset, "command offset");
         AssertScriptVariableEqual(0x84, target.ParameterOffset, "parameter offset");
+        AssertScriptVariableEqual("78", target.CommandIdHex, "command id hex display");
+        AssertScriptVariableEqual("5000 / 1388", target.VariableAddressText, "variable address display");
+        AssertScriptVariableEqual("000080", target.CommandOffsetHex, "command offset hex display");
+        AssertScriptVariableEqual("000084", target.ParameterOffsetHex, "parameter offset hex display");
+
+        var targetSummary = snapshot.Summaries.First(x => x.VariableAddress == 5000);
+        AssertScriptVariableEqual("5000 / 1388", targetSummary.VariableAddressText, "summary variable address display");
+        if (snapshot.Occurrences.Any(x => x.CommandIdHex.Contains("0x", StringComparison.OrdinalIgnoreCase)) ||
+            snapshot.Summaries.Any(x => x.CommandIds.Contains("0x", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Script variable hex display should not include 0x prefix.");
+        }
 
         var project = new ProjectDetector().DetectDefaultProject();
         var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(project);

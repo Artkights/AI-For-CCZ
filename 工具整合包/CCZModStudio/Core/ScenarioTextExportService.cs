@@ -27,7 +27,7 @@ public sealed class ScenarioTextExportService
             Csv(x.Text),
             Csv(x.OriginalText),
             Csv(x.Annotation))));
-        File.WriteAllLines(path, lines, Encoding.UTF8);
+        File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         return path;
     }
 

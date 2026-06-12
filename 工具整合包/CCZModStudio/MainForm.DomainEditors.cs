@@ -196,6 +196,8 @@ public sealed partial class MainForm
         var hiddenColumns = new HashSet<string>(StringComparer.Ordinal)
         {
             "Army",
+            "级别",
+            "经验",
             "职业名称",
             "头像说明",
             "R资源状态",
@@ -804,16 +806,715 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            var data = BuildRolePersonalEffectEditorData(_project, _tables);
+            var data = BuildExclusiveSetScenarioEditorData(_project, _tables);
             Cursor = Cursors.Default;
-            ShowRolePersonalEffectEditorDialog(data);
+            ShowExclusiveSetScenarioEditorDialog(data);
         }
         catch (Exception ex)
         {
             Cursor = Cursors.Default;
-            System.Diagnostics.Debug.WriteLine("读取个人专属失败：" + ex);
-            MessageBox.Show(this, ex.Message, "读取个人专属失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            System.Diagnostics.Debug.WriteLine("读取个人专属/套装失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取个人专属/套装失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private DataTable BuildExclusiveSetScenarioEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
+        if (dictionary == null)
+        {
+            throw new InvalidOperationException($"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(project)}");
+        }
+
+        _currentSceneStringDocument ??= dictionary;
+        _jobEffectNameTable = FindTable(tables, "6.5-7 兵种特效");
+        _rolePersonalEffectNames = ReadJobEffectNames(project, _jobEffectNameTable);
+        _rolePersonalEffectPersonNames = BuildIdNameLookup(project, tables, "6.5-0 人物");
+        _rolePersonalEffectItemNames = BuildItemNameLookup(project, tables);
+        _currentExclusiveSetScenarioRead = _exclusiveSetScenarioService.Read(
+            project,
+            dictionary,
+            _rolePersonalEffectNames,
+            _rolePersonalEffectPersonNames,
+            _rolePersonalEffectItemNames);
+
+        var output = new DataTable("个人专属/套装");
+        output.Columns.Add("EntryId", typeof(string));
+        output.Columns.Add("类型值", typeof(int));
+        output.Columns.Add("类型", typeof(string));
+        output.Columns.Add("位置", typeof(int));
+        output.Columns.Add("特效编号", typeof(int));
+        output.Columns.Add("特效", typeof(string));
+        output.Columns.Add("武器", typeof(int));
+        output.Columns.Add("防具", typeof(int));
+        output.Columns.Add("辅助", typeof(int));
+        output.Columns.Add("装备", typeof(string));
+        output.Columns.Add("角色编号", typeof(int));
+        output.Columns.Add("角色", typeof(string));
+        output.Columns.Add("特效值", typeof(int));
+        output.Columns.Add("出处", typeof(string));
+        output.Columns.Add("备注", typeof(string));
+        output.Columns.Add("RelativePath", typeof(string));
+        output.Columns.Add("SceneIndex", typeof(int));
+        output.Columns.Add("SectionIndex", typeof(int));
+        output.Columns.Add("CommandIndex", typeof(int));
+        output.Columns.Add("CommandOrdinal", typeof(int));
+        output.Columns.Add("FileOffset", typeof(int));
+        output.Columns.Add("SourceTextHash", typeof(string));
+
+        foreach (var entry in _currentExclusiveSetScenarioRead.Entries)
+        {
+            var row = output.NewRow();
+            row["EntryId"] = entry.EntryId;
+            row["类型值"] = (int)entry.Kind;
+            row["类型"] = entry.KindText;
+            row["位置"] = entry.Position;
+            row["特效编号"] = entry.EffectId;
+            row["特效"] = entry.EffectDisplay;
+            row["武器"] = entry.WeaponId;
+            row["防具"] = entry.ArmorId;
+            row["辅助"] = entry.AccessoryId;
+            row["装备"] = entry.EquipmentDisplay;
+            row["角色编号"] = entry.PersonId;
+            row["角色"] = entry.PersonDisplay;
+            row["特效值"] = entry.EffectValue;
+            row["出处"] = entry.SourceDisplay;
+            row["备注"] = entry.Remarks;
+            row["RelativePath"] = entry.RelativePath;
+            row["SceneIndex"] = entry.SceneIndex;
+            row["SectionIndex"] = entry.SectionIndex;
+            row["CommandIndex"] = entry.CommandIndex;
+            row["CommandOrdinal"] = entry.CommandOrdinal;
+            row["FileOffset"] = entry.FileOffset;
+            row["SourceTextHash"] = entry.SourceTextHash;
+            output.Rows.Add(row);
+        }
+
+        output.AcceptChanges();
+        return output;
+    }
+
+    private static bool IsExclusiveSetScenarioReadOnlyColumn(string columnName)
+        => columnName is "EntryId"
+            or "类型值"
+            or "类型"
+            or "特效"
+            or "装备"
+            or "角色"
+            or "出处"
+            or "RelativePath"
+            or "SceneIndex"
+            or "SectionIndex"
+            or "CommandIndex"
+            or "CommandOrdinal"
+            or "FileOffset"
+            or "SourceTextHash";
+
+    private void RefreshExclusiveSetScenarioDerivedCells(DataRow row)
+    {
+        var effectId = Convert.ToInt32(row["特效编号"], CultureInfo.InvariantCulture);
+        var weaponId = Convert.ToInt32(row["武器"], CultureInfo.InvariantCulture);
+        var armorId = Convert.ToInt32(row["防具"], CultureInfo.InvariantCulture);
+        var accessoryId = Convert.ToInt32(row["辅助"], CultureInfo.InvariantCulture);
+        var personId = Convert.ToInt32(row["角色编号"], CultureInfo.InvariantCulture);
+        var kind = Convert.ToInt32(row["类型值"], CultureInfo.InvariantCulture);
+
+        row["特效"] = ExclusiveSetScenarioService.FormatEffect(effectId, _rolePersonalEffectNames);
+        row["装备"] = ExclusiveSetScenarioService.FormatEquipment(weaponId, armorId, accessoryId, _rolePersonalEffectItemNames);
+        row["角色"] = kind == 0
+            ? ExclusiveSetScenarioService.FormatPerson(personId, _rolePersonalEffectPersonNames)
+            : "255";
+    }
+
+    private void ShowExclusiveSetScenarioEditorDialog(DataTable data)
+    {
+        using var dialog = new Form
+        {
+            Text = "个人专属/套装",
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = true
+        };
+        ApplyAdaptiveDialogSizing(dialog, new Size(1280, 760), new Size(900, 540));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1,
+            Padding = new Padding(8)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110));
+        dialog.Controls.Add(layout);
+
+        var toolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        var saveButton = new Button { Text = "保存到剧本", AutoSize = true };
+        var typeFilter = new ComboBox { Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+        typeFilter.Items.AddRange(new object[] { "全部", "专属", "套装" });
+        typeFilter.SelectedIndex = 0;
+        var filterBox = new TextBox { Width = 240, PlaceholderText = "特效/角色/装备/出处/编号" };
+        var filterButton = new Button { Text = "筛选", AutoSize = true };
+        var clearButton = new Button { Text = "清除", AutoSize = true };
+        var malformedButton = new Button { Text = "未解析", AutoSize = true };
+        var closeButton = new Button { Text = "关闭", AutoSize = true };
+        toolbar.Controls.AddRange(new Control[]
+        {
+            saveButton,
+            new Label { Text = "类型：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            typeFilter,
+            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            filterBox,
+            filterButton,
+            clearButton,
+            malformedButton,
+            closeButton
+        });
+        layout.Controls.Add(toolbar, 0, 0);
+
+        var grid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            AutoGenerateColumns = false,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells,
+            SelectionMode = DataGridViewSelectionMode.CellSelect
+        };
+        ConfigureExclusiveSetScenarioGrid(grid);
+        grid.DataSource = data;
+        layout.Controls.Add(grid, 0, 1);
+
+        var infoBox = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            WordWrap = true,
+            Text = BuildExclusiveSetScenarioSummary(data)
+        };
+        layout.Controls.Add(infoBox, 0, 2);
+
+        void ShowSelectedCell()
+        {
+            if (grid.CurrentCell == null) return;
+            var columnName = grid.Columns[grid.CurrentCell.ColumnIndex].DataPropertyName;
+            var row = grid.Rows[grid.CurrentCell.RowIndex];
+            infoBox.Text =
+                $"类型={row.Cells["类型"].Value}    位置={row.Cells["位置"].Value}    特效={row.Cells["特效"].Value}\r\n" +
+                $"出处：{row.Cells["出处"].Value}    双击本行可跳转到对应剧本指令。\r\n" +
+                $"字段：{columnName}    当前值：{grid.CurrentCell.Value}\r\n\r\n" +
+                BuildExclusiveSetScenarioColumnAnnotation(columnName);
+        }
+
+        void RefreshRowStyle(int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count) return;
+            var row = TryGetDataRow(grid.Rows[rowIndex]);
+            if (row == null) return;
+            grid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(row) ? Color.LightCyan : Color.Empty;
+        }
+
+        void ApplyFilter()
+        {
+            var clauses = new List<string>();
+            var selectedType = Convert.ToString(typeFilter.SelectedItem, CultureInfo.InvariantCulture) ?? "全部";
+            if (selectedType is "专属" or "套装")
+            {
+                clauses.Add($"[类型] = '{selectedType}'");
+            }
+
+            var keyword = filterBox.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(keyword))
+            {
+                var escaped = EscapeDataViewLikeValue(keyword);
+                var filters = data.Columns
+                    .Cast<DataColumn>()
+                    .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '*{escaped}*'");
+                clauses.Add("(" + string.Join(" OR ", filters) + ")");
+            }
+
+            data.DefaultView.RowFilter = string.Join(" AND ", clauses);
+            SetStatus($"个人专属/套装筛选：{data.DefaultView.Count}/{data.Rows.Count}");
+        }
+
+        grid.SelectionChanged += (_, _) => ShowSelectedCell();
+        grid.CellEndEdit += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && TryGetDataRow(grid.Rows[e.RowIndex]) is { } row)
+            {
+                RefreshExclusiveSetScenarioDerivedCells(row);
+            }
+            RefreshRowStyle(e.RowIndex);
+            ShowSelectedCell();
+        };
+        grid.CellValidating += (_, e) => ValidateExclusiveSetScenarioCell(grid, infoBox, e);
+        grid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                infoBox.Text = $"个人专属/套装单元格显示失败：{e.Exception?.Message}";
+            }
+        };
+        grid.CellDoubleClick += (_, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            if (TryGetDataRow(grid.Rows[e.RowIndex]) is not { } row) return;
+            var target = row;
+            dialog.BeginInvoke(new Action(async () =>
+            {
+                dialog.Close();
+                await JumpToExclusiveSetScenarioCommandAsync(target);
+            }));
+        };
+        filterButton.Click += (_, _) => ApplyFilter();
+        typeFilter.SelectedIndexChanged += (_, _) => ApplyFilter();
+        filterBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyFilter();
+            e.SuppressKeyPress = true;
+        };
+        clearButton.Click += (_, _) =>
+        {
+            filterBox.Clear();
+            typeFilter.SelectedIndex = 0;
+            data.DefaultView.RowFilter = string.Empty;
+            SetStatus("个人专属/套装筛选已清除");
+        };
+        saveButton.Click += (_, _) => SaveExclusiveSetScenarioEditor(dialog, grid, data, infoBox);
+        malformedButton.Click += (_, _) => ShowExclusiveSetScenarioMalformedDialog(dialog);
+        closeButton.Click += (_, _) => dialog.Close();
+
+        RefreshExclusiveSetScenarioRowStyles(grid);
+        ShowSelectedCell();
+        dialog.ShowDialog(this);
+    }
+
+    private void ConfigureExclusiveSetScenarioGrid(DataGridView grid)
+    {
+        grid.ReadOnly = false;
+        grid.AutoGenerateColumns = false;
+        grid.Columns.Clear();
+
+        foreach (var columnName in GetExclusiveSetScenarioColumnOrder())
+        {
+            AddExclusiveSetScenarioGridColumn(grid, columnName);
+        }
+    }
+
+    private void AddExclusiveSetScenarioGridColumn(DataGridView grid, string columnName)
+    {
+        DataGridViewColumn column = columnName is "武器" or "防具" or "辅助"
+            ? new DataGridViewComboBoxColumn
+            {
+                FlatStyle = FlatStyle.Flat,
+                DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+                ValueType = typeof(int),
+                DisplayMember = "Text",
+                ValueMember = "Id",
+                DataSource = BuildExclusiveSetScenarioItemChoices()
+            }
+            : new DataGridViewTextBoxColumn();
+
+        column.Name = columnName;
+        column.DataPropertyName = columnName;
+        column.ReadOnly = IsExclusiveSetScenarioReadOnlyColumn(columnName);
+        column.HeaderText = BuildExclusiveSetScenarioColumnHeader(columnName);
+        column.ToolTipText = BuildExclusiveSetScenarioColumnAnnotation(columnName);
+        column.Visible = IsVisibleExclusiveSetScenarioColumn(columnName);
+        column.Width = columnName switch
+        {
+            "类型" => 70,
+            "位置" or "特效值" => 80,
+            "特效" => 170,
+            "武器" or "防具" or "辅助" => 180,
+            "角色" => 140,
+            "备注" => 260,
+            _ => 100
+        };
+        if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+        grid.Columns.Add(column);
+    }
+
+    private static IReadOnlyList<string> GetExclusiveSetScenarioColumnOrder() =>
+    [
+        "EntryId",
+        "类型值",
+        "类型",
+        "位置",
+        "特效编号",
+        "特效",
+        "武器",
+        "防具",
+        "辅助",
+        "装备",
+        "角色编号",
+        "角色",
+        "特效值",
+        "出处",
+        "备注",
+        "RelativePath",
+        "SceneIndex",
+        "SectionIndex",
+        "CommandIndex",
+        "CommandOrdinal",
+        "FileOffset",
+        "SourceTextHash"
+    ];
+
+    private void ConfigureExclusiveSetScenarioItemComboColumn(DataGridView grid, string columnName)
+    {
+        if (!grid.Columns.Contains(columnName)) return;
+        if (grid.Columns[columnName] is DataGridViewComboBoxColumn) return;
+
+        var old = grid.Columns[columnName];
+        var index = old.Index;
+        var combo = new DataGridViewComboBoxColumn
+        {
+            Name = columnName,
+            DataPropertyName = columnName,
+            HeaderText = old.HeaderText,
+            ToolTipText = old.ToolTipText,
+            FlatStyle = FlatStyle.Flat,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+            ValueType = typeof(int),
+            DisplayMember = "Text",
+            ValueMember = "Id"
+        };
+        combo.DataSource = BuildExclusiveSetScenarioItemChoices();
+        grid.Columns.Remove(old);
+        grid.Columns.Insert(index, combo);
+    }
+
+    private DataTable BuildExclusiveSetScenarioItemChoices()
+    {
+        var choices = new DataTable();
+        choices.Columns.Add("Id", typeof(int));
+        choices.Columns.Add("Text", typeof(string));
+
+        for (var id = 0; id <= byte.MaxValue; id++)
+        {
+            var row = choices.NewRow();
+            row["Id"] = id;
+            row["Text"] = ExclusiveSetScenarioService.FormatItem(id, _rolePersonalEffectItemNames);
+            choices.Rows.Add(row);
+        }
+
+        choices.AcceptChanges();
+        return choices;
+    }
+
+    private static bool IsVisibleExclusiveSetScenarioColumn(string columnName)
+        => columnName is "类型" or "位置" or "特效" or "武器" or "防具" or "辅助" or "角色" or "特效值" or "备注";
+
+    private static string BuildExclusiveSetScenarioColumnHeader(string columnName)
+    {
+        return columnName switch
+        {
+            "类型" => "类型\n专属/套装",
+            "位置" => "位置\n可编辑",
+            "特效" => "特效\n编号+名称",
+            "武器" or "防具" or "辅助" => columnName + "\n下拉选择",
+            "角色" => "角色\n编号+名称",
+            "特效值" => "特效值\n可编辑",
+            "备注" => "备注\n保留写回",
+            _ => columnName
+        };
+    }
+
+    private static string BuildExclusiveSetScenarioColumnAnnotation(string columnName)
+    {
+        if (columnName == "类型") return "来自 72/10 文本第一行：0=专属，1=套装。";
+        if (columnName == "位置") return "写回第二行第一个数值。";
+        if (columnName == "特效") return "只读展示：特效编号:兵种特效名称，未命中显示未命名。";
+        if (columnName is "武器" or "防具" or "辅助") return "物品 ID。空槽统一使用 255；专属行保存时三槽必须且只能有一个不是 255。";
+        if (columnName == "角色") return "只读展示：专属为编号:角色名，套装为 255。";
+        if (columnName == "特效值") return "写回第二行最后一个数值。";
+        if (columnName == "备注") return "文本第三行及之后内容，保存时原样追加到机器数据之后。";
+        return columnName;
+    }
+
+    private string BuildExclusiveSetScenarioSummary(DataTable data)
+    {
+        var personal = data.Rows.Cast<DataRow>().Count(row => Convert.ToInt32(row["类型值"], CultureInfo.InvariantCulture) == 0);
+        var set = data.Rows.Count - personal;
+        var malformed = _currentExclusiveSetScenarioRead?.MalformedEntries.Count ?? 0;
+        var warnings = _currentExclusiveSetScenarioRead?.Warnings.Count ?? 0;
+        return
+            $"已从全剧本 72/10 读取个人专属/套装：总行 {data.Rows.Count}，专属 {personal}，套装 {set}。\r\n" +
+            $"扫描剧本：{_currentExclusiveSetScenarioRead?.ScannedFileCount ?? 0} 个；命令总数：{_currentExclusiveSetScenarioRead?.TotalCommandCount ?? 0}；未解析 72/10：{malformed}；警告：{warnings}。\r\n" +
+            "来源：RS/R_*.eex 与 RS/S_*.eex 的 0x72 信息传送子功能 10。保存只更新已有命令文本，不新增、不删除命令，不再写入 Ekd5.exe 的 6.5-7-3。";
+    }
+
+    private void RefreshExclusiveSetScenarioRowStyles(DataGridView grid)
+    {
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            var dataRow = TryGetDataRow(row);
+            row.DefaultCellStyle.BackColor = dataRow != null && IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
+        }
+    }
+
+    private void ValidateExclusiveSetScenarioCell(DataGridView grid, TextBox infoBox, DataGridViewCellValidatingEventArgs e)
+    {
+        if (grid.ReadOnly || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        var column = grid.Columns[e.ColumnIndex];
+        if (column.ReadOnly) return;
+        if (column is DataGridViewComboBoxColumn) return;
+        var columnName = column.DataPropertyName;
+        var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        string? error = null;
+        if (columnName is "武器" or "防具" or "辅助")
+        {
+            error = TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
+        }
+        else if (columnName is "位置" or "特效编号" or "角色编号" or "特效值")
+        {
+            error = TryParseInteger(value, 0, ushort.MaxValue, columnName, _currentPageHexButton.Checked);
+        }
+
+        grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
+        if (error == null) return;
+        e.Cancel = true;
+        infoBox.Text = error;
+        SetStatus(error);
+    }
+
+    private void ShowExclusiveSetScenarioMalformedDialog(IWin32Window owner)
+    {
+        var malformed = _currentExclusiveSetScenarioRead?.MalformedEntries ?? Array.Empty<ExclusiveSetScenarioMalformedEntry>();
+        using var dialog = new Form
+        {
+            Text = "未解析 72/10 命令",
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = true
+        };
+        ApplyAdaptiveDialogSizing(dialog, new Size(1000, 620), new Size(760, 460));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(8)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(layout);
+
+        var table = new DataTable("未解析");
+        table.Columns.Add("出处", typeof(string));
+        table.Columns.Add("原因", typeof(string));
+        table.Columns.Add("原文", typeof(string));
+        foreach (var entry in malformed)
+        {
+            var row = table.NewRow();
+            row["出处"] = entry.SourceDisplay;
+            row["原因"] = entry.Reason;
+            row["原文"] = entry.SourceText;
+            table.Rows.Add(row);
+        }
+        table.AcceptChanges();
+
+        var grid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            DataSource = table,
+            ReadOnly = true,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect
+        };
+        if (grid.Columns.Contains("出处")) grid.Columns["出处"]!.Width = 260;
+        if (grid.Columns.Contains("原因")) grid.Columns["原因"]!.Width = 260;
+        if (grid.Columns.Contains("原文")) grid.Columns["原文"]!.DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+        grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.DisplayedCells;
+        layout.Controls.Add(grid, 0, 0);
+
+        var closeButton = new Button { Text = "关闭", AutoSize = true, Anchor = AnchorStyles.Right };
+        closeButton.Click += (_, _) => dialog.Close();
+        layout.Controls.Add(closeButton, 0, 1);
+        dialog.ShowDialog(owner);
+    }
+
+    private void SaveExclusiveSetScenarioEditor(Form owner, DataGridView grid, DataTable data, TextBox infoBox)
+    {
+        if (_project == null) return;
+        grid.EndEdit();
+        if (data.GetChanges() == null)
+        {
+            MessageBox.Show(owner, "个人专属/套装没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var updates = BuildExclusiveSetScenarioUpdates(data);
+        if (updates.Count == 0)
+        {
+            MessageBox.Show(owner, "没有可写入的实际改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var preview = BuildChangePreview(data, maxItems: 80);
+        if (MessageBox.Show(owner,
+                $"即将把个人专属/套装写回现有 72/10 剧本命令。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会按出处与原始文本哈希复核，外部修改会拒绝覆盖。是否继续？",
+                "确认保存个人专属/套装",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
+            if (dictionary == null)
+            {
+                throw new InvalidOperationException($"未找到 CczString.ini：{ProjectDetector.FindSceneDictionaryPath(_project)}");
+            }
+
+            Cursor = Cursors.WaitCursor;
+            var result = _exclusiveSetScenarioService.Save(_project, dictionary, updates);
+            var reloaded = BuildExclusiveSetScenarioEditorData(_project, _tables);
+            data.Clear();
+            foreach (DataRow row in reloaded.Rows)
+            {
+                data.ImportRow(row);
+            }
+            data.AcceptChanges();
+            grid.DataSource = null;
+            ConfigureExclusiveSetScenarioGrid(grid);
+            grid.DataSource = data;
+            RefreshExclusiveSetScenarioRowStyles(grid);
+            var changedBytes = result.Writes.Sum(x => x.ChangedBytes);
+            infoBox.Text =
+                $"保存完成并已重新读取校验。\r\n写回命令：{result.ChangedEntryCount}\r\n保存剧本：{result.Writes.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", result.Writes.Select(x => x.BackupPath))}";
+            SetStatus($"个人专属/套装保存完成：命令 {result.ChangedEntryCount}，变化 {changedBytes} 字节");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("保存个人专属/套装失败：" + ex);
+            MessageBox.Show(owner, ex.Message, "保存个人专属/套装失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static IReadOnlyList<ExclusiveSetScenarioUpdate> BuildExclusiveSetScenarioUpdates(DataTable data)
+    {
+        var updates = new List<ExclusiveSetScenarioUpdate>();
+        foreach (DataRow row in data.Rows)
+        {
+            if (row.RowState != DataRowState.Modified) continue;
+            updates.Add(new ExclusiveSetScenarioUpdate
+            {
+                EntryId = Convert.ToString(row["EntryId"], CultureInfo.InvariantCulture) ?? string.Empty,
+                Kind = Convert.ToInt32(row["类型值"], CultureInfo.InvariantCulture) == 1 ? ExclusiveSetDesignKind.Set : ExclusiveSetDesignKind.Personal,
+                RelativePath = Convert.ToString(row["RelativePath"], CultureInfo.InvariantCulture) ?? string.Empty,
+                SceneIndex = Convert.ToInt32(row["SceneIndex"], CultureInfo.InvariantCulture),
+                SectionIndex = Convert.ToInt32(row["SectionIndex"], CultureInfo.InvariantCulture),
+                CommandIndex = Convert.ToInt32(row["CommandIndex"], CultureInfo.InvariantCulture),
+                CommandOrdinal = Convert.ToInt32(row["CommandOrdinal"], CultureInfo.InvariantCulture),
+                FileOffset = Convert.ToInt32(row["FileOffset"], CultureInfo.InvariantCulture),
+                OriginalTextHash = Convert.ToString(row["SourceTextHash"], CultureInfo.InvariantCulture) ?? string.Empty,
+                Position = Convert.ToInt32(row["位置"], CultureInfo.InvariantCulture),
+                EffectId = Convert.ToInt32(row["特效编号"], CultureInfo.InvariantCulture),
+                PersonId = Convert.ToInt32(row["角色编号"], CultureInfo.InvariantCulture),
+                WeaponId = Convert.ToInt32(row["武器"], CultureInfo.InvariantCulture),
+                ArmorId = Convert.ToInt32(row["防具"], CultureInfo.InvariantCulture),
+                AccessoryId = Convert.ToInt32(row["辅助"], CultureInfo.InvariantCulture),
+                EffectValue = Convert.ToInt32(row["特效值"], CultureInfo.InvariantCulture),
+                Remarks = Convert.ToString(row["备注"], CultureInfo.InvariantCulture) ?? string.Empty
+            });
+        }
+
+        return updates;
+    }
+
+    private async Task JumpToExclusiveSetScenarioCommandAsync(DataRow row)
+    {
+        if (_project == null) return;
+        var relativePath = Convert.ToString(row["RelativePath"], CultureInfo.InvariantCulture) ?? string.Empty;
+        var fileName = Path.GetFileName(relativePath);
+        var sceneIndex = Convert.ToInt32(row["SceneIndex"], CultureInfo.InvariantCulture);
+        var sectionIndex = Convert.ToInt32(row["SectionIndex"], CultureInfo.InvariantCulture);
+        var commandIndex = Convert.ToInt32(row["CommandIndex"], CultureInfo.InvariantCulture);
+        var commandOrdinal = Convert.ToInt32(row["CommandOrdinal"], CultureInfo.InvariantCulture);
+        var fileOffset = Convert.ToInt32(row["FileOffset"], CultureInfo.InvariantCulture);
+
+        SelectTabPageByText("剧本编辑");
+        if (_scriptScenarioCombo.DataSource == null || _scriptScenarioCombo.Items.Count == 0)
+        {
+            await LoadScriptScenariosAsync();
+        }
+
+        ScenarioFileInfo? target = null;
+        foreach (var item in _scriptScenarioCombo.Items)
+        {
+            if (item is not ScenarioFileInfo info) continue;
+            if (string.Equals(info.FileName, fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                target = info;
+                break;
+            }
+        }
+
+        if (target == null)
+        {
+            MessageBox.Show(this, "剧本列表中没有找到：" + fileName, "定位失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        _updatingScriptScenarioSelection = true;
+        try
+        {
+            _scriptScenarioCombo.SelectedItem = target;
+        }
+        finally
+        {
+            _updatingScriptScenarioSelection = false;
+        }
+        await LoadSelectedScriptScenarioAsync();
+        if (_currentLegacyScriptDocument == null)
+        {
+            MessageBox.Show(this, "目标剧本没有加载为旧版完整命令树：" + fileName, "定位失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var command = _currentLegacyScriptDocument.EnumerateCommands().FirstOrDefault(x =>
+                          x.CommandOrdinal == commandOrdinal &&
+                          x.SceneIndex == sceneIndex &&
+                          x.SectionIndex == sectionIndex &&
+                          x.CommandIndex == commandIndex &&
+                          x.FileOffset == fileOffset)
+                      ?? _currentLegacyScriptDocument.EnumerateCommands().FirstOrDefault(x =>
+                          x.SceneIndex == sceneIndex &&
+                          x.SectionIndex == sectionIndex &&
+                          x.CommandIndex == commandIndex &&
+                          x.FileOffset == fileOffset);
+        if (command == null || !TrySelectLegacyScriptCommand(LegacyScriptEditorScope.Script, command))
+        {
+            MessageBox.Show(this, "已打开剧本，但没有找到对应命令。", "定位失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        ShowSelectedLegacyScriptTreeNode(LegacyScriptEditorScope.Script);
+        TrySelectLegacyScriptParameterRow(1);
+        ShowSelectedLegacyScriptParameter();
+        SetStatus($"已定位个人专属/套装出处：{fileName} Scene {sceneIndex} / Section {sectionIndex} / Command {commandIndex}");
     }
 
     private DataTable BuildRolePersonalEffectEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -2228,6 +2929,9 @@ public sealed partial class MainForm
             _itemEditorGrid.DataSource = _currentItemEditorData;
             ConfigureItemEditorGrid();
             _saveItemEditorButton.Enabled = true;
+            _exportItemEditorCsvButton.Enabled = true;
+            _importItemEditorCsvButton.Enabled = true;
+            ResetItemEditorHistory();
             _itemEditorInfoBox.Text = BuildItemEditorSummary(_currentItemEditorData);
             ShowSelectedItemEditorCell();
             SetStatus($"宝物设定读取完成：{_currentItemEditorData.Rows.Count} 行");
@@ -2832,6 +3536,654 @@ public sealed partial class MainForm
         SetStatus("宝物筛选已清除");
     }
 
+    private void ExportItemEditorCsv()
+        => ExportDataTableCsv(_currentItemEditorData, "宝物设定.csv");
+
+    private void ImportItemEditorCsv()
+    {
+        var table = _currentItemEditorData;
+        if (table == null) return;
+        using var dialog = new OpenFileDialog
+        {
+            Title = "导入宝物设定 CSV",
+            Filter = "CSV 文件 (*.csv)|*.csv|所有文件 (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var readOnlySnapshot = CaptureItemEditorCsvReadOnlySnapshot(table);
+        try
+        {
+            SetItemEditorCsvDerivedColumnsReadOnly(table, readOnly: true);
+            var count = CsvService.ImportInto(table, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+            RestoreItemEditorCsvReadOnlySnapshot(table, readOnlySnapshot);
+            RefreshItemEditorAfterBulkEdit();
+            ResetItemEditorHistory();
+            System.Diagnostics.Debug.WriteLine($"已导入宝物设定 CSV：{dialog.FileName}，更新行 {count}");
+            SetStatus($"宝物设定 CSV 导入完成：更新 {count} 行，请检查后保存。");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("宝物设定 CSV 导入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "宝物设定 CSV 导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            RestoreItemEditorCsvReadOnlySnapshot(table, readOnlySnapshot);
+        }
+    }
+
+    private static Dictionary<string, bool> CaptureItemEditorCsvReadOnlySnapshot(DataTable table)
+        => GetItemEditorDerivedColumnNames()
+            .Where(table.Columns.Contains)
+            .ToDictionary(columnName => columnName, columnName => table.Columns[columnName]!.ReadOnly, StringComparer.Ordinal);
+
+    private static void RestoreItemEditorCsvReadOnlySnapshot(DataTable table, IReadOnlyDictionary<string, bool> snapshot)
+    {
+        foreach (var pair in snapshot)
+        {
+            if (table.Columns.Contains(pair.Key)) table.Columns[pair.Key]!.ReadOnly = pair.Value;
+        }
+    }
+
+    private static void SetItemEditorCsvDerivedColumnsReadOnly(DataTable table, bool readOnly)
+    {
+        foreach (var columnName in GetItemEditorDerivedColumnNames())
+        {
+            if (table.Columns.Contains(columnName)) table.Columns[columnName]!.ReadOnly = readOnly;
+        }
+    }
+
+    private static string[] GetItemEditorDerivedColumnNames()
+        =>
+        [
+            "类型说明",
+            "价格显示",
+            "装备特效名",
+            "实际效果号",
+            "实际效果说明",
+            "特效提示"
+        ];
+
+    private void RefreshItemEditorAfterBulkEdit()
+    {
+        if (_currentItemEditorData != null)
+        {
+            foreach (DataRow row in _currentItemEditorData.Rows)
+            {
+                RefreshItemEditorDerivedCells(row);
+            }
+        }
+
+        RefreshItemEditorRowStyles();
+        ShowSelectedItemEditorCell();
+        UpdateItemEditorHistoryButtons();
+    }
+
+    private static bool IsPotentialItemEditorTextInput(KeyEventArgs e)
+        => IsPotentialJobEditorTextInput(e);
+
+    private void SnapshotItemEditorSelectionForEdit()
+    {
+        var targets = CaptureItemEditorSelectedTargets();
+        if (targets.Count > 1)
+        {
+            _itemEditorSelectionSnapshotTargets = targets;
+        }
+    }
+
+    private void MarkItemEditorSelectionChangeFromMouse()
+    {
+        _itemEditorSelectionChangeStartedByMouse = true;
+        _itemEditorSelectionSnapshotTargets = [];
+    }
+
+    private void HandleItemEditorSelectionChanged()
+    {
+        if (!_applyingItemEditorHistory && !_itemEditorGrid.IsCurrentCellInEditMode)
+        {
+            var targets = CaptureItemEditorSelectedTargets();
+            if (_itemEditorSelectionChangeStartedByMouse)
+            {
+                _itemEditorSelectionSnapshotTargets = targets;
+                _itemEditorSelectionChangeStartedByMouse = false;
+                ShowSelectedItemEditorCell();
+                return;
+            }
+
+            if (targets.Count > 1 ||
+                targets.Count == 0 ||
+                _itemEditorSelectionSnapshotTargets.Count == 0 ||
+                !ItemEditorTargetListContains(_itemEditorSelectionSnapshotTargets, targets[0]))
+            {
+                _itemEditorSelectionSnapshotTargets = targets;
+            }
+        }
+
+        ShowSelectedItemEditorCell();
+    }
+
+    private void BeginItemEditorCellEdit(int rowIndex, int columnIndex)
+    {
+        if (_applyingItemEditorHistory || rowIndex < 0 || columnIndex < 0)
+        {
+            _itemEditorPendingCellEditOriginals = [];
+            return;
+        }
+
+        _itemEditorPendingCellEditOriginals = CaptureItemEditorSelectionOriginals(rowIndex, columnIndex);
+    }
+
+    private void CompleteItemEditorCellEdit(int rowIndex, int columnIndex)
+    {
+        if (_applyingItemEditorHistory || rowIndex < 0 || columnIndex < 0) return;
+        if (_itemEditorPendingCellEditOriginals.Count == 0)
+        {
+            UpdateItemEditorDerivedCells(rowIndex, columnIndex);
+            return;
+        }
+
+        var column = _itemEditorGrid.Columns[columnIndex];
+        var columnName = column.DataPropertyName;
+        var editedRow = TryGetDataRow(_itemEditorGrid.Rows[rowIndex]);
+        if (editedRow == null)
+        {
+            _itemEditorPendingCellEditOriginals = [];
+            return;
+        }
+
+        var source = _itemEditorPendingCellEditOriginals
+            .FirstOrDefault(edit => ReferenceEquals(edit.Row, editedRow) &&
+                                    string.Equals(edit.ColumnName, columnName, StringComparison.Ordinal));
+        if (source == null)
+        {
+            _itemEditorPendingCellEditOriginals = [];
+            UpdateItemEditorDerivedCells(rowIndex, columnIndex);
+            return;
+        }
+
+        var newValue = NormalizeGridCellValue(source.Row[columnName]);
+        var edits = new List<ItemEditorCellEdit>
+        {
+            new(source.Row, columnName, source.OldValue, newValue)
+        };
+
+        if (_itemEditorPendingCellEditOriginals.Count > 1)
+        {
+            var text = FormatGridValueForBatchInput(newValue);
+            foreach (var target in _itemEditorPendingCellEditOriginals)
+            {
+                if (ReferenceEquals(target.Row, source.Row) &&
+                    string.Equals(target.ColumnName, columnName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!TryValidateItemEditorCellText(target.ColumnName, text, out var error))
+                {
+                    _itemEditorInfoBox.Text = error;
+                    SetStatus(error);
+                    continue;
+                }
+
+                var targetNewValue = ConvertItemEditorValueForColumn(target.ColumnName, text);
+                if (Equals(target.OldValue, targetNewValue)) continue;
+                target.Row[target.ColumnName] = targetNewValue ?? DBNull.Value;
+                RefreshItemEditorDerivedCells(target.Row);
+                edits.Add(new ItemEditorCellEdit(target.Row, target.ColumnName, target.OldValue, NormalizeGridCellValue(target.Row[target.ColumnName])));
+            }
+        }
+
+        _itemEditorPendingCellEditOriginals = [];
+        RefreshItemEditorDerivedCells(source.Row);
+        PushItemEditorHistory(edits);
+        RefreshItemEditorAfterBulkEdit();
+        if (edits.Count > 1)
+        {
+            SetStatus($"宝物设定已将当前输入应用到选区：{edits.Count} 个单元格。");
+        }
+        else if (edits.Count == 1 && !Equals(edits[0].OldValue, edits[0].NewValue))
+        {
+            SetStatus("宝物设定已更新 1 个单元格。");
+        }
+    }
+
+    private void PasteItemEditorSelection()
+    {
+        if (_itemEditorGrid.ReadOnly)
+        {
+            SetStatus("当前表格不可编辑。");
+            return;
+        }
+
+        if (!Clipboard.ContainsText())
+        {
+            SetStatus("剪贴板没有文本。");
+            return;
+        }
+
+        var start = GetItemEditorPasteStartCell();
+        if (start == null)
+        {
+            SetStatus("请先选中粘贴起点。");
+            return;
+        }
+
+        if (!_itemEditorGrid.EndEdit())
+        {
+            SetStatus("当前单元格未能提交，无法粘贴。");
+            return;
+        }
+
+        var matrix = ParseClipboardMatrix(Clipboard.GetText());
+        var edits = new List<ItemEditorCellEdit>();
+        var lastCell = start.Value;
+        for (var r = 0; r < matrix.Count; r++)
+        {
+            var rowIndex = start.Value.Row + r;
+            if (rowIndex >= _itemEditorGrid.Rows.Count) break;
+
+            for (var c = 0; c < matrix[r].Count; c++)
+            {
+                var columnIndex = start.Value.Column + c;
+                if (columnIndex >= _itemEditorGrid.Columns.Count) break;
+
+                if (TrySetItemEditorCellValue(rowIndex, columnIndex, matrix[r][c], edits, out _))
+                {
+                    lastCell = (rowIndex, columnIndex);
+                }
+            }
+        }
+
+        PushItemEditorHistory(edits);
+        if (edits.Count > 0)
+        {
+            _itemEditorGrid.CurrentCell = _itemEditorGrid.Rows[lastCell.Row].Cells[lastCell.Column];
+            RefreshItemEditorAfterBulkEdit();
+        }
+
+        SetStatus($"宝物设定粘贴完成：更新 {edits.Count} 个单元格。");
+    }
+
+    private void FillItemEditorSelectionWithCurrentValue()
+    {
+        if (_itemEditorGrid.ReadOnly)
+        {
+            SetStatus("当前表格不可编辑。");
+            return;
+        }
+
+        if (_itemEditorGrid.CurrentCell == null)
+        {
+            SetStatus("请先选中用于批量填列的单元格。");
+            return;
+        }
+
+        if (!_itemEditorGrid.EndEdit())
+        {
+            SetStatus("当前单元格未能提交，无法批量填列。");
+            return;
+        }
+
+        var value = GetItemEditorCurrentInputText();
+        var targets = GetItemEditorBatchFillTargets();
+        if (targets.Count <= 1)
+        {
+            SetStatus("请先滑动选中多个要批量填列的单元格。");
+            return;
+        }
+
+        var edits = new List<ItemEditorCellEdit>();
+        var lastError = string.Empty;
+        foreach (var target in targets)
+        {
+            if (!TrySetItemEditorCellTargetValue(target, value, edits, out var error))
+            {
+                lastError = error;
+            }
+        }
+
+        PushItemEditorHistory(edits);
+        if (edits.Count > 0) RefreshItemEditorAfterBulkEdit();
+        SetStatus(edits.Count > 0
+            ? $"宝物设定批量填列完成：更新 {edits.Count} 个单元格。"
+            : string.IsNullOrWhiteSpace(lastError) ? "宝物设定批量填列没有产生改动。" : lastError);
+    }
+
+    private List<ItemEditorCellEdit> CaptureItemEditorSelectionOriginals(int fallbackRowIndex, int fallbackColumnIndex)
+    {
+        var targets = CaptureItemEditorSelectedTargets();
+        var fallbackTarget = TryCreateItemEditorCellTarget(fallbackRowIndex, fallbackColumnIndex, out var currentTarget)
+            ? currentTarget
+            : null;
+        if (fallbackTarget != null &&
+            targets.Count <= 1 &&
+            _itemEditorSelectionSnapshotTargets.Count > 1 &&
+            ItemEditorTargetListContains(_itemEditorSelectionSnapshotTargets, fallbackTarget))
+        {
+            targets = _itemEditorSelectionSnapshotTargets;
+        }
+        else if (targets.Count == 0 && fallbackTarget != null)
+        {
+            targets.Add(fallbackTarget);
+        }
+
+        return targets
+            .Where(target => IsItemEditorTargetValid(target))
+            .Select(target => new ItemEditorCellEdit(target.Row, target.ColumnName, NormalizeGridCellValue(target.Row[target.ColumnName]), null))
+            .ToList();
+    }
+
+    private List<ItemEditorCellTarget> GetItemEditorBatchFillTargets()
+    {
+        var targets = CaptureItemEditorSelectedTargets();
+        if (targets.Count > 1 || _itemEditorGrid.CurrentCell == null)
+        {
+            return targets;
+        }
+
+        if (TryCreateItemEditorCellTarget(
+                _itemEditorGrid.CurrentCell.RowIndex,
+                _itemEditorGrid.CurrentCell.ColumnIndex,
+                out var currentTarget) &&
+            _itemEditorSelectionSnapshotTargets.Count > 1 &&
+            ItemEditorTargetListContains(_itemEditorSelectionSnapshotTargets, currentTarget))
+        {
+            return _itemEditorSelectionSnapshotTargets;
+        }
+
+        return targets;
+    }
+
+    private string GetItemEditorCurrentInputText()
+    {
+        if (_itemEditorGrid.IsCurrentCellInEditMode &&
+            _itemEditorGrid.EditingControl is TextBoxBase textBox)
+        {
+            return textBox.Text;
+        }
+
+        return FormatGridValueForBatchInput(_itemEditorGrid.CurrentCell?.Value);
+    }
+
+    private List<ItemEditorCellTarget> CaptureItemEditorSelectedTargets()
+        => GetItemEditorSelectedEditableCells()
+            .Select(cell => TryCreateItemEditorCellTarget(cell.RowIndex, cell.ColumnIndex, out var target) ? target : null)
+            .OfType<ItemEditorCellTarget>()
+            .ToList();
+
+    private bool TryCreateItemEditorCellTarget(int rowIndex, int columnIndex, out ItemEditorCellTarget target)
+    {
+        target = null!;
+        if (!TryResolveItemEditorCell(rowIndex, columnIndex, out var row, out var columnName)) return false;
+        target = new ItemEditorCellTarget(row, columnName);
+        return true;
+    }
+
+    private static bool ItemEditorTargetListContains(IReadOnlyList<ItemEditorCellTarget> targets, ItemEditorCellTarget target)
+        => targets.Any(candidate => ReferenceEquals(candidate.Row, target.Row) &&
+                                    string.Equals(candidate.ColumnName, target.ColumnName, StringComparison.Ordinal));
+
+    private bool IsItemEditorTargetValid(ItemEditorCellTarget target)
+        => target.Row.RowState != DataRowState.Detached &&
+           _currentItemEditorData?.Columns.Contains(target.ColumnName) == true;
+
+    private bool TrySetItemEditorCellTargetValue(
+        ItemEditorCellTarget target,
+        string text,
+        List<ItemEditorCellEdit> edits,
+        out string error)
+    {
+        error = string.Empty;
+        if (!IsItemEditorTargetValid(target)) return false;
+        if (!TryValidateItemEditorCellText(target.ColumnName, text, out error))
+        {
+            SetItemEditorCellError(target, error);
+            return false;
+        }
+
+        try
+        {
+            var oldValue = NormalizeGridCellValue(target.Row[target.ColumnName]);
+            var newValue = ConvertItemEditorValueForColumn(target.ColumnName, text);
+            if (Equals(oldValue, newValue)) return false;
+
+            target.Row[target.ColumnName] = newValue ?? DBNull.Value;
+            RefreshItemEditorDerivedCells(target.Row);
+            SetItemEditorCellError(target, string.Empty);
+            edits.Add(new ItemEditorCellEdit(target.Row, target.ColumnName, oldValue, NormalizeGridCellValue(target.Row[target.ColumnName])));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            SetItemEditorCellError(target, error);
+            return false;
+        }
+    }
+
+    private void SetItemEditorCellError(ItemEditorCellTarget target, string error)
+    {
+        foreach (DataGridViewRow row in _itemEditorGrid.Rows)
+        {
+            if (!ReferenceEquals(TryGetDataRow(row), target.Row)) continue;
+            foreach (DataGridViewColumn column in _itemEditorGrid.Columns)
+            {
+                if (!string.Equals(column.DataPropertyName, target.ColumnName, StringComparison.Ordinal)) continue;
+                row.Cells[column.Index].ErrorText = error;
+                return;
+            }
+        }
+    }
+
+    private List<DataGridViewCell> GetItemEditorSelectedEditableCells()
+        => _itemEditorGrid.SelectedCells.Cast<DataGridViewCell>()
+            .Where(cell => IsItemEditorEditableCell(cell.RowIndex, cell.ColumnIndex))
+            .OrderBy(cell => cell.RowIndex)
+            .ThenBy(cell => cell.ColumnIndex)
+            .ToList();
+
+    private bool IsItemEditorEditableCell(int rowIndex, int columnIndex)
+    {
+        if (rowIndex < 0 || rowIndex >= _itemEditorGrid.Rows.Count ||
+            columnIndex < 0 || columnIndex >= _itemEditorGrid.Columns.Count)
+        {
+            return false;
+        }
+
+        var column = _itemEditorGrid.Columns[columnIndex];
+        if (column.ReadOnly || !column.Visible) return false;
+        var cell = _itemEditorGrid.Rows[rowIndex].Cells[columnIndex];
+        return !cell.ReadOnly && TryGetDataRow(_itemEditorGrid.Rows[rowIndex]) != null;
+    }
+
+    private (int Row, int Column)? GetItemEditorPasteStartCell()
+    {
+        if (_itemEditorGrid.CurrentCell != null)
+        {
+            return (_itemEditorGrid.CurrentCell.RowIndex, _itemEditorGrid.CurrentCell.ColumnIndex);
+        }
+
+        return _itemEditorGrid.SelectedCells.Cast<DataGridViewCell>()
+            .Where(cell => cell.RowIndex >= 0 && cell.ColumnIndex >= 0)
+            .OrderBy(cell => cell.RowIndex)
+            .ThenBy(cell => cell.ColumnIndex)
+            .Select(cell => ((int Row, int Column)?)(cell.RowIndex, cell.ColumnIndex))
+            .FirstOrDefault();
+    }
+
+    private bool TrySetItemEditorCellValue(
+        int rowIndex,
+        int columnIndex,
+        string text,
+        List<ItemEditorCellEdit> edits,
+        out string error)
+    {
+        error = string.Empty;
+        if (!TryResolveItemEditorCell(rowIndex, columnIndex, out var row, out var columnName)) return false;
+        if (!TryValidateItemEditorCellText(columnName, text, out error))
+        {
+            _itemEditorGrid.Rows[rowIndex].Cells[columnIndex].ErrorText = error;
+            return false;
+        }
+
+        try
+        {
+            var oldValue = NormalizeGridCellValue(row[columnName]);
+            var newValue = ConvertItemEditorValueForColumn(columnName, text);
+            if (Equals(oldValue, newValue)) return false;
+
+            row[columnName] = newValue ?? DBNull.Value;
+            RefreshItemEditorDerivedCells(row);
+            _itemEditorGrid.Rows[rowIndex].Cells[columnIndex].ErrorText = string.Empty;
+            edits.Add(new ItemEditorCellEdit(row, columnName, oldValue, NormalizeGridCellValue(row[columnName])));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            _itemEditorGrid.Rows[rowIndex].Cells[columnIndex].ErrorText = error;
+            return false;
+        }
+    }
+
+    private bool TryResolveItemEditorCell(int rowIndex, int columnIndex, out DataRow row, out string columnName)
+    {
+        row = null!;
+        columnName = string.Empty;
+        if (rowIndex < 0 || rowIndex >= _itemEditorGrid.Rows.Count ||
+            columnIndex < 0 || columnIndex >= _itemEditorGrid.Columns.Count)
+        {
+            return false;
+        }
+
+        var column = _itemEditorGrid.Columns[columnIndex];
+        if (column.ReadOnly || !column.Visible) return false;
+        var cell = _itemEditorGrid.Rows[rowIndex].Cells[columnIndex];
+        if (cell.ReadOnly) return false;
+        columnName = column.DataPropertyName;
+        if (string.IsNullOrEmpty(columnName) || _currentItemEditorData?.Columns.Contains(columnName) != true) return false;
+        row = TryGetDataRow(_itemEditorGrid.Rows[rowIndex])!;
+        return row != null;
+    }
+
+    private bool TryValidateItemEditorCellText(string columnName, string value, out string error)
+    {
+        error = string.Empty;
+        if (columnName == "名称")
+        {
+            var bytes = EncodingService.GetGbkByteCount(value);
+            if (bytes > 17) error = $"物品名称超长：GBK {bytes} 字节，容量 17 字节。";
+        }
+        else if (columnName == "介绍")
+        {
+            var bytes = EncodingService.GetGbkByteCount(value);
+            if (bytes > 200) error = $"物品说明超长：GBK {bytes} 字节，容量 200 字节。";
+        }
+        else if (columnName != "ID")
+        {
+            error = TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked) ?? string.Empty;
+        }
+
+        return string.IsNullOrEmpty(error);
+    }
+
+    private object? ConvertItemEditorValueForColumn(string columnName, string text)
+    {
+        if (_currentItemEditorData == null || !_currentItemEditorData.Columns.Contains(columnName)) return text;
+        var dataColumn = _currentItemEditorData.Columns[columnName];
+        if (dataColumn == null) return text;
+        var targetType = dataColumn.DataType;
+        if (targetType == typeof(string)) return text;
+        if (IsSupportedIntegerType(targetType) &&
+            TryParseIntegerInput(text, _currentPageHexButton.Checked, out var parsed) &&
+            TryConvertParsedIntegerToType(parsed, targetType, out var converted))
+        {
+            return converted;
+        }
+
+        return Convert.ChangeType(text, targetType, CultureInfo.InvariantCulture);
+    }
+
+    private void PushItemEditorHistory(List<ItemEditorCellEdit> edits)
+    {
+        var effective = edits
+            .Where(edit => !Equals(edit.OldValue, edit.NewValue))
+            .ToList();
+        if (effective.Count == 0)
+        {
+            UpdateItemEditorHistoryButtons();
+            return;
+        }
+
+        _itemEditorUndoStack.Push(effective);
+        _itemEditorRedoStack.Clear();
+        UpdateItemEditorHistoryButtons();
+    }
+
+    private void UndoItemEditorChange()
+    {
+        if (_itemEditorUndoStack.Count == 0)
+        {
+            SetStatus("宝物设定没有可后退的编辑。");
+            return;
+        }
+
+        var edits = _itemEditorUndoStack.Pop();
+        ApplyItemEditorHistory(edits, useOldValue: true);
+        _itemEditorRedoStack.Push(edits);
+        SetStatus($"宝物设定已后退一步：还原 {edits.Count} 个单元格。");
+    }
+
+    private void RedoItemEditorChange()
+    {
+        if (_itemEditorRedoStack.Count == 0)
+        {
+            SetStatus("宝物设定没有可前进的编辑。");
+            return;
+        }
+
+        var edits = _itemEditorRedoStack.Pop();
+        ApplyItemEditorHistory(edits, useOldValue: false);
+        _itemEditorUndoStack.Push(edits);
+        SetStatus($"宝物设定已前进一步：恢复 {edits.Count} 个单元格。");
+    }
+
+    private void ApplyItemEditorHistory(List<ItemEditorCellEdit> edits, bool useOldValue)
+    {
+        _applyingItemEditorHistory = true;
+        try
+        {
+            foreach (var edit in edits)
+            {
+                if (edit.Row.RowState == DataRowState.Detached || !edit.Row.Table.Columns.Contains(edit.ColumnName)) continue;
+                edit.Row[edit.ColumnName] = (useOldValue ? edit.OldValue : edit.NewValue) ?? DBNull.Value;
+                RefreshItemEditorDerivedCells(edit.Row);
+            }
+        }
+        finally
+        {
+            _applyingItemEditorHistory = false;
+        }
+
+        RefreshItemEditorAfterBulkEdit();
+    }
+
+    private void ResetItemEditorHistory()
+    {
+        _itemEditorUndoStack.Clear();
+        _itemEditorRedoStack.Clear();
+        _itemEditorSelectionSnapshotTargets = [];
+        _itemEditorPendingCellEditOriginals = [];
+        _itemEditorSelectionChangeStartedByMouse = false;
+        UpdateItemEditorHistoryButtons();
+    }
+
+    private void UpdateItemEditorHistoryButtons()
+    {
+        _undoItemEditorButton.Enabled = _itemEditorUndoStack.Count > 0;
+        _redoItemEditorButton.Enabled = _itemEditorRedoStack.Count > 0;
+    }
+
     private void RefreshItemEditorRowStyles()
     {
         foreach (DataGridViewRow row in _itemEditorGrid.Rows)
@@ -2885,6 +4237,51 @@ public sealed partial class MainForm
             row.Table.Columns.Contains("实际效果说明") &&
             row.Table.Columns.Contains("装备特效名") &&
             row.Table.Columns.Contains("特效提示"))
+        {
+            var majorCategory = Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
+            var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
+            var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
+            var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
+            row["装备特效名"] = BuildItemEffectNameDisplay(majorCategory, typeId, effectId);
+            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, effectId);
+            row["实际效果说明"] = ItemEffectInterpretationService.BuildEffectiveEffectDescription(majorCategory, typeId, effectId, effectiveEffectId, GetItemEffectName);
+            row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
+                majorCategory,
+                typeId,
+                effectId,
+                Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
+                Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture),
+                Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture));
+        }
+    }
+
+    private void RefreshItemEditorDerivedCells(DataRow row)
+    {
+        if (_currentItemEditorData == null || row.RowState == DataRowState.Detached) return;
+        if (row.Table.Columns.Contains("类型说明") &&
+            row.Table.Columns.Contains("类型") &&
+            row.Table.Columns.Contains("宝物图鉴"))
+        {
+            row["类型说明"] = BuildItemTypeDescription(
+                Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture),
+                Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty,
+                Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture));
+        }
+
+        if (row.Table.Columns.Contains("价格显示") &&
+            row.Table.Columns.Contains("价格（/100）"))
+        {
+            row["价格显示"] = BuildItemPriceText(Convert.ToInt32(row["价格（/100）"], CultureInfo.InvariantCulture));
+        }
+
+        if (row.Table.Columns.Contains("实际效果号") &&
+            row.Table.Columns.Contains("实际效果说明") &&
+            row.Table.Columns.Contains("装备特效名") &&
+            row.Table.Columns.Contains("特效提示") &&
+            row.Table.Columns.Contains("类型") &&
+            row.Table.Columns.Contains("装备特效号") &&
+            row.Table.Columns.Contains("装备特效号-效果值") &&
+            row.Table.Columns.Contains("升级能力成长"))
         {
             var majorCategory = Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
@@ -2984,24 +4381,10 @@ public sealed partial class MainForm
         if (column is DataGridViewComboBoxColumn) return;
         var columnName = column.DataPropertyName;
         var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
-        string? error = null;
-        if (columnName == "名称")
-        {
-            var bytes = EncodingService.GetGbkByteCount(value);
-            if (bytes > 17) error = $"物品名称超长：GBK {bytes} 字节，容量 17 字节。";
-        }
-        else if (columnName == "介绍")
-        {
-            var bytes = EncodingService.GetGbkByteCount(value);
-            if (bytes > 200) error = $"物品说明超长：GBK {bytes} 字节，容量 200 字节。";
-        }
-        else
-        {
-            error = TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
-        }
+        TryValidateItemEditorCellText(columnName, value, out var error);
 
-        _itemEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
-        if (error == null) return;
+        _itemEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error;
+        if (string.IsNullOrEmpty(error)) return;
         e.Cancel = true;
         _itemEditorInfoBox.Text = error;
         SetStatus(error);
@@ -4058,6 +5441,7 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            CloseJobStrategyLearningDialogs();
             _currentJobStrategyData = BuildJobStrategyEditorData(_project, _tables);
             _jobStrategyEditorGrid.DataSource = _currentJobStrategyData;
             ConfigureJobStrategyGrid();
@@ -4181,13 +5565,19 @@ public sealed partial class MainForm
             column.ToolTipText = BuildJobStrategyColumnAnnotation(column.DataPropertyName);
             column.HeaderText = BuildJobStrategyColumnHeader(column.DataPropertyName);
             if (column.DataPropertyName == "名称") column.Width = 110;
-            if (column.DataPropertyName == "可学摘要") column.Width = 300;
+            if (column.DataPropertyName == "可学摘要")
+            {
+                column.Visible = false;
+                column.Width = 300;
+            }
+
             if (column.ReadOnly)
             {
                 column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
             }
             else if (TryGetJobStrategyLearningSourceColumn(column.DataPropertyName, out _))
             {
+                column.Visible = false;
                 column.MinimumWidth = Math.Max(column.MinimumWidth, 92);
                 column.Width = Math.Max(column.Width, 92);
                 column.DefaultCellStyle.BackColor = Color.FromArgb(244, 250, 255);
@@ -4294,6 +5684,123 @@ public sealed partial class MainForm
         return columnName;
     }
 
+    private void OpenJobStrategyLearningEditor(int rowIndex)
+    {
+        if (_currentJobStrategyData == null || rowIndex < 0 || rowIndex >= _jobStrategyEditorGrid.Rows.Count) return;
+        _jobStrategyEditorGrid.EndEdit();
+        var row = TryGetDataRow(_jobStrategyEditorGrid.Rows[rowIndex]);
+        if (row == null) return;
+
+        var strategyId = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+        if (_jobStrategyLearningDialogs.TryGetValue(strategyId, out var existing) && !existing.IsDisposed)
+        {
+            existing.Activate();
+            existing.Focus();
+            return;
+        }
+
+        var strategyName = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+        var levels = GetJobStrategyLearningLevels(row);
+        var dialog = new JobStrategyLearningDialog(strategyId, strategyName, row, _jobStrategyJobNames, levels);
+        dialog.FormClosed += (_, _) =>
+        {
+            _jobStrategyLearningDialogs.Remove(strategyId);
+            if (dialog.DialogResult == DialogResult.OK)
+            {
+                ApplyJobStrategyLearningDialogChanges(row, dialog.LearningLevels);
+            }
+        };
+        _jobStrategyLearningDialogs[strategyId] = dialog;
+        dialog.Show(this);
+    }
+
+    private IReadOnlyDictionary<int, int> GetJobStrategyLearningLevels(DataRow row)
+    {
+        var levels = new Dictionary<int, int>();
+        foreach (DataColumn column in row.Table.Columns)
+        {
+            if (!TryGetJobStrategyLearningSourceColumn(column.ColumnName, out var jobIdText)) continue;
+            var jobId = int.Parse(jobIdText, CultureInfo.InvariantCulture);
+            levels[jobId] = Convert.ToInt32(row[column.ColumnName], CultureInfo.InvariantCulture);
+        }
+
+        return levels;
+    }
+
+    private void ApplyJobStrategyLearningDialogChanges(DataRow row, IReadOnlyDictionary<int, int> levels)
+    {
+        if (_currentJobStrategyData == null || row.RowState == DataRowState.Detached) return;
+        foreach (var (jobId, level) in levels)
+        {
+            var columnName = BuildJobStrategyLearningColumnName(jobId.ToString(CultureInfo.InvariantCulture));
+            if (!row.Table.Columns.Contains(columnName)) continue;
+            if (Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture) == level) continue;
+            row[columnName] = level;
+        }
+
+        SetJobStrategyLearningSummary(row);
+        var gridRowIndex = FindJobStrategyGridRowIndex(row);
+        if (gridRowIndex >= 0)
+        {
+            RefreshJobStrategyRowStyle(gridRowIndex);
+            if (_jobStrategyEditorGrid.CurrentCell?.RowIndex == gridRowIndex) ShowSelectedJobStrategyCell();
+        }
+
+        SetStatus($"策略 {Convert.ToString(row["ID"], CultureInfo.InvariantCulture)} 学习等级已同步到可学摘要");
+    }
+
+    private int FindJobStrategyGridRowIndex(DataRow row)
+    {
+        foreach (DataGridViewRow gridRow in _jobStrategyEditorGrid.Rows)
+        {
+            if (ReferenceEquals(TryGetDataRow(gridRow), row)) return gridRow.Index;
+        }
+
+        return -1;
+    }
+
+    private void SetJobStrategyLearningSummary(DataRow row)
+    {
+        var column = row.Table.Columns["可学摘要"];
+        if (column == null) return;
+        var wasReadOnly = column.ReadOnly;
+        column.ReadOnly = false;
+        var summary = BuildJobStrategyLearningSummary(row);
+        if (!string.Equals(Convert.ToString(row["可学摘要"], CultureInfo.InvariantCulture), summary, StringComparison.Ordinal))
+        {
+            row["可学摘要"] = summary;
+        }
+
+        column.ReadOnly = wasReadOnly;
+    }
+
+    private bool CommitJobStrategyLearningDialogs()
+    {
+        foreach (var dialog in _jobStrategyLearningDialogs.Values.ToList())
+        {
+            if (dialog.IsDisposed) continue;
+            if (!dialog.CommitPendingChanges()) return false;
+            if (dialog.BoundStrategyRow is { RowState: not DataRowState.Detached } row)
+            {
+                ApplyJobStrategyLearningDialogChanges(row, dialog.LearningLevels);
+            }
+        }
+
+        return true;
+    }
+
+    private void CloseJobStrategyLearningDialogs()
+    {
+        foreach (var dialog in _jobStrategyLearningDialogs.Values.ToList())
+        {
+            dialog.ApplyChangesOnClose = false;
+            dialog.Close();
+            dialog.Dispose();
+        }
+
+        _jobStrategyLearningDialogs.Clear();
+    }
+
     private string BuildJobStrategyJobName(int jobId)
     {
         return _jobStrategyJobNames.TryGetValue(jobId, out var name) && !string.IsNullOrWhiteSpace(name)
@@ -4329,7 +5836,7 @@ public sealed partial class MainForm
         if (!TryGetJobStrategyLearningSourceColumn(_jobStrategyEditorGrid.Columns[columnIndex].DataPropertyName, out _)) return;
         var row = TryGetDataRow(_jobStrategyEditorGrid.Rows[rowIndex]);
         if (row == null) return;
-        row["可学摘要"] = BuildJobStrategyLearningSummary(row);
+        SetJobStrategyLearningSummary(row);
     }
 
     private static string BuildJobStrategySummary(DataTable data)
@@ -4429,6 +5936,14 @@ public sealed partial class MainForm
             return;
         }
 
+        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (!IsJobStrategyResourcePreviewColumn(columnName))
+        {
+            ShowJobStrategyLearningPreview(row, columnName, id, name);
+            return;
+        }
+
         var rawValue = row.Cells[columnName].Value;
         if (!TryConvertToInt(rawValue, out var fieldValue))
         {
@@ -4436,13 +5951,12 @@ public sealed partial class MainForm
             return;
         }
 
-        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         switch (columnName)
         {
             case "施法范围":
             {
                 var result = _attackAreaPreviewService.BuildPreview(_project, "攻击范围", fieldValue);
+                SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -4454,6 +5968,7 @@ public sealed partial class MainForm
             case "穿透范围":
             {
                 var result = _attackAreaPreviewService.BuildPreview(_project, "穿透范围", fieldValue);
+                SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -4465,6 +5980,7 @@ public sealed partial class MainForm
             case "策略图标":
             {
                 var result = _itemIconPreviewService.BuildPreview(_project, fieldValue, JobStrategyIconResourceFileName, "策略图标");
+                SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -4477,6 +5993,7 @@ public sealed partial class MainForm
             case "大动画":
             {
                 var result = _strategyAnimationPreviewService.BuildPreview(_project, fieldValue);
+                SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -4485,16 +6002,57 @@ public sealed partial class MainForm
                     $"资源路径：{result.SourcePath}";
                 return;
             }
-            default:
-                ClearJobStrategyPreview("选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示右侧预览。");
-                return;
         }
     }
 
     private void ClearJobStrategyPreview(string message)
     {
+        SetJobStrategyPreviewImageVisible(false);
         SetPictureBoxImage(_jobStrategyPreviewBox, null);
         _jobStrategyPreviewInfoBox.Text = message;
+    }
+
+    private void SetJobStrategyPreviewImageVisible(bool visible)
+    {
+        _jobStrategyPreviewBox.Visible = visible;
+        if (_jobStrategyPreviewBox.Parent is not TableLayoutPanel panel || panel.RowStyles.Count < 3) return;
+        panel.RowStyles[1].SizeType = visible ? SizeType.Percent : SizeType.Absolute;
+        panel.RowStyles[1].Height = visible ? 58 : 0;
+        panel.RowStyles[2].SizeType = SizeType.Percent;
+        panel.RowStyles[2].Height = visible ? 42 : 100;
+    }
+
+    private static bool IsJobStrategyResourcePreviewColumn(string columnName)
+        => columnName is "施法范围" or "穿透范围" or "策略图标" or "小动画" or "大动画";
+
+    private void ShowJobStrategyLearningPreview(DataGridViewRow row, string columnName, string id, string name)
+    {
+        SetJobStrategyPreviewImageVisible(false);
+        SetPictureBoxImage(_jobStrategyPreviewBox, null);
+        var dataRow = TryGetDataRow(row);
+        var summary = dataRow == null
+            ? Convert.ToString(row.Cells["可学摘要"].Value, CultureInfo.InvariantCulture) ?? "无可学兵种"
+            : BuildJobStrategyLearningSummary(dataRow);
+        var entries = SplitJobStrategyLearningSummary(summary);
+        var body = entries.Count == 0
+            ? "无可学兵种"
+            : string.Join("\r\n", entries.Select(static entry => $"· {entry}"));
+        _jobStrategyPreviewInfoBox.Text =
+            $"策略 ID={id}  名称={name}\r\n" +
+            "兵种学习情况：\r\n" +
+            body;
+    }
+
+    private static IReadOnlyList<string> SplitJobStrategyLearningSummary(string summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary) || summary == "无可学兵种")
+        {
+            return Array.Empty<string>();
+        }
+
+        return summary
+            .Split('，', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
     }
 
     private static bool TryConvertToInt(object? value, out int number)
@@ -4565,6 +6123,7 @@ public sealed partial class MainForm
         if (_project == null || _currentJobStrategyData == null || _jobStrategyRead == null) return;
 
         _jobStrategyEditorGrid.EndEdit();
+        if (!CommitJobStrategyLearningDialogs()) return;
         if (_currentJobStrategyData.GetChanges() == null)
         {
             MessageBox.Show(this, "兵种策略没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -4691,24 +6250,21 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             _jobSeriesRead ??= _tableReader.Read(_project, FindTable(_tables, "6.5-3 兵种系"), _tables);
             _jobRestraintRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3-3 兵种相克"), _tables);
-            _jobAttributeRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3-4 兵种属性"), _tables);
-            if (!_jobSeriesRead.Validation.IsUsable || !_jobRestraintRead.Validation.IsUsable || !_jobAttributeRead.Validation.IsUsable)
+            if (!_jobSeriesRead.Validation.IsUsable || !_jobRestraintRead.Validation.IsUsable)
             {
-                throw new InvalidOperationException("兵种相克/属性矩阵有不可读取项，请先查看数据表诊断。");
+                throw new InvalidOperationException("兵种相克矩阵有不可读取项，请先查看数据表诊断。");
             }
 
             _jobRestraintGrid.DataSource = _jobRestraintRead.Data;
-            _jobAttributeGrid.DataSource = _jobAttributeRead.Data;
-            ConfigureJobMatrixGrid(_jobRestraintGrid, isAttributeGrid: false);
-            ConfigureJobMatrixGrid(_jobAttributeGrid, isAttributeGrid: true);
+            ConfigureJobMatrixGrid(_jobRestraintGrid);
             _saveJobMatrixButton.Enabled = true;
             _jobMatrixInfoBox.Text = BuildJobMatrixSummary();
-            SetStatus("兵种相克/属性矩阵读取完成");
+            SetStatus("兵种相克矩阵读取完成");
         }
         catch (Exception ex)
         {
             _jobMatrixInfoBox.Text = ex.ToString();
-            System.Diagnostics.Debug.WriteLine("读取兵种相克/属性矩阵失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种相克矩阵失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种矩阵失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -4717,38 +6273,36 @@ public sealed partial class MainForm
         }
     }
 
-    private void ConfigureJobMatrixGrid(DataGridView grid, bool isAttributeGrid)
+    private void ConfigureJobMatrixGrid(DataGridView grid)
     {
         grid.ReadOnly = false;
         foreach (DataGridViewColumn column in grid.Columns)
         {
             column.ReadOnly = column.DataPropertyName == "ID" || column.DataPropertyName == "名称";
-            column.HeaderText = BuildJobMatrixColumnHeader(column.DataPropertyName, isAttributeGrid);
-            column.ToolTipText = BuildJobMatrixColumnAnnotation(column.DataPropertyName, isAttributeGrid);
-            if (column.DataPropertyName == "名称") column.Width = isAttributeGrid ? 120 : 90;
+            column.HeaderText = BuildJobMatrixColumnHeader(column.DataPropertyName);
+            column.ToolTipText = BuildJobMatrixColumnAnnotation(column.DataPropertyName);
+            if (column.DataPropertyName == "名称") column.Width = 90;
             if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
         }
 
         RefreshJobMatrixRowStyles(grid);
     }
 
-    private string BuildJobMatrixColumnHeader(string columnName, bool isAttributeGrid)
+    private string BuildJobMatrixColumnHeader(string columnName)
     {
         if (columnName == "ID") return "ID";
-        if (columnName == "名称") return isAttributeGrid ? "属性行\n原始" : "攻击方\n兵种系";
+        if (columnName == "名称") return "攻击方\n兵种系";
         return TryGetJobSeriesName(columnName, out var name)
             ? $"{columnName}\n{name}"
             : columnName;
     }
 
-    private string BuildJobMatrixColumnAnnotation(string columnName, bool isAttributeGrid)
+    private string BuildJobMatrixColumnAnnotation(string columnName)
     {
-        if (columnName == "ID") return isAttributeGrid ? "兵种属性矩阵原始行 ID。8 行含义尚未确认，当前按原始属性行显示。" : "兵种系编号。";
-        if (columnName == "名称") return isAttributeGrid ? "属性矩阵原始行标签。真实语义待 B形象指定器/CczRSX/实机确认。" : "攻击方兵种系名称。";
+        if (columnName == "ID") return "兵种系编号。";
+        if (columnName == "名称") return "攻击方兵种系名称。";
         var target = TryGetJobSeriesName(columnName, out var name) ? $"{columnName}:{name}" : columnName;
-        return isAttributeGrid
-            ? $"兵种属性矩阵列 {target}。当前值按原始字节编辑，8 行真实语义待旧工具确认。"
-            : $"兵种相克矩阵：当前行兵种系攻击/作用于列 {target} 时的相克数值。具体倍率含义需结合实机确认。";
+        return $"兵种相克矩阵：当前行兵种系攻击/作用于列 {target} 时的相克数值。具体倍率含义需结合实机确认。";
     }
 
     private bool TryGetJobSeriesName(string columnName, out string name)
@@ -4764,12 +6318,10 @@ public sealed partial class MainForm
     {
         var restraintRows = _jobRestraintRead?.Data.Rows.Count ?? 0;
         var restraintCols = _jobRestraintRead?.Data.Columns.Count - 2 ?? 0;
-        var attrRows = _jobAttributeRead?.Data.Rows.Count ?? 0;
-        var attrCols = _jobAttributeRead?.Data.Columns.Count - 1 ?? 0;
         return
-            $"兵种相克/属性矩阵已读取：相克 {restraintRows}x{restraintCols}，属性 {attrRows}x{attrCols}。\r\n" +
-            "来源表：6.5-3-3 兵种相克、6.5-3-4 兵种属性；列名 0..39 已按 6.5-3 兵种系补充表头。\r\n" +
-            "保存会写回 Ekd5.exe，保存前自动备份，保存后重新读取校验。属性 8 行语义尚未确认，当前按原始属性行编辑。";
+            $"兵种相克矩阵已读取：相克 {restraintRows}x{restraintCols}。\r\n" +
+            "来源表：6.5-3-3 兵种相克；列名 0..39 已按 6.5-3 兵种系补充表头。\r\n" +
+            "保存会写回 Ekd5.exe，保存前自动备份，保存后重新读取校验。";
     }
 
     private void RefreshJobMatrixRowStyles(DataGridView grid)
@@ -4800,7 +6352,7 @@ public sealed partial class MainForm
         _jobMatrixInfoBox.Text =
             $"{matrixName}：行={rowName}    列={targetName}\r\n" +
             $"当前值：{cell.Value}\r\n\r\n" +
-            BuildJobMatrixColumnAnnotation(columnName, matrixName == "兵种属性");
+            BuildJobMatrixColumnAnnotation(columnName);
     }
 
     private void ValidateJobMatrixCell(DataGridView grid, DataGridViewCellValidatingEventArgs e)
@@ -4819,24 +6371,18 @@ public sealed partial class MainForm
 
     private void SaveJobMatrixEditor()
     {
-        if (_project == null || _jobRestraintRead == null || _jobAttributeRead == null) return;
+        if (_project == null || _jobRestraintRead == null) return;
 
         _jobRestraintGrid.EndEdit();
-        _jobAttributeGrid.EndEdit();
-        if (_jobRestraintRead.Data.GetChanges() == null && _jobAttributeRead.Data.GetChanges() == null)
+        if (_jobRestraintRead.Data.GetChanges() == null)
         {
-            MessageBox.Show(this, "兵种相克/属性矩阵没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "兵种相克矩阵没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        var previewParts = new[]
-        {
-            BuildChangePreview(_jobRestraintRead.Data, maxItems: 30),
-            BuildChangePreview(_jobAttributeRead.Data, maxItems: 30)
-        }.Where(x => !string.IsNullOrWhiteSpace(x));
-        var preview = string.Join("\r\n", previewParts);
+        var preview = BuildChangePreview(_jobRestraintRead.Data, maxItems: 30);
         if (MessageBox.Show(this,
-                $"即将保存兵种相克/属性矩阵到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Ekd5.exe，保存后会重新读取校验。是否继续？",
+                $"即将保存兵种相克矩阵到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Ekd5.exe，保存后会重新读取校验。是否继续？",
                 "确认保存兵种矩阵",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -4849,10 +6395,9 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var saves = new List<TableSaveResult>();
             if (_jobRestraintRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _jobRestraintRead.Table, _jobRestraintRead.Data));
-            if (_jobAttributeRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _jobAttributeRead.Table, _jobAttributeRead.Data));
             LoadJobMatrixEditor();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            System.Diagnostics.Debug.WriteLine($"已保存兵种相克/属性矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            System.Diagnostics.Debug.WriteLine($"已保存兵种相克矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种矩阵备份：" + save.BackupPath);
             SetStatus($"兵种矩阵保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,

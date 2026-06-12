@@ -219,6 +219,7 @@ public sealed partial class MainForm
         ClearRScenePreviewLock();
         _rScenePreviewCurrentRow = null;
         _rScenePlacedActors.Clear();
+        _rSceneMapFaces.Clear();
         _selectedRScenePaletteItem = null;
         _selectedRScenePlacedActor = null;
         _editingRScenePlacedActor = null;
@@ -392,6 +393,7 @@ public sealed partial class MainForm
                 ? BuildLegacyScriptRowDetail(itemRow, itemData.Command)
                 : BuildRSceneScriptRowDetail(itemRow);
             LoadInlineRSceneScriptDialogForSelection();
+            SetStatus(BuildRSceneSelectedItemDataStatus(itemData));
             if (itemRow.NodeType == "Command候选")
             {
                 RequestRScenePreviewToCommand(itemRow);
@@ -409,11 +411,13 @@ public sealed partial class MainForm
             }
             _rSceneScriptDetailBox.Text = BuildRSceneInfoText();
             ClearInlineRSceneScriptDialog("请选择左侧 R 剧本指令。");
+            SetStatus("R场景制作：未选择旧版命令");
             return;
         }
 
         _rSceneScriptDetailBox.Text = BuildRSceneScriptRowDetail(row);
         LoadInlineRSceneScriptDialogForSelection();
+        SetStatus(row.CommandName);
         if (row.NodeType == "Command候选")
         {
             RequestRScenePreviewToCommand(row);
@@ -494,6 +498,7 @@ public sealed partial class MainForm
         }
 
         CopyLegacyItemDataToCommand(itemData);
+        NormalizeEditedRSceneJumpCommand(command);
         if (oldSummary == BuildLegacyScriptParameterPreview(command))
         {
             SetStatus($"R场景参数：{command.CommandIdHex} {command.CommandName} 未检测到改动");
@@ -502,9 +507,57 @@ public sealed partial class MainForm
         }
 
         PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.RScene, beforeEdit);
-        RefreshRSceneLegacyScriptView(command);
+        var refreshedCommand = RefreshRSceneLegacyScriptViewAndSelect(command);
         _saveRSceneScriptStructureButton.Enabled = true;
-        SetStatus($"R场景参数：{command.CommandIdHex} {command.CommandName}，{oldSummary} -> {BuildLegacyScriptParameterPreview(command)}，需完整保存R剧本");
+        SetStatus($"R场景参数：{refreshedCommand.CommandIdHex} {refreshedCommand.CommandName}，{oldSummary} -> {BuildLegacyScriptParameterPreview(refreshedCommand)}，需完整保存R剧本");
+    }
+
+    private string BuildRSceneSelectedItemDataStatus(LegacyScenarioItemData itemData)
+    {
+        if (itemData.Command == null)
+        {
+            return itemData.UiRow is ScenarioStructureRow row ? row.CommandName : "R场景制作：旧版结构节点";
+        }
+
+        var suffix = itemData.Command.CommandId == 0x76
+            ? itemData.Command.JumpTargetOrdinal.HasValue
+                ? $" target ord {itemData.Command.JumpTargetOrdinal.Value}"
+                : " target ord 未解析"
+            : string.Empty;
+        return $"旧版 ItemData：ord {itemData.Ord} id 0x{itemData.Id:X2}{suffix}";
+    }
+
+    private void NormalizeEditedRSceneJumpCommand(LegacyScenarioCommandNode command)
+    {
+        if (command.CommandId != 0x76 || _currentRSceneLegacyScriptDocument == null)
+        {
+            return;
+        }
+
+        var targetOrdinal = command.JumpTargetOrdinal;
+        if (!targetOrdinal.HasValue)
+        {
+            return;
+        }
+
+        var target = _currentRSceneLegacyScriptDocument.EnumerateCommands()
+            .FirstOrDefault(candidate => candidate.CommandOrdinal == targetOrdinal.Value);
+        command.JumpTargetCommandIndex = target?.CommandIndex;
+        if (target == null)
+        {
+            command.OriginalJumpDisplacement = null;
+        }
+    }
+
+    private LegacyScenarioCommandNode RefreshRSceneLegacyScriptViewAndSelect(LegacyScenarioCommandNode command)
+    {
+        RefreshRSceneLegacyScriptView(command);
+        if (TryGetSelectedRSceneLegacyItemData(out var selected) && selected.Command != null)
+        {
+            return selected.Command;
+        }
+
+        return command;
     }
 
     private string BuildRSceneScriptRowDetail(ScenarioStructureRow row)
@@ -539,6 +592,7 @@ public sealed partial class MainForm
                 nameof(RSceneStateCandidate.OffsetHex) => "偏移",
                 nameof(RSceneStateCandidate.BackgroundImageNumber) => "背景",
                 nameof(RSceneStateCandidate.ActorCount) => "人数",
+                nameof(RSceneStateCandidate.MapFaceCount) => "头像",
                 nameof(RSceneStateCandidate.Summary) => "摘要",
                 nameof(RSceneStateCandidate.TargetKey) => "内部键",
                 _ => column.HeaderText
@@ -586,8 +640,6 @@ public sealed partial class MainForm
         }
 
         SelectRSceneScriptTreeNode(row);
-        _rSceneScriptDetailBox.Text = BuildRSceneScriptRowDetail(row);
-        RequestRScenePreviewToCommand(row);
         SetStatus($"R场景制作：已定位 {candidate.SceneTitle}");
     }
 
@@ -674,6 +726,11 @@ public sealed partial class MainForm
         {
             var found = FindScriptTreeNode(root, target);
             if (found == null) continue;
+            if (ReferenceEquals(_rSceneScriptTree.SelectedNode, found))
+            {
+                return true;
+            }
+
             _rSceneScriptTree.SelectedNode = found;
             found.EnsureVisible();
             return true;
@@ -880,7 +937,10 @@ public sealed partial class MainForm
             : null;
         _currentRSceneDialoguePreviewMessage = _currentRSceneDialoguePreviewCommand == null
             ? string.Empty
-            : _rSceneDialoguePreviewService.BuildPreviewModel(_currentRSceneDialoguePreviewCommand, BuildRSceneDialoguePreviewPeople())?.Detail ?? string.Empty;
+            : _rSceneDialoguePreviewService.BuildPreviewModel(
+                _currentRSceneDialoguePreviewCommand,
+                BuildRSceneDialoguePreviewPeople(),
+                ResolveRScenePersonReference)?.Detail ?? string.Empty;
         if (render)
         {
             RenderRSceneCanvas();
@@ -930,6 +990,7 @@ public sealed partial class MainForm
     private void ApplyRSceneStateSnapshot(RSceneStateSnapshot snapshot, ScenarioStructureRow? selectedCommandRow = null)
     {
         _rScenePlacedActors.Clear();
+        _rSceneMapFaces.Clear();
         _selectedRScenePlacedActor = null;
         _editingRScenePlacedActor = null;
         _draggingRScenePlacedActor = null;
@@ -937,9 +998,12 @@ public sealed partial class MainForm
         _rScenePlacedActorDragMoved = false;
         ClearRSceneMovePreview();
 
-        if (snapshot.BackgroundImageNumber.HasValue)
+        using (SuppressRSceneCanvasRender())
         {
-            SelectRSceneBackgroundImageNumber(snapshot.BackgroundImageNumber.Value);
+            if (snapshot.BackgroundImageNumber.HasValue)
+            {
+                SelectRSceneBackgroundImageNumber(snapshot.BackgroundImageNumber.Value);
+            }
         }
 
         var byPersonId = _rSceneActorPaletteItems
@@ -956,6 +1020,8 @@ public sealed partial class MainForm
             actor.ActorNote = $"从当前 Section 状态推演：人物={state.PersonId} 坐标=({state.GridX},{state.GridY}) 方向={actor.Facing} 动作帧={actor.FrameIndex}。";
             _rScenePlacedActors.Add(actor);
         }
+
+        _rSceneMapFaces.AddRange(snapshot.MapFaces);
 
         SelectRSceneActorForCommandRow(selectedCommandRow);
         RenderRSceneCanvas();
@@ -1125,7 +1191,7 @@ public sealed partial class MainForm
     }
 
     private static bool IsRScenePlaybackCommand(int commandId)
-        => commandId is 0x27 or 0x2F or 0x30 or 0x31 or 0x32 or 0x33 or 0x34 ||
+        => commandId is 0x27 or 0x29 or 0x2A or 0x2B or 0x2F or 0x30 or 0x31 or 0x32 or 0x33 or 0x34 ||
            RSceneDialoguePreviewService.IsPreviewCommand(commandId);
 
     private void AdvanceRScenePlayback()
@@ -1338,7 +1404,7 @@ public sealed partial class MainForm
                 {
                     frame = _project == null
                         ? null
-                        : _imageAssignmentPreviewService.TryRenderRSceneFrameByIndex(_project, item.RImageId, frameIndex, GetSelectedRSceneFacing(), out _);
+                        : GetCachedRSceneActorFrame(item.RImageId, frameIndex, GetSelectedRSceneFacing());
                     using var thumbnail = CreateRSceneFrameThumbnail(frame, frameIndex, imageList.ImageSize);
                     AddRSceneFrameImage(imageList, thumbnail, frameIndex);
                 }
@@ -1347,10 +1413,6 @@ public sealed partial class MainForm
                     System.Diagnostics.Debug.WriteLine($"R 场景帧缩略图生成失败：R={item.RImageId} frame={frameIndex} {ex.Message}");
                     using var placeholder = CreateRSceneFramePlaceholder(frameIndex);
                     AddRSceneFrameImage(imageList, placeholder, frameIndex);
-                }
-                finally
-                {
-                    frame?.Dispose();
                 }
                 _rSceneFrameListView.Items.Add(new ListViewItem(GetRSceneGestureLabel(frameIndex), frameIndex) { Tag = frameIndex });
             }
@@ -1364,7 +1426,7 @@ public sealed partial class MainForm
                 {
                     frame = _project == null
                         ? null
-                        : _imageAssignmentPreviewService.TryRenderRScenePhysicalStripFrame(_project, item.RImageId, stripFrameIndex, GetSelectedRSceneFacing(), out _);
+                        : GetCachedRScenePhysicalStripFrame(item.RImageId, stripFrameIndex, GetSelectedRSceneFacing());
                     using var thumbnail = CreateRSceneFrameThumbnail(frame, stripFrameIndex, imageList.ImageSize);
                     AddRSceneFrameImage(imageList, thumbnail, imageIndex);
                 }
@@ -1373,10 +1435,6 @@ public sealed partial class MainForm
                     System.Diagnostics.Debug.WriteLine($"R 场景移动帧缩略图生成失败：R={item.RImageId} stripFrame={stripFrameIndex} {ex.Message}");
                     using var placeholder = CreateRSceneFramePlaceholder(stripFrameIndex);
                     AddRSceneFrameImage(imageList, placeholder, imageIndex);
-                }
-                finally
-                {
-                    frame?.Dispose();
                 }
 
                 _rSceneFrameListView.Items.Add(new ListViewItem(GetRSceneMovementFrameLabel(stripFrameIndex), imageIndex)
@@ -1768,9 +1826,12 @@ public sealed partial class MainForm
         {
             if (e.Button == MouseButtons.Left)
             {
-                _selectedRScenePlacedActor = null;
-                _editingRScenePlacedActor = null;
-                RenderRSceneCanvas();
+                if (_selectedRScenePlacedActor != null || _editingRScenePlacedActor != null)
+                {
+                    _selectedRScenePlacedActor = null;
+                    _editingRScenePlacedActor = null;
+                    RenderRSceneCanvas();
+                }
             }
 
             if (TryRSceneCanvasPointToGrid(e.Location, out var gridX, out var gridY))
@@ -1785,7 +1846,7 @@ public sealed partial class MainForm
         }
 
         var enterEdit = e.Button == MouseButtons.Right;
-        SelectRScenePlacedActor(actor, enterEdit);
+        SelectRScenePlacedActor(actor, enterEdit, render: !enterEdit);
 
         if (ReferenceEquals(_editingRScenePlacedActor, actor))
         {
@@ -1877,14 +1938,14 @@ public sealed partial class MainForm
         if (e.Button != MouseButtons.Left) return;
         if (!TryHitRScenePlacedActor(e.Location, out var actor)) return;
 
-        SelectRScenePlacedActor(actor, enterEdit: false);
+        SelectRScenePlacedActor(actor, enterEdit: false, render: false);
         if (!SelectRScenePlacedActorScriptCommand(actor, out var message))
         {
             SetStatus("R场景制作：" + message);
         }
     }
 
-    private void SelectRScenePlacedActor(RScenePlacedActor actor, bool enterEdit)
+    private void SelectRScenePlacedActor(RScenePlacedActor actor, bool enterEdit, bool render = true)
     {
         _selectedRScenePlacedActor = actor;
         if (enterEdit)
@@ -1896,7 +1957,10 @@ public sealed partial class MainForm
             _editingRScenePlacedActor = null;
         }
         SyncRSceneControlPanelFromPlacedActor(actor);
-        RenderRSceneCanvas();
+        if (render)
+        {
+            RenderRSceneCanvas();
+        }
         SetStatus(enterEdit
             ? $"R场景制作：{actor.Name} 已进入编辑状态"
             : $"R场景制作：已选中 {actor.Name} ({actor.GridX},{actor.GridY})");
@@ -1935,18 +1999,8 @@ public sealed partial class MainForm
 
     private Size GetRScenePlacedActorRenderSize(RScenePlacedActor actor)
     {
-        if (_project != null)
-        {
-            try
-            {
-                using var frame = _imageAssignmentPreviewService.TryRenderRSceneFrameByIndex(_project, actor.RImageId, actor.FrameIndex, actor.Facing, out _);
-                if (frame != null) return frame.Size;
-            }
-            catch
-            {
-                // Hit testing can fall back to the placeholder size when a frame cannot be decoded.
-            }
-        }
+        var frame = GetCachedRSceneActorFrame(actor.RImageId, actor.FrameIndex, actor.Facing);
+        if (frame != null) return frame.Size;
 
         return new Size(48, 64);
     }
@@ -2006,12 +2060,6 @@ public sealed partial class MainForm
             $"已同步到 R 剧本内存：{command.CommandIdHex} {command.CommandName} 槽1/2=({actor.GridX},{actor.GridY})。");
         _saveRSceneScriptStructureButton.Enabled = true;
         RefreshRSceneLegacyScriptView(command);
-        var refreshedRow = FindRSceneScriptRowForCommand(command) ?? row;
-        if (refreshedRow != null)
-        {
-            SelectRSceneScriptTreeNode(refreshedRow);
-        }
-
         message = $"已同步到 R 剧本命令：{command.CommandIdHex} {command.CommandName} / Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex}。\r\n需要点击“完整保存R剧本”后才会写入 {(_currentRSceneScenario?.FileName ?? "R_XX.eex")}。";
         return true;
     }
@@ -2119,12 +2167,6 @@ public sealed partial class MainForm
         }
 
         SelectRSceneScriptTreeNode(row);
-        _rSceneScriptDetailBox.Text = _rSceneScriptItemDataByRow.TryGetValue(row, out var itemData) && itemData.Command != null
-            ? BuildLegacyScriptRowDetail(row, itemData.Command)
-            : BuildRSceneScriptRowDetail(row);
-
-        SelectRSceneStateCandidateForCommand(row);
-
         message = $"已定位左侧指令：{command.CommandIdHex} {command.CommandName} / Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex}。";
         SetStatus($"R场景制作：已定位 {actor.Name} 对应指令 {command.CommandIdHex} {command.CommandName}");
         return true;
@@ -2227,6 +2269,138 @@ public sealed partial class MainForm
         _rSceneMovePreviewGrid = null;
     }
 
+    private void RenderRSceneCanvasIfNotSuppressed()
+    {
+        if (_suppressRSceneCanvasRender) return;
+        RenderRSceneCanvas();
+    }
+
+    private IDisposable SuppressRSceneCanvasRender()
+    {
+        var previous = _suppressRSceneCanvasRender;
+        _suppressRSceneCanvasRender = true;
+        return new RSceneCanvasRenderSuppression(this, previous);
+    }
+
+    private sealed class RSceneCanvasRenderSuppression(MainForm owner, bool previous) : IDisposable
+    {
+        private MainForm? _owner = owner;
+
+        public void Dispose()
+        {
+            if (_owner == null) return;
+            _owner._suppressRSceneCanvasRender = previous;
+            _owner = null;
+        }
+    }
+
+    private void ClearRSceneImageCache()
+    {
+        foreach (var image in _rSceneImageCache.Values)
+        {
+            image.Dispose();
+        }
+
+        _rSceneImageCache.Clear();
+    }
+
+    private void CompactRSceneImageCacheIfNeeded()
+    {
+        if (_rSceneImageCache.Count < RSceneImageCacheLimit) return;
+        ClearRSceneImageCache();
+    }
+
+    private Bitmap? GetCachedRSceneImage(string key, Func<Bitmap?> factory)
+    {
+        if (_rSceneImageCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var image = factory();
+        if (image == null) return null;
+
+        CompactRSceneImageCacheIfNeeded();
+        _rSceneImageCache[key] = image;
+        return image;
+    }
+
+    private Bitmap? GetCachedRSceneActorFrame(int rImageId, int frameIndex, string facing)
+    {
+        if (_project == null) return null;
+        var key = string.Create(CultureInfo.InvariantCulture, $"actor:{rImageId}:{frameIndex}:{NormalizeRSceneFacing(facing)}");
+        return GetCachedRSceneImage(key, () =>
+        {
+            try
+            {
+                return _imageAssignmentPreviewService.TryRenderRSceneFrameByIndex(_project, rImageId, frameIndex, facing, out _);
+            }
+            catch
+            {
+                return null;
+            }
+        });
+    }
+
+    private Bitmap? GetCachedRScenePhysicalStripFrame(int rImageId, int stripFrameIndex, string facing)
+    {
+        if (_project == null) return null;
+        var key = string.Create(CultureInfo.InvariantCulture, $"actor-strip:{rImageId}:{stripFrameIndex}:{NormalizeRSceneFacing(facing)}");
+        return GetCachedRSceneImage(key, () =>
+        {
+            try
+            {
+                return _imageAssignmentPreviewService.TryRenderRScenePhysicalStripFrame(_project, rImageId, stripFrameIndex, facing, out _);
+            }
+            catch
+            {
+                return null;
+            }
+        });
+    }
+
+    private Bitmap? GetCachedRSceneFace(int dataFaceId)
+    {
+        if (_project == null || dataFaceId < 0) return null;
+        var key = string.Create(CultureInfo.InvariantCulture, $"face:{dataFaceId}");
+        return GetCachedRSceneImage(key, () =>
+        {
+            try
+            {
+                return _imageAssignmentPreviewService.TryRenderFaceImage(_project, dataFaceId);
+            }
+            catch
+            {
+                return null;
+            }
+        });
+    }
+
+    private Bitmap? GetCachedRSceneBackground(RSceneBackgroundComboItem item)
+    {
+        if (_project == null) return null;
+        var entry = item.Entry;
+        var key = string.Create(
+            CultureInfo.InvariantCulture,
+            $"background:{entry.Path}:{entry.ImageNumber}:{entry.DataOffset}:{entry.StoredLength}:{entry.DecodedLength}");
+        return GetCachedRSceneImage(key, () =>
+        {
+            try
+            {
+                return _imageResourceCatalogService.RenderEntryPreview(
+                    _project,
+                    entry,
+                    canvasWidth: RSceneCanvasWidth,
+                    canvasHeight: RSceneCanvasHeight);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("R scene background preview failed: " + ex.Message);
+                return null;
+            }
+        });
+    }
+
     private void RenderRSceneCanvas()
     {
         var old = _rSceneCanvasBox.Image;
@@ -2245,6 +2419,10 @@ public sealed partial class MainForm
             {
                 DrawRScenePlacedActor(graphics, actor);
             }
+            foreach (var mapFace in _rSceneMapFaces.OrderBy(item => item.Y).ThenBy(item => item.X))
+            {
+                DrawRSceneMapFace(graphics, mapFace);
+            }
             DrawRSceneMovePreview(graphics);
             DrawRSceneDragPreview(graphics);
             DrawRSceneDialoguePreview(graphics);
@@ -2260,7 +2438,7 @@ public sealed partial class MainForm
         var dialogueText = _rSceneDialoguePreviewCheckBox.Checked && !string.IsNullOrWhiteSpace(_currentRSceneDialoguePreviewMessage)
             ? $"；对白：{_currentRSceneDialoguePreviewMessage}"
             : string.Empty;
-        _rSceneCanvasHintLabel.Text = $"背景：{GetSelectedRSceneBackgroundText()}；菱形坐标 16x8；角色 {_rScenePlacedActors.Count} 个{previewText}{dialogueText}；右键编辑，双击定位指令。";
+        _rSceneCanvasHintLabel.Text = $"背景：{GetSelectedRSceneBackgroundText()}；菱形坐标 16x8；角色 {_rScenePlacedActors.Count} 个；地图头像 {_rSceneMapFaces.Count} 个{previewText}{dialogueText}；右键编辑，双击定位指令。";
     }
 
     private void DrawRSceneDialoguePreview(Graphics graphics)
@@ -2268,7 +2446,12 @@ public sealed partial class MainForm
         if (_project == null || !_rSceneDialoguePreviewCheckBox.Checked || _currentRSceneDialoguePreviewCommand == null) return;
         try
         {
-            var result = _rSceneDialoguePreviewService.DrawPreview(graphics, _project, _currentRSceneDialoguePreviewCommand, BuildRSceneDialoguePreviewPeople());
+            var result = _rSceneDialoguePreviewService.DrawPreview(
+                graphics,
+                _project,
+                _currentRSceneDialoguePreviewCommand,
+                BuildRSceneDialoguePreviewPeople(),
+                ResolveRScenePersonReference);
             _currentRSceneDialoguePreviewMessage = result.Applied ? result.Message : string.Empty;
         }
         catch (Exception ex)
@@ -2336,6 +2519,9 @@ public sealed partial class MainForm
     {
         if (_project != null && _rSceneBackgroundCombo.SelectedItem is RSceneBackgroundComboItem item)
         {
+            var cachedPreview = GetCachedRSceneBackground(item);
+            if (cachedPreview != null) return new Bitmap(cachedPreview);
+
             try
             {
                 var preview = _imageResourceCatalogService.RenderEntryPreview(_project, item.Entry, canvasWidth: RSceneCanvasWidth, canvasHeight: RSceneCanvasHeight);
@@ -2360,18 +2546,7 @@ public sealed partial class MainForm
         var anchor = RSceneCoordinateToPixel(actor.GridX, actor.GridY);
         var selected = ReferenceEquals(actor, _selectedRScenePlacedActor);
         var editing = ReferenceEquals(actor, _editingRScenePlacedActor);
-        Bitmap? frame = null;
-        if (_project != null)
-        {
-            try
-            {
-                frame = _imageAssignmentPreviewService.TryRenderRSceneFrameByIndex(_project, actor.RImageId, actor.FrameIndex, actor.Facing, out _);
-            }
-            catch
-            {
-                frame = null;
-            }
-        }
+        var frame = GetCachedRSceneActorFrame(actor.RImageId, actor.FrameIndex, actor.Facing);
 
         var width = frame?.Width ?? 48;
         var height = frame?.Height ?? 64;
@@ -2397,7 +2572,70 @@ public sealed partial class MainForm
         using var labelBack = new SolidBrush(editing ? Color.FromArgb(210, 82, 31, 18) : Color.FromArgb(185, Color.Black));
         graphics.FillRectangle(labelBack, labelRect);
         TextRenderer.DrawText(graphics, $"{actor.PersonId} {actor.Name}", Font, labelRect, Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-        frame?.Dispose();
+    }
+
+    private void DrawRSceneMapFace(Graphics graphics, RSceneMapFaceState mapFace)
+    {
+        var paletteItem = _rSceneActorPaletteItems.FirstOrDefault(item => item.PersonId == mapFace.PersonId);
+        var name = string.IsNullOrWhiteSpace(paletteItem?.Name)
+            ? $"头像/人物{mapFace.PersonId}"
+            : paletteItem.Name;
+        var dataFaceId = paletteItem?.FaceId ?? mapFace.PersonId;
+
+        var face = GetCachedRSceneFace(dataFaceId);
+
+        var size = GetRSceneMapFaceRenderSize(face);
+        var rect = new Rectangle(mapFace.X, mapFace.Y, size.Width, size.Height);
+        using var backBrush = new SolidBrush(Color.FromArgb(175, 248, 246, 238));
+        using var borderPen = new Pen(Color.MediumPurple, 2);
+        graphics.FillRectangle(backBrush, rect);
+        if (face != null)
+        {
+            graphics.DrawImage(face, rect);
+        }
+        else
+        {
+            TextRenderer.DrawText(
+                graphics,
+                name,
+                Font,
+                rect,
+                Color.FromArgb(255, 28, 28, 32),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+        }
+        graphics.DrawRectangle(borderPen, rect);
+
+        var labelWidth = Math.Max(rect.Width, 88);
+        var labelRect = new Rectangle(
+            Math.Clamp(rect.Left, 0, Math.Max(0, RSceneCanvasWidth - labelWidth)),
+            Math.Clamp(rect.Bottom, 0, Math.Max(0, RSceneCanvasHeight - 18)),
+            labelWidth,
+            18);
+        using var labelBack = new SolidBrush(Color.FromArgb(205, 62, 35, 92));
+        graphics.FillRectangle(labelBack, labelRect);
+        TextRenderer.DrawText(
+            graphics,
+            $"{mapFace.PersonId} {name}",
+            Font,
+            labelRect,
+            Color.White,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    private static Size GetRSceneMapFaceRenderSize(Bitmap? face)
+    {
+        if (face == null)
+        {
+            return new Size(RSceneMapFaceFallbackSize, RSceneMapFaceFallbackSize);
+        }
+
+        var scale = Math.Min(
+            RSceneMapFaceMaxWidth / (double)Math.Max(1, face.Width),
+            RSceneMapFaceMaxHeight / (double)Math.Max(1, face.Height));
+        scale = Math.Min(1.0, scale);
+        return new Size(
+            Math.Max(1, (int)Math.Round(face.Width * scale)),
+            Math.Max(1, (int)Math.Round(face.Height * scale)));
     }
 
     private void DrawRSceneDragPreview(Graphics graphics)
@@ -2418,23 +2656,7 @@ public sealed partial class MainForm
         graphics.FillPolygon(tileBrush, diamond);
         graphics.DrawPolygon(tilePen, diamond);
 
-        Bitmap? frame = null;
-        if (_project != null)
-        {
-            try
-            {
-                frame = _imageAssignmentPreviewService.TryRenderRSceneFrameByIndex(
-                    _project,
-                    payload.Actor.RImageId,
-                    payload.FrameIndex,
-                    payload.Facing,
-                    out _);
-            }
-            catch
-            {
-                frame = null;
-            }
-        }
+        var frame = GetCachedRSceneActorFrame(payload.Actor.RImageId, payload.FrameIndex, payload.Facing);
 
         var width = frame?.Width ?? 48;
         var height = frame?.Height ?? 64;
@@ -2460,7 +2682,6 @@ public sealed partial class MainForm
         using var borderPen = new Pen(Color.DeepSkyBlue, 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash };
         graphics.DrawRectangle(borderPen, rect);
         DrawRSceneCoordinateLabel(graphics, anchor, $"{payload.Actor.PersonId} {payload.Actor.Name}  帧{payload.FrameIndex}  ({grid.X},{grid.Y})", Color.DeepSkyBlue);
-        frame?.Dispose();
     }
 
     private void DrawRSceneMovePreview(Graphics graphics)
@@ -2561,6 +2782,7 @@ public sealed partial class MainForm
     {
         if (_project == null) return;
         _rScenePlacedActors.Clear();
+        _rSceneMapFaces.Clear();
         _selectedRScenePlacedActor = null;
         _editingRScenePlacedActor = null;
         _draggingRScenePlacedActor = null;
@@ -2568,14 +2790,15 @@ public sealed partial class MainForm
         _rScenePlacedActorDragMoved = false;
         ClearRSceneMovePreview();
         var draft = _rSceneDraftService.LoadDraft(_project, scenario.FileName);
-        _rSceneGridSizeInput.Value = Math.Clamp(draft.GridSize, (int)_rSceneGridSizeInput.Minimum, (int)_rSceneGridSizeInput.Maximum);
+        using (SuppressRSceneCanvasRender())
+        {
+            _rSceneGridSizeInput.Value = Math.Clamp(draft.GridSize, (int)_rSceneGridSizeInput.Minimum, (int)_rSceneGridSizeInput.Maximum);
+        }
         var firstScene = _currentRSceneStateCandidates.FirstOrDefault();
         var firstRow = firstScene == null ? null : FindRSceneScriptRow(firstScene);
         if (firstRow != null)
         {
             SelectRSceneScriptTreeNode(firstRow);
-            _rSceneScriptDetailBox.Text = BuildRSceneScriptRowDetail(firstRow);
-            RequestRScenePreviewToCommand(firstRow);
             return;
         }
 
@@ -2712,13 +2935,14 @@ public sealed partial class MainForm
         }
 
         CopyLegacyItemDataToCommand(itemData);
+        NormalizeEditedRSceneJumpCommand(command);
         if (oldSummary != BuildLegacyScriptParameterPreview(command))
         {
             PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.RScene, beforeEdit);
         }
-        RefreshRSceneLegacyScriptView(command);
+        var refreshedCommand = RefreshRSceneLegacyScriptViewAndSelect(command);
         _saveRSceneScriptStructureButton.Enabled = true;
-        SetStatus($"R场景旧版修改指令：{commandTitle}，{oldSummary} -> {BuildLegacyScriptParameterPreview(command)}，需完整保存R剧本");
+        SetStatus($"R场景旧版修改指令：{commandTitle}，{oldSummary} -> {BuildLegacyScriptParameterPreview(refreshedCommand)}，需完整保存R剧本");
     }
 
     private ScenarioStructureRow? FindScriptRowMatchingRSceneRow(ScenarioStructureRow rSceneRow)

@@ -13,5 +13,6 @@ public sealed class RSceneStateCandidate
     public string OffsetHex { get; init; } = string.Empty;
     public int? BackgroundImageNumber { get; init; }
     public int ActorCount { get; init; }
+    public int MapFaceCount { get; init; }
     public string Summary { get; init; } = string.Empty;
 }

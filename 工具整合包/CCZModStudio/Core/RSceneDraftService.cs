@@ -137,9 +137,9 @@ public sealed class RSceneDraftService
                 var command = commands[i];
                 if (command.CommandId != 0x27) continue;
 
-                var nextStart = commands.Skip(i + 1).FirstOrDefault(candidate => candidate.CommandId == 0x27);
+                var nextStart = FindNextRSceneBackgroundCommand(commands, i + 1);
                 var endCommandIndex = nextStart?.CommandIndex - 1;
-                var snapshot = BuildStateSnapshot(section, command.CommandIndex, variableSnapshotProvider);
+                var snapshot = BuildSceneStartSnapshot(section, command);
                 var backgroundText = snapshot.BackgroundImageNumber.HasValue
                     ? "背景 " + snapshot.BackgroundImageNumber.Value.ToString(CultureInfo.InvariantCulture)
                     : "背景未识别";
@@ -156,12 +156,42 @@ public sealed class RSceneDraftService
                     OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
                     BackgroundImageNumber = snapshot.BackgroundImageNumber,
                     ActorCount = snapshot.Actors.Count,
-                    Summary = $"{backgroundText}；Section {command.SectionIndex}；Command {command.CommandIndex}-{(endCommandIndex?.ToString(CultureInfo.InvariantCulture) ?? "末尾")}"
+                    MapFaceCount = snapshot.MapFaces.Count,
+                    Summary = $"{backgroundText}；人物 {snapshot.Actors.Count}；地图头像 {snapshot.MapFaces.Count}；Section {command.SectionIndex}；Command {command.CommandIndex}-{(endCommandIndex?.ToString(CultureInfo.InvariantCulture) ?? "末尾")}"
                 });
             }
         }
 
         return result;
+    }
+
+    private static LegacyScenarioCommandNode? FindNextRSceneBackgroundCommand(
+        IReadOnlyList<LegacyScenarioCommandNode> commands,
+        int startIndex)
+    {
+        for (var i = Math.Max(0, startIndex); i < commands.Count; i++)
+        {
+            if (commands[i].CommandId == 0x27) return commands[i];
+        }
+
+        return null;
+    }
+
+    private static RSceneStateSnapshot BuildSceneStartSnapshot(
+        LegacyScenarioSection section,
+        LegacyScenarioCommandNode command)
+    {
+        var values = FlattenValues(command).ToList();
+        return new RSceneStateSnapshot
+        {
+            SceneIndex = section.SceneIndex,
+            SectionIndex = section.SectionIndex,
+            StartCommandIndex = command.CommandIndex,
+            CurrentCommandIndex = command.CommandIndex,
+            BackgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values),
+            Actors = [],
+            MapFaces = []
+        };
     }
 
     public RSceneStateSnapshot BuildStateSnapshot(
@@ -170,6 +200,7 @@ public sealed class RSceneDraftService
         Func<LegacyScenarioCommandNode, int, ScriptVariableValueSnapshot?>? variableSnapshotProvider = null)
     {
         var actors = new Dictionary<int, MutableActorState>();
+        var mapFaces = new Dictionary<int, MutableMapFaceState>();
         int? backgroundImageNumber = null;
         int? startCommandIndex = null;
 
@@ -183,6 +214,16 @@ public sealed class RSceneDraftService
                     backgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values);
                     startCommandIndex = command.CommandIndex;
                     actors.Clear();
+                    mapFaces.Clear();
+                    break;
+                case 0x29:
+                    ApplyShowMapFace(mapFaces, command, values, targetKey, variableSnapshotProvider?.Invoke(command, 0));
+                    break;
+                case 0x2A:
+                    ApplyMoveMapFace(mapFaces, command, values, targetKey, variableSnapshotProvider?.Invoke(command, 0));
+                    break;
+                case 0x2B:
+                    ApplyHideMapFace(mapFaces, values, variableSnapshotProvider?.Invoke(command, 0));
                     break;
                 case 0x2F:
                     actors.Clear();
@@ -228,6 +269,22 @@ public sealed class RSceneDraftService
                     TargetKey = actor.TargetKey,
                     LastActionTargetKey = actor.LastActionTargetKey,
                     Source = actor.Source
+                })
+                .ToList(),
+            MapFaces = mapFaces.Values
+                .OrderBy(face => face.Y)
+                .ThenBy(face => face.X)
+                .ThenBy(face => face.PersonId)
+                .Select(face => new RSceneMapFaceState
+                {
+                    PersonId = face.PersonId,
+                    PersonReference = face.PersonReference,
+                    PersonVariableAddress = face.PersonVariableAddress,
+                    X = face.X,
+                    Y = face.Y,
+                    TargetKey = face.TargetKey,
+                    LastActionTargetKey = face.LastActionTargetKey,
+                    Source = face.Source
                 })
                 .ToList()
         };
@@ -298,7 +355,8 @@ public sealed class RSceneDraftService
             imageNumber += 41;
         }
 
-        return imageNumber is > 0 and <= 999 ? imageNumber : null;
+        if (imageNumber < 0 || imageNumber > 999) return null;
+        return Math.Max(1, imageNumber);
     }
 
     private static int? TryGetPersonId(
@@ -389,6 +447,57 @@ public sealed class RSceneDraftService
             LastActionTargetKey = targetKey,
             Source = $"{command.CommandIdHex} {command.CommandName}"
         };
+    }
+
+    private static void ApplyShowMapFace(
+        IDictionary<int, MutableMapFaceState> mapFaces,
+        LegacyScenarioCommandNode command,
+        IReadOnlyList<int> values,
+        string targetKey,
+        ScriptVariableValueSnapshot? variableSnapshot)
+    {
+        if (values.Count < 3) return;
+        if (!ScriptVariableValueResolver.TryResolvePerson2Reference(values[0], variableSnapshot, out var personId, out var variableAddress)) return;
+        mapFaces[personId] = new MutableMapFaceState
+        {
+            PersonId = personId,
+            PersonReference = values[0],
+            PersonVariableAddress = variableAddress,
+            X = ClampCoordinate(values[1]),
+            Y = ClampCoordinate(values[2]),
+            TargetKey = targetKey,
+            LastActionTargetKey = targetKey,
+            Source = $"{command.CommandIdHex} {command.CommandName}"
+        };
+    }
+
+    private static void ApplyMoveMapFace(
+        IDictionary<int, MutableMapFaceState> mapFaces,
+        LegacyScenarioCommandNode command,
+        IReadOnlyList<int> values,
+        string targetKey,
+        ScriptVariableValueSnapshot? variableSnapshot)
+    {
+        if (values.Count < 3) return;
+        if (!ScriptVariableValueResolver.TryResolvePerson2Reference(values[0], variableSnapshot, out var personId, out _)) return;
+        if (!mapFaces.TryGetValue(personId, out var mapFace)) return;
+        mapFace.X = ClampCoordinate(values[1]);
+        mapFace.Y = ClampCoordinate(values[2]);
+        mapFace.TargetKey = targetKey;
+        mapFace.LastActionTargetKey = targetKey;
+        mapFace.Source = $"{command.CommandIdHex} {command.CommandName}";
+    }
+
+    private static void ApplyHideMapFace(
+        IDictionary<int, MutableMapFaceState> mapFaces,
+        IReadOnlyList<int> values,
+        ScriptVariableValueSnapshot? variableSnapshot)
+    {
+        if (values.Count == 0) return;
+        if (ScriptVariableValueResolver.TryResolvePerson2Reference(values[0], variableSnapshot, out var personId, out _))
+        {
+            mapFaces.Remove(personId);
+        }
     }
 
     private static void ApplyHideActor(
@@ -539,6 +648,18 @@ public sealed class RSceneDraftService
         public int GridY { get; set; }
         public string Facing { get; set; } = "下";
         public int FrameIndex { get; set; }
+        public string TargetKey { get; set; } = string.Empty;
+        public string LastActionTargetKey { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
+    }
+
+    private sealed class MutableMapFaceState
+    {
+        public int PersonId { get; init; }
+        public int PersonReference { get; init; }
+        public int? PersonVariableAddress { get; init; }
+        public int X { get; set; }
+        public int Y { get; set; }
         public string TargetKey { get; set; } = string.Empty;
         public string LastActionTargetKey { get; set; } = string.Empty;
         public string Source { get; set; } = string.Empty;

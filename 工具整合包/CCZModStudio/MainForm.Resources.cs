@@ -595,10 +595,20 @@ public sealed partial class MainForm
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
         };
-        ConfigureSplitContainerDistanceAfterLayout(imageSplit, desiredDistance: 520, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("ResourcePreviewDialog.TargetReplacement", imageSplit, desiredDistance: 520, desiredPanel1Min: 25, desiredPanel2Min: 25);
         layout.Controls.Add(imageSplit, 0, 1);
-        imageSplit.Panel1.Controls.Add(BuildResourcePreviewPanel("当前目标文件", preview.TargetPath, $"{item.Category}/{item.Name}", disposeOnClose: dialog));
-        imageSplit.Panel2.Controls.Add(BuildResourcePreviewPanel("替换/还原来源文件", preview.ReplacementPath, Path.GetFileName(preview.ReplacementPath), disposeOnClose: dialog));
+        AddCollapsibleSplitPanel(
+            imageSplit,
+            1,
+            "当前目标文件",
+            BuildResourcePreviewPanel("当前目标文件", preview.TargetPath, $"{item.Category}/{item.Name}", disposeOnClose: dialog),
+            "ResourcePreviewDialog.TargetReplacement.Target");
+        AddCollapsibleSplitPanel(
+            imageSplit,
+            2,
+            "替换/还原来源文件",
+            BuildResourcePreviewPanel("替换/还原来源文件", preview.ReplacementPath, Path.GetFileName(preview.ReplacementPath), disposeOnClose: dialog),
+            "ResourcePreviewDialog.TargetReplacement.Replacement");
 
         var buttonPanel = new FlowLayoutPanel
         {

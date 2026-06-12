@@ -12,8 +12,8 @@ internal sealed class ScriptVariableUsageDialog : Form
     private readonly Func<ScriptVariableOccurrence, Task> _editOccurrenceAsync;
 
     private readonly TabControl _tabs = new();
-    private readonly VariableUsagePage _currentPage = new("当前剧本");
-    private readonly VariableUsagePage _projectPage = new("当前项目");
+    private readonly VariableUsagePage _currentPage = new("当前剧本", "ScriptVariableUsageDialog.Current.SummaryOccurrences");
+    private readonly VariableUsagePage _projectPage = new("当前项目", "ScriptVariableUsageDialog.Project.SummaryOccurrences");
     private readonly Label _statusLabel = new();
     private readonly Button _refreshButton = new();
     private readonly Button _scanProjectButton = new();
@@ -254,10 +254,13 @@ internal sealed class ScriptVariableUsageDialog : Form
         private readonly ComboBox _typeFilterCombo = new();
         private readonly CheckBox _editableOnlyCheckBox = new();
         private readonly Label _countLabel = new();
+        private readonly string _splitLayoutKey;
         private ScriptVariableUsageSnapshot _snapshot = new();
+        private ListSortDirection? _summaryUsageSortDirection;
 
-        public VariableUsagePage(string title)
+        public VariableUsagePage(string title, string splitLayoutKey)
         {
+            _splitLayoutKey = splitLayoutKey;
             TabPage = new TabPage(title);
             BuildLayout();
             WireEvents();
@@ -282,8 +285,9 @@ internal sealed class ScriptVariableUsageDialog : Form
 
         public void RefreshFilters()
         {
-            var summaries = FilterSummaries(_snapshot.Summaries).ToList();
+            var summaries = SortSummaries(FilterSummaries(_snapshot.Summaries)).ToList();
             BindSummaryRows(summaries);
+            UpdateSummarySortGlyph();
             if (summaries.Count == 0)
             {
                 BindOccurrenceRows(Array.Empty<ScriptVariableOccurrence>());
@@ -339,18 +343,18 @@ internal sealed class ScriptVariableUsageDialog : Form
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Horizontal,
-                SplitterDistance = 260
             };
+            ConfigurePersistentSplit(split, _splitLayoutKey, desiredDistance: 260, desiredPanel1Min: 120, desiredPanel2Min: 120);
             root.Controls.Add(split, 0, 1);
 
             ConfigureGrid(_summaryGrid);
             ConfigureGrid(_occurrenceGrid);
+            ConfigureSummaryColumns();
+            ConfigureOccurrenceColumns();
             _summaryGrid.DataSource = _summaryRows;
             _occurrenceGrid.DataSource = _occurrenceRows;
             split.Panel1.Controls.Add(_summaryGrid);
             split.Panel2.Controls.Add(_occurrenceGrid);
-            ConfigureSummaryColumns();
-            ConfigureOccurrenceColumns();
         }
 
         private void WireEvents()
@@ -361,6 +365,7 @@ internal sealed class ScriptVariableUsageDialog : Form
             _commandFilterBox.TextChanged += (_, _) => RefreshFilters();
             _editableOnlyCheckBox.CheckedChanged += (_, _) => RefreshFilters();
             _summaryGrid.SelectionChanged += (_, _) => ShowSelectedSummaryOccurrences();
+            _summaryGrid.ColumnHeaderMouseClick += (_, e) => HandleSummaryColumnHeaderClick(e.ColumnIndex);
             _occurrenceGrid.SelectionChanged += (_, _) => SelectionChanged?.Invoke(this, EventArgs.Empty);
             _occurrenceGrid.CellDoubleClick += (_, _) =>
             {
@@ -384,9 +389,9 @@ internal sealed class ScriptVariableUsageDialog : Form
         private IEnumerable<ScriptVariableSummary> FilterSummaries(IEnumerable<ScriptVariableSummary> source)
         {
             var type = _typeFilterCombo.SelectedItem as string;
-            var address = _addressFilterBox.Text.Trim();
+            var address = NormalizeHexFilter(_addressFilterBox.Text.Trim());
             var scenario = _scenarioFilterBox.Text.Trim();
-            var command = NormalizeCommandFilter(_commandFilterBox.Text.Trim());
+            var command = NormalizeHexFilter(_commandFilterBox.Text.Trim());
             foreach (var row in source)
             {
                 if (!string.IsNullOrWhiteSpace(type) &&
@@ -397,7 +402,7 @@ internal sealed class ScriptVariableUsageDialog : Form
                 }
 
                 if (!string.IsNullOrWhiteSpace(address) &&
-                    !row.VariableAddressText.Contains(address, StringComparison.OrdinalIgnoreCase))
+                    !NormalizeHexFilter(row.VariableAddressText).Contains(address, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -415,7 +420,7 @@ internal sealed class ScriptVariableUsageDialog : Form
                 }
 
                 if (!string.IsNullOrWhiteSpace(command) &&
-                    !occurrences.Any(x => NormalizeCommandFilter(x.CommandIdHex).Contains(command, StringComparison.OrdinalIgnoreCase)))
+                    !occurrences.Any(x => NormalizeHexFilter(x.CommandIdHex).Contains(command, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -427,7 +432,7 @@ internal sealed class ScriptVariableUsageDialog : Form
         private IEnumerable<ScriptVariableOccurrence> FilterOccurrences(string summaryKey)
         {
             var scenario = _scenarioFilterBox.Text.Trim();
-            var command = NormalizeCommandFilter(_commandFilterBox.Text.Trim());
+            var command = NormalizeHexFilter(_commandFilterBox.Text.Trim());
             foreach (var row in _snapshot.Occurrences.Where(x => x.SummaryKey.Equals(summaryKey, StringComparison.OrdinalIgnoreCase)))
             {
                 if (!string.IsNullOrWhiteSpace(scenario) &&
@@ -437,7 +442,7 @@ internal sealed class ScriptVariableUsageDialog : Form
                 }
 
                 if (!string.IsNullOrWhiteSpace(command) &&
-                    !NormalizeCommandFilter(row.CommandIdHex).Contains(command, StringComparison.OrdinalIgnoreCase))
+                    !NormalizeHexFilter(row.CommandIdHex).Contains(command, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -502,6 +507,7 @@ internal sealed class ScriptVariableUsageDialog : Form
 
         private static void ConfigureGrid(DataGridView grid)
         {
+            grid.AutoGenerateColumns = false;
             grid.Dock = DockStyle.Fill;
             grid.ReadOnly = true;
             grid.AllowUserToAddRows = false;
@@ -513,100 +519,170 @@ internal sealed class ScriptVariableUsageDialog : Form
             grid.BorderStyle = BorderStyle.FixedSingle;
         }
 
-        private void ConfigureSummaryColumns()
+        private static void ConfigurePersistentSplit(
+            SplitContainer split,
+            string layoutKey,
+            int desiredDistance,
+            int desiredPanel1Min,
+            int desiredPanel2Min)
         {
-            foreach (DataGridViewColumn column in _summaryGrid.Columns)
+            layoutKey = UiLayoutSettingsStore.NormalizeKey(layoutKey);
+            var applyingProgrammaticDistance = false;
+            var userMovingSplitter = false;
+
+            void Apply()
             {
-                column.HeaderText = column.DataPropertyName switch
+                if (split.IsDisposed) return;
+                var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+                if (totalLength <= split.SplitterWidth + 2) return;
+
+                var canUseRequestedMins = totalLength > desiredPanel1Min + desiredPanel2Min + split.SplitterWidth;
+                if (!canUseRequestedMins)
                 {
-                    nameof(ScriptVariableSummary.VariableType) => "类型",
-                    nameof(ScriptVariableSummary.VariableAddressText) => "地址/编号",
-                    nameof(ScriptVariableSummary.Scope) => "作用域",
-                    nameof(ScriptVariableSummary.OccurrenceCount) => "出现",
-                    nameof(ScriptVariableSummary.ScenarioCount) => "剧本数",
-                    nameof(ScriptVariableSummary.AccessKinds) => "访问",
-                    nameof(ScriptVariableSummary.CommandIds) => "命令",
-                    nameof(ScriptVariableSummary.FirstScenario) => "首个剧本",
-                    nameof(ScriptVariableSummary.HasEditableOccurrence) => "可编辑",
-                    _ => column.HeaderText
-                };
-                column.SortMode = DataGridViewColumnSortMode.NotSortable;
-                if (column.DataPropertyName is nameof(ScriptVariableSummary.VariableAddress)
-                    or nameof(ScriptVariableSummary.Key))
-                {
-                    column.Visible = false;
+                    split.Panel1MinSize = 0;
+                    split.Panel2MinSize = 0;
                 }
-                else if (column.DataPropertyName is nameof(ScriptVariableSummary.AccessKinds))
+
+                var panel1Min = canUseRequestedMins ? desiredPanel1Min : 0;
+                var panel2Min = canUseRequestedMins ? desiredPanel2Min : 0;
+                var maxDistance = Math.Max(panel1Min, totalLength - panel2Min - split.SplitterWidth);
+                var usableLength = totalLength - split.SplitterWidth;
+                var savedRatio = UiLayoutSettingsStore.GetSplitRatio(UiLayoutSettingsStore.Load(), layoutKey);
+                var target = savedRatio.HasValue && usableLength > 0
+                    ? (int)Math.Round(usableLength * savedRatio.Value)
+                    : desiredDistance;
+                target = Math.Clamp(target, panel1Min, maxDistance);
+
+                if (split.SplitterDistance != target)
                 {
-                    column.Width = 220;
+                    applyingProgrammaticDistance = true;
+                    try
+                    {
+                        split.SplitterDistance = target;
+                    }
+                    finally
+                    {
+                        applyingProgrammaticDistance = false;
+                    }
                 }
-                else if (column.DataPropertyName is nameof(ScriptVariableSummary.CommandIds))
+
+                if (canUseRequestedMins)
                 {
-                    column.Width = 130;
-                }
-                else
-                {
-                    column.Width = 100;
+                    split.Panel1MinSize = desiredPanel1Min;
+                    split.Panel2MinSize = desiredPanel2Min;
                 }
             }
+
+            split.SizeChanged += (_, _) => Apply();
+            split.HandleCreated += (_, _) => Apply();
+            split.SplitterMoving += (_, _) =>
+            {
+                if (applyingProgrammaticDistance) return;
+                if (Control.MouseButtons == MouseButtons.None) return;
+
+                userMovingSplitter = true;
+            };
+            split.SplitterMoved += (_, _) =>
+            {
+                if (applyingProgrammaticDistance) return;
+                if (!userMovingSplitter) return;
+
+                var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+                var usableLength = totalLength - split.SplitterWidth;
+                if (usableLength <= 0) return;
+
+                var ratio = Math.Clamp(split.SplitterDistance / (double)usableLength, 0.01, 0.99);
+                UiLayoutSettingsStore.SaveSplitRatio(layoutKey, ratio);
+                userMovingSplitter = false;
+            };
+        }
+
+        private void ConfigureSummaryColumns()
+        {
+            _summaryGrid.Columns.Clear();
+            _summaryGrid.Columns.AddRange(
+                TextColumn(nameof(ScriptVariableSummary.VariableType), "类型", 110),
+                TextColumn(nameof(ScriptVariableSummary.VariableAddressText), "地址/编号", 120),
+                TextColumn(nameof(ScriptVariableSummary.FirstScenario), "首个剧本", 120),
+                TextColumn(nameof(ScriptVariableSummary.CommandIds), "命令", 130),
+                TextColumn(nameof(ScriptVariableSummary.Scope), "作用域", 100),
+                TextColumn(nameof(ScriptVariableSummary.ScenarioCount), "剧本数", 90),
+                TextColumn(nameof(ScriptVariableSummary.AccessKinds), "访问", 220),
+                TextColumn(
+                    nameof(ScriptVariableSummary.OccurrenceCount),
+                    "使用次数",
+                    95,
+                    DataGridViewColumnSortMode.Programmatic));
         }
 
         private void ConfigureOccurrenceColumns()
         {
-            foreach (DataGridViewColumn column in _occurrenceGrid.Columns)
-            {
-                column.HeaderText = column.DataPropertyName switch
-                {
-                    nameof(ScriptVariableOccurrence.ScenarioFileName) => "剧本",
-                    nameof(ScriptVariableOccurrence.Location) => "位置",
-                    nameof(ScriptVariableOccurrence.CommandIdHex) => "命令",
-                    nameof(ScriptVariableOccurrence.CommandName) => "命令名",
-                    nameof(ScriptVariableOccurrence.VariableType) => "类型",
-                    nameof(ScriptVariableOccurrence.VariableAddressText) => "地址/编号",
-                    nameof(ScriptVariableOccurrence.Scope) => "作用域",
-                    nameof(ScriptVariableOccurrence.ParameterSlot) => "槽位",
-                    nameof(ScriptVariableOccurrence.AccessKind) => "访问",
-                    nameof(ScriptVariableOccurrence.RelatedValue) => "关联值",
-                    nameof(ScriptVariableOccurrence.CommandOffsetHex) => "命令偏移",
-                    nameof(ScriptVariableOccurrence.ParameterOffsetHex) => "参数偏移",
-                    nameof(ScriptVariableOccurrence.CanEdit) => "可编辑",
-                    nameof(ScriptVariableOccurrence.EditHint) => "编辑提示",
-                    _ => column.HeaderText
-                };
-                column.SortMode = DataGridViewColumnSortMode.NotSortable;
-                if (column.DataPropertyName is nameof(ScriptVariableOccurrence.ScenarioPath)
-                    or nameof(ScriptVariableOccurrence.SceneIndex)
-                    or nameof(ScriptVariableOccurrence.SectionIndex)
-                    or nameof(ScriptVariableOccurrence.CommandIndex)
-                    or nameof(ScriptVariableOccurrence.CommandOrdinal)
-                    or nameof(ScriptVariableOccurrence.CommandId)
-                    or nameof(ScriptVariableOccurrence.VariableAddress)
-                    or nameof(ScriptVariableOccurrence.ParameterIndex)
-                    or nameof(ScriptVariableOccurrence.CommandOffset)
-                    or nameof(ScriptVariableOccurrence.ParameterOffset)
-                    or nameof(ScriptVariableOccurrence.SummaryKey))
-                {
-                    column.Visible = false;
-                }
-                else if (column.DataPropertyName is nameof(ScriptVariableOccurrence.Location)
-                    or nameof(ScriptVariableOccurrence.RelatedValue)
-                    or nameof(ScriptVariableOccurrence.EditHint))
-                {
-                    column.Width = 210;
-                }
-                else if (column.DataPropertyName is nameof(ScriptVariableOccurrence.CommandName))
-                {
-                    column.Width = 150;
-                }
-                else
-                {
-                    column.Width = 95;
-                }
-            }
+            _occurrenceGrid.Columns.Clear();
+            _occurrenceGrid.Columns.AddRange(
+                TextColumn(nameof(ScriptVariableOccurrence.ScenarioFileName), "剧本", 120),
+                TextColumn(nameof(ScriptVariableOccurrence.CommandIdHex), "命令", 80),
+                TextColumn(nameof(ScriptVariableOccurrence.CommandName), "命令名", 150),
+                TextColumn(nameof(ScriptVariableOccurrence.VariableType), "类型", 110),
+                TextColumn(nameof(ScriptVariableOccurrence.VariableAddressText), "地址/编号", 120),
+                TextColumn(nameof(ScriptVariableOccurrence.Scope), "作用域", 100),
+                TextColumn(nameof(ScriptVariableOccurrence.ParameterSlot), "槽位", 90),
+                TextColumn(nameof(ScriptVariableOccurrence.AccessKind), "访问", 110),
+                TextColumn(nameof(ScriptVariableOccurrence.RelatedValue), "关联值", 210));
         }
 
-        private static string NormalizeCommandFilter(string value)
+        private void HandleSummaryColumnHeaderClick(int columnIndex)
         {
+            if (columnIndex < 0 || columnIndex >= _summaryGrid.Columns.Count) return;
+            var column = _summaryGrid.Columns[columnIndex];
+            if (column.DataPropertyName != nameof(ScriptVariableSummary.OccurrenceCount)) return;
+
+            _summaryUsageSortDirection = _summaryUsageSortDirection == ListSortDirection.Ascending
+                ? ListSortDirection.Descending
+                : ListSortDirection.Ascending;
+            RefreshFilters();
+        }
+
+        private IEnumerable<ScriptVariableSummary> SortSummaries(IEnumerable<ScriptVariableSummary> rows)
+            => _summaryUsageSortDirection switch
+            {
+                ListSortDirection.Ascending => rows.OrderBy(x => x.OccurrenceCount),
+                ListSortDirection.Descending => rows.OrderByDescending(x => x.OccurrenceCount),
+                _ => rows
+            };
+
+        private void UpdateSummarySortGlyph()
+        {
+            foreach (DataGridViewColumn column in _summaryGrid.Columns)
+            {
+                column.HeaderCell.SortGlyphDirection = SortOrder.None;
+            }
+
+            if (_summaryUsageSortDirection == null) return;
+            if (_summaryGrid.Columns[nameof(ScriptVariableSummary.OccurrenceCount)] is not { } usageColumn) return;
+
+            usageColumn.HeaderCell.SortGlyphDirection = _summaryUsageSortDirection == ListSortDirection.Ascending
+                ? SortOrder.Ascending
+                : SortOrder.Descending;
+        }
+
+        private static DataGridViewTextBoxColumn TextColumn(
+            string propertyName,
+            string headerText,
+            int width,
+            DataGridViewColumnSortMode sortMode = DataGridViewColumnSortMode.NotSortable)
+            => new()
+            {
+                Name = propertyName,
+                DataPropertyName = propertyName,
+                HeaderText = headerText,
+                Width = width,
+                ReadOnly = true,
+                SortMode = sortMode
+            };
+
+        private static string NormalizeHexFilter(string value)
+        {
+            value = value.Trim();
             if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             {
                 value = value[2..];

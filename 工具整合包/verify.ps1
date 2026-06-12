@@ -157,6 +157,7 @@ $solution = Join-Path $PSScriptRoot "CCZModStudio.sln"
 $smokeProject = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\CCZModStudio.SmokeTests.csproj"
 $smokeDll = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\bin\$Configuration\net8.0-windows\CCZModStudio.SmokeTests.dll"
 $mcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-mcp-config.ps1"
+$gameDebugMcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-ccz-game-debug-mcp.ps1"
 
 Invoke-Step "Build solution" {
     dotnet build $solution -c $Configuration -v:minimal -p:UseAppHost=false
@@ -191,6 +192,10 @@ if ($RunWriteSmoke) {
 if (-not $SkipMcpValidation) {
     Invoke-Step "MCP stdio validation" {
         powershell -NoProfile -ExecutionPolicy Bypass -File $mcpValidation
+    }
+
+    Invoke-Step "Game debug MCP stdio validation" {
+        powershell -NoProfile -ExecutionPolicy Bypass -File $gameDebugMcpValidation
     }
 }
 

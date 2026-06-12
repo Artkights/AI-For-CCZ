@@ -159,7 +159,7 @@ public sealed partial class MainForm
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
         };
-        ConfigureSplitContainerDistanceAfterLayout(mapSplit, desiredDistance: 260, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildMapEditorPage.MapListEditor", mapSplit, desiredDistance: 260, desiredPanel1Min: 25, desiredPanel2Min: 25);
         _mapImageList.Dock = DockStyle.Fill;
         _mapImageList.HorizontalScrollbar = true;
         var mapEditorSplit = new SplitContainer
@@ -167,7 +167,7 @@ public sealed partial class MainForm
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical
         };
-        ConfigureSplitContainerDistanceAfterLayout(mapEditorSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildMapEditorPage.CanvasMaterials", mapEditorSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
         var mapRightLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -207,14 +207,14 @@ public sealed partial class MainForm
         _mapViewerInfoBox.Text = "地图编辑：统一地图绘制工作台。新建草稿默认 30x30，每格 48x48；地图画笔覆盖格图片，地形画笔编辑草稿地形层；绑定现有 Mxxx 槽位且尺寸一致时才允许发布到游戏。";
         mapRightLayout.Controls.Add(_mapViewerCellPreviewLabel, 0, 0);
         mapRightLayout.Controls.Add(mapScroll, 0, 1);
-        var mapMakerMaterialLayout = new TableLayoutPanel
+        var mapMakerMaterialGridLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             RowCount = 2,
             ColumnCount = 1
         };
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        mapMakerMaterialLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        mapMakerMaterialGridLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        mapMakerMaterialGridLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var mapMakerMaterialToolbar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -255,14 +255,14 @@ public sealed partial class MainForm
         _mapMakerMaterialInfoBox.ScrollBars = ScrollBars.Vertical;
         _mapMakerMaterialInfoBox.WordWrap = true;
         _mapMakerMaterialInfoBox.Text = "素材库：点击“选择素材库”后从本地目录读取图片。地图画笔会把选中素材整张缩放到 48x48 并覆盖当前格。";
-        mapMakerMaterialLayout.Controls.Add(mapMakerMaterialToolbar, 0, 0);
+        mapMakerMaterialGridLayout.Controls.Add(mapMakerMaterialToolbar, 0, 0);
+        mapMakerMaterialGridLayout.Controls.Add(_mapMakerMaterialGrid, 0, 1);
         var mapMaterialSplit = CreateResizableSplit("BuildLayout.MapMaterialGridPreview", Orientation.Horizontal, 320);
-        mapMaterialSplit.Panel1.Controls.Add(_mapMakerMaterialGrid);
-        mapMaterialSplit.Panel2.Controls.Add(_mapMakerMaterialPreview);
-        mapMakerMaterialLayout.Controls.Add(mapMaterialSplit, 0, 1);
-        mapSplit.Panel1.Controls.Add(_mapImageList);
-        mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
-        mapEditorSplit.Panel2.Controls.Add(mapMakerMaterialLayout);
+        AddCollapsibleSplitPanel(mapMaterialSplit, 1, "素材表", mapMakerMaterialGridLayout, "BuildLayout.MapMaterialGridPreview.MaterialGrid");
+        AddCollapsibleSplitPanel(mapMaterialSplit, 2, "素材预览", _mapMakerMaterialPreview, "BuildLayout.MapMaterialGridPreview.MaterialPreview");
+        AddCollapsibleSplitPanel(mapSplit, 1, "地图列表", _mapImageList, "BuildMapEditorPage.MapListEditor.MapList");
+        AddCollapsibleSplitPanel(mapEditorSplit, 1, "地图预览", mapRightLayout, "BuildMapEditorPage.CanvasMaterials.MapPreview");
+        mapEditorSplit.Panel2.Controls.Add(mapMaterialSplit);
         mapSplit.Panel2.Controls.Add(mapEditorSplit);
         mapLayout.Controls.Add(mapSplit, 0, 1);
         return mapViewerPage;
@@ -349,9 +349,9 @@ public sealed partial class MainForm
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
         };
-        ConfigureSplitContainerDistanceAfterLayout(roleSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
-        roleSplit.Panel1.Controls.Add(_roleEditorGrid);
-        roleSplit.Panel2.Controls.Add(BuildRoleTextDetailPanel());
+        ConfigureSplitContainerDistanceAfterLayout("BuildRoleEditorPage.GridTextDetail", roleSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        AddCollapsibleSplitPanel(roleSplit, 1, "角色表", _roleEditorGrid, "BuildRoleEditorPage.GridTextDetail.Grid");
+        AddCollapsibleSplitPanel(roleSplit, 2, "角色文本", BuildRoleTextDetailPanel(), "BuildRoleEditorPage.GridTextDetail.TextDetail");
 
         _roleEditorInfoBox.Dock = DockStyle.Fill;
         _roleEditorInfoBox.Multiline = true;
@@ -449,6 +449,24 @@ public sealed partial class MainForm
         _saveItemEditorButton.Enabled = false;
         _openItemEffectCatalogButton.Text = "宝物特效";
         _openItemEffectCatalogButton.AutoSize = true;
+        _exportItemEditorCsvButton.Text = "导出CSV";
+        _exportItemEditorCsvButton.AutoSize = true;
+        _exportItemEditorCsvButton.Enabled = false;
+        _importItemEditorCsvButton.Text = "导入CSV";
+        _importItemEditorCsvButton.AutoSize = true;
+        _importItemEditorCsvButton.Enabled = false;
+        _copyItemEditorSelectionButton.Text = "复制";
+        _copyItemEditorSelectionButton.AutoSize = true;
+        _pasteItemEditorSelectionButton.Text = "粘贴";
+        _pasteItemEditorSelectionButton.AutoSize = true;
+        _batchFillItemEditorColumnButton.Text = "批量填列";
+        _batchFillItemEditorColumnButton.AutoSize = true;
+        _undoItemEditorButton.Text = "撤回";
+        _undoItemEditorButton.AutoSize = true;
+        _undoItemEditorButton.Enabled = false;
+        _redoItemEditorButton.Text = "前进";
+        _redoItemEditorButton.AutoSize = true;
+        _redoItemEditorButton.Enabled = false;
         _itemEditorSearchBox.Width = 210;
         _itemEditorSearchBox.PlaceholderText = "名称/ID/类型/特效/说明";
         _filterItemEditorButton.Text = "筛选";
@@ -460,6 +478,13 @@ public sealed partial class MainForm
             _loadItemEditorButton,
             _saveItemEditorButton,
             _openItemEffectCatalogButton,
+            _exportItemEditorCsvButton,
+            _importItemEditorCsvButton,
+            _copyItemEditorSelectionButton,
+            _pasteItemEditorSelectionButton,
+            _batchFillItemEditorColumnButton,
+            _undoItemEditorButton,
+            _redoItemEditorButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _itemEditorSearchBox,
             _filterItemEditorButton,
@@ -472,9 +497,10 @@ public sealed partial class MainForm
         _itemEditorGrid.AllowUserToDeleteRows = false;
         _itemEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _itemEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        _itemEditorGrid.MultiSelect = true;
 
         var body = CreateResizableSplit("BuildItemEditorPage.GridPreview", Orientation.Vertical, 760);
-        body.Panel1.Controls.Add(_itemEditorGrid);
+        AddCollapsibleSplitPanel(body, 1, "宝物表", _itemEditorGrid, "BuildItemEditorPage.GridPreview.Grid");
 
         var previewPanel = new TableLayoutPanel
         {
@@ -509,7 +535,7 @@ public sealed partial class MainForm
         _itemEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _itemEditorInfoBox.WordWrap = true;
         _itemEditorInfoBox.Text = "宝物设定：按旧版格式显示 ID、图标、名称、类别、能力、价格、特效和介绍；特效名随特效号动态映射，可通过“宝物特效”维护项目侧 UTF-8 特效目录。";
-        body.Panel2.Controls.Add(previewPanel);
+        AddCollapsibleSplitPanel(body, 2, "图标预览", previewPanel, "BuildItemEditorPage.GridPreview.Preview");
         layout.Controls.Add(body, 0, 1);
         return page;
     }
@@ -603,7 +629,7 @@ public sealed partial class MainForm
         _jobEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
         _jobEditorGrid.MultiSelect = true;
-        detailBody.Panel1.Controls.Add(_jobEditorGrid);
+        AddCollapsibleSplitPanel(detailBody, 1, "兵种表", _jobEditorGrid, "BuildJobEditorPage.DetailGridPreview.Grid");
 
         var previewPanel = new TableLayoutPanel
         {
@@ -625,7 +651,7 @@ public sealed partial class MainForm
         _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobAreaPreviewInfoBox.WordWrap = true;
         _jobAreaPreviewInfoBox.Text = "读取兵种后，选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。";
-        detailBody.Panel2.Controls.Add(previewPanel);
+        AddCollapsibleSplitPanel(detailBody, 2, "范围预览", previewPanel, "BuildJobEditorPage.DetailGridPreview.Preview");
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
         _jobEditorInfoBox.Multiline = true;
@@ -694,7 +720,7 @@ public sealed partial class MainForm
         terrainLayout.Controls.Add(_jobTerrainGrid, 0, 1);
         tabs.TabPages.Add(terrainPage);
 
-        var matrixPage = new TabPage("相克/属性矩阵");
+        var matrixPage = new TabPage("相克矩阵");
         var matrixLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -720,8 +746,6 @@ public sealed partial class MainForm
         _saveJobMatrixButton.Enabled = false;
         _openJobMatrixRestraintTableButton.Text = "通用兵种相克表";
         _openJobMatrixRestraintTableButton.AutoSize = true;
-        _openJobMatrixAttributeTableButton.Text = "通用兵种属性表";
-        _openJobMatrixAttributeTableButton.AutoSize = true;
         matrixToolbar.Controls.AddRange(new Control[]
         {
             _loadJobMatrixButton,
@@ -739,21 +763,12 @@ public sealed partial class MainForm
         restraintPage.Controls.Add(_jobRestraintGrid);
         matrixTabs.TabPages.Add(restraintPage);
 
-        var attributePage = new TabPage("兵种属性");
-        _jobAttributeGrid.Dock = DockStyle.Fill;
-        _jobAttributeGrid.AllowUserToAddRows = false;
-        _jobAttributeGrid.AllowUserToDeleteRows = false;
-        _jobAttributeGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _jobAttributeGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        attributePage.Controls.Add(_jobAttributeGrid);
-        matrixTabs.TabPages.Add(attributePage);
-
         _jobMatrixInfoBox.Dock = DockStyle.Fill;
         _jobMatrixInfoBox.Multiline = true;
         _jobMatrixInfoBox.ReadOnly = true;
         _jobMatrixInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobMatrixInfoBox.WordWrap = true;
-        _jobMatrixInfoBox.Text = "相克/属性矩阵：读取后可编辑 40x40 兵种相克矩阵与 8x40 原始兵种属性矩阵；保存前自动备份，保存后复读校验。属性 8 行语义尚未确认，先按原始属性行显示。";
+        _jobMatrixInfoBox.Text = "相克矩阵：读取后可编辑 40x40 兵种相克矩阵；保存前自动备份，保存后复读校验。";
         matrixLayout.Controls.Add(matrixTabs, 0, 1);
         tabs.TabPages.Add(matrixPage);
 
@@ -807,17 +822,18 @@ public sealed partial class MainForm
         _jobStrategyEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
 
         var strategyBody = CreateResizableSplit("BuildJobEditorPage.StrategyGridPreview", Orientation.Vertical, 760);
-        strategyBody.Panel1.Controls.Add(_jobStrategyEditorGrid);
+        AddCollapsibleSplitPanel(strategyBody, 1, "策略表", _jobStrategyEditorGrid, "BuildJobEditorPage.StrategyGridPreview.Grid");
 
         var strategyPreviewPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 3,
             ColumnCount = 1,
             Padding = new Padding(8, 0, 0, 0)
         };
         strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
         strategyPreviewPanel.Controls.Add(new Label { Text = "策略预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
         _jobStrategyPreviewBox.Dock = DockStyle.Fill;
         _jobStrategyPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
@@ -829,8 +845,10 @@ public sealed partial class MainForm
         _jobStrategyPreviewInfoBox.ReadOnly = true;
         _jobStrategyPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobStrategyPreviewInfoBox.WordWrap = true;
-        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应预览。";
-        strategyBody.Panel2.Controls.Add(strategyPreviewPanel);
+        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应资源预览；其它字段显示兵种学习情况。";
+        strategyPreviewPanel.Controls.Add(_jobStrategyPreviewInfoBox, 0, 2);
+        SetJobStrategyPreviewImageVisible(false);
+        AddCollapsibleSplitPanel(strategyBody, 2, "策略预览", strategyPreviewPanel, "BuildJobEditorPage.StrategyGridPreview.Preview");
 
         _jobStrategyEditorInfoBox.Dock = DockStyle.Fill;
         _jobStrategyEditorInfoBox.Multiline = true;
@@ -1055,12 +1073,12 @@ public sealed partial class MainForm
         _battlefieldInfoBox.WordWrap = true;
         _battlefieldInfoBox.Text = "战场编辑：读取关卡后可编辑标题/胜败条件文本，并联动显示地图底图、地形层和战场命令候选。未知 R/S eex 命令结构不强写。";
         var titleConditionSplit = CreateResizableSplit("BuildBattlefieldEditorPage.TitleCondition", Orientation.Horizontal, 96, 54, 80);
-        titleConditionSplit.Panel1.Controls.Add(titlePanel);
-        titleConditionSplit.Panel2.Controls.Add(conditionsPanel);
+        AddCollapsibleSplitPanel(titleConditionSplit, 1, "关卡标题", titlePanel, "BuildBattlefieldEditorPage.TitleCondition.Title");
+        AddCollapsibleSplitPanel(titleConditionSplit, 2, "胜败条件", conditionsPanel, "BuildBattlefieldEditorPage.TitleCondition.Conditions");
         textPage.Controls.Add(titleConditionSplit);
         _battlefieldLeftTabs.TabPages.Add(scriptPage);
         _battlefieldLeftTabs.TabPages.Add(textPage);
-        mainSplit.Panel1.Controls.Add(_battlefieldLeftTabs);
+        AddCollapsibleSplitPanel(mainSplit, 1, "S剧本", _battlefieldLeftTabs, "BuildBattlefieldEditorPage.ScriptMap.Script");
 
         var unitPanel = new TableLayoutPanel
         {
@@ -1087,8 +1105,8 @@ public sealed partial class MainForm
         _battlefieldUnitPreviewInfoBox.WordWrap = true;
         _battlefieldUnitPreviewInfoBox.Text = "选择角色后显示 S 形象。";
         var unitListPreviewSplit = CreateResizableSplit("BuildBattlefieldEditorPage.UnitListPreview", Orientation.Horizontal, 330, 80, 80);
-        unitListPreviewSplit.Panel1.Controls.Add(_battlefieldUnitListBox);
-        unitListPreviewSplit.Panel2.Controls.Add(_battlefieldUnitPreviewBox);
+        AddCollapsibleSplitPanel(unitListPreviewSplit, 1, "角色列表", _battlefieldUnitListBox, "BuildBattlefieldEditorPage.UnitListPreview.List");
+        AddCollapsibleSplitPanel(unitListPreviewSplit, 2, "角色预览", _battlefieldUnitPreviewBox, "BuildBattlefieldEditorPage.UnitListPreview.Preview");
         unitPanel.Controls.Add(unitListPreviewSplit, 0, 1);
 
         _battlefieldMapScrollPanel.Dock = DockStyle.Fill;
@@ -1124,10 +1142,12 @@ public sealed partial class MainForm
         _battlefieldMapZoomLabel.Padding = new Padding(8, 4, 0, 0);
         _battlefieldMapZoomResetButton.Text = "1:1";
         _battlefieldMapZoomResetButton.AutoSize = true;
+        _markBattlefieldCommand25Button.Text = "指定地点测试";
+        _markBattlefieldCommand25Button.AutoSize = true;
         _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子；可右键选中已摆放单位并调整。";
         _battlefieldMapHintLabel.AutoSize = true;
         _battlefieldMapHintLabel.Padding = new Padding(0, 4, 0, 0);
-        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _battlefieldMapHintLabel });
+        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _markBattlefieldCommand25Button, _battlefieldMapHintLabel });
         mapLayout.Controls.Add(battlefieldMapHintPanel, 0, 1);
 
         var controlOptionsPanel = new TableLayoutPanel
@@ -1247,10 +1267,10 @@ public sealed partial class MainForm
         unitTabs.TabPages.Add(unitPage);
         unitTabs.TabPages.Add(commandPage);
         var candidateOptionsSplit = CreateResizableSplit("BuildBattlefieldEditorPage.CandidateOptions", Orientation.Horizontal, 420, 220, 150);
-        candidateOptionsSplit.Panel1.Controls.Add(unitTabs);
-        candidateOptionsSplit.Panel2.Controls.Add(controlOptionsPanel);
+        AddCollapsibleSplitPanel(candidateOptionsSplit, 1, "候选表", unitTabs, "BuildBattlefieldEditorPage.CandidateOptions.Candidates");
+        AddCollapsibleSplitPanel(candidateOptionsSplit, 2, "控制台", controlOptionsPanel, "BuildBattlefieldEditorPage.CandidateOptions.Options");
         var mapControlSplit = CreateResizableSplit("BuildBattlefieldEditorPage.MapControl", Orientation.Vertical, 620, 320, 320);
-        mapControlSplit.Panel1.Controls.Add(mapLayout);
+        AddCollapsibleSplitPanel(mapControlSplit, 1, "战场地图", mapLayout, "BuildBattlefieldEditorPage.MapControl.Map");
         mapControlSplit.Panel2.Controls.Add(candidateOptionsSplit);
         var unitMapControlSplit = CreateResizableSplit("BuildBattlefieldEditorPage.UnitMapControl", Orientation.Vertical, 190, 120, 360);
         unitMapControlSplit.Panel1.Controls.Add(unitPanel);
@@ -1341,7 +1361,7 @@ public sealed partial class MainForm
         commandPage.Controls.Add(_rSceneCommandGrid);
         leftTabs.TabPages.Add(scriptPage);
         leftTabs.TabPages.Add(commandPage);
-        mainSplit.Panel1.Controls.Add(leftTabs);
+        AddCollapsibleSplitPanel(mainSplit, 1, "R剧本", leftTabs, "BuildRSceneEditorPage.ScriptScene.Script");
 
         var actorPanel = new TableLayoutPanel
         {
@@ -1365,8 +1385,8 @@ public sealed partial class MainForm
         _rSceneFrameListView.BackColor = Color.FromArgb(34, 36, 40);
         _rSceneFrameListView.ForeColor = Color.White;
         var actorSplit = CreateResizableSplit("BuildRSceneEditorPage.ActorListPreview", Orientation.Horizontal, 330, 120, 100);
-        actorSplit.Panel1.Controls.Add(_rSceneActorListBox);
-        actorSplit.Panel2.Controls.Add(_rSceneFrameListView);
+        AddCollapsibleSplitPanel(actorSplit, 1, "角色列表", _rSceneActorListBox, "BuildRSceneEditorPage.ActorListPreview.List");
+        AddCollapsibleSplitPanel(actorSplit, 2, "动作帧", _rSceneFrameListView, "BuildRSceneEditorPage.ActorListPreview.Frames");
         actorPanel.Controls.Add(actorSplit, 0, 1);
 
         _rSceneCanvasScrollPanel.Dock = DockStyle.Fill;
@@ -1477,8 +1497,8 @@ public sealed partial class MainForm
         rSceneParameterPanel.Controls.Add(rSceneParameterEditToolbar, 0, 2);
 
         var canvasParameterSplit = CreateResizableSplit("BuildRSceneEditorPage.CanvasParameter", Orientation.Horizontal, 430, 220, 180);
-        canvasParameterSplit.Panel1.Controls.Add(canvasLayout);
-        canvasParameterSplit.Panel2.Controls.Add(rSceneParameterPanel);
+        AddCollapsibleSplitPanel(canvasParameterSplit, 1, "场景画布", canvasLayout, "BuildRSceneEditorPage.CanvasParameter.Canvas");
+        AddCollapsibleSplitPanel(canvasParameterSplit, 2, "指令参数", rSceneParameterPanel, "BuildRSceneEditorPage.CanvasParameter.Parameter");
 
         var controlPanel = new TableLayoutPanel
         {
@@ -1531,7 +1551,7 @@ public sealed partial class MainForm
 
         var canvasControlSplit = CreateResizableSplit("BuildRSceneEditorPage.CanvasControl", Orientation.Vertical, 680, 360, 220);
         canvasControlSplit.Panel1.Controls.Add(canvasParameterSplit);
-        canvasControlSplit.Panel2.Controls.Add(controlPanel);
+        AddCollapsibleSplitPanel(canvasControlSplit, 2, "场景控制", controlPanel, "BuildRSceneEditorPage.CanvasControl.Control");
         var actorSceneSplit = CreateResizableSplit("BuildRSceneEditorPage.ActorScene", Orientation.Vertical, 190, 120, 360);
         actorSceneSplit.Panel1.Controls.Add(actorPanel);
         actorSceneSplit.Panel2.Controls.Add(canvasControlSplit);
@@ -1655,7 +1675,7 @@ public sealed partial class MainForm
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical
         };
-        ConfigureSplitContainerDistanceAfterLayout(mainSplit, desiredDistance: 560, desiredPanel1Min: 360, desiredPanel2Min: 420);
+        ConfigureSplitContainerDistanceAfterLayout("BuildScriptEditorPage.TreeDetail", mainSplit, desiredDistance: 560, desiredPanel1Min: 360, desiredPanel2Min: 420);
 
         _scriptTree.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         _scriptTree.Dock = DockStyle.Fill;
@@ -1710,7 +1730,7 @@ public sealed partial class MainForm
         structureToolbar.Visible = false;
         treePanel.Controls.Add(structureToolbar, 0, 1);
         treePanel.Controls.Add(_scriptTree, 0, 2);
-        mainSplit.Panel1.Controls.Add(treePanel);
+        AddCollapsibleSplitPanel(mainSplit, 1, "事件树", treePanel, "BuildScriptEditorPage.TreeDetail.Tree");
 
         ConfigureHiddenScriptGrids();
         var hiddenBindingsPanel = new Panel
@@ -1780,8 +1800,8 @@ public sealed partial class MainForm
         parameterPanel.Controls.Add(_scriptInlineDialogHost, 0, 0);
         parameterPanel.Controls.Add(parameterEditToolbar, 0, 1);
         var detailLayout = CreateResizableSplit("BuildScriptEditorPage.ImageParameter", Orientation.Horizontal, 430, 180, 220);
-        detailLayout.Panel1.Controls.Add(_scriptImagePreviewBox);
-        detailLayout.Panel2.Controls.Add(parameterPanel);
+        AddCollapsibleSplitPanel(detailLayout, 1, "图片预览", _scriptImagePreviewBox, "BuildScriptEditorPage.ImageParameter.Image");
+        AddCollapsibleSplitPanel(detailLayout, 2, "指令参数", parameterPanel, "BuildScriptEditorPage.ImageParameter.Parameter");
 
         mainSplit.Panel2.Controls.Add(detailLayout);
         layout.Controls.Add(mainSplit, 0, 2);

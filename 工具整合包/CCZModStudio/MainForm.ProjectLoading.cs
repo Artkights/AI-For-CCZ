@@ -58,6 +58,7 @@ public sealed partial class MainForm
         _strategyAnimationPreviewService.ClearCache();
         _imageAssignmentPreviewService.ClearCache();
         ClearBattlefieldUnitFrameCache();
+        ClearRSceneImageCache();
         ClearRSceneDocumentView();
         InvalidateScriptVariableProjectCache();
 

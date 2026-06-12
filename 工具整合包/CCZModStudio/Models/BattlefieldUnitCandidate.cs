@@ -3,6 +3,13 @@ namespace CCZModStudio.Models;
 public sealed class BattlefieldUnitCandidate
 {
     public int Index { get; init; }
+    public int? BattlefieldNumber { get; init; }
+    public string SourceCommandDisplay { get; init; } = string.Empty;
+    public string PersonDisplay { get; init; } = string.Empty;
+    public string CoordinateDisplay { get; init; } = string.Empty;
+    public string FactionDisplay { get; init; } = string.Empty;
+    public string AiDisplay { get; init; } = string.Empty;
+    public string LevelJobDisplay { get; init; } = string.Empty;
     public string Category { get; init; } = string.Empty;
     public string SourceCommand { get; init; } = string.Empty;
     public string SceneSection { get; init; } = string.Empty;

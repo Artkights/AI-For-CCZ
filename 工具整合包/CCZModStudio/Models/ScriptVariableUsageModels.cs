@@ -9,7 +9,7 @@ public sealed class ScriptVariableOccurrence
     public int CommandIndex { get; init; }
     public int CommandOrdinal { get; init; }
     public int CommandId { get; init; }
-    public string CommandIdHex => "0x" + CommandId.ToString("X2", System.Globalization.CultureInfo.InvariantCulture);
+    public string CommandIdHex => CommandId.ToString("X2", System.Globalization.CultureInfo.InvariantCulture);
     public string CommandName { get; init; } = string.Empty;
     public string VariableType { get; init; } = string.Empty;
     public int VariableAddress { get; init; }
@@ -30,10 +30,10 @@ public sealed class ScriptVariableOccurrence
     public string SummaryKey => ScriptVariableSummary.BuildKey(VariableType, VariableAddress, Scope);
 
     private static string FormatAddress(int value)
-        => value >= 0 ? $"{value} / 0x{value:X}" : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        => value >= 0 ? $"{value} / {value:X}" : value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private static string FormatOffset(int value)
-        => "0x" + value.ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
+        => value.ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
 }
 
 public sealed class ScriptVariableSummary
@@ -41,7 +41,7 @@ public sealed class ScriptVariableSummary
     public string VariableType { get; init; } = string.Empty;
     public int VariableAddress { get; init; }
     public string VariableAddressText => VariableAddress >= 0
-        ? $"{VariableAddress} / 0x{VariableAddress:X}"
+        ? $"{VariableAddress} / {VariableAddress:X}"
         : VariableAddress.ToString(System.Globalization.CultureInfo.InvariantCulture);
     public string Scope { get; init; } = string.Empty;
     public int OccurrenceCount { get; init; }

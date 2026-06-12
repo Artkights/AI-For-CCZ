@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CCZModStudio.McpServer", "C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CCZModStudio.LiuBeiInitializer", "CCZModStudio.LiuBeiInitializer\CCZModStudio.LiuBeiInitializer.csproj", "{AB588A53-B7DF-4E24-8121-927B4084CC6C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CCZModStudio.GameDebugMcpServer", "CCZModStudio.GameDebugMcpServer\CCZModStudio.GameDebugMcpServer.csproj", "{F5A4916D-AF80-497C-B597-89C5400435E5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{AB588A53-B7DF-4E24-8121-927B4084CC6C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AB588A53-B7DF-4E24-8121-927B4084CC6C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AB588A53-B7DF-4E24-8121-927B4084CC6C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5A4916D-AF80-497C-B597-89C5400435E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5A4916D-AF80-497C-B597-89C5400435E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5A4916D-AF80-497C-B597-89C5400435E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5A4916D-AF80-497C-B597-89C5400435E5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

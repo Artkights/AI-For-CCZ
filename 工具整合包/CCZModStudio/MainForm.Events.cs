@@ -51,6 +51,11 @@ public sealed partial class MainForm
             e.SuppressKeyPress = true;
         };
         _roleEditorGrid.SelectionChanged += (_, _) => ShowSelectedRoleEditorCell();
+        _roleEditorGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            SetStatus("角色设定单元格显示值无法匹配，请重新导入或检查职业等下拉字段。");
+        };
         _roleEditorGrid.CellEndEdit += (_, e) =>
         {
             UpdateRoleEditorDerivedCells(e.RowIndex, e.ColumnIndex);
@@ -93,6 +98,13 @@ public sealed partial class MainForm
         _loadItemEditorButton.Click += (_, _) => LoadItemEditor();
         _saveItemEditorButton.Click += (_, _) => SaveItemEditor();
         _openItemEffectCatalogButton.Click += (_, _) => OpenItemEffectCatalogEditor();
+        _exportItemEditorCsvButton.Click += (_, _) => ExportItemEditorCsv();
+        _importItemEditorCsvButton.Click += (_, _) => ImportItemEditorCsv();
+        _copyItemEditorSelectionButton.Click += (_, _) => CopyGridSelection(_itemEditorGrid);
+        _pasteItemEditorSelectionButton.Click += (_, _) => PasteItemEditorSelection();
+        _batchFillItemEditorColumnButton.Click += (_, _) => FillItemEditorSelectionWithCurrentValue();
+        _undoItemEditorButton.Click += (_, _) => UndoItemEditorChange();
+        _redoItemEditorButton.Click += (_, _) => RedoItemEditorChange();
         _filterItemEditorButton.Click += (_, _) => ApplyItemEditorFilter();
         _clearItemEditorFilterButton.Click += (_, _) => ClearItemEditorFilter();
         _itemEditorSearchBox.KeyDown += (_, e) =>
@@ -101,7 +113,13 @@ public sealed partial class MainForm
             ApplyItemEditorFilter();
             e.SuppressKeyPress = true;
         };
-        _itemEditorGrid.SelectionChanged += (_, _) => ShowSelectedItemEditorCell();
+        _itemEditorGrid.SelectionChanged += (_, _) => HandleItemEditorSelectionChanged();
+        _itemEditorGrid.CellMouseDown += (_, _) => MarkItemEditorSelectionChangeFromMouse();
+        _itemEditorGrid.KeyDown += (_, e) =>
+        {
+            if (IsPotentialItemEditorTextInput(e)) SnapshotItemEditorSelectionForEdit();
+        };
+        _itemEditorGrid.CellBeginEdit += (_, e) => BeginItemEditorCellEdit(e.RowIndex, e.ColumnIndex);
         _itemEditorGrid.CellValidating += (_, e) => ValidateItemEditorCell(e);
         _itemEditorGrid.DataError += (_, e) =>
         {
@@ -110,7 +128,7 @@ public sealed partial class MainForm
         };
         _itemEditorGrid.CellEndEdit += (_, e) =>
         {
-            UpdateItemEditorDerivedCells(e.RowIndex, e.ColumnIndex);
+            CompleteItemEditorCellEdit(e.RowIndex, e.ColumnIndex);
             RefreshItemEditorRowStyle(e.RowIndex);
             ShowSelectedItemEditorCell();
         };
@@ -158,13 +176,9 @@ public sealed partial class MainForm
         _loadJobMatrixButton.Click += (_, _) => LoadJobMatrixEditor();
         _saveJobMatrixButton.Click += (_, _) => SaveJobMatrixEditor();
         _openJobMatrixRestraintTableButton.Click += (_, _) => OpenCoreTable("6.5-3-3 兵种相克");
-        _openJobMatrixAttributeTableButton.Click += (_, _) => OpenCoreTable("6.5-3-4 兵种属性");
         _jobRestraintGrid.SelectionChanged += (_, _) => ShowSelectedJobMatrixCell(_jobRestraintGrid, "兵种相克");
-        _jobAttributeGrid.SelectionChanged += (_, _) => ShowSelectedJobMatrixCell(_jobAttributeGrid, "兵种属性");
         _jobRestraintGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobRestraintGrid, e);
-        _jobAttributeGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobAttributeGrid, e);
         _jobRestraintGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobRestraintGrid, e.RowIndex);
-        _jobAttributeGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobAttributeGrid, e.RowIndex);
         _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
         _openJobStrategyTableButton.Click += (_, _) => OpenCoreTable("6.5-5 策略");
@@ -177,6 +191,7 @@ public sealed partial class MainForm
             e.SuppressKeyPress = true;
         };
         _jobStrategyEditorGrid.SelectionChanged += (_, _) => ShowSelectedJobStrategyCell();
+        _jobStrategyEditorGrid.CellDoubleClick += (_, e) => OpenJobStrategyLearningEditor(e.RowIndex);
         _jobStrategyEditorGrid.CellValidating += (_, e) => ValidateJobStrategyCell(e);
         _jobStrategyEditorGrid.DataError += (_, e) =>
         {
@@ -246,6 +261,14 @@ public sealed partial class MainForm
             FillJobEditorSelectionWithCurrentValue,
             UndoJobEditorChange,
             RedoJobEditorChange);
+        AttachGridEditShortcuts(
+            _itemEditorGrid,
+            (_, _) => { },
+            RefreshItemEditorAfterBulkEdit,
+            PasteItemEditorSelection,
+            FillItemEditorSelectionWithCurrentValue,
+            UndoItemEditorChange,
+            RedoItemEditorChange);
         _loadImageAssignmentsButton.Click += (_, _) => LoadImageAssignments();
         _loadImageResourcesButton.Click += (_, _) => LoadImageResources();
         _openImageResourceButton.Click += (_, _) => OpenSelectedImageResourceLocation();
@@ -289,6 +312,7 @@ public sealed partial class MainForm
         _saveBattlefieldTextsButton.Click += (_, _) => SaveBattlefieldTexts();
         _saveBattlefieldUnitReviewsButton.Click += (_, _) => SaveBattlefieldUnitReviews();
         _writeBattlefieldDeploymentButton.Click += async (_, _) => await WriteBattlefieldDeploymentAsync();
+        _jumpBattlefieldMapButton.Click += (_, _) => JumpBattlefieldMapMaker();
         _jumpBattlefieldScenarioButton.Click += async (_, _) => await JumpBattlefieldScenarioStructureAsync();
         _battlefieldTitleBox.TextChanged += (_, _) => UpdateBattlefieldCapacityLabels();
         _battlefieldConditionsBox.TextChanged += (_, _) => UpdateBattlefieldCapacityLabels();
@@ -302,13 +326,23 @@ public sealed partial class MainForm
         _battlefieldUnitGrid.CellDoubleClick += (_, e) => SelectBattlefieldUnitCandidateInScriptTree(e.RowIndex);
         _battlefieldCommandGrid.CellDoubleClick += (_, e) => SelectBattlefieldCommandCandidateInScriptTree(e.RowIndex);
         _battlefieldMapPreviewBox.MouseDown += (_, e) => BeginBattlefieldPlacedUnitInteraction(e);
-        _battlefieldMapPreviewBox.MouseMove += (_, e) => ContinueBattlefieldPlacedUnitInteraction(e);
+        _battlefieldMapPreviewBox.MouseMove += (_, e) =>
+        {
+            UpdateBattlefieldMapHover(e.Location);
+            ContinueBattlefieldPlacedUnitInteraction(e);
+        };
         _battlefieldMapPreviewBox.MouseUp += (_, _) => EndBattlefieldPlacedUnitInteraction();
+        _battlefieldMapPreviewBox.MouseLeave += (_, _) =>
+        {
+            ClearBattlefieldMapHover();
+            EndBattlefieldPlacedUnitInteraction();
+        };
         _battlefieldMapPreviewBox.MouseWheel += (_, e) => HandleBattlefieldMapMouseWheel(e);
         _battlefieldMapPreviewBox.MouseEnter += (_, _) => _battlefieldMapScrollPanel.Focus();
         _battlefieldMapScrollPanel.MouseWheel += (_, e) => HandleBattlefieldMapMouseWheel(e);
         _battlefieldMapScrollPanel.MouseEnter += (_, _) => _battlefieldMapScrollPanel.Focus();
         _battlefieldMapZoomResetButton.Click += (_, _) => ResetBattlefieldMapZoom();
+        _markBattlefieldCommand25Button.Click += (_, _) => ToggleBattlefieldCommand25Preview();
         _battlefieldScriptTree.AfterSelect += (_, _) => ShowSelectedBattlefieldScriptNode();
         _battlefieldScriptTree.NodeMouseClick += (_, e) => HandleLegacyScriptTreeNodeMouseClick(LegacyScriptEditorScope.Battlefield, e);
         _battlefieldScriptTree.NodeMouseDoubleClick += (_, e) =>
@@ -409,10 +443,10 @@ public sealed partial class MainForm
         _rSceneCanvasScrollPanel.MouseEnter += (_, _) => _rSceneCanvasScrollPanel.Focus();
         _rSceneZoomResetButton.Click += (_, _) => ResetRSceneCanvasZoom();
         _rScenePreviewLockButton.Click += (_, _) => ToggleRScenePreviewLock();
-        _rSceneBackgroundCombo.SelectedIndexChanged += (_, _) => RenderRSceneCanvas();
-        _rSceneGridSizeInput.ValueChanged += (_, _) => RenderRSceneCanvas();
-        _rSceneShowGridCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvas();
-        _rSceneDialoguePreviewCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvas();
+        _rSceneBackgroundCombo.SelectedIndexChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
+        _rSceneGridSizeInput.ValueChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
+        _rSceneShowGridCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
+        _rSceneDialoguePreviewCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
         _rSceneFacingCombo.SelectedIndexChanged += (_, _) =>
         {
             ApplyRSceneControlPanelToSelectedActor();

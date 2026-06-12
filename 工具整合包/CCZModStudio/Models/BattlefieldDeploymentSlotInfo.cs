@@ -6,6 +6,7 @@ public sealed class BattlefieldDeploymentSlotInfo
     public string Category { get; init; } = string.Empty;
     public int CommandId { get; init; }
     public int RecordIndex { get; init; }
+    public int BattlefieldNumber { get; init; }
     public int PersonOrOrder { get; init; }
     public int GridX { get; init; }
     public int GridY { get; init; }

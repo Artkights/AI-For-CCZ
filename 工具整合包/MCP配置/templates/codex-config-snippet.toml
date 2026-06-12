@@ -15,3 +15,37 @@ startup_timeout_sec = 120
 [mcp_servers.cczmodstudio.env]
 CCZMODSTUDIO_TOOL_ROOT = '<TOOL_ROOT>'
 CCZMODSTUDIO_GAME_ROOT = '<GAME_ROOT>'
+
+[mcp_servers.cczgame_debug]
+command = 'powershell.exe'
+args = [
+  '-NoLogo',
+  '-NoProfile',
+  '-ExecutionPolicy',
+  'Bypass',
+  '-File',
+  '<TOOL_ROOT>\MCP配置\start-ccz-game-debug-mcp.ps1',
+  '-GameRoot',
+  '<GAME_ROOT>'
+]
+startup_timeout_sec = 120
+
+[mcp_servers.cczgame_debug.env]
+CCZMODSTUDIO_TOOL_ROOT = '<TOOL_ROOT>'
+CCZGAME_DEBUG_GAME_ROOT = '<GAME_ROOT>'
+CCZMODSTUDIO_GAME_ROOT = '<GAME_ROOT>'
+X64DBG_MCP_HOST = '127.0.0.1'
+X64DBG_MCP_PORT = '27042'
+# Optional: set this to match x64dbg MCP plugin Settings > Token.
+# X64DBG_MCP_TOKEN = '<TOKEN>'
+
+[mcp_servers.x64dbg]
+command = 'cmd'
+args = ['/c', 'npx', '-y', 'x64dbg-mcp-server']
+startup_timeout_sec = 120
+
+[mcp_servers.x64dbg.env]
+X64DBG_MCP_HOST = '127.0.0.1'
+X64DBG_MCP_PORT = '27042'
+# Optional: set this to match x64dbg MCP plugin Settings > Token.
+# X64DBG_MCP_TOKEN = '<TOKEN>'

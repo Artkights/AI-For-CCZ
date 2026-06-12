@@ -163,6 +163,253 @@ public sealed partial class MainForm
         return panel;
     }
 
+    private sealed class CollapsiblePaneState
+    {
+        public required string Key { get; init; }
+        public required TableLayoutPanel Container { get; init; }
+        public required Control Content { get; init; }
+        public required Button ToggleButton { get; init; }
+        public required Label TitleLabel { get; init; }
+        public SplitContainer? OwnerSplit { get; init; }
+        public int SplitPanelIndex { get; init; }
+        public bool Collapsed { get; set; }
+        public int? SavedSplitterDistance { get; set; }
+        public int SavedPanel1MinSize { get; set; }
+        public int SavedPanel2MinSize { get; set; }
+    }
+
+    private const int CollapsiblePaneHeaderHeight = 28;
+    private const int CollapsiblePaneCollapsedWidth = 32;
+    private const int CollapsiblePaneCollapsedHeight = CollapsiblePaneHeaderHeight;
+    private readonly Dictionary<string, CollapsiblePaneState> _collapsiblePanes = new(StringComparer.Ordinal);
+
+    private Control CreateCollapsiblePane(
+        string title,
+        Control content,
+        string paneKey,
+        SplitContainer? ownerSplit = null,
+        int splitPanelIndex = 0)
+    {
+        paneKey = NormalizeUiLayoutKey(paneKey);
+        content.Dock = DockStyle.Fill;
+
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, CollapsiblePaneHeaderHeight));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var header = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 1,
+            ColumnCount = 2,
+            Cursor = Cursors.Hand,
+            BackColor = Color.FromArgb(238, 238, 238),
+            Margin = Padding.Empty,
+            Padding = new Padding(2, 2, 4, 2)
+        };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+        var toggleButton = new Button
+        {
+            Text = "v",
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+            FlatStyle = FlatStyle.Flat,
+            TabStop = false,
+            UseVisualStyleBackColor = false,
+            BackColor = Color.FromArgb(248, 248, 248),
+            AccessibleName = $"{title} 折叠"
+        };
+        toggleButton.FlatAppearance.BorderSize = 0;
+
+        var titleLabel = new Label
+        {
+            Text = title,
+            Dock = DockStyle.Fill,
+            AutoEllipsis = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point),
+            Margin = new Padding(4, 0, 0, 0)
+        };
+
+        header.Controls.Add(toggleButton, 0, 0);
+        header.Controls.Add(titleLabel, 1, 0);
+        panel.Controls.Add(header, 0, 0);
+        panel.Controls.Add(content, 0, 1);
+
+        var state = new CollapsiblePaneState
+        {
+            Key = paneKey,
+            Container = panel,
+            Content = content,
+            ToggleButton = toggleButton,
+            TitleLabel = titleLabel,
+            OwnerSplit = ownerSplit,
+            SplitPanelIndex = splitPanelIndex
+        };
+        _collapsiblePanes[paneKey] = state;
+
+        void Toggle() => ToggleCollapsiblePane(state);
+        toggleButton.Click += (_, _) => Toggle();
+        titleLabel.Click += (_, _) => Toggle();
+        header.Click += (_, _) => Toggle();
+
+        return panel;
+    }
+
+    private void AddCollapsibleSplitPanel(
+        SplitContainer split,
+        int splitPanelIndex,
+        string title,
+        Control content,
+        string paneKey)
+    {
+        var wrapper = CreateCollapsiblePane(title, content, paneKey, split, splitPanelIndex);
+        var panel = splitPanelIndex == 1 ? split.Panel1 : split.Panel2;
+        panel.Controls.Add(wrapper);
+    }
+
+    private void ToggleCollapsiblePane(CollapsiblePaneState state)
+    {
+        if (state.Collapsed)
+        {
+            ExpandCollapsiblePane(state);
+        }
+        else
+        {
+            CollapseCollapsiblePane(state);
+        }
+    }
+
+    private void CollapseCollapsiblePane(CollapsiblePaneState state)
+    {
+        if (state.OwnerSplit is { } split)
+        {
+            foreach (var sibling in _collapsiblePanes.Values)
+            {
+                if (ReferenceEquals(sibling, state)) continue;
+                if (!ReferenceEquals(sibling.OwnerSplit, split)) continue;
+                if (sibling.Collapsed)
+                {
+                    ExpandCollapsiblePane(sibling);
+                }
+            }
+
+            state.SavedSplitterDistance = split.SplitterDistance;
+            state.SavedPanel1MinSize = split.Panel1MinSize;
+            state.SavedPanel2MinSize = split.Panel2MinSize;
+        }
+
+        state.Collapsed = true;
+        ApplyCollapsiblePaneVisualState(state);
+        ApplyCollapsedSplitDistance(state);
+    }
+
+    private void ExpandCollapsiblePane(CollapsiblePaneState state)
+    {
+        state.Collapsed = false;
+        ApplyCollapsiblePaneVisualState(state);
+        RestoreCollapsedSplitDistance(state);
+    }
+
+    private void ApplyCollapsiblePaneVisualState(CollapsiblePaneState state)
+    {
+        state.ToggleButton.Text = state.Collapsed ? ">" : "v";
+        state.ToggleButton.AccessibleName = state.Collapsed
+            ? $"{state.TitleLabel.Text} 展开"
+            : $"{state.TitleLabel.Text} 折叠";
+        state.Content.Visible = !state.Collapsed;
+
+        if (state.Container.RowStyles.Count > 1)
+        {
+            state.Container.RowStyles[1].SizeType = state.Collapsed ? SizeType.Absolute : SizeType.Percent;
+            state.Container.RowStyles[1].Height = state.Collapsed ? 0 : 100;
+        }
+
+        state.Container.PerformLayout();
+    }
+
+    private bool TryApplyCollapsedSplitDistance(SplitContainer split)
+    {
+        foreach (var state in _collapsiblePanes.Values)
+        {
+            if (!state.Collapsed) continue;
+            if (!ReferenceEquals(state.OwnerSplit, split)) continue;
+
+            ApplyCollapsedSplitDistance(state);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ApplyCollapsedSplitDistance(CollapsiblePaneState state)
+    {
+        if (state.OwnerSplit is not { } split || split.IsDisposed) return;
+
+        var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+        var usableLength = totalLength - split.SplitterWidth;
+        if (usableLength <= 0) return;
+
+        var collapsedExtent = split.Orientation == Orientation.Vertical
+            ? CollapsiblePaneCollapsedWidth
+            : CollapsiblePaneCollapsedHeight;
+        var target = state.SplitPanelIndex == 1
+            ? Math.Min(collapsedExtent, usableLength)
+            : Math.Max(0, usableLength - collapsedExtent);
+
+        SetSplitterDistanceSafely(split, target, panel1MinSize: 0, panel2MinSize: 0);
+    }
+
+    private static void RestoreCollapsedSplitDistance(CollapsiblePaneState state)
+    {
+        if (state.OwnerSplit is not { } split || split.IsDisposed) return;
+        if (state.SavedSplitterDistance is not { } savedDistance) return;
+
+        SetSplitterDistanceSafely(
+            split,
+            savedDistance,
+            state.SavedPanel1MinSize,
+            state.SavedPanel2MinSize);
+        state.SavedSplitterDistance = null;
+    }
+
+    private static void SetSplitterDistanceSafely(
+        SplitContainer split,
+        int targetDistance,
+        int panel1MinSize,
+        int panel2MinSize)
+    {
+        var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+        var usableLength = totalLength - split.SplitterWidth;
+        if (usableLength <= 0) return;
+
+        var canUseRequestedMins = usableLength > panel1MinSize + panel2MinSize;
+        var panel1Min = canUseRequestedMins ? panel1MinSize : 0;
+        var panel2Min = canUseRequestedMins ? panel2MinSize : 0;
+        var maxDistance = Math.Max(panel1Min, usableLength - panel2Min);
+        var target = Math.Clamp(targetDistance, panel1Min, maxDistance);
+
+        split.Panel1MinSize = 0;
+        split.Panel2MinSize = 0;
+        if (split.SplitterDistance != target)
+        {
+            split.SplitterDistance = target;
+        }
+
+        split.Panel1MinSize = panel1Min;
+        split.Panel2MinSize = panel2Min;
+    }
+
     private void ApplyAdaptiveDefaultWindowLayout()
     {
         var workingArea = GetPreferredWorkingArea();
@@ -291,17 +538,32 @@ public sealed partial class MainForm
             desiredPanel1Min,
             desiredPanel2Min);
 
+    private void ConfigureSplitContainerDistanceAfterLayout(
+        string layoutKey,
+        SplitContainer split,
+        int desiredDistance,
+        int desiredPanel1Min,
+        int desiredPanel2Min)
+        => ConfigureSplitContainerDistanceAfterLayout(
+            split,
+            layoutKey,
+            desiredDistance,
+            desiredPanel1Min,
+            desiredPanel2Min);
+
     private void ConfigureSplitContainerDistanceAfterLayout(SplitContainer split, string layoutKey, int desiredDistance, int desiredPanel1Min, int desiredPanel2Min)
     {
         layoutKey = NormalizeUiLayoutKey(layoutKey);
         _uiLayoutSplits[layoutKey] = split;
         var applyingProgrammaticDistance = false;
+        var userMovingSplitter = false;
 
         void Apply()
         {
             if (split.IsDisposed) return;
             var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
             if (totalLength <= split.SplitterWidth + 2) return;
+            if (TryApplyCollapsedSplitDistance(split)) return;
 
             var canUseRequestedMins = totalLength > desiredPanel1Min + desiredPanel2Min + split.SplitterWidth;
             if (!canUseRequestedMins)
@@ -339,12 +601,21 @@ public sealed partial class MainForm
 
         split.SizeChanged += (_, _) => Apply();
         split.HandleCreated += (_, _) => Apply();
+        split.SplitterMoving += (_, _) =>
+        {
+            if (applyingProgrammaticDistance) return;
+            if (Control.MouseButtons == MouseButtons.None) return;
+
+            userMovingSplitter = true;
+        };
         split.SplitterMoved += (_, _) =>
         {
             if (applyingProgrammaticDistance) return;
+            if (!userMovingSplitter) return;
 
             SaveSplitContainerRatio(layoutKey, split);
-            SaveUiLayoutSettings();
+            SaveUiLayoutSettings(updateWindow: false);
+            userMovingSplitter = false;
         };
         if (split.IsHandleCreated)
         {
@@ -353,18 +624,14 @@ public sealed partial class MainForm
     }
 
     private static string NormalizeUiLayoutKey(string layoutKey)
-        => layoutKey.Trim();
+        => UiLayoutSettingsStore.NormalizeKey(layoutKey);
 
     private int ResolveConfiguredSplitterDistance(string layoutKey, int totalLength, int splitterWidth, int desiredDistance)
     {
         var usableLength = totalLength - splitterWidth;
         if (usableLength <= 0) return desiredDistance;
 
-        if (_uiLayoutSettings.SplitRatios.TryGetValue(layoutKey, out var savedRatio)
-            && !double.IsNaN(savedRatio)
-            && !double.IsInfinity(savedRatio)
-            && savedRatio > 0
-            && savedRatio < 1)
+        if (UiLayoutSettingsStore.GetSplitRatio(_uiLayoutSettings, layoutKey) is { } savedRatio)
         {
             return (int)Math.Round(usableLength * savedRatio);
         }
@@ -387,57 +654,14 @@ public sealed partial class MainForm
     private void SaveCurrentUiLayoutSettings()
     {
         CaptureWindowLayoutSettings();
-        foreach (var pair in _uiLayoutSplits)
-        {
-            SaveSplitContainerRatio(pair.Key, pair.Value);
-        }
-
         SaveUiLayoutSettings();
     }
 
     private void LoadUiLayoutSettings()
-    {
-        try
-        {
-            var path = GetUiLayoutSettingsPath();
-            if (!File.Exists(path)) return;
+        => _uiLayoutSettings = UiLayoutSettingsStore.Load();
 
-            var settings = JsonSerializer.Deserialize<UiLayoutSettings>(
-                File.ReadAllText(path),
-                UiLayoutJsonOptions);
-            if (settings == null) return;
-
-            _uiLayoutSettings = settings;
-            _uiLayoutSettings.SplitRatios ??= new Dictionary<string, double>(StringComparer.Ordinal);
-        }
-        catch
-        {
-            _uiLayoutSettings = new UiLayoutSettings();
-        }
-    }
-
-    private void SaveUiLayoutSettings()
-    {
-        try
-        {
-            _uiLayoutSettings.Version = UiLayoutSettingsVersion;
-            var path = GetUiLayoutSettingsPath();
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(_uiLayoutSettings, UiLayoutJsonOptions));
-        }
-        catch
-        {
-            // Layout persistence is best effort; failed saves should not block editing.
-        }
-    }
-
-    private static string GetUiLayoutSettingsPath()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return string.IsNullOrWhiteSpace(appData)
-            ? Path.Combine(AppContext.BaseDirectory, UiLayoutSettingsFileName)
-            : Path.Combine(appData, "CCZModStudio", UiLayoutSettingsFileName);
-    }
+    private void SaveUiLayoutSettings(bool updateWindow = true)
+        => UiLayoutSettingsStore.Save(_uiLayoutSettings, _uiLayoutSplits.Keys, updateWindow);
 
     private void CaptureWindowLayoutSettings()
     {
@@ -483,15 +707,5 @@ public sealed partial class MainForm
         base.OnFormClosing(e);
     }
 
-    private sealed class UiLayoutSettings
-    {
-        public int Version { get; set; } = UiLayoutSettingsVersion;
-        public Dictionary<string, double> SplitRatios { get; set; } = new(StringComparer.Ordinal);
-        public int WindowLeft { get; set; }
-        public int WindowTop { get; set; }
-        public int WindowWidth { get; set; }
-        public int WindowHeight { get; set; }
-        public bool WindowMaximized { get; set; }
-    }
 }
 

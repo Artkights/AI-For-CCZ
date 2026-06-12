@@ -25,9 +25,10 @@ public sealed partial class MainForm : Form
 
     private sealed record JobEditorCellTarget(DataRow Row, string ColumnName);
     private sealed record JobEditorCellEdit(DataRow Row, string ColumnName, object? OldValue, object? NewValue);
+    private sealed record ItemEditorCellTarget(DataRow Row, string ColumnName);
+    private sealed record ItemEditorCellEdit(DataRow Row, string ColumnName, object? OldValue, object? NewValue);
+    private sealed record BattlefieldCommand25Marker(int GridX, int GridY, LegacyScenarioCommandNode Command, int Count);
 
-    private const string UiLayoutSettingsFileName = "ui-layout.json";
-    private const int UiLayoutSettingsVersion = 2;
     private const int DefaultWindowWidth = 1280;
     private const int DefaultWindowHeight = 820;
     private const int MinimumWindowWidth = 900;
@@ -45,6 +46,10 @@ public sealed partial class MainForm : Form
     private const int RSceneFrameCount = 20;
     private const int RSceneCoordinateXPixelOffset = 42;
     private const int RSceneCoordinateYPixelOffset = 50;
+    private const int RSceneMapFaceFallbackSize = 48;
+    private const int RSceneMapFaceMaxWidth = 64;
+    private const int RSceneMapFaceMaxHeight = 80;
+    private const int RSceneImageCacheLimit = 256;
     private const int BattlefieldUnitAnimationIntervalMs = 800;
     private static readonly bool ShowGenericTableEditorPage = false;
     private static readonly bool ShowLegacyProbePages = false;
@@ -64,10 +69,6 @@ public sealed partial class MainForm : Form
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0,
         2, 0, 0, 0, 0, 0, 2, 0, 2
     ];
-    private static readonly JsonSerializerOptions UiLayoutJsonOptions = new()
-    {
-        WriteIndented = true
-    };
     private static readonly JsonSerializerOptions LegacyScriptClipboardJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -193,6 +194,7 @@ public sealed partial class MainForm : Form
     private readonly ScenarioTextReader _scenarioTextReader = new();
     private readonly ScenarioTextExportService _scenarioTextExportService = new();
     private readonly ScenarioTextWriter _scenarioTextWriter = new();
+    private readonly ExclusiveSetScenarioService _exclusiveSetScenarioService = new();
     private readonly LegacyScenarioReader _legacyScenarioReader = new();
     private readonly LegacyScenarioWriter _legacyScenarioWriter = new();
     private readonly ScenarioCommandParameterTemplateService _scenarioCommandParameterTemplateService = new();
@@ -286,6 +288,10 @@ public sealed partial class MainForm : Form
     private Bitmap? _battlefieldMapStaticPreviewImage;
     private (int Width, int Height) _battlefieldMapStaticGridSize;
     private BattlefieldUnitCandidate? _battlefieldMapPreviewSelectedUnit;
+    private int _battlefieldHoverGridX = -1;
+    private int _battlefieldHoverGridY = -1;
+    private readonly List<BattlefieldCommand25Marker> _battlefieldCommand25Markers = [];
+    private bool _battlefieldCommand25PreviewEnabled;
     private readonly System.Windows.Forms.Timer _battlefieldUnitAnimationTimer = new() { Interval = BattlefieldUnitAnimationIntervalMs };
     private int _battlefieldUnitAnimationPhase;
     private readonly System.Windows.Forms.Timer _rScenePlaybackTimer = new();
@@ -327,6 +333,8 @@ public sealed partial class MainForm : Form
     private Point? _rSceneDragPreviewGrid;
     private RScenePlacedActor? _rSceneMovePreviewActor;
     private Point? _rSceneMovePreviewGrid;
+    private readonly List<RSceneMapFaceState> _rSceneMapFaces = [];
+    private readonly Dictionary<string, Bitmap> _rSceneImageCache = new(StringComparer.Ordinal);
     private IReadOnlyList<ScenarioStructureRow> _rScenePlaybackRows = Array.Empty<ScenarioStructureRow>();
     private int _rScenePlaybackIndex = -1;    private DataTable? _currentRoleEditorData;
     private DataTable? _roleEditorJobLookup;
@@ -350,11 +358,11 @@ public sealed partial class MainForm : Form
     private TableReadResult? _jobTerrainPowerRead;
     private TableReadResult? _jobMoveCostRead;
     private TableReadResult? _jobRestraintRead;
-    private TableReadResult? _jobAttributeRead;
     private DataTable? _currentJobStrategyData;
     private TableReadResult? _jobStrategyRead;
     private readonly Dictionary<string, TableReadResult> _jobStrategyCompanionReads = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<int, string> _jobStrategyJobNames = new Dictionary<int, string>();
+    private readonly Dictionary<int, JobStrategyLearningDialog> _jobStrategyLearningDialogs = new();
     private int _jobStrategyConfiguredMagicCount;
     private string _jobStrategyConfiguredMagicSource = string.Empty;
     private DataTable? _currentJobEffectData;
@@ -365,6 +373,7 @@ public sealed partial class MainForm : Form
     private IReadOnlyDictionary<int, string> _jobEffectPersonNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, string> _jobEffectJobNames = new Dictionary<int, string>();
     private TableReadResult? _rolePersonalEffectRead;
+    private ExclusiveSetScenarioReadResult? _currentExclusiveSetScenarioRead;
     private IReadOnlyDictionary<int, string> _rolePersonalEffectNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, string> _rolePersonalEffectPersonNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, string> _rolePersonalEffectItemNames = new Dictionary<int, string>();
@@ -374,6 +383,12 @@ public sealed partial class MainForm : Form
     private TableReadResult? _itemDescriptionLowRead;
     private TableReadResult? _itemDescriptionHighRead;
     private IReadOnlyDictionary<int, string> _itemEffectNames = new Dictionary<int, string>();
+    private readonly Stack<List<ItemEditorCellEdit>> _itemEditorUndoStack = new();
+    private readonly Stack<List<ItemEditorCellEdit>> _itemEditorRedoStack = new();
+    private List<ItemEditorCellTarget> _itemEditorSelectionSnapshotTargets = [];
+    private List<ItemEditorCellEdit> _itemEditorPendingCellEditOriginals = [];
+    private bool _applyingItemEditorHistory;
+    private bool _itemEditorSelectionChangeStartedByMouse;
     private DataTable? _currentShopEditorData;
     private TableReadResult? _shopCampaignNameRead;
     private TableReadResult? _shopDataRead;
@@ -423,6 +438,7 @@ public sealed partial class MainForm : Form
     private bool _bindingRSceneControlPanel;
     private bool _bindingRSceneFrameSelection;
     private bool _bindingRSceneCommandSelection;
+    private bool _suppressRSceneCanvasRender;
     private ImageList? _rSceneFrameImageList;
     private int _battlefieldMapZoomPercent = 100;
     private int _rSceneCanvasZoomPercent = 100;
@@ -510,9 +526,7 @@ public sealed partial class MainForm : Form
     private readonly Button _loadJobMatrixButton = new();
     private readonly Button _saveJobMatrixButton = new();
     private readonly Button _openJobMatrixRestraintTableButton = new();
-    private readonly Button _openJobMatrixAttributeTableButton = new();
     private readonly DataGridView _jobRestraintGrid = new();
-    private readonly DataGridView _jobAttributeGrid = new();
     private readonly TextBox _jobMatrixInfoBox = new();
     private readonly Button _loadJobStrategyEditorButton = new();
     private readonly Button _saveJobStrategyEditorButton = new();
@@ -535,6 +549,13 @@ public sealed partial class MainForm : Form
     private readonly Button _loadItemEditorButton = new();
     private readonly Button _saveItemEditorButton = new();
     private readonly Button _openItemEffectCatalogButton = new();
+    private readonly Button _exportItemEditorCsvButton = new();
+    private readonly Button _importItemEditorCsvButton = new();
+    private readonly Button _copyItemEditorSelectionButton = new();
+    private readonly Button _pasteItemEditorSelectionButton = new();
+    private readonly Button _batchFillItemEditorColumnButton = new();
+    private readonly Button _undoItemEditorButton = new();
+    private readonly Button _redoItemEditorButton = new();
     private readonly Button _filterItemEditorButton = new();
     private readonly Button _clearItemEditorFilterButton = new();
     private readonly TextBox _itemEditorSearchBox = new();
@@ -746,6 +767,7 @@ public sealed partial class MainForm : Form
     private readonly Label _battlefieldMapHintLabel = new();
     private readonly Label _battlefieldMapZoomLabel = new();
     private readonly Button _battlefieldMapZoomResetButton = new();
+    private readonly Button _markBattlefieldCommand25Button = new();
     private readonly Panel _battlefieldMapScrollPanel = new();
     private readonly TabControl _battlefieldLeftTabs = new();
     private readonly TreeView _battlefieldScriptTree = new();
@@ -1266,7 +1288,7 @@ public sealed partial class MainForm : Form
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Horizontal,
             };
-            ConfigureSplitContainerDistanceAfterLayout(tableSplit, desiredDistance: 500, desiredPanel1Min: 25, desiredPanel2Min: 25);
+            ConfigureSplitContainerDistanceAfterLayout("BuildLayout.GenericTableChart", tableSplit, desiredDistance: 500, desiredPanel1Min: 25, desiredPanel2Min: 25);
             _dataGrid.Dock = DockStyle.Fill;
             _dataGrid.ReadOnly = true;
             _dataGrid.AllowUserToAddRows = false;
@@ -1275,7 +1297,7 @@ public sealed partial class MainForm : Form
             _dataGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
             _dataGrid.MultiSelect = true;
             tableGridLayout.Controls.Add(_dataGrid, 0, 1);
-            tableSplit.Panel1.Controls.Add(tableGridLayout);
+            AddCollapsibleSplitPanel(tableSplit, 1, "数据表", tableGridLayout, "BuildLayout.GenericTableChart.Table");
             var chartLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -1375,7 +1397,7 @@ public sealed partial class MainForm : Form
             _tableChartBox.BorderStyle = BorderStyle.FixedSingle;
             _tableChartBox.SizeMode = PictureBoxSizeMode.Zoom;
             chartLayout.Controls.Add(_tableChartBox, 0, 1);
-            tableSplit.Panel2.Controls.Add(chartLayout);
+            AddCollapsibleSplitPanel(tableSplit, 2, "字段/图表", chartLayout, "BuildLayout.GenericTableChart.Chart");
             tablePage.Controls.Add(tableSplit);
             _mainTabs.TabPages.Add(tablePage);
         }
@@ -1449,14 +1471,14 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical
         };
-        ConfigureSplitContainerDistanceAfterLayout(imageResourceSplit, desiredDistance: 720, desiredPanel1Min: 420, desiredPanel2Min: 320);
+        ConfigureSplitContainerDistanceAfterLayout("BuildImageResourcePage.ListPreview", imageResourceSplit, desiredDistance: 720, desiredPanel1Min: 420, desiredPanel2Min: 320);
 
         var imageResourceLeft = new SplitContainer
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Horizontal
         };
-        ConfigureSplitContainerDistanceAfterLayout(imageResourceLeft, desiredDistance: 260, desiredPanel1Min: 150, desiredPanel2Min: 150);
+        ConfigureSplitContainerDistanceAfterLayout("BuildImageResourcePage.FileEntryList", imageResourceLeft, desiredDistance: 260, desiredPanel1Min: 150, desiredPanel2Min: 150);
         _imageResourceFileGrid.Dock = DockStyle.Fill;
         _imageResourceFileGrid.ReadOnly = true;
         _imageResourceFileGrid.AllowUserToAddRows = false;
@@ -1469,15 +1491,15 @@ public sealed partial class MainForm : Form
         _imageResourceEntryGrid.AllowUserToDeleteRows = false;
         _imageResourceEntryGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _imageResourceEntryGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        imageResourceLeft.Panel1.Controls.Add(_imageResourceFileGrid);
-        imageResourceLeft.Panel2.Controls.Add(_imageResourceEntryGrid);
+        AddCollapsibleSplitPanel(imageResourceLeft, 1, "资源文件", _imageResourceFileGrid, "BuildImageResourcePage.FileEntryList.Files");
+        AddCollapsibleSplitPanel(imageResourceLeft, 2, "资源条目", _imageResourceEntryGrid, "BuildImageResourcePage.FileEntryList.Entries");
 
         _imageResourcePreviewBox.Dock = DockStyle.Fill;
         _imageResourcePreviewBox.BackColor = Color.FromArgb(32, 32, 36);
         _imageResourcePreviewBox.BorderStyle = BorderStyle.None;
         _imageResourcePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         imageResourceSplit.Panel1.Controls.Add(imageResourceLeft);
-        imageResourceSplit.Panel2.Controls.Add(_imageResourcePreviewBox);
+        AddCollapsibleSplitPanel(imageResourceSplit, 2, "图片预览", _imageResourcePreviewBox, "BuildImageResourcePage.ListPreview.Preview");
         imageResourceLayout.Controls.Add(imageResourceSplit, 0, 1);
         imageTabs.TabPages.Add(imageResourcePage);
 
@@ -1556,13 +1578,13 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical
         };
-        ConfigureSplitContainerDistanceAfterLayout(imageSplit, desiredDistance: 760, desiredPanel1Min: 420, desiredPanel2Min: 300);
+        ConfigureSplitContainerDistanceAfterLayout("BuildImageAssignmentPage.GridPreview", imageSplit, desiredDistance: 760, desiredPanel1Min: 420, desiredPanel2Min: 300);
         _imageAssignmentGrid.Dock = DockStyle.Fill;
         _imageAssignmentGrid.AllowUserToAddRows = false;
         _imageAssignmentGrid.AllowUserToDeleteRows = false;
         _imageAssignmentGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _imageAssignmentGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        imageSplit.Panel1.Controls.Add(_imageAssignmentGrid);
+        AddCollapsibleSplitPanel(imageSplit, 1, "人物R/S表", _imageAssignmentGrid, "BuildImageAssignmentPage.GridPreview.Grid");
 
         var imagePreviewLayout = new TableLayoutPanel
         {
@@ -1633,7 +1655,7 @@ public sealed partial class MainForm : Form
             imagePreviewLayout.ColumnStyles[3].Width = desiredStripW;
         };
 
-        imageSplit.Panel2.Controls.Add(imagePreviewLayout);
+        AddCollapsibleSplitPanel(imageSplit, 2, "形象预览", imagePreviewLayout, "BuildImageAssignmentPage.GridPreview.Preview");
         imageLayout.Controls.Add(imageSplit, 0, 1);
         imageTabs.TabPages.Add(imageAssignmentPage);
         _mainTabs.TabPages.Add(imagePage);
@@ -1717,7 +1739,7 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
         };
-        ConfigureSplitContainerDistanceAfterLayout(eexSplit, desiredDistance: 610, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildEexProbePage.ArchiveDetail", eexSplit, desiredDistance: 610, desiredPanel1Min: 25, desiredPanel2Min: 25);
         _eexArchiveGrid.Dock = DockStyle.Fill;
         _eexArchiveGrid.ReadOnly = true;
         _eexArchiveGrid.AllowUserToAddRows = false;
@@ -1757,7 +1779,7 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Horizontal,
         };
-        ConfigureSplitContainerDistanceAfterLayout(eexProbeHeatmapSplit, desiredDistance: 300, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildEexProbePage.ProbeHeatmap", eexProbeHeatmapSplit, desiredDistance: 300, desiredPanel1Min: 25, desiredPanel2Min: 25);
         var eexHeatmapLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1777,7 +1799,7 @@ public sealed partial class MainForm : Form
         _eexByteHeatmapBox.BackColor = Color.Black;
         _eexByteHeatmapBox.SizeMode = PictureBoxSizeMode.Zoom;
         eexHeatmapLayout.Controls.Add(_eexByteHeatmapBox, 0, 0);
-        eexSplit.Panel1.Controls.Add(_eexArchiveGrid);
+        AddCollapsibleSplitPanel(eexSplit, 1, "EEX文件", _eexArchiveGrid, "BuildEexProbePage.ArchiveDetail.Archives");
         var eexProbeTabs = new TabControl { Dock = DockStyle.Fill };
         var eexProbeGridPage = new TabPage("区段表格");
         var eexProbeTreePage = new TabPage("区段/动作候选树");
@@ -1788,8 +1810,8 @@ public sealed partial class MainForm : Form
         eexProbeTabs.TabPages.Add(eexProbeGridPage);
         eexProbeTabs.TabPages.Add(eexProbeTreePage);
         eexProbeTabs.TabPages.Add(eexCrossFilePage);
-        eexProbeHeatmapSplit.Panel1.Controls.Add(eexProbeTabs);
-        eexProbeHeatmapSplit.Panel2.Controls.Add(eexHeatmapLayout);
+        AddCollapsibleSplitPanel(eexProbeHeatmapSplit, 1, "区段解析", eexProbeTabs, "BuildEexProbePage.ProbeHeatmap.Probe");
+        AddCollapsibleSplitPanel(eexProbeHeatmapSplit, 2, "热力图", eexHeatmapLayout, "BuildEexProbePage.ProbeHeatmap.Heatmap");
         eexSplit.Panel2.Controls.Add(eexProbeHeatmapSplit);
         eexLayout.Controls.Add(eexSplit, 0, 1);
         _mainTabs.TabPages.Add(eexPage);
@@ -1912,7 +1934,7 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Horizontal,
         };
-        ConfigureSplitContainerDistanceAfterLayout(scenarioSplit, desiredDistance: 330, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildScenarioProbePage.FileDetail", scenarioSplit, desiredDistance: 330, desiredPanel1Min: 25, desiredPanel2Min: 25);
         _scenarioFileGrid.Dock = DockStyle.Fill;
         _scenarioFileGrid.ReadOnly = true;
         _scenarioFileGrid.AllowUserToAddRows = false;
@@ -1935,7 +1957,7 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
         };
-        ConfigureSplitContainerDistanceAfterLayout(structureSplit, desiredDistance: 650, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildScenarioProbePage.StructurePreview", structureSplit, desiredDistance: 650, desiredPanel1Min: 25, desiredPanel2Min: 25);
         _scenarioStructureGrid.Dock = DockStyle.Fill;
         _scenarioStructureGrid.ReadOnly = true;
         _scenarioStructureGrid.AllowUserToAddRows = false;
@@ -2072,7 +2094,7 @@ public sealed partial class MainForm : Form
         commandTemplateLayout.Controls.Add(_scenarioCommandTemplateGrid, 0, 1);
         commandTemplatePage.Controls.Add(commandTemplateLayout);
 
-        scenarioSplit.Panel1.Controls.Add(_scenarioFileGrid);
+        AddCollapsibleSplitPanel(scenarioSplit, 1, "剧本文件", _scenarioFileGrid, "BuildScenarioProbePage.FileDetail.Files");
         commandProbePage.Controls.Add(_scenarioCommandProbeGrid);
         var structureDetailTabs = new TabControl { Dock = DockStyle.Fill };
         var structureTreePage = new TabPage("事件树");
@@ -2081,8 +2103,8 @@ public sealed partial class MainForm : Form
         structureXmlPage.Controls.Add(_scenarioStructureXmlBox);
         structureDetailTabs.TabPages.Add(structureTreePage);
         structureDetailTabs.TabPages.Add(structureXmlPage);
-        structureSplit.Panel1.Controls.Add(_scenarioStructureGrid);
-        structureSplit.Panel2.Controls.Add(structureDetailTabs);
+        AddCollapsibleSplitPanel(structureSplit, 1, "结构表", _scenarioStructureGrid, "BuildScenarioProbePage.StructurePreview.Structure");
+        AddCollapsibleSplitPanel(structureSplit, 2, "结构详情", structureDetailTabs, "BuildScenarioProbePage.StructurePreview.Detail");
         structureLayout.Controls.Add(structureSplit, 0, 1);
         structureProbePage.Controls.Add(structureLayout);
         textProbePage.Controls.Add(_scenarioTextGrid);
@@ -2164,7 +2186,7 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Horizontal,
         };
-        ConfigureSplitContainerDistanceAfterLayout(lsResourceSplit, desiredDistance: 310, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildLsResourcePage.ResourceHeatmap", lsResourceSplit, desiredDistance: 310, desiredPanel1Min: 25, desiredPanel2Min: 25);
         var lsHeatmapLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -2184,8 +2206,8 @@ public sealed partial class MainForm : Form
         _lsResourceHeatmapBox.BackColor = Color.Black;
         _lsResourceHeatmapBox.SizeMode = PictureBoxSizeMode.Zoom;
         lsHeatmapLayout.Controls.Add(_lsResourceHeatmapBox, 0, 0);
-        lsResourceSplit.Panel1.Controls.Add(_lsResourceGrid);
-        lsResourceSplit.Panel2.Controls.Add(lsHeatmapLayout);
+        AddCollapsibleSplitPanel(lsResourceSplit, 1, "Ls/E5资源", _lsResourceGrid, "BuildLsResourcePage.ResourceHeatmap.Resources");
+        AddCollapsibleSplitPanel(lsResourceSplit, 2, "热力图", lsHeatmapLayout, "BuildLsResourcePage.ResourceHeatmap.Heatmap");
         lsLayout.Controls.Add(lsResourceSplit, 0, 1);
         _mainTabs.TabPages.Add(lsPage);
 
@@ -2250,7 +2272,7 @@ public sealed partial class MainForm : Form
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
         };
-        ConfigureSplitContainerDistanceAfterLayout(hexzmapSplit, desiredDistance: 620, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        ConfigureSplitContainerDistanceAfterLayout("BuildHexzmapPage.GridPreview", hexzmapSplit, desiredDistance: 620, desiredPanel1Min: 25, desiredPanel2Min: 25);
         _hexzmapGrid.Dock = DockStyle.Fill;
         _hexzmapGrid.ReadOnly = true;
         _hexzmapGrid.AllowUserToAddRows = false;
@@ -2279,8 +2301,8 @@ public sealed partial class MainForm : Form
         _hexzmapPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         hexzmapPreviewLayout.Controls.Add(_hexzmapCellPreviewLabel, 0, 0);
         hexzmapPreviewLayout.Controls.Add(_hexzmapPreviewBox, 0, 1);
-        hexzmapSplit.Panel1.Controls.Add(_hexzmapGrid);
-        hexzmapSplit.Panel2.Controls.Add(hexzmapPreviewLayout);
+        AddCollapsibleSplitPanel(hexzmapSplit, 1, "地形块", _hexzmapGrid, "BuildHexzmapPage.GridPreview.Grid");
+        AddCollapsibleSplitPanel(hexzmapSplit, 2, "地形预览", hexzmapPreviewLayout, "BuildHexzmapPage.GridPreview.Preview");
         hexzmapLayout.Controls.Add(hexzmapSplit, 0, 1);
         _mainTabs.TabPages.Add(hexzmapPage);
         }

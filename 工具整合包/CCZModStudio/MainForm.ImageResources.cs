@@ -16,6 +16,13 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private enum ImageAssignmentResourceKind
+    {
+        Face,
+        R,
+        S
+    }
+
     private void LoadImageResources()
     {
         if (_project == null)
@@ -133,6 +140,16 @@ public sealed partial class MainForm
         }
         HideNonAuthoringColumns(
             _imageResourceFileGrid,
+            nameof(ImageResourceFileInfo.FileName),
+            nameof(ImageResourceFileInfo.Aliases),
+            nameof(ImageResourceFileInfo.Exists),
+            nameof(ImageResourceFileInfo.SizeBytes),
+            nameof(ImageResourceFileInfo.SupportsE5Index),
+            nameof(ImageResourceFileInfo.SupportsPreview),
+            nameof(ImageResourceFileInfo.CanReplace),
+            nameof(ImageResourceFileInfo.ResourceFormat),
+            nameof(ImageResourceFileInfo.KindSummary),
+            nameof(ImageResourceFileInfo.Status),
             nameof(ImageResourceFileInfo.Path),
             nameof(ImageResourceFileInfo.RelativePath),
             nameof(ImageResourceFileInfo.SafetyNote),
@@ -1074,24 +1091,24 @@ public sealed partial class MainForm
             return;
         }
 
-        var prefix = GetPreferredImageResourcePrefix();
-        if (!TryGetImageResourceId(row, prefix, out var id))
+        var targetKind = GetPreferredImageAssignmentResourceKind();
+        if (!TryGetImageResourceId(row, targetKind, out var id))
         {
-            MessageBox.Show(this, $"\u65e0\u6cd5\u8bfb\u53d6 {prefix} \u5f62\u8c61\u7f16\u53f7\u3002", "\u63d0\u793a", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, $"无法读取 {GetImageAssignmentResourceKindText(targetKind)} 编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        var path = ImageAssignmentService.GetImageResourcePath(_project, prefix, id);
+        var path = ImageAssignmentService.GetImageResourcePath(_project, ResourceKindToPrefix(targetKind), id);
         if (File.Exists(path))
         {
             OpenFileLocation(path);
-            SetStatus($"\u5df2\u5b9a\u4f4d {prefix} \u8d44\u6e90\uff1a{Path.GetFileName(path)}");
+            SetStatus($"已定位 {GetImageAssignmentResourceKindText(targetKind)} 资源：{Path.GetFileName(path)}");
             return;
         }
 
         OpenFileLocation(_project.GameRoot);
         MessageBox.Show(this,
-            $"当前选中的 {prefix} 形象资源未定位：{Path.GetFileName(path)}\r\n已为你打开项目根目录。R 形象请检查 Pmapobj.e5；S 形象请检查 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。",
+            $"当前选中的 {GetImageAssignmentResourceKindText(targetKind)} 资源未定位：{Path.GetFileName(path)}\r\n已为你打开项目根目录。头像请检查 E5\\Face.e5；R 形象请检查 Pmapobj.e5；S 形象请检查 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5。",
             "资源未定位",
             MessageBoxButtons.OK,
             MessageBoxIcon.Warning);
@@ -1112,18 +1129,18 @@ public sealed partial class MainForm
             return;
         }
 
-        var prefix = GetPreferredImageResourcePrefix();
-        if (!TryGetImageResourceId(row, prefix, out var id))
+        var targetKind = GetPreferredImageAssignmentResourceKind();
+        if (!TryGetImageResourceId(row, targetKind, out var id))
         {
-            MessageBox.Show(this, $"无法读取 {prefix} 形象编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, $"无法读取 {GetImageAssignmentResourceKindText(targetKind)} 编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        var targets = BuildE5ImageReplacementTargets(row, prefix, id);
+        var targets = BuildE5ImageReplacementTargets(row, targetKind, id);
         if (targets.Count == 0)
         {
             MessageBox.Show(this,
-                $"当前 {prefix}={id} 没有可替换的有效 E5 图片条目。\r\n请确认 Pmapobj.e5 / Unit_*.e5 已存在，且映射图号没有超过索引表条目数。",
+                $"当前 {GetImageAssignmentResourceKindText(targetKind)}={id} 没有可替换的有效 E5 图片条目。\r\n请确认 Face.e5 / Pmapobj.e5 / Unit_*.e5 已存在，且映射图号没有超过索引表条目数。",
                 "没有可替换条目",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -1228,12 +1245,24 @@ public sealed partial class MainForm
         }
     }
 
-    private IReadOnlyList<E5ImageReplacementTarget> BuildE5ImageReplacementTargets(DataRow row, string prefix, int id)
+    private IReadOnlyList<E5ImageReplacementTarget> BuildE5ImageReplacementTargets(DataRow row, ImageAssignmentResourceKind targetKind, int id)
     {
         if (_project == null) return Array.Empty<E5ImageReplacementTarget>();
         var result = new List<E5ImageReplacementTarget>();
 
-        if (prefix == "R")
+        if (targetKind == ImageAssignmentResourceKind.Face)
+        {
+            var path = CharacterImageResourceService.ResolveFaceFile(_project) ?? Path.Combine(_project.GameRoot, "E5", "Face.e5");
+            var faceMapping = new CharacterImageResourceService().MapFaceId(id);
+            foreach (var imageNumber in faceMapping.FaceImageNumbers)
+            {
+                AddE5ImageReplacementTarget(result, $"头像#{imageNumber}", "Face", path, imageNumber, $"头像编号={id} -> Face.e5 图 #{imageNumber}");
+            }
+
+            return result;
+        }
+
+        if (targetKind == ImageAssignmentResourceKind.R)
         {
             if (id < 0) return result;
             var path = CharacterImageResourceService.ResolveGameFile(_project, "Pmapobj.e5");
@@ -1482,21 +1511,50 @@ public sealed partial class MainForm
         return false;
     }
 
-    private string GetPreferredImageResourcePrefix()
+    private ImageAssignmentResourceKind GetPreferredImageAssignmentResourceKind()
     {
         if (_imageAssignmentGrid.CurrentCell != null)
         {
             var propertyName = _imageAssignmentGrid.Columns[_imageAssignmentGrid.CurrentCell.ColumnIndex].DataPropertyName;
-            if (propertyName.StartsWith("S", StringComparison.Ordinal)) return "S";
+            if (string.Equals(propertyName, "头像编号", StringComparison.Ordinal)) return ImageAssignmentResourceKind.Face;
+            if (propertyName.StartsWith("S", StringComparison.Ordinal)) return ImageAssignmentResourceKind.S;
         }
 
-        return "R";
+        return ImageAssignmentResourceKind.R;
+    }
+
+    private string GetPreferredImageResourcePrefix() => ResourceKindToPrefix(GetPreferredImageAssignmentResourceKind());
+
+    private static string ResourceKindToPrefix(ImageAssignmentResourceKind kind) =>
+        kind == ImageAssignmentResourceKind.Face ? "Face" : kind == ImageAssignmentResourceKind.S ? "S" : "R";
+
+    private static string GetImageAssignmentResourceKindText(ImageAssignmentResourceKind kind) =>
+        kind switch
+        {
+            ImageAssignmentResourceKind.Face => "头像",
+            ImageAssignmentResourceKind.S => "S形象",
+            _ => "R形象"
+        };
+
+    private static bool TryGetImageResourceId(DataRow row, ImageAssignmentResourceKind kind, out int id)
+    {
+        var columnName = kind switch
+        {
+            ImageAssignmentResourceKind.Face => "头像编号",
+            ImageAssignmentResourceKind.S => "S形象编号",
+            _ => "R形象编号"
+        };
+        return int.TryParse(Convert.ToString(row[columnName], CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out id);
     }
 
     private static bool TryGetImageResourceId(DataRow row, string prefix, out int id)
     {
-        var columnName = prefix == "S" ? "S\u5f62\u8c61\u7f16\u53f7" : "R\u5f62\u8c61\u7f16\u53f7";
-        return int.TryParse(Convert.ToString(row[columnName], CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out id);
+        var kind = prefix.Equals("Face", StringComparison.OrdinalIgnoreCase)
+            ? ImageAssignmentResourceKind.Face
+            : prefix.Equals("S", StringComparison.OrdinalIgnoreCase)
+                ? ImageAssignmentResourceKind.S
+                : ImageAssignmentResourceKind.R;
+        return TryGetImageResourceId(row, kind, out id);
     }
 
     private static bool IsImageResourceMissing(DataRow row, string prefix)

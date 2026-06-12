@@ -159,6 +159,15 @@ public sealed class ImageAssignmentService
 
     public static string GetImageResourceFileName(string prefix, int id)
     {
+        if (prefix.Equals("Face", StringComparison.OrdinalIgnoreCase))
+        {
+            var mapping = new CharacterImageResourceService().MapFaceId(id);
+            var faceText = mapping.FaceImageNumbers.Count == 1
+                ? mapping.FaceImageNumbers[0].ToString(CultureInfo.InvariantCulture)
+                : $"{mapping.FaceImageNumbers.First()}-{mapping.FaceImageNumbers.Last()}";
+            return $"Face.e5 图{faceText}";
+        }
+
         if (prefix.Equals("S", StringComparison.OrdinalIgnoreCase))
         {
             return CharacterImageResourceService.BuildSMappingShortText(id);
@@ -171,6 +180,11 @@ public sealed class ImageAssignmentService
 
     public static string GetImageResourcePath(CczProject project, string prefix, int id)
     {
+        if (prefix.Equals("Face", StringComparison.OrdinalIgnoreCase))
+        {
+            return CharacterImageResourceService.ResolveFaceFile(project) ?? Path.Combine(project.GameRoot, "E5", "Face.e5");
+        }
+
         if (prefix.Equals("S", StringComparison.OrdinalIgnoreCase))
         {
             return CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5");

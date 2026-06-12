@@ -25,7 +25,12 @@ var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCa
 var jobStrategyWriteSmokeOnly = args.Contains("--job-strategy-write-smoke", StringComparer.OrdinalIgnoreCase);
 var globalSettingsWriteSmokeOnly = args.Contains("--global-settings-write-smoke", StringComparer.OrdinalIgnoreCase);
 var globalSettingsDialogSmokeOnly = args.Contains("--global-settings-dialog-smoke", StringComparer.OrdinalIgnoreCase);
+var uiLayoutSettingsSmokeOnly = args.Contains("--ui-layout-settings-smoke", StringComparer.OrdinalIgnoreCase);
+var uiLayoutApplySmokeOnly = args.Contains("--ui-layout-apply-smoke", StringComparer.OrdinalIgnoreCase);
+var csvEncodingSmokeOnly = args.Contains("--csv-encoding-smoke", StringComparer.OrdinalIgnoreCase);
+var battlefieldPreviewSmokeOnly = args.Contains("--battlefield-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var effectPackageSmokeOnly = args.Contains("--effect-package-smoke", StringComparer.OrdinalIgnoreCase);
+var exclusiveSetScenarioSmokeOnly = args.Contains("--exclusive-set-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
 var project = detector.DetectDefaultProject();
@@ -139,9 +144,39 @@ if (globalSettingsDialogSmokeOnly)
     return;
 }
 
+if (uiLayoutSettingsSmokeOnly)
+{
+    RunUiLayoutSettingsSmoke();
+    return;
+}
+
+if (uiLayoutApplySmokeOnly)
+{
+    RunUiLayoutApplySmoke();
+    return;
+}
+
+if (csvEncodingSmokeOnly)
+{
+    RunCsvEncodingSmoke();
+    return;
+}
+
+if (battlefieldPreviewSmokeOnly)
+{
+    RunBattlefieldPreviewSmoke(project, tables);
+    return;
+}
+
 if (effectPackageSmokeOnly)
 {
     RunEffectPackageSmoke(project, tables);
+    return;
+}
+
+if (exclusiveSetScenarioSmokeOnly)
+{
+    RunExclusiveSetScenarioSmoke(project, tables);
     return;
 }
 

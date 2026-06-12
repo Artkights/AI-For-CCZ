@@ -1,10 +1,14 @@
 ﻿using System.Data;
+using System.Globalization;
 using System.Text;
+using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
 
 public static class CsvService
 {
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     public static void Export(DataTable table, string path)
         => ExportColumns(table, path, table.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList());
 
@@ -57,7 +61,7 @@ public static class CsvService
 
     public static int ImportInto(DataTable table, string path, bool allowPartialColumns, bool matchByIdWhenPresent)
     {
-        var records = ReadRecords(path);
+        var records = ReadRecords(path, table);
         if (records.Count == 0) throw new InvalidOperationException("CSV 文件为空。 ");
 
         var headers = records[0];
@@ -101,18 +105,24 @@ public static class CsvService
             }
         }
 
-        var dataRows = records.Skip(1).Where(record => record.Count > 1 || !string.IsNullOrWhiteSpace(record[0])).ToList();
-        if (!allowPartialColumns && dataRows.Count != table.Rows.Count)
-        {
-            throw new InvalidOperationException($"CSV 数据行数 {dataRows.Count} 与当前表行数 {table.Rows.Count} 不一致。 ");
-        }
-
         var idCsvIndex = headers.FindIndex(header => string.Equals(header, "ID", StringComparison.Ordinal));
         var useId = matchByIdWhenPresent && idCsvIndex >= 0 && table.Columns.Contains("ID");
         var idLookup = useId
             ? table.Rows.Cast<DataRow>().ToDictionary(row => Convert.ToString(row["ID"]) ?? string.Empty, row => row, StringComparer.Ordinal)
             : new Dictionary<string, DataRow>(StringComparer.Ordinal);
 
+        var dataRows = records.Skip(1).Where(HasAnyCsvValue).ToList();
+        if (dataRows.Count > 0 && IsLikelyAnnotationRow(dataRows[0], headers, table, idCsvIndex, useId, idLookup))
+        {
+            dataRows.RemoveAt(0);
+        }
+
+        if (!allowPartialColumns && dataRows.Count != table.Rows.Count)
+        {
+            throw new InvalidOperationException($"CSV 数据行数 {dataRows.Count} 与当前表行数 {table.Rows.Count} 不一致。 ");
+        }
+
+        var seenIds = useId ? new HashSet<string>(StringComparer.Ordinal) : null;
         var imported = 0;
         for (var r = 0; r < dataRows.Count; r++)
         {
@@ -126,6 +136,11 @@ public static class CsvService
             if (useId)
             {
                 var id = values[idCsvIndex];
+                if (!seenIds!.Add(id))
+                {
+                    throw new InvalidOperationException($"CSV 第 {r + 2} 行 ID={id} 重复。 ");
+                }
+
                 if (!idLookup.TryGetValue(id, out row!))
                 {
                     throw new InvalidOperationException($"CSV 第 {r + 2} 行 ID={id} 在当前表中不存在。 ");
@@ -144,13 +159,147 @@ public static class CsvService
             foreach (var (csvIndex, column) in columnMap)
             {
                 if (column.ColumnName == "ID" || column.ReadOnly) continue;
-                row[column] = values[csvIndex];
+                try
+                {
+                    row[column] = ConvertCsvValue(values[csvIndex], column, row);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"CSV 第 {r + 2} 行列 {column.ColumnName} 的值无法转换为当前表类型：{values[csvIndex]}。{ex.Message}", ex);
+                }
             }
 
             imported++;
         }
 
         return imported;
+    }
+
+    private static bool HasAnyCsvValue(IReadOnlyList<string> record)
+        => record.Any(value => !string.IsNullOrWhiteSpace(value));
+
+    private static bool IsLikelyAnnotationRow(
+        IReadOnlyList<string> record,
+        IReadOnlyList<string> headers,
+        DataTable table,
+        int idCsvIndex,
+        bool useId,
+        IReadOnlyDictionary<string, DataRow> idLookup)
+    {
+        if (record.Count != headers.Count || !LooksLikeAnnotationText(record))
+        {
+            return false;
+        }
+
+        if (useId && idCsvIndex >= 0 && idCsvIndex < record.Count)
+        {
+            var idValue = record[idCsvIndex];
+            if (idLookup.ContainsKey(idValue))
+            {
+                return false;
+            }
+
+            var idColumn = table.Columns["ID"]!;
+            var sampleRow = table.Rows.Count > 0 ? table.Rows[0] : table.NewRow();
+            return !CanConvertCsvValue(idValue, idColumn, sampleRow);
+        }
+
+        for (var i = 0; i < record.Count; i++)
+        {
+            var header = headers[i];
+            if (!table.Columns.Contains(header)) continue;
+            var column = table.Columns[header]!;
+            if (column.ColumnName == "ID" || column.ReadOnly) continue;
+            var sampleRow = table.Rows.Count > 0 ? table.Rows[0] : table.NewRow();
+            if (!CanConvertCsvValue(record[i], column, sampleRow)) return true;
+        }
+
+        return false;
+    }
+
+    private static bool LooksLikeAnnotationText(IReadOnlyList<string> record)
+    {
+        var text = string.Join('\n', record);
+        return text.Contains("字段", StringComparison.Ordinal) ||
+               text.Contains("说明", StringComparison.Ordinal) ||
+               text.Contains("语义", StringComparison.Ordinal) ||
+               text.Contains("风险", StringComparison.Ordinal) ||
+               text.Contains("编号", StringComparison.Ordinal) ||
+               text.Contains("用于", StringComparison.Ordinal) ||
+               text.Contains("来自", StringComparison.Ordinal) ||
+               text.Contains("引用", StringComparison.Ordinal) ||
+               text.Contains("资源", StringComparison.Ordinal) ||
+               text.Contains("annotation", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("note", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanConvertCsvValue(string value, DataColumn column, DataRow row)
+    {
+        try
+        {
+            _ = ConvertCsvValue(value, column, row);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static object ConvertCsvValue(string value, DataColumn column, DataRow row)
+    {
+        var targetType = ResolveCsvValueTargetType(column, row);
+        targetType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        if (targetType == typeof(object) || targetType == typeof(string))
+        {
+            return value;
+        }
+
+        if (string.IsNullOrEmpty(value) && column.AllowDBNull)
+        {
+            return DBNull.Value;
+        }
+
+        if (targetType == typeof(bool))
+        {
+            if (bool.TryParse(value, out var boolValue)) return boolValue;
+            if (value == "1") return true;
+            if (value == "0") return false;
+        }
+
+        if (targetType.IsEnum)
+        {
+            return Enum.Parse(targetType, value, ignoreCase: true);
+        }
+
+        return Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
+    }
+
+    private static Type ResolveCsvValueTargetType(DataColumn column, DataRow row)
+    {
+        if (column.ExtendedProperties["FieldDefinition"] is HexFieldDefinition field)
+        {
+            return field.Kind switch
+            {
+                HexFieldKind.UInt8 => typeof(byte),
+                HexFieldKind.UInt16 => typeof(ushort),
+                HexFieldKind.UInt32 => typeof(uint),
+                HexFieldKind.FixedString or HexFieldKind.RawBytes or HexFieldKind.Derived => typeof(string),
+                _ => typeof(string)
+            };
+        }
+
+        var targetType = column.DataType;
+        if (targetType == typeof(object))
+        {
+            var current = row[column];
+            if (current != null && current != DBNull.Value)
+            {
+                targetType = current.GetType();
+            }
+        }
+
+        return targetType;
     }
 
     private static string Escape(string value)
@@ -160,10 +309,63 @@ public static class CsvService
         return mustQuote ? $"\"{value}\"" : value;
     }
 
-    private static List<List<string>> ReadRecords(string path)
+    private static List<List<string>> ReadRecords(string path, DataTable? table = null)
     {
-        using var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        var text = reader.ReadToEnd();
+        var text = ReadTextWithEncodingFallback(path, table);
+        return ParseRecords(text);
+    }
+
+    private static string ReadTextWithEncodingFallback(string path, DataTable? table)
+    {
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length >= 3 &&
+            bytes[0] == 0xEF &&
+            bytes[1] == 0xBB &&
+            bytes[2] == 0xBF)
+        {
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        }
+
+        if (bytes.Length >= 2)
+        {
+            if (bytes[0] == 0xFF && bytes[1] == 0xFE)
+            {
+                return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+            }
+
+            if (bytes[0] == 0xFE && bytes[1] == 0xFF)
+            {
+                return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
+            }
+        }
+
+        try
+        {
+            var utf8Text = StrictUtf8.GetString(bytes);
+            if (table == null)
+            {
+                return utf8Text;
+            }
+
+            var gbkText = EncodingService.Gbk.GetString(bytes);
+            return HeaderMatchScore(ParseRecords(utf8Text), table) >= HeaderMatchScore(ParseRecords(gbkText), table)
+                ? utf8Text
+                : gbkText;
+        }
+        catch (DecoderFallbackException)
+        {
+            return EncodingService.Gbk.GetString(bytes);
+        }
+    }
+
+    private static int HeaderMatchScore(IReadOnlyList<List<string>> records, DataTable table)
+    {
+        if (records.Count == 0) return -1;
+        return records[0].Count(header => table.Columns.Contains(header));
+    }
+
+    private static List<List<string>> ParseRecords(string text)
+    {
         var records = new List<List<string>>();
         var current = new StringBuilder();
         var record = new List<string>();

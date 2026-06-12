@@ -16,6 +16,26 @@
         "CCZMODSTUDIO_TOOL_ROOT": "<TOOL_ROOT>",
         "CCZMODSTUDIO_GAME_ROOT": "<GAME_ROOT>"
       }
+    },
+    "cczgame_debug": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "<TOOL_ROOT>\\MCP配置\\start-ccz-game-debug-mcp.ps1",
+        "-GameRoot",
+        "<GAME_ROOT>"
+      ],
+      "env": {
+        "CCZMODSTUDIO_TOOL_ROOT": "<TOOL_ROOT>",
+        "CCZGAME_DEBUG_GAME_ROOT": "<GAME_ROOT>",
+        "CCZMODSTUDIO_GAME_ROOT": "<GAME_ROOT>",
+        "X64DBG_MCP_HOST": "127.0.0.1",
+        "X64DBG_MCP_PORT": "27042"
+      }
     }
   }
 }

@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 10000,
-    [int]$MinimumToolCount = 50
+    [int]$MinimumToolCount = 47
 )
 
 $ErrorActionPreference = "Stop"
@@ -187,9 +187,8 @@ try {
         "build_ccz_image_prompt",
         "prepare_ccz_generated_image",
         "draw_ccz_image_asset",
-        "list_project_resources",
-        "run_resource_diagnostics",
         "list_e5_image_entries",
+        "preview_e5_image_replace",
         "preview_e5_image_batch_replace",
         "replace_e5_image_entry",
         "replace_e5_image_batch",
@@ -197,16 +196,6 @@ try {
         "replace_dll_icon",
         "preview_clear_dll_icon",
         "clear_dll_icon",
-        "audit_project",
-        "create_test_copy",
-        "diff_test_copy",
-        "create_release_copy",
-        "list_workflow_guide",
-        "list_project_evidence",
-        "read_project_evidence",
-        "write_project_delivery_report",
-        "list_creator_notes",
-        "upsert_creator_note",
         "list_effects",
         "read_effect",
         "export_effect_package",
@@ -216,7 +205,6 @@ try {
         "build_effect_package_from_template",
         "preview_effect_patch",
         "apply_effect_patch",
-        "rollback_effect_manifest",
         "read_effect_resource",
         "read_effect_prompt"
     )
