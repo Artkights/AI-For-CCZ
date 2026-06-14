@@ -86,8 +86,8 @@ public sealed class ScenarioCommandReferenceNavigationService
         var personNames = LoadNameMap(project, tables, "6.5-0 人物");
         var strategyNames = LoadNameMap(project, tables, "6.5-5 策略");
         var itemNames = LoadItemNameMap(project, tables);
-        var personTableName = ResolveTableNameOrFallback(tables, "6.5-0 人物");
-        var strategyTableName = ResolveTableNameOrFallback(tables, "6.5-5 策略");
+        var personTableName = ResolveTableNameOrFallback(project, tables, "6.5-0 人物");
+        var strategyTableName = ResolveTableNameOrFallback(project, tables, "6.5-5 策略");
 
         foreach (var value in words.Distinct().Where(value => value >= 0))
         {
@@ -254,7 +254,7 @@ public sealed class ScenarioCommandReferenceNavigationService
     {
         try
         {
-            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return new Dictionary<int, string>();
+            if (!HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table)) return new Dictionary<int, string>();
             var data = ReadTable(project, tables, table);
             if (!data.Columns.Contains("ID")) return new Dictionary<int, string>();
             var nameColumn = data.Columns.Contains("名称")
@@ -283,7 +283,7 @@ public sealed class ScenarioCommandReferenceNavigationService
     private IReadOnlyDictionary<int, ItemReference> LoadItemNameMap(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var result = new Dictionary<int, ItemReference>();
-        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
+        foreach (var table in HexTableNameResolver.ResolveItemTables(project, tables))
         {
             foreach (var pair in LoadNameMap(project, tables, table.TableName))
             {
@@ -294,8 +294,8 @@ public sealed class ScenarioCommandReferenceNavigationService
         return result;
     }
 
-    private static string ResolveTableNameOrFallback(IReadOnlyList<HexTableDefinition> tables, string tableName)
-        => HexTableNameResolver.TryResolve(tables, tableName, out var table) ? table.TableName : tableName;
+    private static string ResolveTableNameOrFallback(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table) ? table.TableName : tableName;
 
     private DataTable ReadTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition table)
     {

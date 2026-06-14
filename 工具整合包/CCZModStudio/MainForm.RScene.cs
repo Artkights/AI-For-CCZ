@@ -387,6 +387,7 @@ public sealed partial class MainForm
 
     private void ShowSelectedRSceneScriptNode()
     {
+        if (_bindingRSceneScriptTree) return;
         if (_rSceneScriptTree.SelectedNode?.Tag is LegacyScenarioItemData { UiRow: ScenarioStructureRow itemRow } itemData)
         {
             _rSceneScriptDetailBox.Text = itemData.Command != null
@@ -507,7 +508,9 @@ public sealed partial class MainForm
         }
 
         PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.RScene, beforeEdit);
-        var refreshedCommand = RefreshRSceneLegacyScriptViewAndSelect(command);
+        var refreshedCommand = RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.RScene, command)
+            ? command
+            : RefreshRSceneLegacyScriptViewAndSelect(command);
         _saveRSceneScriptStructureButton.Enabled = true;
         SetStatus($"R场景参数：{refreshedCommand.CommandIdHex} {refreshedCommand.CommandName}，{oldSummary} -> {BuildLegacyScriptParameterPreview(refreshedCommand)}，需完整保存R剧本");
     }
@@ -720,7 +723,7 @@ public sealed partial class MainForm
         return scene >= 0 && section >= 0 && command >= 0;
     }
 
-    private bool SelectRSceneScriptTreeNode(ScenarioStructureRow target)
+    private bool SelectRSceneScriptTreeNode(ScenarioStructureRow target, bool ensureVisible = true)
     {
         foreach (TreeNode root in _rSceneScriptTree.Nodes)
         {
@@ -732,7 +735,10 @@ public sealed partial class MainForm
             }
 
             _rSceneScriptTree.SelectedNode = found;
-            found.EnsureVisible();
+            if (ensureVisible)
+            {
+                found.EnsureVisible();
+            }
             return true;
         }
 
@@ -1748,7 +1754,14 @@ public sealed partial class MainForm
         list.Insert(GetLegacyScriptNearInsertIndex(list, selectedIndex, beforeSelected: false), command);
         ReindexLegacyScriptDocument(_currentRSceneLegacyScriptDocument);
         RestoreLegacyJumpTargets(_currentRSceneLegacyScriptDocument, jumpTargets);
-        RefreshRSceneLegacyScriptView(command);
+        if (!TryRefreshLegacyScriptSectionInPlace(
+                LegacyScriptEditorScope.RScene,
+                FindLegacyScriptSectionForCommand(_currentRSceneLegacyScriptDocument, selected)!,
+                command,
+                CaptureLegacyScriptViewport(LegacyScriptEditorScope.RScene)))
+        {
+            RefreshRSceneLegacyScriptView(command);
+        }
         _saveRSceneScriptStructureButton.Enabled = true;
         message = $"已在当前命令后插入 0x30 武将出现：人物={payload.Actor.PersonId} 坐标=({gridX},{gridY}) 动作帧={payload.FrameIndex}。";
         return true;
@@ -2059,7 +2072,10 @@ public sealed partial class MainForm
             actor.ActorNote,
             $"已同步到 R 剧本内存：{command.CommandIdHex} {command.CommandName} 槽1/2=({actor.GridX},{actor.GridY})。");
         _saveRSceneScriptStructureButton.Enabled = true;
-        RefreshRSceneLegacyScriptView(command);
+        if (!RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.RScene, command))
+        {
+            RefreshRSceneLegacyScriptView(command);
+        }
         message = $"已同步到 R 剧本命令：{command.CommandIdHex} {command.CommandName} / Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex}。\r\n需要点击“完整保存R剧本”后才会写入 {(_currentRSceneScenario?.FileName ?? "R_XX.eex")}。";
         return true;
     }
@@ -2940,7 +2956,9 @@ public sealed partial class MainForm
         {
             PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.RScene, beforeEdit);
         }
-        var refreshedCommand = RefreshRSceneLegacyScriptViewAndSelect(command);
+        var refreshedCommand = RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.RScene, command)
+            ? command
+            : RefreshRSceneLegacyScriptViewAndSelect(command);
         _saveRSceneScriptStructureButton.Enabled = true;
         SetStatus($"R场景旧版修改指令：{commandTitle}，{oldSummary} -> {BuildLegacyScriptParameterPreview(refreshedCommand)}，需完整保存R剧本");
     }

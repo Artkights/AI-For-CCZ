@@ -16,6 +16,104 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private TabPage BuildXiaoAnMessagePage()
+    {
+        var page = new TabPage("小暗的话");
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(12)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 170));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        page.Controls.Add(layout);
+
+        var logoPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            Padding = new Padding(8)
+        };
+        var logoBox = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White,
+            SizeMode = PictureBoxSizeMode.Zoom
+        };
+        var logo = LoadXiaoAnLogo();
+        if (logo != null)
+        {
+            logoBox.Image = logo;
+            logoPanel.Controls.Add(logoBox);
+        }
+        else
+        {
+            logoPanel.Controls.Add(new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "未找到 doro.jpg",
+                TextAlign = ContentAlignment.MiddleCenter,
+                ForeColor = Color.FromArgb(96, 96, 96)
+            });
+        }
+
+        var messageBox = new RichTextBox
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = SystemColors.Window,
+            Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            DetectUrls = true,
+            ScrollBars = RichTextBoxScrollBars.Vertical,
+            WordWrap = true,
+            Text = """
+大家好，我是一个想要用AI把普罗大佬的曹操传工具整合起来，并在整合的过程中，建立一个曹操传mod制作知识库的曹操传mod爱好者，传圈艺名小暗，兽设是doro
+我觉得，现有的AI，能力是完全足够支持曹操传mod制作的，但是因为缺乏相关的数据支持，所以才表现出技术缺陷，难以直接完成端到端的曹操传mod编写。
+基于这个观点，我打算先将现有的制作工具喂给AI，让AI掌握曹操传mod的编辑过程以及经验，制作出一款AI能够理解掌握的曹操传mod编辑工具，并且在制作过程中总结出适合AI学习的经验，以更好的辅助AI完成曹操传mod的编辑
+对此，我使用AI完成了对现有的普罗工具的大整合，并在此基础上增加了一些便利创作者的功能。同时，必须承认，现有的工具包还存在着很多问题，比如：目前只是基于6.5引擎完成的制作，可能不能适配其他版本引擎；UI不合理，使用不便捷，缺少便利创作者的快捷功能；单挑编辑器尚未完成；存在隐藏bug.......这些缺少同好者去测试，需要大家向我反馈以便做出改进，希望能和大家携手共进，一起创造更便捷的工具，维护更好的传圈生态！
+我的QQ号是：1033891854   常驻QQ群号：708348576   欢迎大家来QQ群中与其他曹操传mod同好者一起交流曹操传mod、接受最新工具整合包更新成果、向我提出改进意见！（群里的大佬真的很多哦！）
+Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
+贴吧发布帖（不定时在末尾更新）：https://tieba.baidu.com/p/10770768879?fr=personpage
+"""
+        };
+
+        layout.Controls.Add(logoPanel, 0, 0);
+        layout.Controls.Add(messageBox, 0, 1);
+        return page;
+    }
+
+    private static Image? LoadXiaoAnLogo()
+    {
+        var paths = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "Assets", "About", "doro.jpg"),
+            Path.Combine(AppContext.BaseDirectory, "doro.jpg"),
+            Path.Combine(Environment.CurrentDirectory, "工具整合包", "CCZModStudio", "Assets", "About", "doro.jpg"),
+            Path.Combine(Environment.CurrentDirectory, "doro.jpg")
+        };
+
+        foreach (var path in paths)
+        {
+            if (!File.Exists(path)) continue;
+
+            try
+            {
+                using var image = Image.FromFile(path);
+                return new Bitmap(image);
+            }
+            catch
+            {
+                // The page is informational; keep it usable even if the optional logo cannot load.
+            }
+        }
+
+        return null;
+    }
+
     private TabPage BuildMapEditorPage()
     {
         var mapViewerPage = new TabPage("地图编辑");
@@ -196,6 +294,7 @@ public sealed partial class MainForm
         mapScroll.MouseEnter += (_, _) => mapScroll.Focus();
         _mapViewerBox.Location = new Point(0, 0);
         _mapViewerBox.SizeMode = PictureBoxSizeMode.StretchImage;
+        EnableDoubleBuffering(_mapViewerBox);
         _mapViewerBox.MouseWheel += (_, e) => HandleMapViewerMouseWheel(e);
         _mapViewerBox.MouseEnter += (_, _) => mapScroll.Focus();
         mapScroll.Controls.Add(_mapViewerBox);
@@ -1025,6 +1124,7 @@ public sealed partial class MainForm
         _battlefieldScriptTree.ShowNodeToolTips = true;
         _battlefieldScriptTree.FullRowSelect = true;
         _battlefieldScriptTree.CheckBoxes = true;
+        EnableDoubleBuffering(_battlefieldScriptTree);
         ConfigureLegacyStyleScriptTreeContextMenu(_battlefieldScriptTreeContextMenu, LegacyScriptEditorScope.Battlefield);
         _battlefieldScriptTree.ContextMenuStrip = _battlefieldScriptTreeContextMenu;
 
@@ -1340,6 +1440,7 @@ public sealed partial class MainForm
         _rSceneScriptTree.ShowNodeToolTips = true;
         _rSceneScriptTree.FullRowSelect = true;
         _rSceneScriptTree.CheckBoxes = true;
+        EnableDoubleBuffering(_rSceneScriptTree);
         ConfigureLegacyStyleScriptTreeContextMenu(_rSceneScriptTreeContextMenu, LegacyScriptEditorScope.RScene);
         _rSceneScriptTree.ContextMenuStrip = _rSceneScriptTreeContextMenu;
         _rSceneScriptDetailBox.Dock = DockStyle.Fill;
@@ -1685,6 +1786,7 @@ public sealed partial class MainForm
         _scriptTree.ShowNodeToolTips = true;
         _scriptTree.CheckBoxes = true;
         _scriptTree.BorderStyle = BorderStyle.FixedSingle;
+        EnableDoubleBuffering(_scriptTree);
         ConfigureLegacyStyleScriptTreeContextMenu();
         _scriptTree.ContextMenuStrip = _legacyScriptTreeContextMenu;
         _scriptTree.NodeMouseClick += (_, e) => HandleScriptTreeNodeMouseClick(e);

@@ -92,7 +92,6 @@ public sealed partial class MainForm
         _legacyScriptContextAddItem.Click += (_, _) => AddLegacyScriptCommandBeforeSelected(LegacyScriptEditorScope.Script);
         _legacyScriptContextAddSubEventItem.Click += (_, _) => AddLegacyScriptSubEventBeforeSelected(LegacyScriptEditorScope.Script);
         _legacyScriptContextDuplicateItem.Click += (_, _) => StepDuplicateSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
-        _legacyScriptContextBatchEditItem.Click += (_, _) => ShowLegacyBatchEditUnavailableMessage();
         _legacyScriptContextDeleteItem.Click += (_, _) => DeleteSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
         _legacyScriptContextMoveUpItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script, up: true);
         _legacyScriptContextMoveDownItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script, up: false);
@@ -101,6 +100,7 @@ public sealed partial class MainForm
         _legacyScriptContextCutItem.Click += (_, _) => CutSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
         _legacyScriptContextCopyItem.Click += (_, _) => CopySelectedScriptCommandSummary(LegacyScriptEditorScope.Script);
         _legacyScriptContextPasteItem.Click += (_, _) => PasteCopiedLegacyScriptCommandAtDefaultTarget(LegacyScriptEditorScope.Script);
+        _legacyScriptContextTextImportItem.Click += (_, _) => ImportScenarioTextBelowSelected(LegacyScriptEditorScope.Script);
         _legacyScriptContextExpandItem.Click += (_, _) => ExpandSelectedLegacyScriptTreeNode(LegacyScriptEditorScope.Script);
         _legacyScriptContextJumpItem.Click += (_, _) => JumpSelectedLegacyScriptCommandTarget(LegacyScriptEditorScope.Script);
 
@@ -119,7 +119,6 @@ public sealed partial class MainForm
             _legacyScriptContextAddItem,
             _legacyScriptContextAddSubEventItem,
             _legacyScriptContextDuplicateItem,
-            _legacyScriptContextBatchEditItem,
             _legacyScriptContextDeleteItem,
             new ToolStripSeparator(),
             _legacyScriptContextMoveUpItem,
@@ -131,6 +130,7 @@ public sealed partial class MainForm
             _legacyScriptContextCutItem,
             _legacyScriptContextCopyItem,
             _legacyScriptContextPasteItem,
+            _legacyScriptContextTextImportItem,
             new ToolStripSeparator(),
             _legacyScriptContextExpandItem,
             new ToolStripSeparator(),
@@ -157,7 +157,6 @@ public sealed partial class MainForm
         menu.Items.Add(CreateLegacyScriptContextMenuItem("添加(&I)\tCtrl+I", () => AddLegacyScriptCommandBeforeSelected(scope)));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("添加子事件(&S)\tCtrl+O", () => AddLegacyScriptSubEventBeforeSelected(scope)));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("步进复制(&D)\tCtrl+D", () => StepDuplicateSelectedLegacyScriptCommand(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("批量修改(&R)\tCtrl+R", ShowLegacyBatchEditUnavailableMessage));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("删除(&D)\tDelete", () => DeleteSelectedLegacyScriptCommand(scope)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateLegacyScriptContextMenuItem("上移(&U)\tCtrl+Up", () => MoveSelectedLegacyScriptCommand(scope, up: true)));
@@ -169,15 +168,16 @@ public sealed partial class MainForm
         menu.Items.Add(CreateLegacyScriptContextMenuItem("剪切(&T)\tCtrl+X", () => CutSelectedLegacyScriptCommand(scope)));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("复制(&C)\tCtrl+C", () => CopySelectedScriptCommandSummary(scope)));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("粘贴(&P)\tCtrl+V", () => PasteCopiedLegacyScriptCommandAtDefaultTarget(scope)));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("文本导入...", () => ImportScenarioTextBelowSelected(scope), "TextImport"));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateLegacyScriptContextMenuItem("全部展开\tCtrl+Q", () => ExpandSelectedLegacyScriptTreeNode(scope)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateLegacyScriptContextMenuItem("跳转到...", () => JumpSelectedLegacyScriptCommandTarget(scope)));
     }
 
-    private static ToolStripMenuItem CreateLegacyScriptContextMenuItem(string text, Action action)
+    private static ToolStripMenuItem CreateLegacyScriptContextMenuItem(string text, Action action, string? tag = null)
     {
-        var item = new ToolStripMenuItem(text);
+        var item = new ToolStripMenuItem(text) { Tag = tag };
         item.Click += (_, _) => action();
         return item;
     }
@@ -218,31 +218,104 @@ public sealed partial class MainForm
             items[1].Enabled = canAdd;
             items[2].Enabled = canAddSubEvent;
             items[3].Enabled = canDuplicate;
-            items[4].Enabled = false;
-            items[4].ToolTipText = "复选框多选已用于指令批量复制/粘贴；批量参数修改仍需单独迁移旧版逻辑。";
-            items[5].Enabled = canDelete;
-            items[6].Enabled = canMoveUp;
-            items[7].Enabled = canMoveDown;
-            items[8].Enabled = CanUndoLegacyScenarioEdit(scope);
-            items[9].Enabled = CanRedoLegacyScenarioEdit(scope);
-            items[10].Enabled = checkedCommands.Count == 0 && canCopy && canDelete;
-            items[11].Enabled = canCopy;
-            items[12].Enabled = canPaste;
-            items[11].Text = checkedCommands.Count > 1
+            items[4].Enabled = canDelete;
+            items[5].Enabled = canMoveUp;
+            items[6].Enabled = canMoveDown;
+            items[7].Enabled = CanUndoLegacyScenarioEdit(scope);
+            items[8].Enabled = CanRedoLegacyScenarioEdit(scope);
+            items[9].Enabled = checkedCommands.Count == 0 && canCopy && canDelete;
+            items[10].Enabled = canCopy;
+            items[11].Enabled = canPaste;
+            items[10].Text = checkedCommands.Count > 1
                 ? $"复制选中 {copySourceCount} 条(&C)\tCtrl+C"
                 : selectedSectionNode
                     ? "复制 Section(&C)\tCtrl+C"
                     : "复制(&C)\tCtrl+C";
-            items[12].Text = pasteSectionCount > 0
+            items[11].Text = pasteSectionCount > 0
                 ? pasteSectionCount > 1
                     ? $"粘贴 {pasteSectionCount} 个 Section 到后面(&P)\tCtrl+V"
                     : "粘贴 Section 到后面(&P)\tCtrl+V"
                 : pasteCommandCount > 1
                     ? $"粘贴 {pasteCommandCount} 条(&P)\tCtrl+V"
                     : "粘贴(&P)\tCtrl+V";
-            items[13].Enabled = selectedTree.SelectedNode?.Nodes.Count > 0;
-            items[14].Enabled = selectedCommand && command.CommandId == 0x76 && command.JumpTargetOrdinal.HasValue;
+            var expandItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextExpandItem, "全部展开");
+            if (expandItem != null)
+            {
+                expandItem.Enabled = selectedTree.SelectedNode?.Nodes.Count > 0;
+            }
+
+            var jumpItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextJumpItem, "跳转到");
+            if (jumpItem != null)
+            {
+                jumpItem.Enabled = selectedCommand && command.CommandId == 0x76 && command.JumpTargetOrdinal.HasValue;
+            }
+
+            var textImportItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextTextImportItem, "TextImport");
+            if (textImportItem != null)
+            {
+                textImportItem.Enabled = selectedCommand &&
+                                         TryGetLegacyScriptCommandPasteTarget(scope, beforeSelected: false, out _, out _);
+            }
         }
+    }
+
+    private static ToolStripMenuItem? FindLegacyScriptMenuItem(
+        ContextMenuStrip menu,
+        ToolStripMenuItem fallback,
+        string key)
+        => menu.Items
+               .OfType<ToolStripMenuItem>()
+               .FirstOrDefault(item => ReferenceEquals(item, fallback) ||
+                                       string.Equals(Convert.ToString(item.Tag, CultureInfo.InvariantCulture), key, StringComparison.OrdinalIgnoreCase) ||
+                                       (item.Text ?? string.Empty).Contains(key, StringComparison.OrdinalIgnoreCase));
+
+    private void ImportScenarioTextBelowSelected(LegacyScriptEditorScope scope)
+    {
+        var document = GetCurrentLegacyScriptDocument(scope);
+        if (document == null)
+        {
+            MessageBox.Show(this, "当前没有可编辑的旧版完整剧本树。", "无法文本导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryGetSelectedLegacyScriptCommand(scope, out var selected))
+        {
+            MessageBox.Show(this, "请先选择要作为插入位置的旧版指令。", "无法文本导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryGetLegacyScriptCommandPasteTarget(scope, beforeSelected: false, out var target, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法文本导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var personNames = ScenarioTextImportService.LoadPersonNames(_project, _tables);
+        var service = new ScenarioTextImportService(personNames);
+        var templateText = ScenarioTextImportService.LoadTemplateText(_project);
+        var targetText = $"Scene {selected.SceneIndex} / Section {selected.SectionIndex} / Command {selected.CommandIndex} 下方";
+        using var dialog = new ScenarioTextImportDialog(
+            targetText,
+            service,
+            input => service.Parse(input, target.SceneIndex, target.SectionIndex, CreateScenarioTextImportCommand),
+            templateText);
+
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.ImportedCommands.Count == 0)
+        {
+            return;
+        }
+
+        var commands = dialog.ImportedCommands.ToList();
+        var affectedSection = TryFindLegacySectionForCommandList(document, target.Commands, out var targetSection)
+            ? targetSection
+            : null;
+        var insertIndex = target.InsertIndex;
+        ApplyLegacyScriptStructureEdit(
+            scope,
+            () => target.Commands.InsertRange(insertIndex, commands),
+            commands.LastOrDefault(),
+            $"已文本导入 {commands.Count} 条指令到 {target.TargetText} 下方。",
+            new LegacyScriptStructureEditOptions(affectedSection));
     }
 
     private void HandleScriptTreeNodeMouseClick(TreeNodeMouseClickEventArgs e)
@@ -405,13 +478,6 @@ public sealed partial class MainForm
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.R)
-        {
-            ShowLegacyBatchEditUnavailableMessage();
-            e.SuppressKeyPress = true;
-            return;
-        }
-
         if (e.Control && e.KeyCode == Keys.X)
         {
             CutSelectedLegacyScriptCommand();
@@ -502,13 +568,6 @@ public sealed partial class MainForm
         if (e.Control && e.KeyCode == Keys.D)
         {
             StepDuplicateSelectedLegacyScriptCommand(scope);
-            e.SuppressKeyPress = true;
-            return;
-        }
-
-        if (e.Control && e.KeyCode == Keys.R)
-        {
-            ShowLegacyBatchEditUnavailableMessage();
             e.SuppressKeyPress = true;
             return;
         }
@@ -664,7 +723,8 @@ public sealed partial class MainForm
             scope,
             () => list.Insert(insertIndex, command),
             command,
-            $"已添加指令：{command.CommandIdHex} {command.CommandName}。");
+            $"已添加指令：{command.CommandIdHex} {command.CommandName}。",
+            new LegacyScriptStructureEditOptions(FindLegacyScriptSectionForCommand(document, selected)));
         SelectLegacyScriptCommandComboItem(item.Id);
     }
 
@@ -789,7 +849,8 @@ public sealed partial class MainForm
                 list.Insert(insertIndex + 1, command);
             },
             command,
-            $"已添加子事件：{command.CommandIdHex} {command.CommandName}。");
+            $"已添加子事件：{command.CommandIdHex} {command.CommandName}。",
+            new LegacyScriptStructureEditOptions(FindLegacyScriptSectionForCommand(document, selected)));
         SelectLegacyScriptCommandComboItem(item.Id);
     }
 
@@ -932,7 +993,8 @@ public sealed partial class MainForm
                 }
             },
             lastClone ?? selected,
-            $"已步进复制 {count} 条：{selected.CommandIdHex} {selected.CommandName}。");
+            $"已步进复制 {count} 条：{selected.CommandIdHex} {selected.CommandName}。",
+            new LegacyScriptStructureEditOptions(FindLegacyScriptSectionForCommand(document, selected)));
     }
 
     private bool CanStepDuplicateLegacyScriptCommand(LegacyScenarioCommandNode command, out string reason)
@@ -957,15 +1019,6 @@ public sealed partial class MainForm
 
         reason = string.Empty;
         return true;
-    }
-
-    private void ShowLegacyBatchEditUnavailableMessage()
-    {
-        MessageBox.Show(this,
-            "复选框多选已用于指令批量复制/粘贴；批量参数修改仍未迁移旧版逻辑，继续保持禁用。\r\n\r\n单条指令请使用“修改”或右侧 Dialog 参数区。",
-            "批量修改暂未开放",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
     }
 
     private void CutSelectedLegacyScriptCommand()

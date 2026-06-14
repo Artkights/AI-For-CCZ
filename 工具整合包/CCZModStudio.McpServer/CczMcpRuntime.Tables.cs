@@ -15,10 +15,12 @@ public sealed partial class CczMcpRuntime
     {
         var project = LoadProject(gameRoot);
         var tables = LoadTables(project);
+        var engine = _engineProfileService.Detect(project);
         return new
         {
             project.GameRoot,
             project.HexTableXmlPath,
+            Engine = engine,
             Count = tables.Count,
             Tables = tables.Select(table => new
             {
@@ -45,7 +47,7 @@ public sealed partial class CczMcpRuntime
     {
         var project = LoadProject(gameRoot);
         var tables = LoadTables(project);
-        var table = FindTable(tables, tableName);
+        var table = FindTable(project, tables, tableName);
         var result = _tableReader.Read(project, table, tables);
         var selectedColumns = ResolveColumns(result.Data, columns, includeId: true);
         var rowIdSet = rowIds is { Count: > 0 } ? rowIds.ToHashSet() : null;
@@ -84,7 +86,7 @@ public sealed partial class CczMcpRuntime
         var project = LoadProject(gameRoot);
         EnsureWriteMode(project, writeMode);
         var tables = LoadTables(project);
-        var table = FindTable(tables, tableName);
+        var table = FindTable(project, tables, tableName);
 
         var result = _tableReader.Read(project, table, tables);
         if (!result.Validation.IsUsable)

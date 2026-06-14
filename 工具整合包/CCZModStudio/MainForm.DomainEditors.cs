@@ -255,7 +255,9 @@ public sealed partial class MainForm
     {
         if (columnName == "ID") return "ID\n行号";
         if (columnName is "职业名称" or "头像说明") return columnName;
-        HexTableNameResolver.TryResolve(_tables, "6.5-0 人物", out var personTable);
+        var personTable = _project != null && HexTableNameResolver.TryResolveForProject(_project, _tables, "6.5-0 人物", out var resolvedPersonTable)
+            ? resolvedPersonTable
+            : null;
         var field = personTable?.Fields.FirstOrDefault(f => f.ColumnName == columnName);
         return field == null
             ? columnName
@@ -273,7 +275,9 @@ public sealed partial class MainForm
         if (columnName is "S形象编号") return "人物 S 形象紧凑编号：S=0 按职业和预览阵营取默认兵种图；S=1..32 对应三转特殊三张图；S>=33 从 Unit 图337 起对应一转特殊单张图。";
         if (columnName is "R资源状态" or "S资源状态") return "状态列用于提示相关资源文件是否已定位（例如 Pmapobj.e5、Unit_*.e5）。";
 
-        HexTableNameResolver.TryResolve(_tables, "6.5-0 人物", out var personTable);
+        var personTable = _project != null && HexTableNameResolver.TryResolveForProject(_project, _tables, "6.5-0 人物", out var resolvedPersonTable)
+            ? resolvedPersonTable
+            : null;
         var field = personTable?.Fields.FirstOrDefault(f => f.ColumnName == columnName);
         return field == null ? columnName : _fieldAnnotationService.BuildFieldAnnotation(personTable!, field);
     }
@@ -749,8 +753,15 @@ public sealed partial class MainForm
         return !Equals(Convert.ToString(original, CultureInfo.InvariantCulture), Convert.ToString(current, CultureInfo.InvariantCulture));
     }
 
-    private static HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string tableName)
-        => HexTableNameResolver.Resolve(tables, tableName);
+    private HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string tableName)
+    {
+        if (_project != null)
+        {
+            return HexTableNameResolver.ResolveForProject(_project, tables, tableName);
+        }
+
+        return HexTableNameResolver.Resolve(tables, tableName);
+    }
 
     private void OpenJobEditor()
     {
@@ -1456,41 +1467,14 @@ public sealed partial class MainForm
         var fileOffset = Convert.ToInt32(row["FileOffset"], CultureInfo.InvariantCulture);
 
         SelectTabPageByText("剧本编辑");
-        if (_scriptScenarioCombo.DataSource == null || _scriptScenarioCombo.Items.Count == 0)
+        if (!await EnsureScriptScenarioLoadedAsync(fileName))
         {
-            await LoadScriptScenariosAsync();
-        }
-
-        ScenarioFileInfo? target = null;
-        foreach (var item in _scriptScenarioCombo.Items)
-        {
-            if (item is not ScenarioFileInfo info) continue;
-            if (string.Equals(info.FileName, fileName, StringComparison.OrdinalIgnoreCase))
-            {
-                target = info;
-                break;
-            }
-        }
-
-        if (target == null)
-        {
-            MessageBox.Show(this, "剧本列表中没有找到：" + fileName, "定位失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        _updatingScriptScenarioSelection = true;
-        try
-        {
-            _scriptScenarioCombo.SelectedItem = target;
-        }
-        finally
-        {
-            _updatingScriptScenarioSelection = false;
-        }
-        await LoadSelectedScriptScenarioAsync();
         if (_currentLegacyScriptDocument == null)
         {
-            MessageBox.Show(this, "目标剧本没有加载为旧版完整命令树：" + fileName, "定位失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Target script is not loaded as a legacy command tree: " + fileName, "Navigation failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1507,16 +1491,15 @@ public sealed partial class MainForm
                           x.FileOffset == fileOffset);
         if (command == null || !TrySelectLegacyScriptCommand(LegacyScriptEditorScope.Script, command))
         {
-            MessageBox.Show(this, "已打开剧本，但没有找到对应命令。", "定位失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Script opened, but the target command was not found.", "Navigation failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
         ShowSelectedLegacyScriptTreeNode(LegacyScriptEditorScope.Script);
         TrySelectLegacyScriptParameterRow(1);
         ShowSelectedLegacyScriptParameter();
-        SetStatus($"已定位个人专属/套装出处：{fileName} Scene {sceneIndex} / Section {sectionIndex} / Command {commandIndex}");
+        SetStatus($"Located exclusive set script command: {fileName} Scene {sceneIndex} / Section {sectionIndex} / Command {commandIndex}");
     }
-
     private DataTable BuildRolePersonalEffectEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         _jobEffectNameTable = FindTable(tables, "6.5-7 兵种特效");
@@ -2980,9 +2963,9 @@ public sealed partial class MainForm
         output.Columns.Add("介绍", typeof(string));
         output.Columns.Add("来源文件", typeof(string));
 
-        var boundary = ResolveItemCategoryBoundary(project);
-        AddItemEditorRows(output, _itemBaseLowRead, _itemDescriptionLowRead, "0-103", boundary.DefenseStartId, boundary.AccessoryStartId);
-        AddItemEditorRows(output, _itemBaseHighRead, _itemDescriptionHighRead, "104-255", boundary.DefenseStartId, boundary.AccessoryStartId);
+        var boundary = ItemCategoryBoundaryService.Resolve(project);
+        AddItemEditorRows(output, _itemBaseLowRead, _itemDescriptionLowRead, "0-103", boundary);
+        AddItemEditorRows(output, _itemBaseHighRead, _itemDescriptionHighRead, "104-255", boundary);
 
         output.AcceptChanges();
         output.Columns["ID"]!.ReadOnly = true;
@@ -3008,7 +2991,7 @@ public sealed partial class MainForm
         return entries;
     }
 
-    private void AddItemEditorRows(DataTable output, TableReadResult itemRead, TableReadResult descriptionRead, string segment, int defenseStartId, int accessoryStartId)
+    private void AddItemEditorRows(DataTable output, TableReadResult itemRead, TableReadResult descriptionRead, string segment, ItemCategoryBoundary boundary)
     {
         foreach (DataRow source in itemRead.Data.Rows)
         {
@@ -3016,7 +2999,7 @@ public sealed partial class MainForm
             var row = output.NewRow();
             row["ID"] = id;
             row["分段"] = segment;
-            row["大类"] = GetItemMajorCategory(id, defenseStartId, accessoryStartId);
+            row["大类"] = boundary.GetMajorCategory(id);
             foreach (DataColumn column in itemRead.Data.Columns)
             {
                 if (column.ColumnName == "ID") continue;
@@ -3250,51 +3233,6 @@ public sealed partial class MainForm
 
         closeButton.Click += (_, _) => dialog.Close();
         dialog.ShowDialog(this);
-    }
-
-    private static (int DefenseStartId, int AccessoryStartId, string Source) ResolveItemCategoryBoundary(CczProject project)
-    {
-        var path = !string.IsNullOrWhiteSpace(project.ImageAssignerSystemIniPath) && File.Exists(project.ImageAssignerSystemIniPath)
-            ? project.ImageAssignerSystemIniPath
-            : ProjectDetector.FindPortableFile(
-                project,
-                "System.ini",
-                Path.Combine("老版游戏制作工具", "B形象指定器", "6.6x形象指定器", "System.ini"),
-                Path.Combine("B形象指定器", "6.6x形象指定器", "System.ini"),
-                Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
-                Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
-        if (path != null && File.Exists(path))
-        {
-            var defId = 70;
-            var assId = 109;
-            foreach (var rawLine in File.ReadLines(path, EncodingService.Gbk))
-            {
-                var line = rawLine.Split(';')[0].Trim();
-                if (line.StartsWith("DefID=", StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(line["DefID=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedDef))
-                {
-                    defId = parsedDef;
-                }
-                else if (line.StartsWith("AssID=", StringComparison.OrdinalIgnoreCase) &&
-                         int.TryParse(line["AssID=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedAss))
-                {
-                    assId = parsedAss;
-                }
-            }
-
-            return (defId, assId, path);
-        }
-
-        return (70, 109, "默认：B形象指定器 System.ini 未找到");
-    }
-
-    private static string GetItemMajorCategory(int id, int defenseStartId, int accessoryStartId)
-    {
-        if (id == defenseStartId - 1) return "武器结束/占位";
-        if (id == accessoryStartId - 1) return "护具结束/占位";
-        if (id < defenseStartId) return "武器";
-        if (id < accessoryStartId) return "防具";
-        return "辅助/道具";
     }
 
     private static string BuildItemTypeDescription(int typeId, string majorCategory, int catalog)
@@ -4498,6 +4436,8 @@ public sealed partial class MainForm
             _shopEditorGrid.DataSource = _currentShopEditorData;
             ConfigureShopEditorGrid();
             _saveShopEditorButton.Enabled = true;
+            _exportShopEditorCsvButton.Enabled = true;
+            _importShopEditorCsvButton.Enabled = true;
             _shopEditorInfoBox.Text = BuildShopEditorSummary(_currentShopEditorData);
             ShowSelectedShopEditorCell();
             SetStatus($"商店编辑读取完成：{_currentShopEditorData.Rows.Count} 行");
@@ -4735,6 +4675,29 @@ public sealed partial class MainForm
         RefreshShopEditorRowStyles();
     }
 
+    private void ExportShopEditorCsv()
+        => ExportDataTableCsv(_currentShopEditorData, "商店编辑.csv");
+
+    private void ImportShopEditorCsv()
+    {
+        ImportDataTableCsv(_currentShopEditorData, "商店编辑", RefreshShopEditorAfterBulkEdit);
+        ValidateAllShopEditorEditableCells();
+    }
+
+    private void RefreshShopEditorAfterBulkEdit()
+    {
+        if (_currentShopEditorData != null)
+        {
+            foreach (DataRow row in _currentShopEditorData.Rows)
+            {
+                RefreshShopDerivedCells(row);
+            }
+        }
+
+        RefreshShopEditorRowStyles();
+        ShowSelectedShopEditorCell();
+    }
+
     private void ApplyShopBatchSet()
     {
         if (!TryGetSelectedShopBatchItem(_shopBatchSetItemCombo, out var itemId)) return;
@@ -4784,6 +4747,7 @@ public sealed partial class MainForm
         }
 
         var changed = 0;
+        var changedRows = new HashSet<DataRow>();
         foreach (var row in rows)
         {
             foreach (var columnName in columns)
@@ -4795,11 +4759,11 @@ public sealed partial class MainForm
                 if (current == next) continue;
                 row[columnName] = next;
                 changed++;
+                changedRows.Add(row);
             }
-            RefreshShopDerivedCells(row);
         }
 
-        RefreshShopEditorRowStyles();
+        RefreshChangedShopEditorRows(changedRows);
         ShowSelectedShopEditorCell();
         SetStatus($"{actionName}：修改 {changed} 个槽位，需点击“保存商店”写回");
     }
@@ -4861,6 +4825,26 @@ public sealed partial class MainForm
         foreach (DataGridViewRow row in _shopEditorGrid.Rows)
         {
             RefreshShopEditorRowStyle(row.Index);
+        }
+    }
+
+    private void RefreshChangedShopEditorRows(IEnumerable<DataRow> changedRows)
+    {
+        var changedRowSet = changedRows.ToHashSet();
+        if (changedRowSet.Count == 0) return;
+
+        foreach (var row in changedRowSet)
+        {
+            RefreshShopDerivedCells(row);
+        }
+
+        foreach (DataGridViewRow gridRow in _shopEditorGrid.Rows)
+        {
+            var dataRow = TryGetDataRow(gridRow);
+            if (dataRow != null && changedRowSet.Contains(dataRow))
+            {
+                RefreshShopEditorRowStyle(gridRow.Index);
+            }
         }
     }
 
@@ -4960,33 +4944,8 @@ public sealed partial class MainForm
         if (column.ReadOnly) return;
         var columnName = column.DataPropertyName;
         var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
-        string? error = null;
-
-        if (columnName == "关卡名称")
-        {
-            var row = TryGetDataRow(_shopEditorGrid.Rows[e.RowIndex]);
-            var id = row == null ? e.RowIndex : Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
-            if (_shopCampaignNameRead != null && id >= _shopCampaignNameRead.Data.Rows.Count && !string.IsNullOrWhiteSpace(value))
-            {
-                error = "扩展商店槽没有对应的战役名称写回位置，请只修改商店属性。";
-            }
-            else
-            {
-                var bytes = EncodingService.GetGbkByteCount(value);
-                var capacity = GetShopCampaignNameCapacity();
-                if (bytes > capacity) error = $"关卡名称超长：GBK {bytes} 字节，容量 {capacity} 字节。";
-            }
-        }
-        else if (IsShopPersonColumn(columnName))
-        {
-            error = TryParseInteger(value, 0, ushort.MaxValue, columnName, _currentPageHexButton.Checked);
-        }
-        else if (IsShopItemSlotColumn(columnName))
-        {
-            error = column is DataGridViewComboBoxColumn
-                ? null
-                : TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
-        }
+        var row = TryGetDataRow(_shopEditorGrid.Rows[e.RowIndex]);
+        var error = ValidateShopEditorCellText(columnName, value, row, comboBoxColumn: column is DataGridViewComboBoxColumn);
 
         _shopEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
         if (error == null) return;
@@ -4995,11 +4954,285 @@ public sealed partial class MainForm
         SetStatus(error);
     }
 
+    private string? ValidateShopEditorCellText(string columnName, string value, DataRow? row, bool comboBoxColumn = false)
+    {
+        if (columnName == "关卡名称")
+        {
+            var id = row == null ? -1 : Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+            if (_shopCampaignNameRead != null && id >= _shopCampaignNameRead.Data.Rows.Count && !string.IsNullOrWhiteSpace(value))
+            {
+                return "扩展商店槽没有对应的战役名称写回位置，请只修改商店属性。";
+            }
+
+            var bytes = EncodingService.GetGbkByteCount(value);
+            var capacity = GetShopCampaignNameCapacity();
+            if (bytes > capacity) return $"关卡名称超长：GBK {bytes} 字节，容量 {capacity} 字节。";
+        }
+        else if (IsShopPersonColumn(columnName))
+        {
+            return TryParseInteger(value, 0, ushort.MaxValue, columnName, _currentPageHexButton.Checked);
+        }
+        else if (IsShopItemSlotColumn(columnName))
+        {
+            return comboBoxColumn
+                ? null
+                : TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
+        }
+
+        return null;
+    }
+
+    private object? ConvertShopEditorValueForColumn(string columnName, string text)
+    {
+        if (_currentShopEditorData == null || !_currentShopEditorData.Columns.Contains(columnName)) return text;
+        var dataColumn = _currentShopEditorData.Columns[columnName];
+        if (dataColumn == null || dataColumn.DataType == typeof(string)) return text;
+        if (IsSupportedIntegerType(dataColumn.DataType) &&
+            TryParseIntegerInput(text, _currentPageHexButton.Checked, out var parsed) &&
+            TryConvertParsedIntegerToType(parsed, dataColumn.DataType, out var converted))
+        {
+            return converted;
+        }
+
+        return Convert.ChangeType(text, dataColumn.DataType, CultureInfo.InvariantCulture);
+    }
+
+    private bool TryResolveShopEditorCell(int rowIndex, int columnIndex, out DataRow row, out string columnName)
+    {
+        row = null!;
+        columnName = string.Empty;
+        if (rowIndex < 0 || rowIndex >= _shopEditorGrid.Rows.Count ||
+            columnIndex < 0 || columnIndex >= _shopEditorGrid.Columns.Count)
+        {
+            return false;
+        }
+
+        var column = _shopEditorGrid.Columns[columnIndex];
+        if (column.ReadOnly || !column.Visible) return false;
+        var cell = _shopEditorGrid.Rows[rowIndex].Cells[columnIndex];
+        if (cell.ReadOnly) return false;
+        columnName = column.DataPropertyName;
+        if (string.IsNullOrEmpty(columnName) || _currentShopEditorData?.Columns.Contains(columnName) != true) return false;
+        row = TryGetDataRow(_shopEditorGrid.Rows[rowIndex])!;
+        return row != null;
+    }
+
+    private bool TrySetShopEditorCellValue(
+        int rowIndex,
+        int columnIndex,
+        string text,
+        ISet<DataRow> changedRows,
+        out string error)
+    {
+        error = string.Empty;
+        if (!TryResolveShopEditorCell(rowIndex, columnIndex, out var row, out var columnName)) return false;
+        error = ValidateShopEditorCellText(
+            columnName,
+            text,
+            row,
+            comboBoxColumn: false) ?? string.Empty;
+        if (!string.IsNullOrEmpty(error))
+        {
+            _shopEditorGrid.Rows[rowIndex].Cells[columnIndex].ErrorText = error;
+            return false;
+        }
+
+        try
+        {
+            var oldValue = NormalizeGridCellValue(row[columnName]);
+            var newValue = ConvertShopEditorValueForColumn(columnName, text);
+            if (Equals(oldValue, newValue)) return false;
+
+            row[columnName] = newValue ?? DBNull.Value;
+            _shopEditorGrid.Rows[rowIndex].Cells[columnIndex].ErrorText = string.Empty;
+            changedRows.Add(row);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            _shopEditorGrid.Rows[rowIndex].Cells[columnIndex].ErrorText = error;
+            return false;
+        }
+    }
+
+    private void PasteShopEditorSelection()
+    {
+        if (_shopEditorGrid.ReadOnly)
+        {
+            SetStatus("当前表格不可编辑。");
+            return;
+        }
+
+        if (!Clipboard.ContainsText())
+        {
+            SetStatus("剪贴板没有文本。");
+            return;
+        }
+
+        var start = GetPasteStartCell(_shopEditorGrid);
+        if (start == null)
+        {
+            SetStatus("请先选中粘贴起点。");
+            return;
+        }
+
+        if (!_shopEditorGrid.EndEdit())
+        {
+            SetStatus("当前单元格未能提交，无法粘贴。");
+            return;
+        }
+
+        var matrix = ParseClipboardMatrix(Clipboard.GetText());
+        var changedRows = new HashSet<DataRow>();
+        var changed = 0;
+        var lastCell = start.Value;
+        var lastError = string.Empty;
+        for (var r = 0; r < matrix.Count; r++)
+        {
+            var rowIndex = start.Value.Row + r;
+            if (rowIndex >= _shopEditorGrid.Rows.Count) break;
+
+            for (var c = 0; c < matrix[r].Count; c++)
+            {
+                var columnIndex = start.Value.Column + c;
+                if (columnIndex >= _shopEditorGrid.Columns.Count) break;
+
+                if (TrySetShopEditorCellValue(rowIndex, columnIndex, matrix[r][c], changedRows, out var error))
+                {
+                    changed++;
+                    lastCell = (rowIndex, columnIndex);
+                }
+                else if (!string.IsNullOrWhiteSpace(error))
+                {
+                    lastError = error;
+                }
+            }
+        }
+
+        if (changed > 0)
+        {
+            _shopEditorGrid.CurrentCell = _shopEditorGrid.Rows[lastCell.Row].Cells[lastCell.Column];
+            RefreshChangedShopEditorRows(changedRows);
+            ShowSelectedShopEditorCell();
+        }
+
+        SetStatus(changed > 0
+            ? $"商店编辑粘贴完成：更新 {changed} 个单元格。"
+            : string.IsNullOrWhiteSpace(lastError) ? "商店编辑粘贴没有产生改动。" : lastError);
+    }
+
+    private void FillShopEditorSelectionWithCurrentValue()
+    {
+        if (_shopEditorGrid.ReadOnly)
+        {
+            SetStatus("当前表格不可编辑。");
+            return;
+        }
+
+        if (_shopEditorGrid.CurrentCell == null)
+        {
+            SetStatus("请先选中用于批量填列的单元格。");
+            return;
+        }
+
+        if (!_shopEditorGrid.EndEdit())
+        {
+            SetStatus("当前单元格未能提交，无法批量填列。");
+            return;
+        }
+
+        var columnIndex = _shopEditorGrid.CurrentCell.ColumnIndex;
+        var value = FormatGridValueForBatchInput(_shopEditorGrid.CurrentCell.Value);
+        var targetCells = GetGridFillTargetCells(_shopEditorGrid, columnIndex);
+        if (targetCells.Count <= 1)
+        {
+            SetStatus("请先选中要批量填列的多个商店单元格。");
+            return;
+        }
+
+        var changedRows = new HashSet<DataRow>();
+        var changed = 0;
+        var lastError = string.Empty;
+        foreach (var cell in targetCells)
+        {
+            if (TrySetShopEditorCellValue(cell.RowIndex, cell.ColumnIndex, value, changedRows, out var error))
+            {
+                changed++;
+            }
+            else if (!string.IsNullOrWhiteSpace(error))
+            {
+                lastError = error;
+            }
+        }
+
+        if (changed > 0)
+        {
+            RefreshChangedShopEditorRows(changedRows);
+            ShowSelectedShopEditorCell();
+        }
+
+        SetStatus(changed > 0
+            ? $"商店编辑批量填列完成：更新 {changed} 个单元格。"
+            : string.IsNullOrWhiteSpace(lastError) ? "商店编辑批量填列没有产生改动。" : lastError);
+    }
+
+    private bool ValidateAllShopEditorEditableCells()
+    {
+        if (_currentShopEditorData == null) return true;
+        var invalid = 0;
+        foreach (DataRow dataRow in _currentShopEditorData.Rows)
+        {
+            foreach (DataColumn column in _currentShopEditorData.Columns)
+            {
+                if (IsShopReadOnlyColumn(column.ColumnName)) continue;
+                var value = Convert.ToString(dataRow[column], CultureInfo.InvariantCulture) ?? string.Empty;
+                var error = ValidateShopEditorCellText(
+                    column.ColumnName,
+                    value,
+                    dataRow,
+                    comboBoxColumn: false);
+                SetShopEditorCellError(dataRow, column.ColumnName, error ?? string.Empty);
+                if (error != null) invalid++;
+            }
+        }
+
+        if (invalid > 0)
+        {
+            SetStatus($"商店编辑 CSV 导入后发现 {invalid} 个无效单元格，请修正后再保存。");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void SetShopEditorCellError(DataRow dataRow, string columnName, string error)
+    {
+        foreach (DataGridViewRow gridRow in _shopEditorGrid.Rows)
+        {
+            if (!ReferenceEquals(TryGetDataRow(gridRow), dataRow)) continue;
+            if (!_shopEditorGrid.Columns.Contains(columnName)) return;
+            gridRow.Cells[columnName].ErrorText = error;
+            return;
+        }
+    }
+
     private void SaveShopEditor()
     {
         if (_project == null || _currentShopEditorData == null || _shopCampaignNameRead == null || _shopDataRead == null) return;
 
-        _shopEditorGrid.EndEdit();
+        if (!_shopEditorGrid.EndEdit())
+        {
+            SetStatus("当前商店单元格未能提交，无法保存。");
+            return;
+        }
+
+        if (!ValidateAllShopEditorEditableCells())
+        {
+            MessageBox.Show(this, "商店编辑存在无效单元格，请修正后再保存。", "无法保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         if (_currentShopEditorData.GetChanges() == null)
         {
             MessageBox.Show(this, "商店编辑没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -5045,18 +5278,19 @@ public sealed partial class MainForm
     private IReadOnlyList<TableSaveResult> SaveShopEditorData(CczProject project, DataTable shopEditorData)
     {
         if (_shopCampaignNameRead == null || _shopDataRead == null) return Array.Empty<TableSaveResult>();
+        var campaignRowsById = BuildRowsById(_shopCampaignNameRead.Data);
+        var shopRowsById = BuildRowsById(_shopDataRead.Data);
         foreach (DataRow shopRow in shopEditorData.Rows)
         {
             if (shopRow.RowState != DataRowState.Modified) continue;
             var id = Convert.ToInt32(shopRow["ID"], CultureInfo.InvariantCulture);
 
-            if (id < _shopCampaignNameRead.Data.Rows.Count && IsRoleColumnChanged(shopRow, "关卡名称"))
+            if (campaignRowsById.TryGetValue(id, out var campaignRow) && IsRoleColumnChanged(shopRow, "关卡名称"))
             {
-                FindRowById(_shopCampaignNameRead.Data, id)["名称"] = shopRow["关卡名称", DataRowVersion.Current];
+                campaignRow["名称"] = shopRow["关卡名称", DataRowVersion.Current];
             }
 
-            if (id >= _shopDataRead.Data.Rows.Count) continue;
-            var rawRow = FindRowById(_shopDataRead.Data, id);
+            if (!shopRowsById.TryGetValue(id, out var rawRow)) continue;
             foreach (DataColumn column in _shopDataRead.Data.Columns)
             {
                 if (column.ColumnName == "ID" || !shopEditorData.Columns.Contains(column.ColumnName)) continue;
@@ -5070,6 +5304,11 @@ public sealed partial class MainForm
         if (_shopDataRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _shopDataRead.Table, _shopDataRead.Data));
         return saves;
     }
+
+    private static Dictionary<int, DataRow> BuildRowsById(DataTable table)
+        => table.Rows
+            .Cast<DataRow>()
+            .ToDictionary(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture));
 
     private string BuildShopEditorChangePreview(DataTable data, int maxItems)
     {

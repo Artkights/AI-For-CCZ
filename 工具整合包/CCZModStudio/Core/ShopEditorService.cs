@@ -10,17 +10,19 @@ public sealed class ShopEditorService
     private readonly HexTableReader _tableReader = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
+    private readonly CczEngineProfileService _engineProfile = new();
 
     public ShopEditorBuildResult Build(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var campaignNameRead = _tableReader.Read(project, FindTable(tables, "6.5-8 战役名称"), tables);
-        var shopDataRead = _tableReader.Read(project, FindTable(tables, "6.5-8-1 商店数据"), tables);
+        var hints = _engineProfile.Detect(project).TableHints;
+        var campaignNameRead = _tableReader.Read(project, FindTable(project, tables, hints.CampaignNameTable), tables);
+        var shopDataRead = _tableReader.Read(project, FindTable(project, tables, hints.ShopDataTable), tables);
         if (!campaignNameRead.Validation.IsUsable || !shopDataRead.Validation.IsUsable)
         {
             throw new InvalidOperationException("战役名称表或商店数据表有不可读取项，请先查看数据表诊断。");
         }
 
-        var personNames = BuildIdNameLookup(project, tables, "6.5-0 人物");
+        var personNames = BuildIdNameLookup(project, tables, hints.PersonTable);
         var itemInfos = BuildItemInfoLookup(project, tables);
         var itemNames = itemInfos.ToDictionary(pair => pair.Key, pair => pair.Value.Name);
         var data = BuildDataTable(campaignNameRead, shopDataRead, personNames, itemInfos);
@@ -101,7 +103,7 @@ public sealed class ShopEditorService
         var activeRows = data.Rows.Cast<DataRow>().Count(row => CountNonEmptyItemSlots(row) > 0);
         return
             $"商店编辑已读取：商店槽 {data.Rows.Count} 行，普通关卡 {normal} 行，已命名 {named} 行，有物品槽 {activeRows} 行。\r\n" +
-            "来源表：6.5-8 战役名称（Imsg.e5）与 6.5-8-1 商店数据（Data.e5）。\r\n" +
+            "来源表：当前引擎的战役名称表（Imsg.e5）与商店数据表（Data.e5）。\r\n" +
             "保存会分别写回关卡名称和商店属性，保存前自动备份，保存后重新读取校验。";
     }
 
@@ -201,12 +203,15 @@ public sealed class ShopEditorService
             [255] = new(255, "空槽", "空槽", "无", 0, "无", "无", string.Empty)
         };
 
-        var boundary = ResolveItemCategoryBoundary(project);
+        var boundary = ItemCategoryBoundaryService.Resolve(project);
         var itemEffectNames = BuildItemEffectNameLookup(project, tables);
+        var hints = _engineProfile.Detect(project).TableHints;
+        var lowDescription = HexTableNameResolver.BuildVersionedTableName(_engineProfile.Detect(project).TableVersionPrefix, "6.5-1-1 物品说明（0-103）");
+        var highDescription = HexTableNameResolver.BuildVersionedTableName(_engineProfile.Detect(project).TableVersionPrefix, "6.5-2-1 物品说明（104-255）");
         var itemSegments = new[]
         {
-            (_tableReader.Read(project, FindTable(tables, "6.5-1 物品（0-103）"), tables), _tableReader.Read(project, FindTable(tables, "6.5-1-1 物品说明（0-103）"), tables)),
-            (_tableReader.Read(project, FindTable(tables, "6.5-2 物品（104-255）"), tables), _tableReader.Read(project, FindTable(tables, "6.5-2-1 物品说明（104-255）"), tables))
+            (_tableReader.Read(project, FindTable(project, tables, hints.ItemLowTable), tables), _tableReader.Read(project, FindTable(project, tables, lowDescription), tables)),
+            (_tableReader.Read(project, FindTable(project, tables, hints.ItemHighTable), tables), _tableReader.Read(project, FindTable(project, tables, highDescription), tables))
         };
 
         foreach (var (itemRead, descriptionRead) in itemSegments)
@@ -222,7 +227,7 @@ public sealed class ShopEditorService
                 var effectValue = row.Table.Columns.Contains("装备特效号-效果值") ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture) : 0;
                 var growth = row.Table.Columns.Contains("升级能力成长") ? Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture) : 0;
                 var catalog = row.Table.Columns.Contains("宝物图鉴") ? Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture) : 0;
-                var category = GetItemMajorCategory(id, boundary.DefenseStartId, boundary.AccessoryStartId);
+                var category = boundary.GetMajorCategory(id);
                 var typeText = ItemTypeCatalogService.BuildDescription(typeId, category, catalog);
                 var effectName = BuildItemEffectNameDisplay(category, typeId, effectId, itemEffectNames);
                 var effectHint = ItemEffectInterpretationService.BuildEffectHint(category, typeId, effectId, effectName, effectValue, growth);
@@ -307,54 +312,9 @@ public sealed class ShopEditorService
             : GetItemEffectName(itemEffectNames, effectiveEffectId);
     }
 
-    private static (int DefenseStartId, int AccessoryStartId, string Source) ResolveItemCategoryBoundary(CczProject project)
-    {
-        var path = !string.IsNullOrWhiteSpace(project.ImageAssignerSystemIniPath) && File.Exists(project.ImageAssignerSystemIniPath)
-            ? project.ImageAssignerSystemIniPath
-            : ProjectDetector.FindPortableFile(
-                project,
-                "System.ini",
-                Path.Combine("老版游戏制作工具", "B形象指定器", "6.6x形象指定器", "System.ini"),
-                Path.Combine("B形象指定器", "6.6x形象指定器", "System.ini"),
-                Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
-                Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
-        if (path != null && File.Exists(path))
-        {
-            var defId = 70;
-            var assId = 109;
-            foreach (var rawLine in File.ReadLines(path, EncodingService.Gbk))
-            {
-                var line = rawLine.Split(';')[0].Trim();
-                if (line.StartsWith("DefID=", StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(line["DefID=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedDef))
-                {
-                    defId = parsedDef;
-                }
-                else if (line.StartsWith("AssID=", StringComparison.OrdinalIgnoreCase) &&
-                         int.TryParse(line["AssID=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedAss))
-                {
-                    assId = parsedAss;
-                }
-            }
-
-            return (defId, assId, path);
-        }
-
-        return (70, 109, "默认：B形象指定器 System.ini 未找到");
-    }
-
-    private static string GetItemMajorCategory(int id, int defenseStartId, int accessoryStartId)
-    {
-        if (id == defenseStartId - 1) return "武器结束/占位";
-        if (id == accessoryStartId - 1) return "护具结束/占位";
-        if (id < defenseStartId) return "武器";
-        if (id < accessoryStartId) return "防具";
-        return "辅助/道具";
-    }
-
     private static IReadOnlyDictionary<int, string> BuildIdNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
     {
-        var table = FindTable(tables, tableName);
+        var table = FindTable(project, tables, tableName);
         var read = new HexTableReader().Read(project, table, tables);
         var lookup = new Dictionary<int, string>();
         if (!read.Validation.IsUsable || !read.Data.Columns.Contains("名称")) return lookup;
@@ -375,9 +335,8 @@ public sealed class ShopEditorService
         return null;
     }
 
-    private static HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string tableName)
-        => tables.FirstOrDefault(t => string.Equals(t.TableName, tableName, StringComparison.OrdinalIgnoreCase))
-           ?? throw new InvalidOperationException($"未找到数据表：{tableName}");
+    private static HexTableDefinition FindTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.ResolveForProject(project, tables, tableName);
 
     private static string TrimPreview(string text)
     {

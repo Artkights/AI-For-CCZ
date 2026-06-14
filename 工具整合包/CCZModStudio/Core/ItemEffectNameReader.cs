@@ -9,9 +9,10 @@ public sealed class ItemEffectNameReader
     public IReadOnlyDictionary<int, string> ReadBaseNames(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var result = new Dictionary<int, string>();
-        foreach (var tableName in new[] { "6.5-1-2 装备特效名称（1A-57）", "6.5-1-3 装备特效名称（58-7F）" })
+        var profile = new CczEngineProfileService().Detect(project);
+        foreach (var tableName in new[] { profile.TableHints.ItemEffectNameLowTable, profile.TableHints.ItemEffectNameHighTable })
         {
-            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) continue;
+            if (!HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table)) continue;
 
             foreach (var pair in ReadNames(project, table))
             {

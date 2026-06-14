@@ -20,6 +20,8 @@ var legacyMfcDialogSmokeOnly = args.Contains("--legacy-mfc-dialog-smoke", String
 var rSceneDialogPreviewSmokeOnly = args.Contains("--rscene-dialog-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var rSceneFramePreviewSmokeOnly = args.Contains("--rscene-frame-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
+var rImageRawReplaceSmokeOnly = args.Contains("--r-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
+var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var aiImageAssetSmokeOnly = args.Contains("--ai-image-asset-smoke", StringComparer.OrdinalIgnoreCase);
 var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCase);
 var jobStrategyWriteSmokeOnly = args.Contains("--job-strategy-write-smoke", StringComparer.OrdinalIgnoreCase);
@@ -28,9 +30,13 @@ var globalSettingsDialogSmokeOnly = args.Contains("--global-settings-dialog-smok
 var uiLayoutSettingsSmokeOnly = args.Contains("--ui-layout-settings-smoke", StringComparer.OrdinalIgnoreCase);
 var uiLayoutApplySmokeOnly = args.Contains("--ui-layout-apply-smoke", StringComparer.OrdinalIgnoreCase);
 var csvEncodingSmokeOnly = args.Contains("--csv-encoding-smoke", StringComparer.OrdinalIgnoreCase);
+var mapPreviewSmokeOnly = args.Contains("--map-preview-smoke", StringComparer.OrdinalIgnoreCase);
+var mapCanvasPreviewSmokeOnly = args.Contains("--map-canvas-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldPreviewSmokeOnly = args.Contains("--battlefield-preview-smoke", StringComparer.OrdinalIgnoreCase);
+var battlefieldUnitStatusWriteSmokeOnly = args.Contains("--battlefield-unit-status-write-smoke", StringComparer.OrdinalIgnoreCase);
 var effectPackageSmokeOnly = args.Contains("--effect-package-smoke", StringComparer.OrdinalIgnoreCase);
 var exclusiveSetScenarioSmokeOnly = args.Contains("--exclusive-set-smoke", StringComparer.OrdinalIgnoreCase);
+var scenarioTextImportSmokeOnly = args.Contains("--scenario-text-import-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
 var project = detector.DetectDefaultProject();
@@ -114,6 +120,18 @@ if (e5ImageReplaceSmokeOnly)
     return;
 }
 
+if (rImageRawReplaceSmokeOnly)
+{
+    RunRImageRawReplaceSmoke(project);
+    return;
+}
+
+if (sImageRawReplaceSmokeOnly)
+{
+    RunSImageRawReplaceSmoke(project);
+    return;
+}
+
 if (aiImageAssetSmokeOnly)
 {
     RunAiImageAssetSmoke(project);
@@ -162,9 +180,27 @@ if (csvEncodingSmokeOnly)
     return;
 }
 
+if (mapPreviewSmokeOnly)
+{
+    RunMapImagePreviewSmoke(project);
+    return;
+}
+
+if (mapCanvasPreviewSmokeOnly)
+{
+    RunMapCanvasPreviewSmoke();
+    return;
+}
+
 if (battlefieldPreviewSmokeOnly)
 {
     RunBattlefieldPreviewSmoke(project, tables);
+    return;
+}
+
+if (battlefieldUnitStatusWriteSmokeOnly)
+{
+    RunBattlefieldUnitStatusWriteSmoke(project, tables);
     return;
 }
 
@@ -177,6 +213,12 @@ if (effectPackageSmokeOnly)
 if (exclusiveSetScenarioSmokeOnly)
 {
     RunExclusiveSetScenarioSmoke(project, tables);
+    return;
+}
+
+if (scenarioTextImportSmokeOnly)
+{
+    RunScenarioTextImportSmoke(project, tables);
     return;
 }
 

@@ -645,9 +645,6 @@ public sealed class BattlefieldEditorService
         var sourceCommand = $"{command.CommandIdHex} {command.CommandName} {slotLabel}";
         var sceneSection = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Cmd {command.CommandIndex} / {slotLabel}";
         var personOrOrder = GetWordOrDefault(words, definition.PersonIndex);
-        var personId = ReferenceEquals(definition, DeploymentCommandDefinition.Ally)
-            ? (int?)null
-            : personOrOrder;
         var x = GetWordOrDefault(words, definition.XIndex);
         var y = GetWordOrDefault(words, definition.YIndex);
 
@@ -660,7 +657,7 @@ public sealed class BattlefieldEditorService
             CoordinateDisplay = x >= 0 && y >= 0 ? $"({x},{y})" : $"({FormatScriptValue(x)},{FormatScriptValue(y)})",
             FactionDisplay = definition.FactionDisplay,
             AiDisplay = BuildDeploymentAiDisplay(definition, words),
-            LevelJobDisplay = BuildDeploymentLevelJobDisplay(definition, words, personId, lookups),
+            LevelJobDisplay = BuildDeploymentLevelJobDisplay(definition, words),
             Category = definition.Category,
             SourceCommand = sourceCommand,
             SceneSection = sceneSection,
@@ -753,15 +750,15 @@ public sealed class BattlefieldEditorService
 
     private static string BuildDeploymentLevelJobDisplay(
         DeploymentCommandDefinition definition,
-        IReadOnlyList<int> words,
-        int? personId,
-        BattlefieldDisplayLookups lookups)
+        IReadOnlyList<int> words)
     {
         var levelName = definition.LevelIndex >= 0
             ? FormatLevelOffsetName(GetWordOrDefault(words, definition.LevelIndex))
             : string.Empty;
-        var jobName = ResolveJobName(personId, lookups);
-        return string.Join(' ', new[] { levelName, jobName }.Where(part => !string.IsNullOrWhiteSpace(part)));
+        var jobLevelName = definition.JobLevelIndex >= 0
+            ? FormatJobLevelName(GetWordOrDefault(words, definition.JobLevelIndex))
+            : string.Empty;
+        return string.Join(' ', new[] { levelName, jobLevelName }.Where(part => !string.IsNullOrWhiteSpace(part)));
     }
 
     private static string FormatLevelOffsetName(int value)
@@ -769,13 +766,14 @@ public sealed class BattlefieldEditorService
             ? "+" + value.ToString(CultureInfo.InvariantCulture) + "级"
             : value.ToString(CultureInfo.InvariantCulture) + "级";
 
-    private static string ResolveJobName(int? personId, BattlefieldDisplayLookups lookups)
-    {
-        if (!personId.HasValue) return string.Empty;
-        if (!lookups.PersonJobs.TryGetValue(personId.Value, out var jobId)) return string.Empty;
-        if (lookups.JobNames.TryGetValue(jobId, out var jobName) && !string.IsNullOrWhiteSpace(jobName)) return jobName;
-        return "兵种" + jobId.ToString(CultureInfo.InvariantCulture);
-    }
+    private static string FormatJobLevelName(int value)
+        => value switch
+        {
+            0 => "初级",
+            1 => "中级",
+            2 => "高级",
+            _ => "兵种级" + FormatScriptValue(value)
+        };
 
     private static BattlefieldDisplayLookups BuildDisplayLookups(CczProject? project, IReadOnlyList<HexTableDefinition>? tables)
     {
@@ -786,19 +784,16 @@ public sealed class BattlefieldEditorService
 
         var reader = new HexTableReader();
         var personNames = new Dictionary<int, string>();
-        var personJobs = new Dictionary<int, int>();
-        var jobNames = new Dictionary<int, string>();
 
         try
         {
-            if (HexTableNameResolver.TryResolve(tables, "6.5-0 人物", out var personTable))
+            if (HexTableNameResolver.TryResolveForProject(project, tables, "6.5-0 人物", out var personTable))
             {
                 var personRead = reader.Read(project, personTable, tables);
                 if (personRead.Validation.IsUsable && personRead.Data.Columns.Contains("ID"))
                 {
                     var nameColumn = FindNameColumn(personRead.Data);
                     var hasName = !string.IsNullOrWhiteSpace(nameColumn) && personRead.Data.Columns.Contains(nameColumn);
-                    var hasJob = personRead.Data.Columns.Contains("职业");
                     foreach (DataRow row in personRead.Data.Rows)
                     {
                         var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
@@ -806,29 +801,6 @@ public sealed class BattlefieldEditorService
                         {
                             var name = Convert.ToString(row[nameColumn], CultureInfo.InvariantCulture)?.Trim();
                             if (!string.IsNullOrWhiteSpace(name)) personNames[id] = name;
-                        }
-
-                        if (hasJob)
-                        {
-                            personJobs[id] = Convert.ToInt32(row["职业"], CultureInfo.InvariantCulture);
-                        }
-                    }
-                }
-            }
-
-            if (HexTableNameResolver.TryResolve(tables, "6.5-3 兵种", out var jobTable))
-            {
-                var jobRead = reader.Read(project, jobTable, tables);
-                if (jobRead.Validation.IsUsable && jobRead.Data.Columns.Contains("ID"))
-                {
-                    var nameColumn = FindNameColumn(jobRead.Data);
-                    if (!string.IsNullOrWhiteSpace(nameColumn) && jobRead.Data.Columns.Contains(nameColumn))
-                    {
-                        foreach (DataRow row in jobRead.Data.Rows)
-                        {
-                            var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
-                            var name = Convert.ToString(row[nameColumn], CultureInfo.InvariantCulture)?.Trim();
-                            if (!string.IsNullOrWhiteSpace(name)) jobNames[id] = name;
                         }
                     }
                 }
@@ -839,7 +811,7 @@ public sealed class BattlefieldEditorService
             return BattlefieldDisplayLookups.Empty;
         }
 
-        return new BattlefieldDisplayLookups(personNames, personJobs, jobNames);
+        return new BattlefieldDisplayLookups(personNames);
     }
 
     private static string FindNameColumn(DataTable data)
@@ -1144,6 +1116,7 @@ public sealed class BattlefieldEditorService
             XIndex = 2,
             YIndex = 3,
             LevelIndex = 5,
+            JobLevelIndex = 6,
             AiIndex = 7,
             StateIndexes = [1, 4, 5, 6, 8, 9, 10],
             SkipBlankRecords = true,
@@ -1162,6 +1135,7 @@ public sealed class BattlefieldEditorService
             XIndex = 3,
             YIndex = 4,
             LevelIndex = 6,
+            JobLevelIndex = 7,
             AiIndex = 8,
             StateIndexes = [1, 2, 5, 6, 7, 9, 10, 11],
             SkipBlankRecords = true,
@@ -1180,6 +1154,7 @@ public sealed class BattlefieldEditorService
             XIndex = 1,
             YIndex = 2,
             LevelIndex = -1,
+            JobLevelIndex = -1,
             AiIndex = -1,
             StateIndexes = [3, 4],
             SkipBlankRecords = false,
@@ -1205,21 +1180,16 @@ public sealed class BattlefieldEditorService
         public int XIndex { get; init; }
         public int YIndex { get; init; }
         public int LevelIndex { get; init; }
+        public int JobLevelIndex { get; init; }
         public int AiIndex { get; init; }
         public IReadOnlyList<int> StateIndexes { get; init; } = Array.Empty<int>();
         public bool SkipBlankRecords { get; init; }
         public bool WritesPerson { get; init; }
     }
 
-    private sealed record BattlefieldDisplayLookups(
-        IReadOnlyDictionary<int, string> PersonNames,
-        IReadOnlyDictionary<int, int> PersonJobs,
-        IReadOnlyDictionary<int, string> JobNames)
+    private sealed record BattlefieldDisplayLookups(IReadOnlyDictionary<int, string> PersonNames)
     {
-        public static readonly BattlefieldDisplayLookups Empty = new(
-            new Dictionary<int, string>(),
-            new Dictionary<int, int>(),
-            new Dictionary<int, string>());
+        public static readonly BattlefieldDisplayLookups Empty = new(new Dictionary<int, string>());
     }
 }
 

@@ -31,7 +31,7 @@ public sealed class ExclusiveSetScenarioService
         var malformed = new List<ExclusiveSetScenarioMalformedEntry>();
         var warnings = new List<string>();
         var totalCommandCount = 0;
-        var boundary = ResolveItemCategoryBoundary(project);
+        var boundary = ItemCategoryBoundaryService.Resolve(project);
         var files = _scenarioFileReader.ReadAllIndex(project)
             .Where(file => ScenarioFileReader.IsRsScriptFile(file.FileName))
             .OrderBy(file => ScenarioFileReader.IsBattlefieldScriptFile(file.FileName) ? 1 : 0)
@@ -545,9 +545,10 @@ public sealed class ExclusiveSetScenarioService
     {
         var result = new Dictionary<int, string>();
         var reader = new HexTableReader();
-        foreach (var tableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+        var profile = new CczEngineProfileService().Detect(project);
+        foreach (var tableName in new[] { profile.TableHints.ItemLowTable, profile.TableHints.ItemHighTable })
         {
-            var table = FindTable(tables, tableName);
+            var table = FindTable(project, tables, tableName);
             var read = reader.Read(project, table, tables);
             if (!read.Validation.IsUsable || !read.Data.Columns.Contains("名称")) continue;
             foreach (DataRow row in read.Data.Rows)
@@ -562,7 +563,7 @@ public sealed class ExclusiveSetScenarioService
 
     public static IReadOnlyDictionary<int, string> BuildIdNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
     {
-        var table = FindTable(tables, tableName);
+        var table = FindTable(project, tables, tableName);
         var read = new HexTableReader().Read(project, table, tables);
         var result = new Dictionary<int, string>();
         if (!read.Validation.IsUsable || !read.Data.Columns.Contains("名称")) return result;
@@ -575,44 +576,7 @@ public sealed class ExclusiveSetScenarioService
         return result;
     }
 
-    private static HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string name)
-        => tables.FirstOrDefault(table => table.TableName.Equals(name, StringComparison.OrdinalIgnoreCase))
-           ?? tables.FirstOrDefault(table => table.TableName.Contains(name, StringComparison.OrdinalIgnoreCase))
-           ?? throw new InvalidOperationException("未找到数据表：" + name);
+    private static HexTableDefinition FindTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string name)
+        => HexTableNameResolver.ResolveForProject(project, tables, name);
 
-    private static (int DefenseStartId, int AccessoryStartId, string Source) ResolveItemCategoryBoundary(CczProject project)
-    {
-        var path = !string.IsNullOrWhiteSpace(project.ImageAssignerSystemIniPath) && File.Exists(project.ImageAssignerSystemIniPath)
-            ? project.ImageAssignerSystemIniPath
-            : ProjectDetector.FindPortableFile(
-                project,
-                "System.ini",
-                Path.Combine("老版游戏制作工具", "B形象指定器", "6.6x形象指定器", "System.ini"),
-                Path.Combine("B形象指定器", "6.6x形象指定器", "System.ini"),
-                Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
-                Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
-        if (path != null && File.Exists(path))
-        {
-            var defId = 70;
-            var assId = 109;
-            foreach (var rawLine in File.ReadLines(path, EncodingService.Gbk))
-            {
-                var line = rawLine.Split(';')[0].Trim();
-                if (line.StartsWith("DefID=", StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(line["DefID=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedDef))
-                {
-                    defId = parsedDef;
-                }
-                else if (line.StartsWith("AssID=", StringComparison.OrdinalIgnoreCase) &&
-                         int.TryParse(line["AssID=".Length..].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedAss))
-                {
-                    assId = parsedAss;
-                }
-            }
-
-            return (defId, assId, path);
-        }
-
-        return (70, 109, "默认：B形象指定器 System.ini 未找到");
-    }
 }

@@ -355,7 +355,7 @@ public sealed partial class MainForm
                 nameof(BattlefieldUnitCandidate.CoordinateDisplay) => "坐标",
                 nameof(BattlefieldUnitCandidate.FactionDisplay) => "阵营",
                 nameof(BattlefieldUnitCandidate.AiDisplay) => "AI",
-                nameof(BattlefieldUnitCandidate.LevelJobDisplay) => "等级/兵种",
+                nameof(BattlefieldUnitCandidate.LevelJobDisplay) => "等级/兵种级",
                 nameof(BattlefieldUnitCandidate.Index) => "序号",
                 nameof(BattlefieldUnitCandidate.Category) => "类型",
                 nameof(BattlefieldUnitCandidate.SourceCommand) => "来源命令",
@@ -379,7 +379,7 @@ public sealed partial class MainForm
                 nameof(BattlefieldUnitCandidate.CoordinateDisplay) => "出场设定中的地图格坐标。",
                 nameof(BattlefieldUnitCandidate.FactionDisplay) => "按 4B/46/47 推断的阵营。",
                 nameof(BattlefieldUnitCandidate.AiDisplay) => "与战场控制台一致的 AI 状态。",
-                nameof(BattlefieldUnitCandidate.LevelJobDisplay) => "等级偏移和人物当前职业对应的具体兵种名。",
+                nameof(BattlefieldUnitCandidate.LevelJobDisplay) => "出场设定里的等级修正和兵种级别，和双击 0x46/0x47 出场设定弹窗一致。",
                 nameof(BattlefieldUnitCandidate.Annotation) => "面向创作者的中文说明和安全边界。",
                 nameof(BattlefieldUnitCandidate.ReviewStatus) => "可编辑项目侧状态，例如：待核对、已核对、需改、已实测。不写入游戏文件。",
                 nameof(BattlefieldUnitCandidate.ReviewNote) => "可编辑核对记录，用于记录旧工具对照、计划修改、实机结果。不写入游戏文件。",
@@ -779,7 +779,7 @@ public sealed partial class MainForm
         SetStatus($"战场制作：已定位左侧 S 剧本命令 {row.CommandName} {row.OffsetHex}");
     }
 
-    private bool SelectBattlefieldScriptTreeNode(ScenarioStructureRow target)
+    private bool SelectBattlefieldScriptTreeNode(ScenarioStructureRow target, bool ensureVisible = true)
     {
         TreeNode? found = null;
         foreach (TreeNode root in _battlefieldScriptTree.Nodes)
@@ -809,7 +809,10 @@ public sealed partial class MainForm
         if (found == null) return false;
 
         _battlefieldScriptTree.SelectedNode = found;
-        found.EnsureVisible();
+        if (ensureVisible)
+        {
+            found.EnsureVisible();
+        }
         return true;
     }
 
@@ -930,6 +933,202 @@ public sealed partial class MainForm
             _battlefieldMapPreviewBox.Capture = true;
             _battlefieldMapPreviewBox.Cursor = Cursors.SizeAll;
         }
+    }
+
+    private void OpenBattlefieldUnitStatusDialog(MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left) return;
+        if (_project == null || _currentBattlefieldDocument == null)
+        {
+            MessageBox.Show(this, "请先读取一个战场关卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!TryHitBattlefieldPlacedUnit(e.Location, out var unit))
+        {
+            if (TryMapPreviewPointToGrid(e.Location, out var x, out var y))
+            {
+                SetStatus($"战场单位状态：({x},{y}) 没有已摆放单位。");
+            }
+            return;
+        }
+
+        SelectBattlefieldPlacedUnit(unit, enterEdit: false);
+        if (!BattlefieldUnitStatusWriteService.IsWritableStatusTarget(unit))
+        {
+            MessageBox.Show(this,
+                "该单位没有绑定到 0x46 友军出场设定或 0x47 敌军出场设定，不能直接写回状态。\r\n\r\n请双击由 S 剧本 46/47 自动加载或拖放时已绑定到 46/47 记录的友军/敌军单位。",
+                "不能写回状态",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var scenarioFileName = _currentBattlefieldDocument.Scenario.FileName;
+            var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe()
+                ?? throw new InvalidOperationException("缺少 CczString.ini，无法按旧版完整树写回并校验 S 剧本。");
+            var draft = _battlefieldUnitStatusWriteService.LoadDraft(
+                _currentBattlefieldDocument.Scenario,
+                dictionary,
+                unit);
+            var itemBoundary = ItemCategoryBoundaryService.Resolve(_project);
+            draft.EquipmentBoundarySummary = itemBoundary.DisplayText;
+            var jobItems = _battlefieldUnitStatusWriteService.BuildJobItems(_project, _tables);
+            var weaponItems = _battlefieldUnitStatusWriteService.BuildItemItems(
+                _project,
+                _tables,
+                start: itemBoundary.WeaponStartId,
+                count: itemBoundary.WeaponCount,
+                categoryName: "武器",
+                defaultText: "默认装备",
+                unequipText: "卸去装备");
+            var armorItems = _battlefieldUnitStatusWriteService.BuildItemItems(
+                _project,
+                _tables,
+                start: itemBoundary.DefenseStartId,
+                count: itemBoundary.DefenseCount,
+                categoryName: "防具",
+                defaultText: "默认装备",
+                unequipText: "卸去装备");
+            var assistItems = _battlefieldUnitStatusWriteService.BuildItemItems(
+                _project,
+                _tables,
+                start: itemBoundary.AccessoryStartId,
+                count: itemBoundary.AccessoryCount,
+                categoryName: "辅助/道具",
+                defaultText: "默认装备",
+                unequipText: "卸去装备");
+            Cursor = Cursors.Default;
+
+            using var dialog = new BattlefieldUnitStatusDialog(draft, jobItems, weaponItems, armorItems, assistItems);
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+            {
+                return;
+            }
+
+            if (MessageBox.Show(this,
+                    $"即将写入 RS\\{scenarioFileName}。\r\n\r\n46/47 等级加成、兵种级、AI 方针是出场记录字段；48 装备按部署段写入；52 兵种和 38 五维是脚本运行指令，不是出场记录或 Data.e5 永久人物表字段。52 会按旧资料自动包裹 4081 能力重算开关，但战场初始显示是否变化仍取决于该 Section/子事件是否在单位生成后执行。\r\n保存前会自动备份，保存后复读校验脚本结构。是否继续？",
+                    "确认写回战场单位状态",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            Cursor = Cursors.WaitCursor;
+            var result = _battlefieldUnitStatusWriteService.Save(
+                _project,
+                _currentBattlefieldDocument.Scenario,
+                dictionary,
+                dialog.Draft);
+
+            ReloadBattlefieldScenarioAfterWrite(scenarioFileName, dictionary);
+            SelectBattlefieldUnitStatusWritebackNode(dialog.Draft);
+            _battlefieldInfoBox.Text =
+                BuildBattlefieldInfo(_currentBattlefieldDocument!) +
+                $"\r\n\r\n战场单位状态已写回 RS\\{scenarioFileName}。\r\n" +
+                $"更新命令：{result.UpdatedCommandCount}，插入命令：{result.InsertedCommandCount}，变化字节：{result.ChangedBytes}\r\n" +
+                $"校验：{result.ValidationSummary}\r\n" +
+                $"备份：{result.BackupPath}\r\n" +
+                $"报告：{result.ReportJsonPath}\r\n" +
+                BuildBattlefieldUnitStatusWriteDetail(result);
+            SetStatus($"战场单位状态：已写回 {unit.Name}({unit.PersonId}) -> {scenarioFileName}");
+            MessageBox.Show(this,
+                $"写回完成。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}",
+                "战场单位状态写回完成",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("战场单位状态写回失败：" + ex);
+            MessageBox.Show(this, ex.Message, "战场单位状态写回失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static string BuildBattlefieldUnitStatusWriteDetail(BattlefieldUnitStatusWriteResult result)
+    {
+        if (result.Changes.Count == 0) return string.Empty;
+        var rows = new List<string> { "状态写回明细：" };
+        rows.AddRange(result.Changes.Take(16).Select(change => "- " + change));
+        if (result.Changes.Count > 16)
+        {
+            rows.Add($"- ... 其余 {result.Changes.Count - 16} 条略。");
+        }
+
+        return "\r\n" + string.Join("\r\n", rows);
+    }
+
+    private void SelectBattlefieldUnitStatusWritebackNode(BattlefieldUnitStatusDraft draft)
+    {
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            return;
+        }
+
+        var target = FindBattlefieldUnitStatusWritebackBlock(draft)
+                     ?? FindBattlefieldDeploymentSourceCommand(draft.TargetKey);
+        if (target == null || !TrySelectBattlefieldLegacyScriptCommand(target))
+        {
+            return;
+        }
+
+        ShowSelectedBattlefieldScriptNode();
+    }
+
+    private LegacyScenarioCommandNode? FindBattlefieldUnitStatusWritebackBlock(BattlefieldUnitStatusDraft draft)
+    {
+        if (!TryParseBattlefieldTargetKey(draft.TargetKey, out var scene, out var section, out _, out _, out _, out _))
+        {
+            return null;
+        }
+
+        var titles = new[]
+        {
+            BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle,
+            BattlefieldUnitStatusWriteService.EquipmentStatusBlockTitle,
+            BattlefieldUnitStatusWriteService.RuntimeStatusBlockTitle
+        };
+        return _currentBattlefieldLegacyScriptDocument?
+            .EnumerateCommands()
+            .Where(command =>
+                command.CommandId == 0x02 &&
+                command.SceneIndex == scene &&
+                command.SectionIndex == section &&
+                command.ChildBlock != null &&
+                titles.Contains(command.TextParameters.FirstOrDefault()?.Text.Trim() ?? string.Empty, StringComparer.Ordinal))
+            .FirstOrDefault(command => InternalInfoBlockContainsBattlefieldUnitStatus(command, draft.PersonId));
+    }
+
+    private static bool InternalInfoBlockContainsBattlefieldUnitStatus(LegacyScenarioCommandNode blockCommand, int personId)
+        => blockCommand.ChildBlock?.Commands.Any(command =>
+               command.CommandId is 0x48 or 0x52 or 0x38 &&
+               command.Parameters.Count > 0 &&
+               command.Parameters[0].IntValue == personId) == true;
+
+    private LegacyScenarioCommandNode? FindBattlefieldDeploymentSourceCommand(string targetKey)
+    {
+        if (_currentBattlefieldLegacyScriptDocument == null ||
+            !TryParseBattlefieldTargetKey(targetKey, out var scene, out var section, out var commandIndex, out var offsetHex, out var commandIdHex, out _))
+        {
+            return null;
+        }
+
+        return _currentBattlefieldLegacyScriptDocument.EnumerateCommands().FirstOrDefault(command =>
+            command.SceneIndex == scene &&
+            command.SectionIndex == section &&
+            command.CommandIndex == commandIndex &&
+            (string.IsNullOrWhiteSpace(offsetHex) ||
+             string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), offsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(commandIdHex) ||
+             string.Equals(command.CommandIdHex, commandIdHex, StringComparison.OrdinalIgnoreCase)));
     }
 
     private void ContinueBattlefieldPlacedUnitInteraction(MouseEventArgs e)
@@ -1254,43 +1453,8 @@ public sealed partial class MainForm
     private async Task<bool> SelectScriptScenarioByNameAsync(string fileName)
     {
         SelectTabPageByText("剧本编辑");
-        if (_scriptScenarioCombo.Items.Count == 0)
-        {
-            await LoadScriptScenariosAsync();
-        }
-
-        for (var i = 0; i < _scriptScenarioCombo.Items.Count; i++)
-        {
-            if (_scriptScenarioCombo.Items[i] is not ScenarioFileInfo scenario) continue;
-            if (!scenario.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase)) continue;
-            if (_scriptScenarioCombo.SelectedIndex != i)
-            {
-                _updatingScriptScenarioSelection = true;
-                try
-                {
-                    _scriptScenarioCombo.SelectedIndex = i;
-                }
-                finally
-                {
-                    _updatingScriptScenarioSelection = false;
-                }
-            }
-
-            if (_currentScriptScenario == null ||
-                !_currentScriptScenario.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase) ||
-                _currentScriptStructure == null)
-            {
-                await LoadSelectedScriptScenarioAsync();
-            }
-
-            return _currentScriptScenario != null &&
-                   _currentScriptScenario.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase) &&
-                   _currentScriptStructure != null;
-        }
-
-        return false;
+        return await EnsureScriptScenarioLoadedAsync(fileName);
     }
-
     private void ShowSelectedBattlefieldUnitCandidate()
     {
         if (_bindingBattlefieldUnits) return;
@@ -1311,7 +1475,7 @@ public sealed partial class MainForm
             $"坐标：{DisplayOrFallback(candidate.CoordinateDisplay, candidate.CoordinateHint)}\r\n" +
             $"阵营：{DisplayOrFallback(candidate.FactionDisplay, candidate.FactionHint)}\r\n" +
             $"AI：{DisplayOrFallback(candidate.AiDisplay, candidate.AiHint)}\r\n" +
-            $"等级/兵种：{DisplayOrFallback(candidate.LevelJobDisplay, candidate.LevelOrStateHint)}\r\n" +
+            $"等级/兵种级：{DisplayOrFallback(candidate.LevelJobDisplay, candidate.LevelOrStateHint)}\r\n" +
             $"核对状态：{candidate.ReviewStatus}\r\n" +
             $"核对记录：{candidate.ReviewNote}\r\n" +
             $"中文注释：{candidate.Annotation}";
@@ -3598,7 +3762,10 @@ public sealed partial class MainForm
         }
 
         PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
-        RefreshBattlefieldLegacyScriptView(command, row.Index);
+        if (!RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.Battlefield, command, row.Index))
+        {
+            RefreshBattlefieldLegacyScriptView(command, row.Index);
+        }
         _saveBattlefieldScriptStructureButton.Enabled = true;
         SetStatus($"战场制作 S 剧本参数：{command.CommandIdHex} {command.CommandName} 槽 {parameter.Index} {oldValue} -> {newValue}，需完整保存S剧本");
     }
@@ -3669,7 +3836,10 @@ public sealed partial class MainForm
         {
             PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
         }
-        RefreshBattlefieldLegacyScriptView(command);
+        if (!RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.Battlefield, command))
+        {
+            RefreshBattlefieldLegacyScriptView(command);
+        }
         RefreshBattlefieldDocumentFromLegacyScript();
         _saveBattlefieldScriptStructureButton.Enabled = true;
         SetStatus($"战场制作旧版修改指令：{commandTitle}，{oldSummary} -> {BuildLegacyScriptParameterPreview(command)}，需完整保存S剧本");
@@ -3752,7 +3922,10 @@ public sealed partial class MainForm
         }
 
         PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
-        RefreshBattlefieldLegacyScriptView(command, preferredParameterIndex ?? 0);
+        if (!RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.Battlefield, command, preferredParameterIndex ?? 0))
+        {
+            RefreshBattlefieldLegacyScriptView(command, preferredParameterIndex ?? 0);
+        }
         RefreshBattlefieldDocumentFromLegacyScript();
         _saveBattlefieldScriptStructureButton.Enabled = true;
         SetStatus($"战场制作出场块修改：{commandTitle}，{oldSummary} -> {BuildLegacyScriptParameterPreview(command)}，需完整保存S剧本");
@@ -3798,10 +3971,18 @@ public sealed partial class MainForm
         return false;
     }
 
-    private void RefreshBattlefieldLegacyScriptView(LegacyScenarioCommandNode? preferredSelection, int? preferredParameterIndex = null)
+    private void RefreshBattlefieldLegacyScriptView(
+        LegacyScenarioCommandNode? preferredSelection,
+        int? preferredParameterIndex = null,
+        LegacyScriptViewportSnapshot? viewportSnapshot = null,
+        bool preserveViewport = true)
     {
         if (_currentBattlefieldLegacyScriptDocument == null) return;
 
+        var viewport = preserveViewport
+            ? viewportSnapshot ?? CaptureLegacyScriptViewport(LegacyScriptEditorScope.Battlefield)
+            : null;
+        var selectionRestored = false;
         _bindingBattlefieldScriptEditor = true;
         try
         {
@@ -3817,7 +3998,7 @@ public sealed partial class MainForm
             _bindingBattlefieldScriptEditor = false;
         }
 
-        if (preferredSelection != null && TrySelectBattlefieldLegacyScriptCommand(preferredSelection))
+        if (preferredSelection != null && TrySelectBattlefieldLegacyScriptCommand(preferredSelection, ensureVisible: !preserveViewport))
         {
             ShowSelectedBattlefieldScriptNode();
             if (preferredParameterIndex.HasValue)
@@ -3825,13 +4006,22 @@ public sealed partial class MainForm
                 TrySelectBattlefieldScriptParameterRow(preferredParameterIndex.Value);
                 ShowSelectedBattlefieldScriptParameter();
             }
-            return;
+            selectionRestored = true;
+        }
+        else if (preserveViewport && TryRestoreLegacyScriptSelectedNode(viewport))
+        {
+            ShowSelectedBattlefieldScriptNode();
+            selectionRestored = true;
         }
 
-        ClearBattlefieldScriptTextSelection();
+        RestoreLegacyScriptViewport(viewport);
+        if (!selectionRestored)
+        {
+            ClearBattlefieldScriptTextSelection();
+        }
     }
 
-    private bool TrySelectBattlefieldLegacyScriptCommand(LegacyScenarioCommandNode command)
+    private bool TrySelectBattlefieldLegacyScriptCommand(LegacyScenarioCommandNode command, bool ensureVisible = true)
     {
         var target = _currentBattlefieldScriptStructure?.Rows.FirstOrDefault(row =>
             row.NodeType == "Command候选" &&
@@ -3844,10 +4034,10 @@ public sealed partial class MainForm
             return false;
         }
 
-        return SelectBattlefieldScriptTreeNode(target);
+        return SelectBattlefieldScriptTreeNode(target, ensureVisible);
     }
 
-    private bool TrySelectRSceneLegacyScriptCommand(LegacyScenarioCommandNode command)
+    private bool TrySelectRSceneLegacyScriptCommand(LegacyScenarioCommandNode command, bool ensureVisible = true)
     {
         var target = FindRSceneScriptRowByCommandReference(command) ??
                      _currentRSceneScriptStructure?.Rows.FirstOrDefault(row =>
@@ -3856,7 +4046,7 @@ public sealed partial class MainForm
                          row.SectionIndex == command.SectionIndex &&
                          row.CommandIndex == command.CommandIndex &&
                          row.CommandId == command.CommandId);
-        return target != null && SelectRSceneScriptTreeNode(target);
+        return target != null && SelectRSceneScriptTreeNode(target, ensureVisible);
     }
 
     private bool TrySelectBattlefieldScriptParameterRow(int parameterIndex)
@@ -3972,11 +4162,14 @@ public sealed partial class MainForm
                     dictionary,
                     "战场制作页 S 剧本文本完整保存");
 
-                await LoadSelectedBattlefieldScenarioAsync();
-                _battlefieldScriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
-                System.Diagnostics.Debug.WriteLine($"已从战场制作页完整保存 S 剧本文本：{scenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
-                SetStatus($"战场制作：S 剧本文本保存完成 {scenario.FileName}");
-                MessageBox.Show(this, $"完整保存完成。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}", "保存完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            if (!RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.Battlefield, legacyText.Command))
+            {
+                RefreshBattlefieldLegacyScriptView(legacyText.Command);
+            }
+            MarkLegacyScriptEditorSavedInPlace(LegacyScriptEditorScope.Battlefield, result);
+            System.Diagnostics.Debug.WriteLine($"已从战场制作页完整保存 S 剧本文本：{scenario.FileName} offset={entry.OffsetHex} backup={result.BackupPath}");
+            SetStatus($"战场制作：S 剧本文本保存完成 {scenario.FileName}");
+            MessageBox.Show(this, $"完整保存完成。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}", "保存完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -4053,8 +4246,7 @@ public sealed partial class MainForm
                 dictionary,
                 "战场制作页 S 剧本完整结构保存"));
 
-            await LoadSelectedBattlefieldScenarioAsync();
-            _battlefieldScriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
+            MarkLegacyScriptEditorSavedInPlace(LegacyScriptEditorScope.Battlefield, result);
             System.Diagnostics.Debug.WriteLine($"已从战场制作页完整保存 S 剧本：{scenario.FileName} backup={result.BackupPath}");
             SetStatus($"战场制作：S 剧本完整保存完成 {scenario.FileName}");
         }
@@ -4069,10 +4261,17 @@ public sealed partial class MainForm
         }
     }
 
-    private void RefreshRSceneLegacyScriptView(LegacyScenarioCommandNode? preferredSelection)
+    private void RefreshRSceneLegacyScriptView(
+        LegacyScenarioCommandNode? preferredSelection,
+        LegacyScriptViewportSnapshot? viewportSnapshot = null,
+        bool preserveViewport = true)
     {
         if (_currentRSceneLegacyScriptDocument == null || _currentRSceneScenario == null) return;
 
+        var viewport = preserveViewport
+            ? viewportSnapshot ?? CaptureLegacyScriptViewport(LegacyScriptEditorScope.RScene)
+            : null;
+        var selectionRestored = false;
         _rSceneScriptCommandByKey.Clear();
         _currentRSceneScriptStructure = BuildRSceneLegacyScriptStructureResult(_currentRSceneLegacyScriptDocument);
         _currentRSceneScriptTextEntries = BuildRSceneLegacyScriptTextEntries(_currentRSceneLegacyScriptDocument);
@@ -4092,13 +4291,23 @@ public sealed partial class MainForm
                              row.CommandId == preferredSelection.CommandId);
             if (target != null)
             {
-                SelectRSceneScriptTreeNode(target);
-                return;
+                SelectRSceneScriptTreeNode(target, ensureVisible: !preserveViewport);
+                selectionRestored = true;
             }
         }
 
-        ReapplyRSceneLockedPreview();
-        _rSceneScriptDetailBox.Text = BuildRSceneInfoText();
+        if (!selectionRestored && preserveViewport && TryRestoreLegacyScriptSelectedNode(viewport))
+        {
+            ShowSelectedRSceneScriptNode();
+            selectionRestored = true;
+        }
+
+        RestoreLegacyScriptViewport(viewport);
+        if (!selectionRestored)
+        {
+            ReapplyRSceneLockedPreview();
+            _rSceneScriptDetailBox.Text = BuildRSceneInfoText();
+        }
     }
 
     private ScenarioStructureRow? FindRSceneScriptRowByCommandReference(LegacyScenarioCommandNode command)
@@ -4144,8 +4353,7 @@ public sealed partial class MainForm
                 dictionary,
                 "R场景制作页 R 剧本完整结构保存"));
 
-            await LoadSelectedRSceneScenarioAsync();
-            _rSceneScriptDetailBox.Text += $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
+            MarkLegacyScriptEditorSavedInPlace(LegacyScriptEditorScope.RScene, result);
             System.Diagnostics.Debug.WriteLine($"已从 R 场景制作页完整保存 R 剧本：{scenario.FileName} backup={result.BackupPath}");
             SetStatus($"R场景制作：R 剧本完整保存完成 {scenario.FileName}");
         }

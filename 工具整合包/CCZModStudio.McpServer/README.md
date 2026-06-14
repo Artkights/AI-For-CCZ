@@ -48,7 +48,7 @@ Generated files are written under `MCP配置\_generated` and are intentionally i
 
 - Project detection: `detect_project`.
 - Game settings data: `list_tables`, `read_table`, `write_table_rows`, `list_effects`, `read_effect`, `export_effect_package`, `preview_effect_package`, `apply_effect_package`, `list_effect_templates`, `build_effect_package_from_template`, `preview_effect_patch`, `apply_effect_patch`, `read_effect_resource`, `read_effect_prompt`.
-- Game production data: `list_scenario_files`, `read_scenario_commands`, `search_scenario_scripts`, `read_scenario_texts`, `write_scenario_texts`, `list_scenario_command_templates`, `read_scenario_command_template`, `list_hexzmap_blocks`, `read_hexzmap_block`, `write_hexzmap_block`, `replace_map_image`.
+- Game production data: `list_scenario_files`, `read_scenario_commands`, `search_scenario_scripts`, `read_scenario_texts`, `write_scenario_texts`, `list_scenario_command_templates`, `read_scenario_command_template`, `list_hexzmap_blocks`, `read_hexzmap_block`, `write_hexzmap_block`, `preview_map_image`, `replace_map_image`.
 - Resource replacement: `preview_resource_replace`, `replace_resource`.
 - Image catalog and previews: `list_image_resources`, `list_image_resource_entries`, `export_image_resource_preview`.
 - AI image assets: `list_ccz_image_asset_presets`, `build_ccz_image_prompt`, `prepare_ccz_generated_image`, `draw_ccz_image_asset`.

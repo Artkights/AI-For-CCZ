@@ -14,10 +14,10 @@ public sealed class ImageAssignmentService
 
     public DataTable Load(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var personTable = Find(tables, "6.5-0 人物");
-        var jobTable = Find(tables, "6.5-4 详细兵种");
-        var rTable = Find(tables, "6.5-0-4 R形象");
-        var sTable = Find(tables, "6.5-0-5 S形象");
+        var personTable = Find(project, tables, "6.5-0 人物");
+        var jobTable = Find(project, tables, "6.5-4 详细兵种");
+        var rTable = Find(project, tables, "6.5-0-4 R形象");
+        var sTable = Find(project, tables, "6.5-0-5 S形象");
         EnsureImageTablesMatchBImageAssigner(rTable, sTable);
 
         var person = _reader.Read(project, personTable, tables);
@@ -73,8 +73,8 @@ public sealed class ImageAssignmentService
 
     public ImageAssignmentSaveResult Save(CczProject project, IReadOnlyList<HexTableDefinition> tables, DataTable assignments)
     {
-        var rTable = Find(tables, "6.5-0-4 R形象");
-        var sTable = Find(tables, "6.5-0-5 S形象");
+        var rTable = Find(project, tables, "6.5-0-4 R形象");
+        var sTable = Find(project, tables, "6.5-0-5 S形象");
         EnsureImageTablesMatchBImageAssigner(rTable, sTable);
         var rRead = _reader.Read(project, rTable, tables);
         var sRead = _reader.Read(project, sTable, tables);
@@ -111,8 +111,8 @@ public sealed class ImageAssignmentService
         return new ImageAssignmentSaveResult { Saves = saves };
     }
 
-    private static HexTableDefinition Find(IReadOnlyList<HexTableDefinition> tables, string tableName) =>
-        HexTableNameResolver.Resolve(tables, tableName);
+    private static HexTableDefinition Find(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName) =>
+        HexTableNameResolver.ResolveForProject(project, tables, tableName);
 
     private static IReadOnlyDictionary<int, string> BuildJobNameLookup(DataTable jobs)
     {

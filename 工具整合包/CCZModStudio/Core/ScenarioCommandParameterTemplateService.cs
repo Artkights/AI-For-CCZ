@@ -1011,12 +1011,14 @@ public sealed class ScenarioCommandParameterTemplateService
                 S(2, "X坐标", SlotKind.CoordinateX, "出场 X 坐标候选。"),
                 S(3, "Y坐标", SlotKind.CoordinateY, "出场 Y 坐标候选。")),
 
-            T(0x48, "敌方装备设定", "用于设置敌方单位的武器、防具或辅助装备。",
-                "装备编号应与物品表和难度设计核对，避免敌军异常装备。",
-                S(0, "敌军人物/部队", SlotKind.Person, "目标敌军候选。"),
-                S(1, "装备槽位", SlotKind.Value, "武器、防具、辅助槽位候选。"),
-                S(2, "物品/装备编号", SlotKind.Item, "设置的物品装备候选。"),
-                S(3, "等级/经验", SlotKind.Count, "装备等级或经验候选。")),
+            T(0x48, "战场装备设定", "用于设置 46/47 部署段中友军或敌军单位的武器、防具和辅助装备。",
+                "装备字段不是原始物品 ID：0=默认，1=卸去，2+=按武器/防具/辅助分段的相对编号+2；分段以 B形象指定器 System.ini 的 DefID/AssID 为准。",
+                S(0, "人物/部队", SlotKind.Person, "目标友军或敌军人物候选。"),
+                S(1, "武器编码", SlotKind.Value, "武器分段内相对装备编码：0=默认，1=卸去，2+=武器物品序号+2。"),
+                S(2, "武器等级", SlotKind.Count, "武器等级候选；战场状态弹窗按 0=默认、1..16=等级处理。"),
+                S(3, "防具编码", SlotKind.Value, "防具分段内相对装备编码：0=默认，1=卸去，2+=防具物品序号+2。"),
+                S(4, "防具等级", SlotKind.Count, "防具等级候选；战场状态弹窗按 0=默认、1..16=等级处理。"),
+                S(5, "辅助编码", SlotKind.Value, "辅助/道具分段内相对装备编码：0=默认，1=卸去，2+=辅助物品序号+2。")),
 
             T(0x49, "战斗结束", "用于触发战斗结束、结算或返回剧情。",
                 "战斗结束命令会中断战场流程，需结合胜败条件和发布前综合报告复核。",
@@ -1074,8 +1076,7 @@ public sealed class ScenarioCommandParameterTemplateService
             T(0x52, "兵种改变", "用于改变人物兵种或战场单位职业。",
                 "兵种编号应跳到详细兵种表核对，改动会影响移动、攻击范围和成长。",
                 S(0, "武将/人物编号", SlotKind.Person, "目标人物候选。"),
-                S(1, "兵种/职业编号", SlotKind.Value, "目标兵种编号候选；请跳到兵种表核对名称。"),
-                S(2, "刷新标志", SlotKind.BooleanFlag, "是否立即刷新属性/形象候选。")),
+                S(1, "兵种/职业编号", SlotKind.Value, "目标兵种编号候选；请跳到兵种表核对名称。")),
 
             T(0x53, "战场撤退", "用于让指定单位撤退或从战场离开。",
                 "撤退与阵亡、隐藏、消失不同，可能影响胜败和后续剧情。",
@@ -1343,7 +1344,7 @@ public sealed class ScenarioCommandParameterTemplateService
 
         var reader = new HexTableReader();
         var itemNames = new Dictionary<int, string>();
-        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
+        foreach (var table in HexTableNameResolver.ResolveItemTables(project, tables))
         {
             foreach (var pair in LoadNameMap(project, tables, reader, table.TableName))
             {
@@ -1361,7 +1362,7 @@ public sealed class ScenarioCommandParameterTemplateService
     {
         try
         {
-            if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return new Dictionary<int, string>();
+            if (!HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table)) return new Dictionary<int, string>();
             var read = reader.Read(project, table, tables);
             if (!read.Validation.IsUsable || !read.Data.Columns.Contains("ID")) return new Dictionary<int, string>();
             var nameColumn = read.Data.Columns.Contains("名称")

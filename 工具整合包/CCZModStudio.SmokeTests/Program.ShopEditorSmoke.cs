@@ -105,6 +105,14 @@ internal partial class Program
             ?? throw new MissingFieldException("MainForm", "_shopBatchFindItemCombo");
         var shopBatchReplaceItemComboField = typeof(MainForm).GetField("_shopBatchReplaceItemCombo", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             ?? throw new MissingFieldException("MainForm", "_shopBatchReplaceItemCombo");
+        foreach (var buttonFieldName in new[] { "_exportShopEditorCsvButton", "_importShopEditorCsvButton", "_copyShopEditorSelectionButton", "_pasteShopEditorSelectionButton", "_batchFillShopEditorColumnButton" })
+        {
+            if (typeof(MainForm).GetField(buttonFieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic) == null)
+            {
+                throw new MissingFieldException("MainForm", buttonFieldName);
+            }
+        }
+
         var configureShopEditorGrid = typeof(MainForm).GetMethod("ConfigureShopEditorGrid", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             ?? throw new MissingMethodException("MainForm.ConfigureShopEditorGrid");
         var getShopBatchTargetColumns = typeof(MainForm).GetMethod("GetShopBatchTargetColumns", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
@@ -115,6 +123,14 @@ internal partial class Program
             ?? throw new MissingMethodException("MainForm.ApplyShopBatchClear");
         var applyShopBatchReplace = typeof(MainForm).GetMethod("ApplyShopBatchReplace", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
             ?? throw new MissingMethodException("MainForm.ApplyShopBatchReplace");
+        _ = typeof(MainForm).GetMethod("PasteShopEditorSelection", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException("MainForm.PasteShopEditorSelection");
+        var fillShopEditorSelectionWithCurrentValue = typeof(MainForm).GetMethod("FillShopEditorSelectionWithCurrentValue", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException("MainForm.FillShopEditorSelectionWithCurrentValue");
+        var trySetShopEditorCellValue = typeof(MainForm).GetMethod("TrySetShopEditorCellValue", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException("MainForm.TrySetShopEditorCellValue");
+        var validateAllShopEditorEditableCells = typeof(MainForm).GetMethod("ValidateAllShopEditorEditableCells", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException("MainForm.ValidateAllShopEditorEditableCells");
     
         currentShopEditorDataField.SetValue(smokeForm, data);
         var shopEditorGrid = shopEditorGridField.GetValue(smokeForm) as DataGridView
@@ -195,8 +211,62 @@ internal partial class Program
             throw new InvalidOperationException("Shop batch clear did not update item 17-32.");
         }
         data.DefaultView.RowFilter = string.Empty;
-    
-        Console.WriteLine($"SHOP_EDITOR_SMOKE rows={data.Rows.Count} normal={normalRows} firstName={firstName} warehouse={firstWarehousePreview} buySell={firstBuySellPreview} itemSlots={itemSlotValues.Count} mapped={mappedItemDisplay} detailId={firstItemId} batchEquip={equipmentBatchColumns.Count} batchItem={itemBatchColumns.Count}");
+
+        var csvPath = Path.Combine(Path.GetTempPath(), "CCZModStudio_ShopEditorSmoke_" + Guid.NewGuid().ToString("N") + ".csv");
+        CsvService.Export(data, csvPath);
+        batchRow["装备1"] = 254;
+        var imported = CsvService.ImportInto(data, csvPath, allowPartialColumns: true, matchByIdWhenPresent: true);
+        File.Delete(csvPath);
+        if (imported != data.Rows.Count || Convert.ToInt32(batchRow["装备1"], CultureInfo.InvariantCulture) == 254)
+        {
+            throw new InvalidOperationException("Shop CSV round-trip did not restore imported item slot values.");
+        }
+
+        var pasteId = firstItemId == 255 ? 1 : firstItemId;
+        shopEditorGrid.ClearSelection();
+        shopEditorGrid.CurrentCell = shopEditorGrid.Rows[0].Cells["装备1"];
+        var changedRows = new HashSet<DataRow>();
+        var setArgs = new object?[] { 0, shopEditorGrid.Columns["装备1"].Index, pasteId.ToString(CultureInfo.InvariantCulture), changedRows, null };
+        var setOk = (bool)(trySetShopEditorCellValue.Invoke(smokeForm, setArgs) ?? false);
+        if (!setOk)
+        {
+            throw new InvalidOperationException("Shop validated cell setter rejected a valid item slot value: " + Convert.ToString(setArgs[4], CultureInfo.InvariantCulture));
+        }
+
+        if (Convert.ToInt32(batchRow["装备1"], CultureInfo.InvariantCulture) != pasteId)
+        {
+            throw new InvalidOperationException("Shop validated edit path did not update an item slot value.");
+        }
+
+        shopEditorGrid.ClearSelection();
+        shopEditorGrid.CurrentCell = shopEditorGrid.Rows[0].Cells["装备1"];
+        shopEditorGrid.Rows[0].Cells["装备1"].Selected = true;
+        var fillColumns = equipmentBatchColumns.Take(3).ToArray();
+        foreach (var columnName in fillColumns)
+        {
+            shopEditorGrid.Rows[0].Cells[columnName].Selected = true;
+        }
+        fillShopEditorSelectionWithCurrentValue.Invoke(smokeForm, Array.Empty<object>());
+        if (fillColumns.Any(columnName => Convert.ToInt32(batchRow[columnName], CultureInfo.InvariantCulture) != pasteId))
+        {
+            throw new InvalidOperationException("Shop batch fill did not update selected cells through the validated path.");
+        }
+
+        var invalidItemCell = shopEditorGrid.Rows[0].Cells["装备1"];
+        invalidItemCell.Value = 256;
+        validateAllShopEditorEditableCells.Invoke(smokeForm, Array.Empty<object>());
+        if (string.IsNullOrWhiteSpace(invalidItemCell.ErrorText))
+        {
+            throw new InvalidOperationException("Shop validation did not flag an out-of-range item slot after bulk import/edit.");
+        }
+        invalidItemCell.Value = pasteId;
+        validateAllShopEditorEditableCells.Invoke(smokeForm, Array.Empty<object>());
+        if (!string.IsNullOrWhiteSpace(invalidItemCell.ErrorText))
+        {
+            throw new InvalidOperationException("Shop validation did not clear the repaired item slot error.");
+        }
+
+        Console.WriteLine($"SHOP_EDITOR_SMOKE rows={data.Rows.Count} normal={normalRows} firstName={firstName} warehouse={firstWarehousePreview} buySell={firstBuySellPreview} itemSlots={itemSlotValues.Count} mapped={mappedItemDisplay} detailId={firstItemId} batchEquip={equipmentBatchColumns.Count} batchItem={itemBatchColumns.Count} csvRows={imported}");
         Console.WriteLine("SHOP_EDITOR_SMOKE OK");
     }
 }

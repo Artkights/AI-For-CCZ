@@ -138,9 +138,20 @@ public sealed partial class CczMcpRuntime
             result.NewWidth,
             result.NewHeight,
             result.ChangedBytesEstimate,
+            result.OldSha256,
+            result.NewSha256,
             result.FormatCheckSummary,
             result.Warning
         };
+    }
+
+    public object PreviewMapImage(string? gameRoot, string targetRelativePath, string replacementPath)
+    {
+        var project = LoadProject(gameRoot);
+        var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
+        var sourcePath = ResolveExternalFile(project, replacementPath);
+        var preview = _mapImageReplace.PreviewMapImage(project, targetPath, sourcePath);
+        return BuildMapImageReplacePreviewPayload(preview);
     }
 
     public object PreviewResourceReplace(string? gameRoot, string targetRelativePath, string replacementPath, bool requireSameExtension)
@@ -176,7 +187,7 @@ public sealed partial class CczMcpRuntime
                 .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
                 .Select(group => new { Category = group.Key, Count = group.Count() }),
             Resources = filtered.Take(effectiveLimit).Select(resource => BuildImageResourcePayload(project, resource)),
-            SafetyNote = "Read-only image resource catalog. Use preview/replace E5 and DLL icon tools for writes; map background images continue to use replace_map_image."
+            SafetyNote = "Read-only image resource catalog. Use preview/replace E5 and DLL icon tools for indexed resources; map background images use preview_map_image and replace_map_image."
         };
     }
 

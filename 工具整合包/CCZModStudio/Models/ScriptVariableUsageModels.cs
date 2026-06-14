@@ -64,6 +64,7 @@ public class ScriptVariableUsageSnapshot
     public IReadOnlyList<ScriptVariableSummary> Summaries { get; init; } = Array.Empty<ScriptVariableSummary>();
     public IReadOnlyList<ScriptVariableOccurrence> Occurrences { get; init; } = Array.Empty<ScriptVariableOccurrence>();
     public string SourceLabel { get; init; } = string.Empty;
+    public string VersionKey { get; init; } = string.Empty;
     public DateTime BuiltAt { get; init; } = DateTime.Now;
 }
 

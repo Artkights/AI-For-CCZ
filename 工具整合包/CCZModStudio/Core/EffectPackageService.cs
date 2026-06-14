@@ -25,6 +25,7 @@ public sealed class EffectPackageService
     private readonly ItemEffectCatalogService _itemCatalog = new();
     private readonly PatchApplyService _patchApply = new();
     private readonly WriteOperationReportService _reportService = new();
+    private readonly CczEngineProfileService _engineProfile = new();
 
     public IReadOnlyList<EffectCatalogEntry> ListEffects(CczProject project, IReadOnlyList<HexTableDefinition> tables, string domain, string? keyword, int limit)
     {
@@ -424,6 +425,7 @@ public sealed class EffectPackageService
     private List<EffectCatalogEntry> ListItemEffects(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var result = new List<EffectCatalogEntry>();
+        var hints = _engineProfile.Detect(project).TableHints;
         var catalog = _itemCatalog.Load(project).ToList();
         foreach (var group in catalog.GroupBy(x => x.EffectId).OrderBy(x => x.Key))
         {
@@ -438,9 +440,9 @@ public sealed class EffectPackageService
             });
         }
 
-        foreach (var tableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+        foreach (var tableName in new[] { hints.ItemLowTable, hints.ItemHighTable })
         {
-            var table = ResolveTable(tables, tableName);
+            var table = ResolveTable(project, tables, tableName);
             var read = _reader.Read(project, table, tables);
             foreach (DataRow row in read.Data.Rows)
             {
@@ -467,8 +469,9 @@ public sealed class EffectPackageService
 
     private List<EffectCatalogEntry> ListJobEffects(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var description = ReadTable(project, tables, "6.5-7-1 兵种特效说明");
-        var assignment = ReadTable(project, tables, "6.5-7-2 兵种特效分配");
+        var hints = _engineProfile.Detect(project).TableHints;
+        var description = ReadTable(project, tables, hints.JobEffectDescriptionTable);
+        var assignment = ReadTable(project, tables, hints.JobEffectAssignmentTable);
         var result = new List<EffectCatalogEntry>();
         foreach (DataRow row in assignment.Data.Rows)
         {
@@ -484,7 +487,7 @@ public sealed class EffectPackageService
                 Name = string.IsNullOrWhiteSpace(name) ? $"#{id}" : name,
                 Description = desc,
                 EffectValue = value,
-                Source = "6.5-7-1/6.5-7-2",
+                Source = $"{description.Table.TableName}/{assignment.Table.TableName}",
                 Status = IsJobAssignmentEmpty(row) && string.IsNullOrWhiteSpace(desc) ? "empty" : "configured"
             };
             entry.Details["Bindings"] = new[]
@@ -508,7 +511,8 @@ public sealed class EffectPackageService
 
     private List<EffectCatalogEntry> ListPersonalEffects(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var exclusive = ReadTable(project, tables, "6.5-7-3 人物专属、套装专属");
+        var hints = _engineProfile.Detect(project).TableHints;
+        var exclusive = ReadTable(project, tables, hints.PersonalEffectTable);
         var result = new List<EffectCatalogEntry>();
         foreach (DataRow row in exclusive.Data.Rows)
         {
@@ -528,7 +532,7 @@ public sealed class EffectPackageService
                 EffectId = id,
                 Name = string.IsNullOrWhiteSpace(name) ? $"#{id}" : name,
                 Description = "人物专属、两件装备专属、三件套或四件套槽。",
-                Source = "6.5-7-3",
+                Source = exclusive.Table.TableName,
                 Status = hasAny ? "configured" : "empty"
             };
             entry.Details["Bindings"] = bindings;
@@ -594,7 +598,8 @@ public sealed class EffectPackageService
         foreach (var binding in bindings.Where(binding => binding.ItemId.HasValue))
         {
             var itemId = binding.ItemId!.Value;
-            var tableName = itemId < 104 ? "6.5-1 物品（0-103）" : "6.5-2 物品（104-255）";
+            var hints = _engineProfile.Detect(project).TableHints;
+            var tableName = itemId < 104 ? hints.ItemLowTable : hints.ItemHighTable;
             var table = ReadTable(project, tables, tableName);
             var row = FindRowById(table.Data, itemId);
             if (row == null)
@@ -612,8 +617,9 @@ public sealed class EffectPackageService
 
     private void PreviewJobPackage(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode, EffectPackagePreviewResult preview)
     {
-        var description = ReadTable(project, tables, "6.5-7-1 兵种特效说明");
-        var assignment = ReadTable(project, tables, "6.5-7-2 兵种特效分配");
+        var hints = _engineProfile.Detect(project).TableHints;
+        var description = ReadTable(project, tables, hints.JobEffectDescriptionTable);
+        var assignment = ReadTable(project, tables, hints.JobEffectAssignmentTable);
         var descRow = FindRowById(description.Data, package.EffectId);
         var assignRow = FindRowById(assignment.Data, package.EffectId);
         if (descRow == null || assignRow == null)
@@ -623,17 +629,18 @@ public sealed class EffectPackageService
         }
 
         var binding = package.Bindings.FirstOrDefault() ?? new EffectPackageBinding { RowId = package.EffectId };
-        AddPreview(preview, "JobDescription", "6.5-7-1 兵种特效说明", package.EffectId, "介绍", descRow["介绍"], mode == "delete" ? string.Empty : package.Description);
-        AddPreview(preview, "JobAssignment", "6.5-7-2 兵种特效分配", package.EffectId, "1号武将", assignRow["1号武将"], mode == "delete" ? NoPerson : binding.PersonId ?? NoPerson);
-        AddPreview(preview, "JobAssignment", "6.5-7-2 兵种特效分配", package.EffectId, "2号武将", assignRow["2号武将"], mode == "delete" ? NoPerson : binding.PersonId2 ?? NoPerson);
-        AddPreview(preview, "JobAssignment", "6.5-7-2 兵种特效分配", package.EffectId, "3号武将", assignRow["3号武将"], mode == "delete" ? NoPerson : binding.PersonId3 ?? NoPerson);
-        AddPreview(preview, "JobAssignment", "6.5-7-2 兵种特效分配", package.EffectId, "兵种", assignRow["兵种"], mode == "delete" ? AnyJob : binding.JobId ?? AnyJob);
-        AddPreview(preview, "JobAssignment", "6.5-7-2 兵种特效分配", package.EffectId, "特效值", assignRow["特效值"], mode == "delete" ? 0 : binding.EffectValue ?? package.EffectValue ?? 0);
+        AddPreview(preview, "JobDescription", description.Table.TableName, package.EffectId, "介绍", descRow["介绍"], mode == "delete" ? string.Empty : package.Description);
+        AddPreview(preview, "JobAssignment", assignment.Table.TableName, package.EffectId, "1号武将", assignRow["1号武将"], mode == "delete" ? NoPerson : binding.PersonId ?? NoPerson);
+        AddPreview(preview, "JobAssignment", assignment.Table.TableName, package.EffectId, "2号武将", assignRow["2号武将"], mode == "delete" ? NoPerson : binding.PersonId2 ?? NoPerson);
+        AddPreview(preview, "JobAssignment", assignment.Table.TableName, package.EffectId, "3号武将", assignRow["3号武将"], mode == "delete" ? NoPerson : binding.PersonId3 ?? NoPerson);
+        AddPreview(preview, "JobAssignment", assignment.Table.TableName, package.EffectId, "兵种", assignRow["兵种"], mode == "delete" ? AnyJob : binding.JobId ?? AnyJob);
+        AddPreview(preview, "JobAssignment", assignment.Table.TableName, package.EffectId, "特效值", assignRow["特效值"], mode == "delete" ? 0 : binding.EffectValue ?? package.EffectValue ?? 0);
     }
 
     private void PreviewPersonalPackage(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode, EffectPackagePreviewResult preview)
     {
-        var exclusive = ReadTable(project, tables, "6.5-7-3 人物专属、套装专属");
+        var hints = _engineProfile.Detect(project).TableHints;
+        var exclusive = ReadTable(project, tables, hints.PersonalEffectTable);
         var row = FindRowById(exclusive.Data, package.EffectId);
         if (row == null)
         {
@@ -641,10 +648,10 @@ public sealed class EffectPackageService
             return;
         }
 
-        var values = BuildPersonalValues(package, mode);
+        var values = BuildPersonalValues(row, package, mode);
         foreach (var (column, value) in values)
         {
-            AddPreview(preview, "PersonalExclusive", "6.5-7-3 人物专属、套装专属", package.EffectId, column, row[column], value);
+            AddPreview(preview, "PersonalExclusive", exclusive.Table.TableName, package.EffectId, column, row[column], value);
         }
     }
 
@@ -694,9 +701,10 @@ public sealed class EffectPackageService
         var itemBindings = ResolveItemBindingsForMode(project, tables, package, mode)
             .Where(x => x.ItemId.HasValue)
             .ToList();
-        foreach (var group in itemBindings.GroupBy(x => x.ItemId!.Value < 104 ? "6.5-1 物品（0-103）" : "6.5-2 物品（104-255）"))
+        var hints = _engineProfile.Detect(project).TableHints;
+        foreach (var group in itemBindings.GroupBy(x => x.ItemId!.Value < 104 ? hints.ItemLowTable : hints.ItemHighTable))
         {
-            var table = ResolveTable(tables, group.Key);
+            var table = ResolveTable(project, tables, group.Key);
             var read = _reader.Read(project, table, tables);
             foreach (var binding in group)
             {
@@ -717,8 +725,9 @@ public sealed class EffectPackageService
 
     private void ApplyJobPackage(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode, EffectManifest manifest, EffectPackageApplyResult result)
     {
-        var descriptionTable = ResolveTable(tables, "6.5-7-1 兵种特效说明");
-        var assignmentTable = ResolveTable(tables, "6.5-7-2 兵种特效分配");
+        var hints = _engineProfile.Detect(project).TableHints;
+        var descriptionTable = ResolveTable(project, tables, hints.JobEffectDescriptionTable);
+        var assignmentTable = ResolveTable(project, tables, hints.JobEffectAssignmentTable);
         var description = _reader.Read(project, descriptionTable, tables);
         var assignment = _reader.Read(project, assignmentTable, tables);
         var descRow = FindRowById(description.Data, package.EffectId) ?? throw new InvalidOperationException($"Job effect description row {package.EffectId} was not found.");
@@ -737,10 +746,11 @@ public sealed class EffectPackageService
 
     private void ApplyPersonalPackage(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode, EffectManifest manifest, EffectPackageApplyResult result)
     {
-        var table = ResolveTable(tables, "6.5-7-3 人物专属、套装专属");
+        var hints = _engineProfile.Detect(project).TableHints;
+        var table = ResolveTable(project, tables, hints.PersonalEffectTable);
         var read = _reader.Read(project, table, tables);
         var row = FindRowById(read.Data, package.EffectId) ?? throw new InvalidOperationException($"Personal/set effect row {package.EffectId} was not found.");
-        foreach (var (column, value) in BuildPersonalValues(package, mode))
+        foreach (var (column, value) in BuildPersonalValues(row, package, mode))
         {
             SetCell(row, column, value, "PersonalExclusive", table.TableName, package.EffectId, manifest);
         }
@@ -769,49 +779,51 @@ public sealed class EffectPackageService
         }
     }
 
-    private Dictionary<string, object> BuildPersonalValues(EffectPackage package, string mode)
+    private static Dictionary<string, object> BuildPersonalValues(DataRow currentRow, EffectPackage package, string mode)
     {
         var values = new Dictionary<string, object>(StringComparer.Ordinal);
-        foreach (var column in new[] { "武将1", "装备1", "特效值1", "武将2", "装备2", "特效值2", "装备3-1", "装备3-2", "装备3-3", "特效值3", "装备4-1", "装备4-2", "装备4-3", "特效值4" })
+        var knownColumns = new HashSet<string>(PersonalEffectColumns, StringComparer.Ordinal);
+        if (mode == "delete")
         {
-            values[column] = 0;
-        }
+            foreach (var column in PersonalEffectColumns)
+            {
+                values[column] = 0;
+            }
 
-        if (mode == "delete") return values;
+            return values;
+        }
 
         foreach (var binding in package.Bindings)
         {
             var kind = binding.Kind.Trim().ToLowerInvariant();
             if (kind is "person_item_1" or "person_item" or "exclusive")
             {
-                values["武将1"] = binding.PersonId ?? 0;
-                values["装备1"] = binding.ItemId ?? 0;
-                values["特效值1"] = binding.EffectValue ?? package.EffectValue ?? 0;
+                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("武将1", binding.PersonId), ("装备1", binding.ItemId), ("特效值1", binding.EffectValue ?? package.EffectValue));
             }
             else if (kind == "person_item_2")
             {
-                values["武将2"] = binding.PersonId ?? 0;
-                values["装备2"] = binding.ItemId ?? 0;
-                values["特效值2"] = binding.EffectValue ?? package.EffectValue ?? 0;
+                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("武将2", binding.PersonId), ("装备2", binding.ItemId), ("特效值2", binding.EffectValue ?? package.EffectValue));
             }
             else if (kind is "set_3" or "three_piece")
             {
-                values["装备3-1"] = binding.ItemId ?? 0;
-                values["装备3-2"] = binding.ItemId2 ?? 0;
-                values["装备3-3"] = binding.ItemId3 ?? 0;
-                values["特效值3"] = binding.EffectValue ?? package.EffectValue ?? 0;
+                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("装备3-1", binding.ItemId), ("装备3-2", binding.ItemId2), ("装备3-3", binding.ItemId3), ("特效值3", binding.EffectValue ?? package.EffectValue));
             }
             else if (kind is "set_4" or "four_piece")
             {
-                values["装备4-1"] = binding.ItemId ?? 0;
-                values["装备4-2"] = binding.ItemId2 ?? 0;
-                values["装备4-3"] = binding.ItemId3 ?? 0;
-                values["特效值4"] = binding.EffectValue ?? package.EffectValue ?? 0;
+                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("装备4-1", binding.ItemId), ("装备4-2", binding.ItemId2), ("装备4-3", binding.ItemId3), ("特效值4", binding.EffectValue ?? package.EffectValue));
             }
 
             foreach (var (key, value) in binding.Values)
             {
-                if (values.ContainsKey(key)) values[key] = value;
+                if (knownColumns.Contains(key)) values[key] = value;
+            }
+        }
+
+        foreach (var column in values.Keys.ToList())
+        {
+            if (!currentRow.Table.Columns.Contains(column))
+            {
+                values.Remove(column);
             }
         }
 
@@ -820,7 +832,7 @@ public sealed class EffectPackageService
 
     private TableReadResult ReadTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
     {
-        var table = ResolveTable(tables, tableName);
+        var table = ResolveTable(project, tables, tableName);
         return _reader.Read(project, table, tables);
     }
 
@@ -833,7 +845,8 @@ public sealed class EffectPackageService
         }
 
         var references = new List<EffectPackageBinding>();
-        foreach (var tableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
+        var hints = _engineProfile.Detect(project).TableHints;
+        foreach (var tableName in new[] { hints.ItemLowTable, hints.ItemHighTable })
         {
             var read = ReadTable(project, tables, tableName);
             foreach (DataRow row in read.Data.Rows)
@@ -852,8 +865,33 @@ public sealed class EffectPackageService
         return references;
     }
 
-    private static HexTableDefinition ResolveTable(IReadOnlyList<HexTableDefinition> tables, string tableName)
-        => HexTableNameResolver.Resolve(tables, tableName);
+    private static HexTableDefinition ResolveTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.ResolveForProject(project, tables, tableName);
+
+    private static readonly string[] PersonalEffectColumns =
+    [
+        "武将1", "装备1", "特效值1", "武将2", "装备2", "特效值2",
+        "装备3-1", "装备3-2", "装备3-3", "特效值3",
+        "装备4-1", "装备4-2", "装备4-3", "特效值4"
+    ];
+
+    private static void SetPersonalSlot(Dictionary<string, object> values, int effectValue, params (string Column, int? Value)[] fields)
+    {
+        if (effectValue == 0)
+        {
+            foreach (var (column, _) in fields)
+            {
+                values[column] = 0;
+            }
+
+            return;
+        }
+
+        foreach (var (column, value) in fields)
+        {
+            values[column] = value ?? 0;
+        }
+    }
 
     private static void AddPreview(EffectPackagePreviewResult preview, string category, string target, int? rowId, string field, object? oldValue, object? newValue)
     {

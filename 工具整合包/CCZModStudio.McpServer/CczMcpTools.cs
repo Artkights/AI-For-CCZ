@@ -190,6 +190,17 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.WriteHexzmapBlock(game_root, map_id, changes, write_mode);
 
     [McpServerTool]
+    [Description("Preview replacing a project Map/*.jpg image without writing. Returns dimensions, sizes, hashes, estimated changed bytes, format checks, and risk warnings.")]
+    public object preview_map_image(
+        [Description("Project-relative target path, for example Map/M000.jpg.")]
+        string target_relative_path,
+        [Description("Replacement image path. Relative paths resolve from workspace root first.")]
+        string replacement_path,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewMapImage(game_root, target_relative_path, replacement_path);
+
+    [McpServerTool]
     [Description("Replace a project Map/*.jpg image with another JPEG. Creates a backup and structured report.")]
     public object replace_map_image(
         [Description("Project-relative target path, for example Map/M000.jpg.")]

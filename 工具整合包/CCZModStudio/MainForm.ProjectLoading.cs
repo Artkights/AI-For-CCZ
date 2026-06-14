@@ -118,6 +118,8 @@ public sealed partial class MainForm
         _currentShopEditorData = null;
         _shopEditorGrid.DataSource = null;
         _saveShopEditorButton.Enabled = false;
+        _exportShopEditorCsvButton.Enabled = false;
+        _importShopEditorCsvButton.Enabled = false;
 
         _currentImageAssignments = null;
         _imageAssignmentGrid.DataSource = null;
@@ -156,11 +158,8 @@ public sealed partial class MainForm
         _currentMapResources = Array.Empty<MapResourceItem>();
         _mapImageList.DataSource = null;
         _currentMapMakerItem = null;
-        _mapViewerBox.Image = null;
-        _mapViewerRenderedImage?.Dispose();
-        _mapViewerRenderedImage = null;
-        _mapViewerImage?.Dispose();
-        _mapViewerImage = null;
+        ClearMapMakerPreviewImages();
+        _mapMakerMapCellOverrideLookup.Clear();
         ResetMapWorkbenchHistory();
     }
 }

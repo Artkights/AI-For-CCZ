@@ -275,7 +275,7 @@ public sealed class TableReferenceLookupService
             return string.Empty;
         }
 
-        var strategyTableName = ResolveTableNameOrFallback(tables, "6.5-5 策略");
+        var strategyTableName = ResolveTableNameOrFallback(project, tables, "6.5-5 策略");
         var strategyName = LookupName(project, tables, strategyTableName, rowId.Value);
         return
             $"\r\n\r\n策略附表解释：{currentTable.TableName}\r\n" +
@@ -314,14 +314,14 @@ public sealed class TableReferenceLookupService
             sourceValue,
             sourceRowId,
             "策略附表行对齐",
-            ResolveTableNameOrFallback(tables, "6.5-5 策略"),
+            ResolveTableNameOrFallback(project, tables, "6.5-5 策略"),
             rowId.Value,
             $"当前值 {value} 是“{meaning}”，该附表通常与策略主表按同一 ID 对齐。");
     }
 
     private string BuildSingleTableReference(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition currentTable, HexFieldDefinition field, int id, ReferenceRule rule)
     {
-        if (!HexTableNameResolver.TryResolve(tables, rule.TargetTableName, out var table))
+        if (!HexTableNameResolver.TryResolveForProject(project, tables, rule.TargetTableName, out var table))
         {
             return $"\r\n\r\n跨表引用解释：字段“{field.ColumnName}”可能引用“{rule.TargetTableName}”，但当前 HexTable.xml 中未找到该表。\r\n建议：保留原值或结合原工具验证后再改。";
         }
@@ -345,7 +345,7 @@ public sealed class TableReferenceLookupService
 
     private string BuildItemReference(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition currentTable, HexFieldDefinition field, int id)
     {
-        foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
+        foreach (var table in HexTableNameResolver.ResolveItemTables(project, tables))
         {
             var data = ReadTable(project, table, tables);
             var row = FindRowById(data, id);
@@ -490,7 +490,7 @@ public sealed class TableReferenceLookupService
         int targetId,
         string reason)
     {
-        if (!HexTableNameResolver.TryResolve(tables, targetTableName, out var targetTable))
+        if (!HexTableNameResolver.TryResolveForProject(project, tables, targetTableName, out var targetTable))
         {
             return new TableReferenceNavigationTarget
             {
@@ -540,7 +540,7 @@ public sealed class TableReferenceLookupService
         string sourceRowId,
         string reason)
     {
-        foreach (var targetTable in HexTableNameResolver.ResolveItemTables(tables))
+        foreach (var targetTable in HexTableNameResolver.ResolveItemTables(project, tables))
         {
             var data = ReadTable(project, targetTable, tables);
             var row = FindRowById(data, itemId);
@@ -659,7 +659,7 @@ public sealed class TableReferenceLookupService
             };
         }
 
-        if (!HexTableNameResolver.TryResolve(tables, targetTableName, out var targetTable))
+        if (!HexTableNameResolver.TryResolveForProject(project, tables, targetTableName, out var targetTable))
         {
             return new TableReferenceNavigationTarget
             {
@@ -780,14 +780,14 @@ public sealed class TableReferenceLookupService
 
     private string LookupName(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName, int id)
     {
-        if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return "(未找到目标表)";
+        if (!HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table)) return "(未找到目标表)";
         var data = ReadTable(project, table, tables);
         var row = FindRowById(data, id);
         return row == null ? "(未找到目标行)" : GetDisplayName(row);
     }
 
-    private static string ResolveTableNameOrFallback(IReadOnlyList<HexTableDefinition> tables, string tableName)
-        => HexTableNameResolver.TryResolve(tables, tableName, out var table) ? table.TableName : tableName;
+    private static string ResolveTableNameOrFallback(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table) ? table.TableName : tableName;
 
     private static string GetStrategyCompanionMeaning(string tableName)
     {

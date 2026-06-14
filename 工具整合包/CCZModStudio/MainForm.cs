@@ -154,6 +154,7 @@ public sealed partial class MainForm : Form
     };
 
     private readonly ProjectDetector _projectDetector = new();
+    private readonly CczEngineProfileService _engineProfileService = new();
     private readonly HexTableParser _tableParser = new();
     private readonly HexTableReader _tableReader = new();
     private readonly HexTableWriter _tableWriter = new();
@@ -170,6 +171,9 @@ public sealed partial class MainForm : Form
     private readonly ResourceReplaceService _resourceReplaceService = new();
     private readonly E5ImageReplaceService _e5ImageReplaceService = new();
     private readonly IconResourceReplaceService _iconResourceReplaceService = new();
+    private readonly RImageReplaceService _rImageReplaceService = new();
+    private readonly SImageReplaceService _sImageReplaceService = new();
+    private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
     private readonly FieldAnnotationService _fieldAnnotationService = new();
@@ -179,6 +183,7 @@ public sealed partial class MainForm : Form
     private readonly MapDraftService _mapDraftService = new();
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
+    private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
     private readonly ImageResourceCatalogService _imageResourceCatalogService = new();    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
     private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
@@ -204,6 +209,7 @@ public sealed partial class MainForm : Form
     private readonly HexzmapEditorService _hexzmapEditorService = new();    private readonly BattlefieldEditorService _battlefieldEditorService = new();
     private readonly BattlefieldUnitReviewService _battlefieldUnitReviewService = new();
     private readonly BattlefieldDeploymentWriteService _battlefieldDeploymentWriteService = new();
+    private readonly BattlefieldUnitStatusWriteService _battlefieldUnitStatusWriteService = new();
     private readonly BattlefieldAllyDeploymentSlotService _battlefieldAllyDeploymentSlotService = new();
     private readonly RSceneDraftService _rSceneDraftService = new();
     private readonly RSceneDialoguePreviewService _rSceneDialoguePreviewService = new();
@@ -313,6 +319,7 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<RSceneStateCandidate> _currentRSceneStateCandidates = Array.Empty<RSceneStateCandidate>();
     private IReadOnlyList<ImageResourceEntryInfo> _currentRSceneBackgroundEntries = Array.Empty<ImageResourceEntryInfo>();
     private IReadOnlyList<RSceneActorPaletteItem> _rSceneActorPaletteItems = Array.Empty<RSceneActorPaletteItem>();
+    private bool _bindingRSceneScriptTree;
     private LegacyScenarioCommandNode? _currentRSceneDialoguePreviewCommand;
     private string _currentRSceneDialoguePreviewMessage = string.Empty;
     private bool _rScenePreviewLocked;
@@ -410,9 +417,10 @@ public sealed partial class MainForm : Form
     private readonly HashSet<int> _mapMakerPendingMapPaintIndexes = new();
     private readonly List<TerrainEditorCellChange> _mapMakerPendingTerrainPaintChanges = new();
     private readonly HashSet<int> _mapMakerPendingTerrainPaintIndexes = new();
+    private readonly Dictionary<int, MapCellOverride> _mapMakerMapCellOverrideLookup = new();
     private byte[] _mapMakerOriginalTerrainCells = Array.Empty<byte>();
-    private Image? _mapViewerImage;
     private Bitmap? _mapViewerRenderedImage;
+    private int _mapMakerTerrainChangedCellCount;
     private TableReferenceNavigationTarget? _currentTableReferenceTarget;
     private UiLayoutSettings _uiLayoutSettings = new();
     private readonly Dictionary<string, SplitContainer> _uiLayoutSplits = new(StringComparer.Ordinal);
@@ -565,7 +573,11 @@ public sealed partial class MainForm : Form
     private readonly TextBox _itemIconPreviewInfoBox = new();
     private readonly Button _loadShopEditorButton = new();
     private readonly Button _saveShopEditorButton = new();
-    private readonly Button _openShopDataTableButton = new();
+    private readonly Button _exportShopEditorCsvButton = new();
+    private readonly Button _importShopEditorCsvButton = new();
+    private readonly Button _copyShopEditorSelectionButton = new();
+    private readonly Button _pasteShopEditorSelectionButton = new();
+    private readonly Button _batchFillShopEditorColumnButton = new();
     private readonly Button _filterShopEditorButton = new();
     private readonly Button _clearShopEditorFilterButton = new();
     private readonly TextBox _shopEditorSearchBox = new();
@@ -674,6 +686,7 @@ public sealed partial class MainForm : Form
     private readonly Button _restoreImageResourceEntryButton = new();
     private readonly Button _batchImportImageResourceEntriesButton = new();
     private readonly Button _batchClearImageResourceEntriesButton = new();
+    private readonly Button _normalizeRoleRawImagesButton = new();
     private readonly Button _exportImageResourceEntriesButton = new();
     private readonly ComboBox _imageResourceCategoryFilterCombo = new();
     private readonly TextBox _imageResourceSearchBox = new();
@@ -693,6 +706,8 @@ public sealed partial class MainForm : Form
     private readonly Button _clearImageAssignmentFilterButton = new();
     private readonly Button _locateImageResourceButton = new();
     private readonly Button _replaceImageResourceButton = new();
+    private readonly Button _replaceRImageSetButton = new();
+    private readonly Button _replaceSImageSetButton = new();
     private readonly Button _restoreImageResourceButton = new();
     private readonly Button _exportMissingImageResourcesButton = new();
     private readonly DataGridView _imageAssignmentGrid = new();
@@ -881,7 +896,6 @@ public sealed partial class MainForm : Form
     private readonly ToolStripMenuItem _legacyScriptContextAddItem = new("添加(&I)\tCtrl+I");
     private readonly ToolStripMenuItem _legacyScriptContextAddSubEventItem = new("添加子事件(&S)\tCtrl+O");
     private readonly ToolStripMenuItem _legacyScriptContextDuplicateItem = new("步进复制(&D)\tCtrl+D");
-    private readonly ToolStripMenuItem _legacyScriptContextBatchEditItem = new("批量修改(&R)\tCtrl+R");
     private readonly ToolStripMenuItem _legacyScriptContextDeleteItem = new("删除(&D)\tDelete");
     private readonly ToolStripMenuItem _legacyScriptContextMoveUpItem = new("上移(&U)\tCtrl+Up");
     private readonly ToolStripMenuItem _legacyScriptContextMoveDownItem = new("下移(&D)\tCtrl+Down");
@@ -890,6 +904,7 @@ public sealed partial class MainForm : Form
     private readonly ToolStripMenuItem _legacyScriptContextCutItem = new("剪切(&T)\tCtrl+X");
     private readonly ToolStripMenuItem _legacyScriptContextCopyItem = new("复制(&C)\tCtrl+C");
     private readonly ToolStripMenuItem _legacyScriptContextPasteItem = new("粘贴(&P)\tCtrl+V");
+    private readonly ToolStripMenuItem _legacyScriptContextTextImportItem = new("文本导入...") { Tag = "TextImport" };
     private readonly ToolStripMenuItem _legacyScriptContextExpandItem = new("全部展开\tCtrl+Q");
     private readonly ToolStripMenuItem _legacyScriptContextJumpItem = new("跳转到...");
     private readonly ContextMenuStrip _battlefieldScriptTreeContextMenu = new();
@@ -1248,6 +1263,7 @@ public sealed partial class MainForm : Form
         _mainTabs.Dock = DockStyle.Fill;
         root.Controls.Add(_mainTabs, 0, 2);
 
+        _mainTabs.TabPages.Add(BuildXiaoAnMessagePage());
         _mainTabs.TabPages.Add(BuildRoleEditorPage());
         _mainTabs.TabPages.Add(BuildJobEditorPage());
         _mainTabs.TabPages.Add(BuildItemEditorPage());
@@ -1439,6 +1455,8 @@ public sealed partial class MainForm : Form
         _batchImportImageResourceEntriesButton.AutoSize = true;
         _batchClearImageResourceEntriesButton.Text = "批量删除";
         _batchClearImageResourceEntriesButton.AutoSize = true;
+        _normalizeRoleRawImagesButton.Text = "角色RAW统一";
+        _normalizeRoleRawImagesButton.AutoSize = true;
         _exportImageResourceEntriesButton.Text = "导出条目CSV";
         _exportImageResourceEntriesButton.AutoSize = true;
         _imageResourceCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1457,6 +1475,7 @@ public sealed partial class MainForm : Form
             _restoreImageResourceEntryButton,
             _batchImportImageResourceEntriesButton,
             _batchClearImageResourceEntriesButton,
+            _normalizeRoleRawImagesButton,
             _exportImageResourceEntriesButton,
             new Label { Text = "分类：", AutoSize = true, Padding = new Padding(10, 7, 0, 0) },
             _imageResourceCategoryFilterCombo,
@@ -1545,6 +1564,10 @@ public sealed partial class MainForm : Form
         _locateImageResourceButton.AutoSize = true;
         _replaceImageResourceButton.Text = "导入/替换E5";
         _replaceImageResourceButton.AutoSize = true;
+        _replaceRImageSetButton.Text = "一键替换R形象";
+        _replaceRImageSetButton.AutoSize = true;
+        _replaceSImageSetButton.Text = "一键替换S形象";
+        _replaceSImageSetButton.AutoSize = true;
         _restoreImageResourceButton.Text = "还原E5条目";
         _restoreImageResourceButton.AutoSize = true;
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
@@ -1562,6 +1585,8 @@ public sealed partial class MainForm : Form
             _clearImageAssignmentFilterButton,
             _locateImageResourceButton,
             _replaceImageResourceButton,
+            _replaceRImageSetButton,
+            _replaceSImageSetButton,
             _restoreImageResourceButton,
             _exportMissingImageResourcesButton
         });
@@ -1590,70 +1615,39 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             RowCount = 2,
-            ColumnCount = 5,
+            ColumnCount = 2,
             Padding = new Padding(6)
         };
         imagePreviewLayout.RowStyles.Clear();
         imagePreviewLayout.ColumnStyles.Clear();
         imagePreviewLayout.GrowStyle = TableLayoutPanelGrowStyle.FixedSize;
-        imagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-        imagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        // 0: left spacer, 1: R strip, 2: gap, 3: S strip, 4: right spacer
-        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
-        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 8));
-        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
-        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        imagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
+        imagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 76));
+        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        imagePreviewLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
 
         // 右侧预览区显示头像；R/S 按 E5 0x110 索引表取图，不再按裸扫出现顺序取候选图。
         _imageAssignmentFacePreviewBox.Dock = DockStyle.Fill;
         _imageAssignmentFacePreviewBox.BackColor = Color.FromArgb(32, 32, 36);
         _imageAssignmentFacePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _imageAssignmentFacePreviewBox.BorderStyle = BorderStyle.FixedSingle;
+        _imageAssignmentFacePreviewBox.Margin = new Padding(4);
         imagePreviewLayout.Controls.Add(_imageAssignmentFacePreviewBox, 0, 0);
-        imagePreviewLayout.SetColumnSpan(_imageAssignmentFacePreviewBox, 5);
 
         _imageAssignmentRPreviewBox.Dock = DockStyle.Fill;
         _imageAssignmentRPreviewBox.BackColor = Color.FromArgb(32, 32, 36);
         _imageAssignmentRPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _imageAssignmentRPreviewBox.BorderStyle = BorderStyle.FixedSingle;
-        _imageAssignmentRPreviewBox.Margin = new Padding(0);
-        imagePreviewLayout.Controls.Add(_imageAssignmentRPreviewBox, 1, 1);
+        _imageAssignmentRPreviewBox.Margin = new Padding(4);
+        imagePreviewLayout.Controls.Add(_imageAssignmentRPreviewBox, 0, 1);
 
         _imageAssignmentSPreviewBox.Dock = DockStyle.Fill;
         _imageAssignmentSPreviewBox.BackColor = Color.FromArgb(32, 32, 36);
         _imageAssignmentSPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _imageAssignmentSPreviewBox.BorderStyle = BorderStyle.FixedSingle;
-        _imageAssignmentSPreviewBox.Margin = new Padding(0);
-        imagePreviewLayout.Controls.Add(_imageAssignmentSPreviewBox, 3, 1);
-
-        // Keep R/S boxes as portrait strips even when Panel2 is wide (typical "横长方形" preview area).
-        imagePreviewLayout.SizeChanged += (_, _) =>
-        {
-            if (imagePreviewLayout.ColumnStyles.Count < 5) return;
-            var w = imagePreviewLayout.ClientSize.Width - imagePreviewLayout.Padding.Horizontal;
-            var h = imagePreviewLayout.ClientSize.Height - imagePreviewLayout.Padding.Vertical;
-            if (w <= 0 || h <= 0) return;
-
-            // avatar row is fixed; compute bottom row height.
-            var bottomH = Math.Max(0, h - 150);
-            if (bottomH <= 0) return;
-
-            // portrait strip width: keep ~3:4 (w:h) for each R/S, but never exceed half width.
-            var desiredStripW = (int)Math.Round(bottomH * 0.75);
-            // Ensure we leave at least a small gutter in very tight widths.
-            desiredStripW = Math.Max(80, desiredStripW);
-
-            // Available width for 2 strips plus gap after removing spacers.
-            var gap = (int)Math.Round(imagePreviewLayout.ColumnStyles[2].Width);
-            var maxStripW = Math.Max(80, (w - gap) / 2);
-            desiredStripW = Math.Min(desiredStripW, maxStripW);
-
-            imagePreviewLayout.ColumnStyles[1].SizeType = SizeType.Absolute;
-            imagePreviewLayout.ColumnStyles[3].SizeType = SizeType.Absolute;
-            imagePreviewLayout.ColumnStyles[1].Width = desiredStripW;
-            imagePreviewLayout.ColumnStyles[3].Width = desiredStripW;
-        };
+        _imageAssignmentSPreviewBox.Margin = new Padding(4);
+        imagePreviewLayout.Controls.Add(_imageAssignmentSPreviewBox, 1, 0);
+        imagePreviewLayout.SetRowSpan(_imageAssignmentSPreviewBox, 2);
 
         AddCollapsibleSplitPanel(imageSplit, 2, "形象预览", imagePreviewLayout, "BuildImageAssignmentPage.GridPreview.Preview");
         imageLayout.Controls.Add(imageSplit, 0, 1);

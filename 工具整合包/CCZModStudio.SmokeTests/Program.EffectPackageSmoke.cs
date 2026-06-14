@@ -199,21 +199,30 @@ internal partial class Program
             ["item_ids"] = "1",
             ["effect_value"] = "5"
         });
+        var personalTable = tables.Single(t => t.TableName == "6.5-7-3 人物专属、套装专属");
+        var personalBefore = FindSmokeRowById(reader.Read(testProject, personalTable, tables).Data, 44);
+        var beforeSlot2Person = Convert.ToInt32(personalBefore["武将2"], CultureInfo.InvariantCulture);
+        var beforeSlot2Item = Convert.ToInt32(personalBefore["装备2"], CultureInfo.InvariantCulture);
+        var beforeSlot2Value = Convert.ToInt32(personalBefore["特效值2"], CultureInfo.InvariantCulture);
         var personalPreview = service.Preview(testProject, tables, personalPackage, "replace");
-        if (!personalPreview.CanApply || personalPreview.Changes.Count < 14)
+        if (!personalPreview.CanApply ||
+            personalPreview.Changes.Count(change => change.Category == "PersonalExclusive") != 3 ||
+            personalPreview.Changes.Any(change => change.Field is "武将2" or "装备2" or "特效值2"))
         {
             throw new InvalidOperationException($"个人/套装特效包预览失败：{string.Join(';', personalPreview.Warnings)}");
         }
     
         var personalApply = service.Apply(testProject, tables, personalPackage, "replace");
-        VerifyEffectApplyResult(personalApply, expectedDomain: "personal", minChanges: 14);
-        var personalTable = tables.Single(t => t.TableName == "6.5-7-3 人物专属、套装专属");
+        VerifyEffectApplyResult(personalApply, expectedDomain: "personal", minChanges: 3);
         var personalRow = FindSmokeRowById(reader.Read(testProject, personalTable, tables).Data, 44);
         if (Convert.ToInt32(personalRow["武将1"], CultureInfo.InvariantCulture) != 0 ||
             Convert.ToInt32(personalRow["装备1"], CultureInfo.InvariantCulture) != 1 ||
-            Convert.ToInt32(personalRow["特效值1"], CultureInfo.InvariantCulture) != 5)
+            Convert.ToInt32(personalRow["特效值1"], CultureInfo.InvariantCulture) != 5 ||
+            Convert.ToInt32(personalRow["武将2"], CultureInfo.InvariantCulture) != beforeSlot2Person ||
+            Convert.ToInt32(personalRow["装备2"], CultureInfo.InvariantCulture) != beforeSlot2Item ||
+            Convert.ToInt32(personalRow["特效值2"], CultureInfo.InvariantCulture) != beforeSlot2Value)
         {
-            throw new InvalidOperationException("个人/套装特效包写入后复读失败。");
+            throw new InvalidOperationException("个人/套装特效包写入后复读失败，或误改了未指定槽位。");
         }
     
         var personalDelete = service.Apply(testProject, tables, new EffectPackage { Domain = "personal", EffectId = 44 }, "delete");

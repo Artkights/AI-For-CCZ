@@ -134,7 +134,11 @@ public sealed partial class MainForm
         };
         _loadShopEditorButton.Click += (_, _) => LoadShopEditor();
         _saveShopEditorButton.Click += (_, _) => SaveShopEditor();
-        _openShopDataTableButton.Click += (_, _) => OpenCoreTable("6.5-8-1 商店数据");
+        _exportShopEditorCsvButton.Click += (_, _) => ExportShopEditorCsv();
+        _importShopEditorCsvButton.Click += (_, _) => ImportShopEditorCsv();
+        _copyShopEditorSelectionButton.Click += (_, _) => CopyGridSelection(_shopEditorGrid);
+        _pasteShopEditorSelectionButton.Click += (_, _) => PasteShopEditorSelection();
+        _batchFillShopEditorColumnButton.Click += (_, _) => FillShopEditorSelectionWithCurrentValue();
         _filterShopEditorButton.Click += (_, _) => ApplyShopEditorFilter();
         _clearShopEditorFilterButton.Click += (_, _) => ClearShopEditorFilter();
         _shopBatchSetButton.Click += (_, _) => ApplyShopBatchSet();
@@ -269,6 +273,12 @@ public sealed partial class MainForm
             FillItemEditorSelectionWithCurrentValue,
             UndoItemEditorChange,
             RedoItemEditorChange);
+        AttachGridEditShortcuts(
+            _shopEditorGrid,
+            (_, _) => { },
+            RefreshShopEditorAfterBulkEdit,
+            PasteShopEditorSelection,
+            FillShopEditorSelectionWithCurrentValue);
         _loadImageAssignmentsButton.Click += (_, _) => LoadImageAssignments();
         _loadImageResourcesButton.Click += (_, _) => LoadImageResources();
         _openImageResourceButton.Click += (_, _) => OpenSelectedImageResourceLocation();
@@ -276,6 +286,7 @@ public sealed partial class MainForm
         _restoreImageResourceEntryButton.Click += (_, _) => ImportOrReplaceSelectedImageResourceEntry(restoreMode: true);
         _batchImportImageResourceEntriesButton.Click += (_, _) => BatchImportSelectedImageResourceEntries();
         _batchClearImageResourceEntriesButton.Click += (_, _) => BatchClearSelectedImageResourceEntries();
+        _normalizeRoleRawImagesButton.Click += (_, _) => NormalizeRoleRawImages();
         _exportImageResourceEntriesButton.Click += (_, _) => ExportImageResourceEntriesCsv();
         _filterImageResourcesButton.Click += (_, _) => ApplyImageResourceFilter();
         _clearImageResourceFilterButton.Click += (_, _) => ClearImageResourceFilter();
@@ -302,6 +313,8 @@ public sealed partial class MainForm
         };
         _locateImageResourceButton.Click += (_, _) => LocateSelectedImageResource();
         _replaceImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: false);
+        _replaceRImageSetButton.Click += (_, _) => ReplaceSelectedRImageSet();
+        _replaceSImageSetButton.Click += (_, _) => ReplaceSelectedSImageSet();
         _restoreImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: true);
         _exportMissingImageResourcesButton.Click += (_, _) => ExportMissingImageResourceReport();
         _imageAssignmentGrid.CellValidating += (_, e) => ValidateImageAssignmentCell(e);
@@ -332,6 +345,7 @@ public sealed partial class MainForm
             ContinueBattlefieldPlacedUnitInteraction(e);
         };
         _battlefieldMapPreviewBox.MouseUp += (_, _) => EndBattlefieldPlacedUnitInteraction();
+        _battlefieldMapPreviewBox.MouseDoubleClick += (_, e) => OpenBattlefieldUnitStatusDialog(e);
         _battlefieldMapPreviewBox.MouseLeave += (_, _) =>
         {
             ClearBattlefieldMapHover();

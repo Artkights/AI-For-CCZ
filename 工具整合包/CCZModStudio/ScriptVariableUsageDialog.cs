@@ -21,6 +21,7 @@ internal sealed class ScriptVariableUsageDialog : Form
     private readonly Button _editButton = new();
 
     private CancellationTokenSource? _projectScanCancellation;
+    private string _currentScenarioVersionKey = string.Empty;
 
     public ScriptVariableUsageDialog(
         IWin32Window owner,
@@ -140,13 +141,23 @@ internal sealed class ScriptVariableUsageDialog : Form
         var snapshot = _loadCurrentScenario();
         if (snapshot == null)
         {
+            _currentScenarioVersionKey = string.Empty;
             _currentPage.SetSnapshot(new ScriptVariableUsageSnapshot { SourceLabel = "当前剧本" });
             _statusLabel.Text = "当前剧本未进入旧版完整树模式，无法扫描变量。";
             UpdateCommandButtons();
             return;
         }
 
+        if (!string.IsNullOrEmpty(snapshot.VersionKey) &&
+            string.Equals(snapshot.VersionKey, _currentScenarioVersionKey, StringComparison.Ordinal))
+        {
+            _statusLabel.Text = BuildSnapshotStatus(snapshot);
+            UpdateCommandButtons();
+            return;
+        }
+
         _currentPage.SetSnapshot(snapshot);
+        _currentScenarioVersionKey = snapshot.VersionKey;
         _statusLabel.Text = BuildSnapshotStatus(snapshot);
         UpdateCommandButtons();
     }

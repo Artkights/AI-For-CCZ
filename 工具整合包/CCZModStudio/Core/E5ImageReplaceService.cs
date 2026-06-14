@@ -20,7 +20,7 @@ public sealed class E5ImageReplaceService
     {
         if (!File.Exists(path)) return Array.Empty<E5ImageEntryInfo>();
         var data = File.ReadAllBytes(path);
-        return ReadIndex(data);
+        return ReadIndex(data, Path.GetFileName(path));
     }
 
     public byte[] ReadEntryBytes(string path, int imageNumber)
@@ -268,7 +268,9 @@ public sealed class E5ImageReplaceService
                 throw new InvalidOperationException($"图号 #{request.ImageNumber} 的来源图片为空，不能写入 E5。");
             }
 
-            var sourceInfo = ValidateReplacementBytes(sourceBytes);
+            var sourceInfo = request.SourceBytesAreRaw
+                ? new ReplacementSourceInfo("RAW", null, null)
+                : ValidateReplacementBytes(sourceBytes);
             var entries = ReadIndex(currentBytes);
             var entry = entries[request.ImageNumber - 1];
             var newOffset = sourceBytes.Length <= entry.StoredLength ? entry.DataOffset : currentBytes.Length;
@@ -328,7 +330,7 @@ public sealed class E5ImageReplaceService
         return File.ReadAllBytes(request.SourcePath);
     }
 
-    private static IReadOnlyList<E5ImageEntryInfo> ReadIndex(byte[] data)
+    private static IReadOnlyList<E5ImageEntryInfo> ReadIndex(byte[] data, string? fileName = null)
     {
         var result = new List<E5ImageEntryInfo>();
         uint firstDataOffset = 0;
@@ -368,7 +370,7 @@ public sealed class E5ImageReplaceService
                 DecodedLength = checked((int)decodedSize),
                 Kind = compressed
                     ? "LS12"
-                    : DetectKind(data.AsSpan(checked((int)dataOffset), checked((int)storedSize)))
+                    : DetectKind(data.AsSpan(checked((int)dataOffset), checked((int)storedSize)), fileName)
             });
         }
 
@@ -520,14 +522,30 @@ public sealed class E5ImageReplaceService
         return result;
     }
 
-    private static string DetectKind(ReadOnlySpan<byte> bytes)
+    private static string DetectKind(ReadOnlySpan<byte> bytes, string? fileName = null)
     {
         if (bytes.Length == 0) return "EMPTY";
         if (bytes.Length >= 2 && bytes[0] == (byte)'B' && bytes[1] == (byte)'M') return "BMP";
         if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) return "JPG";
         if (bytes.Length >= PngMagic.Length && bytes[..PngMagic.Length].SequenceEqual(PngMagic)) return "PNG";
+        if (LooksLikeKnownRoleRaw(fileName, bytes.Length)) return "RAW";
         if (bytes[0] == 0) return "RAW";
         return $"0x{bytes[0]:X2}";
+    }
+
+    private static bool LooksLikeKnownRoleRaw(string? fileName, int length)
+    {
+        if (length <= 0 || string.IsNullOrWhiteSpace(fileName)) return false;
+        var name = Path.GetFileName(fileName);
+        var spec = name.Equals("Pmapobj.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 48, FrameHeight: 64) :
+            name.Equals("Unit_atk.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 64, FrameHeight: 64) :
+            name.Equals("Unit_mov.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 48, FrameHeight: 48) :
+            name.Equals("Unit_spc.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 48, FrameHeight: 48) :
+            ((int Width, int FrameHeight)?)null;
+        return spec.HasValue &&
+               length % spec.Value.Width == 0 &&
+               length >= spec.Value.Width * spec.Value.FrameHeight &&
+               (length / spec.Value.Width) % spec.Value.FrameHeight == 0;
     }
 
     private static IReadOnlyList<string> BuildWarnings(byte[] oldFileBytes, E5ImageEntryInfo entry, ReplacementSourceInfo sourceInfo, long newFileLength, int newOffset)

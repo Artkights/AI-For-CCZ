@@ -72,7 +72,7 @@ public sealed partial class MainForm
         if (!ShowGenericTableEditorPage) return false;
 
         SelectTabPageByText("数据表编辑");
-        if (!HexTableNameResolver.TryResolve(_tables, tableName, out var table)) return false;
+        if (_project == null || !HexTableNameResolver.TryResolveForProject(_project, _tables, tableName, out var table)) return false;
 
         if (!_tableList.Items.Cast<object>().OfType<HexTableDefinition>().Any(x => x.Id == table.Id))
         {
@@ -116,7 +116,19 @@ public sealed partial class MainForm
 
             if (_scriptScenarioCombo.SelectedIndex != i)
             {
-                _scriptScenarioCombo.SelectedIndex = i;
+                _updatingScriptScenarioSelection = true;
+                try
+                {
+                    _scriptScenarioCombo.SelectedIndex = i;
+                }
+                finally
+                {
+                    _updatingScriptScenarioSelection = false;
+                }
+            }
+
+            if (!IsCurrentScriptScenarioLoaded(fileName))
+            {
                 LoadSelectedScriptScenario();
             }
 

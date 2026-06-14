@@ -78,6 +78,14 @@ internal partial class Program
         AssertTrue(conditionText.Contains("HPCur", StringComparison.Ordinal), "command 0x36 display maps condition name");
         AssertTrue(conditionText.Contains("=", StringComparison.Ordinal), "command 0x36 display maps compare operator");
 
+        AssertEqual(70, dataSources.WeaponCount, "legacy equipment preview weapon count follows System.ini DefID");
+        AssertEqual(39, dataSources.ArmorCount, "legacy equipment preview armor count follows System.ini AssID");
+        AssertEqual(147, dataSources.AssistCount, "legacy equipment preview assist count follows System.ini AssID");
+        var equipmentSet = BuildDisplayCommand(0x48, "战场装备设定", [0, 0, 0, 0, 0, 15], string.Empty);
+        var equipmentSetText = formatter.FormatCommand(equipmentSet);
+        AssertTrue(equipmentSetText.Contains("122:绝影", StringComparison.Ordinal), "command 0x48 assist code 15 maps to global item ID122");
+        AssertTrue(!equipmentSetText.Contains("132:太平清领道", StringComparison.Ordinal), "command 0x48 assist preview must not use stale ItemDefenseSum=49 offset");
+
         var rSceneDocument = new LegacyScenarioDocument { FilePath = "R_00.eex" };
         var rScene = new LegacyScenarioScene { SceneIndex = 0 };
         var rSection = new LegacyScenarioSection { SceneIndex = 0, SectionIndex = 0 };

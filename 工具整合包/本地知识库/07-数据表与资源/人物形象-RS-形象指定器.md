@@ -177,8 +177,8 @@ SCount=96
 2. 6.5 版本：
    - S 形象数据位置：`FileHead=D2800`。
    - R 形象数据位置：`RFileHead=E1000`。
-3. 这些值应视为十六进制 exe 偏移/地址类配置，具体是文件偏移还是工具内部地址需继续用样例读写验证。
-4. 当前程序的 `ImageAssignmentService` 读取 `6.5-0-4 R形象` 与 `6.5-0-5 S形象`，需要校对这些 XML 表的源文件、偏移是否与 `RFileHead/FileHead` 一致。
+3. 当前 6.5 样本已校对为 `Ekd5.exe` 文件偏移：`R=0xE1000`、`S=0xD2800`，每条 `RowSize=2`，与 B形象指定器 `System.ini` 一致。
+4. 当前程序的 `ImageAssignmentService` 通过 `HexTableNameResolver.ResolveForProject` 定位 R/S 指定表；6.5 表继续校验 `Ekd5.exe:0xE1000/0xD2800`，6.6/缺表只作为只读语义兜底，不开放写入。
 5. 右侧预览应显示人物真实 R/S 形象，而不是关卡或存档的 R/S 数据。
 
 #### 2026-05-31 代码核实结论
@@ -309,7 +309,7 @@ Mg8=667568
 
 实现要求：
 
-- `ImageAssignmentService` 必须在读写前校验 R/S 表是否仍为 `Ekd5.exe:0xE1000/0xD2800`。
+- `ImageAssignmentService` 必须按项目引擎 profile 解析 R/S 表名，并在读写前校验当前 6.5 R/S 表是否仍为 `Ekd5.exe:0xE1000/0xD2800`。
 - `ImageAssignmentPreviewService` 必须读取 `B形象指定器\形象指定器6.5\System.ini`，展示 `FileHead/RFileHead/UserPath2`，作为界面校对证据。
 - 人物形象预览应优先显示“人物头像 + R 形象定位 + S 形象定位”。其中：
   - 头像可从 `E5\\Face.e5` 做只读预览；

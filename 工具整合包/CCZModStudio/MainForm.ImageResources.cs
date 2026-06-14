@@ -768,6 +768,79 @@ public sealed partial class MainForm
            $"备份：{result.BackupPath}\r\n" +
            $"报告：{result.ReportJsonPath}";
 
+    private void NormalizeRoleRawImages()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        E5RoleRawNormalizePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _e5RoleRawNormalizeService.Preview(_project);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("角色图片统一 RAW 预览失败：" + ex);
+            MessageBox.Show(this, ex.Message, "角色图片统一 RAW 预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildRoleRawNormalizePreviewText(preview);
+        _imageResourceEntryInfoBox.Text = previewText;
+        if (preview.ConvertCount == 0)
+        {
+            MessageBox.Show(this, "没有找到需要转换为 RAW 的角色图片条目。", "角色图片统一 RAW", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var confirmText = previewText + "\r\n\r\n确认后会批量转换 Pmapobj.e5 / Unit_*.e5 中可转换的标准图片条目，并自动备份。是否继续？";
+        var icon = _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning;
+        if (MessageBox.Show(this, confirmText, "确认角色图片统一 RAW", MessageBoxButtons.YesNo, icon) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _e5RoleRawNormalizeService.Normalize(_project);
+            _imageResourceCatalogService.ClearCache();
+            LoadImageResources();
+            _imageResourceEntryInfoBox.Text = BuildRoleRawNormalizeResultText(result);
+            System.Diagnostics.Debug.WriteLine($"角色图片统一 RAW 完成：convert={result.ConvertCount} skip={result.SkipCount} report={result.AggregateReportPath}");
+            SetStatus($"角色图片统一 RAW 完成：转换 {result.ConvertCount} 条，跳过 {result.SkipCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("角色图片统一 RAW 写入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "角色图片统一 RAW 写入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static string BuildRoleRawNormalizePreviewText(E5RoleRawNormalizePreviewResult preview)
+        => "角色图片统一 RAW 预览\r\n" +
+           $"转换：{preview.ConvertCount} 条    跳过：{preview.SkipCount} 条\r\n" +
+           string.Join("\r\n", preview.Files.Select(file => $"{file.TargetFileName}: 转换 {file.ConvertCount}，跳过 {file.SkipCount}")) +
+           "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
+
+    private static string BuildRoleRawNormalizeResultText(E5RoleRawNormalizeResult result)
+        => "角色图片统一 RAW 完成\r\n" +
+           $"转换：{result.ConvertCount} 条    跳过：{result.SkipCount} 条\r\n" +
+           string.Join("\r\n", result.Files.Select(file => $"{file.TargetFileName}: 转换 {file.ConvertCount}，跳过 {file.SkipCount}")) +
+           $"\r\n汇总报告：{result.AggregateReportPath}";
+
     private void ExportImageResourceEntriesCsv()
     {
         if (_currentImageResourceEntries.Count == 0)
@@ -1244,6 +1317,228 @@ public sealed partial class MainForm
             Cursor = Cursors.Default;
         }
     }
+
+    private void ReplaceSelectedRImageSet()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var row = GetSelectedImageAssignmentRow();
+        if (row == null)
+        {
+            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!TryGetImageResourceId(row, ImageAssignmentResourceKind.R, out var rImageId))
+        {
+            MessageBox.Show(this, "无法读取当前人物的 R 形象编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (rImageId < 0)
+        {
+            MessageBox.Show(this, $"R形象编号不能小于 0：{rImageId}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var roleId = row.Table.Columns.Contains("ID")
+            ? Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)
+            : (int?)null;
+
+        using var folderDialog = new FolderBrowserDialog
+        {
+            Description = "选择包含 front.bmp / back.bmp 的 R 形象素材目录，素材尺寸必须为 48x1280。",
+            UseDescriptionForTitle = true
+        };
+        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var request = new RImageReplaceRequest
+        {
+            RImageId = rImageId,
+            MaterialFolder = folderDialog.SelectedPath,
+            CharacterId = roleId,
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        RImageReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _rImageReplaceService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键替换 R 形象预览失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键替换 R 形象预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildRImageReplacePreviewText(preview);
+        _imageAssignmentInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会把 front.bmp / back.bmp 转为 RAW 并写入 Pmapobj.e5，写入前自动备份。是否继续？",
+                "确认一键替换 R 形象",
+                MessageBoxButtons.YesNo,
+                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _rImageReplaceService.Replace(_project, request);
+            _imageAssignmentPreviewService.ClearCache();
+            ShowSelectedImageAssignmentDetail();
+            _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildRImageReplaceResultText(result));
+            System.Diagnostics.Debug.WriteLine($"一键替换 R 形象完成：R={rImageId} count={result.TotalOperationCount} report={result.AggregateReportPath}");
+            SetStatus($"一键替换 R 形象完成：写入 {result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键替换 R 形象写入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键替换 R 形象写入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static string BuildRImageReplacePreviewText(RImageReplacePreviewResult preview)
+        => "一键替换 R 形象预览\r\n" +
+           $"{preview.Mapping.Detail}\r\n" +
+           $"素材目录：{preview.Request.MaterialFolder}\r\n" +
+           $"写入条目：{preview.TotalOperationCount} 条\r\n" +
+           string.Join("\r\n", preview.Files.Select(file =>
+               $"{file.Role}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> RAW {file.Encode.RawLength:N0} bytes；图号 #{file.ImageNumber}")) +
+           "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
+
+    private static string BuildRImageReplaceResultText(RImageReplaceResult result)
+        => "一键替换 R 形象完成\r\n" +
+           $"{result.Mapping.Detail}    写入条目：{result.TotalOperationCount} 条\r\n" +
+           string.Join("\r\n", result.Files.Select(file =>
+               $"{file.Role}: Pmapobj.e5 #{file.ImageNumber} <- {Path.GetFileName(file.SourcePath)}")) +
+           $"\r\n备份：{result.WriteResult.BackupPath}" +
+           $"\r\n汇总报告：{result.AggregateReportPath}";
+
+    private void ReplaceSelectedSImageSet()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var row = GetSelectedImageAssignmentRow();
+        if (row == null)
+        {
+            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!TryGetImageResourceId(row, ImageAssignmentResourceKind.S, out var sImageId))
+        {
+            MessageBox.Show(this, "无法读取当前人物的 S 形象编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var jobId = row.Table.Columns.Contains("职业")
+            ? Convert.ToInt32(row["职业"], CultureInfo.InvariantCulture)
+            : (int?)null;
+        var roleId = row.Table.Columns.Contains("ID")
+            ? Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)
+            : (int?)null;
+
+        using var folderDialog = new FolderBrowserDialog
+        {
+            Description = "选择包含 mov.bmp / atk.bmp / spc.bmp 的 S 形象素材目录",
+            UseDescriptionForTitle = true
+        };
+        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var request = new SImageReplaceRequest
+        {
+            SImageId = sImageId,
+            MaterialFolder = folderDialog.SelectedPath,
+            CharacterId = roleId,
+            JobId = jobId,
+            FactionSlot = GetImageAssignmentSPreviewFactionSlot(),
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        SImageReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _sImageReplaceService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键替换 S 形象预览失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键替换 S 形象预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildSImageReplacePreviewText(preview);
+        _imageAssignmentInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会把三条 BMP 转为 RAW 并写入 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5，写入前自动备份。是否继续？",
+                "确认一键替换 S 形象",
+                MessageBoxButtons.YesNo,
+                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _sImageReplaceService.Replace(_project, request);
+            _imageAssignmentPreviewService.ClearCache();
+            ShowSelectedImageAssignmentDetail();
+            _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildSImageReplaceResultText(result));
+            System.Diagnostics.Debug.WriteLine($"一键替换 S 形象完成：S={sImageId} count={result.TotalOperationCount} report={result.AggregateReportPath}");
+            SetStatus($"一键替换 S 形象完成：写入 {result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键替换 S 形象写入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键替换 S 形象写入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static string BuildSImageReplacePreviewText(SImageReplacePreviewResult preview)
+        => "一键替换 S 形象预览\r\n" +
+           $"S={preview.Request.SImageId}    映射：{preview.Mapping.Detail}\r\n" +
+           $"素材目录：{preview.Request.MaterialFolder}\r\n" +
+           $"写入条目：{preview.TotalOperationCount} 条\r\n" +
+           string.Join("\r\n", preview.Files.Select(file =>
+               $"{file.TargetFileName}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> RAW {file.Encode.RawLength:N0} bytes；图号 {string.Join(", ", file.BatchPreview.Operations.Select(op => "#" + op.ImageNumber.ToString(CultureInfo.InvariantCulture)))}")) +
+           "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
+
+    private static string BuildSImageReplaceResultText(SImageReplaceResult result)
+        => "一键替换 S 形象完成\r\n" +
+           $"S={result.Request.SImageId}    写入条目：{result.TotalOperationCount} 条\r\n" +
+           string.Join("\r\n", result.Files.Select(file =>
+               $"{file.TargetFileName}: {file.WriteResult.OperationCount} 条，备份 {file.WriteResult.BackupPath}")) +
+           $"\r\n汇总报告：{result.AggregateReportPath}";
 
     private IReadOnlyList<E5ImageReplacementTarget> BuildE5ImageReplacementTargets(DataRow row, ImageAssignmentResourceKind targetKind, int id)
     {

@@ -42,8 +42,18 @@ public sealed partial class MainForm
         _saveShopEditorButton.Text = "保存商店";
         _saveShopEditorButton.AutoSize = true;
         _saveShopEditorButton.Enabled = false;
-        _openShopDataTableButton.Text = "通用商店表";
-        _openShopDataTableButton.AutoSize = true;
+        _exportShopEditorCsvButton.Text = "导出CSV";
+        _exportShopEditorCsvButton.AutoSize = true;
+        _exportShopEditorCsvButton.Enabled = false;
+        _importShopEditorCsvButton.Text = "导入CSV";
+        _importShopEditorCsvButton.AutoSize = true;
+        _importShopEditorCsvButton.Enabled = false;
+        _copyShopEditorSelectionButton.Text = "复制";
+        _copyShopEditorSelectionButton.AutoSize = true;
+        _pasteShopEditorSelectionButton.Text = "粘贴";
+        _pasteShopEditorSelectionButton.AutoSize = true;
+        _batchFillShopEditorColumnButton.Text = "批量填列";
+        _batchFillShopEditorColumnButton.AutoSize = true;
         _shopEditorSearchBox.Width = 220;
         _shopEditorSearchBox.PlaceholderText = "关卡/人物/物品/编号";
         _filterShopEditorButton.Text = "筛选";
@@ -75,6 +85,11 @@ public sealed partial class MainForm
         {
             _loadShopEditorButton,
             _saveShopEditorButton,
+            _exportShopEditorCsvButton,
+            _importShopEditorCsvButton,
+            _copyShopEditorSelectionButton,
+            _pasteShopEditorSelectionButton,
+            _batchFillShopEditorColumnButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _shopEditorSearchBox,
             _filterShopEditorButton,
@@ -106,6 +121,7 @@ public sealed partial class MainForm
     {
         var preferred = new[]
         {
+            "小暗的话",
             "角色设定",
             "兵种设定",
             "宝物设定",

@@ -5,6 +5,7 @@ public sealed class E5ImageBatchReplaceRequest
     public int ImageNumber { get; init; }
     public string SourcePath { get; init; } = string.Empty;
     public byte[]? SourceBytes { get; init; }
+    public bool SourceBytesAreRaw { get; init; }
     public string SourceLabel { get; init; } = string.Empty;
     public string OperationKind { get; init; } = "替换";
 

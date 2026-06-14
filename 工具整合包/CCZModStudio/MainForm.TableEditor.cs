@@ -21,7 +21,8 @@ public sealed partial class MainForm
         IEnumerable<HexTableDefinition> query = _tables;
         if (!_showAllTables.Checked)
         {
-            query = query.Where(t => t.Enabled && t.Version == "6.5");
+            var tableVersion = _project == null ? "6.5" : _engineProfileService.Detect(_project).TableVersionPrefix;
+            query = query.Where(t => t.Enabled && t.Version == tableVersion);
         }
 
         var selectedId = (_tableList.SelectedItem as HexTableDefinition)?.Id;

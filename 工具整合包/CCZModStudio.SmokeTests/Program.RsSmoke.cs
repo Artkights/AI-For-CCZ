@@ -113,6 +113,18 @@ internal partial class Program
             {
                 throw new InvalidOperationException("Battlefield editor did not split any 0x46/0x47/0x4B deployment records.");
             }
+
+            var firstFriendDeployment = battlefieldDocs[0].UnitCandidates
+                .FirstOrDefault(candidate => candidate.Category == "友军出场" && candidate.BattlefieldNumber == 20);
+            if (firstFriendDeployment == null)
+            {
+                throw new InvalidOperationException("Battlefield editor did not include the first 0x46 friend deployment record.");
+            }
+
+            if (!firstFriendDeployment.LevelJobDisplay.Contains("高级", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Battlefield 0x46 preview did not read the job level slot used by the deployment dialog: {firstFriendDeployment.LevelJobDisplay}");
+            }
     
             var allyDeploymentSlotScenario = battlefieldScenarios.Count > 1 ? battlefieldScenarios[1] : battlefieldScenarios[0];
             var allyDeploymentSlots = new BattlefieldAllyDeploymentSlotService().Load(
@@ -362,6 +374,92 @@ internal partial class Program
             }
         }
         Console.WriteLine("ITEM_TYPE_CATALOG type8=普通弩系 type10=普通锤系 type12=普通斧系 type58=四神宝玉/铜雀");
+
+        var itemBoundary = ItemCategoryBoundaryService.Resolve(project);
+        if (itemBoundary.WeaponStartId != 0 ||
+            itemBoundary.DefenseStartId != 70 ||
+            itemBoundary.AccessoryStartId != 109 ||
+            itemBoundary.WeaponCount != 70 ||
+            itemBoundary.DefenseCount != 39 ||
+            itemBoundary.AccessoryCount != 147)
+        {
+            throw new InvalidOperationException($"默认物品分段不符合预期：{itemBoundary.DisplayText}, counts={itemBoundary.WeaponCount}/{itemBoundary.DefenseCount}/{itemBoundary.AccessoryCount}");
+        }
+
+        var customIniDir = Path.Combine(Path.GetTempPath(), "CCZModStudioSmoke_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(customIniDir);
+        var customIniPath = Path.Combine(customIniDir, "System.ini");
+        File.WriteAllText(customIniPath, "DefID=80 ; smoke\r\nAssID=120 ; smoke\r\n", Encoding.GetEncoding("GBK"));
+        var customBoundary = ItemCategoryBoundaryService.Resolve(new CczProject
+        {
+            WorkspaceRoot = project.WorkspaceRoot,
+            GameRoot = project.GameRoot,
+            HexTableXmlPath = project.HexTableXmlPath,
+            SceneDictionaryPath = project.SceneDictionaryPath,
+            SceneEditorDirectory = project.SceneEditorDirectory,
+            ImageAssignerDirectory = customIniDir,
+            ImageAssignerSystemIniPath = customIniPath,
+            MaterialLibraryRoot = project.MaterialLibraryRoot,
+            PatchConfigRoot = project.PatchConfigRoot,
+            PathDiagnostics = project.PathDiagnostics
+        });
+        if (customBoundary.DefenseStartId != 80 ||
+            customBoundary.AccessoryStartId != 120 ||
+            customBoundary.WeaponCount != 80 ||
+            customBoundary.DefenseCount != 40 ||
+            customBoundary.AccessoryCount != 136)
+        {
+            throw new InvalidOperationException($"自定义物品分段不符合预期：{customBoundary.DisplayText}, counts={customBoundary.WeaponCount}/{customBoundary.DefenseCount}/{customBoundary.AccessoryCount}");
+        }
+
+        var unitStatusService = new BattlefieldUnitStatusWriteService();
+        var weaponItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.WeaponStartId, itemBoundary.WeaponCount, "武器", "默认装备", "卸去装备");
+        var armorItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.DefenseStartId, itemBoundary.DefenseCount, "防具", "默认装备", "卸去装备");
+        var assistItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.AccessoryStartId, itemBoundary.AccessoryCount, "辅助/道具", "默认装备", "卸去装备");
+        if (weaponItems.Count != itemBoundary.WeaponCount + 2 ||
+            armorItems.Count != itemBoundary.DefenseCount + 2 ||
+            assistItems.Count != itemBoundary.AccessoryCount + 2 ||
+            weaponItems[^1].Value != itemBoundary.WeaponCount + 1 ||
+            armorItems[2].Text.Contains("ID70", StringComparison.Ordinal) == false ||
+            assistItems[2].Text.Contains("ID109", StringComparison.Ordinal) == false)
+        {
+            throw new InvalidOperationException("战场装备候选未按 DefID/AssID 分段生成。");
+        }
+
+        BattlefieldUnitStatusWriteService.ValidateDraftRanges(new BattlefieldUnitStatusDraft
+        {
+            Weapon = itemBoundary.WeaponCount + 1,
+            Armor = itemBoundary.DefenseCount + 1,
+            Assist = itemBoundary.AccessoryCount + 1,
+            WeaponLevel = 16,
+            ArmorLevel = 16,
+            JobLevel = 2,
+            AiPolicy = 6
+        }, itemBoundary);
+        try
+        {
+            BattlefieldUnitStatusWriteService.ValidateDraftRanges(new BattlefieldUnitStatusDraft
+            {
+                Weapon = itemBoundary.WeaponCount + 2
+            }, itemBoundary);
+            throw new InvalidOperationException("战场装备越界编码未触发校验。");
+        }
+        catch (InvalidDataException)
+        {
+            // Expected.
+        }
+
+        var templateItem = new ScenarioCommandParameterTemplateService()
+            .BuildCatalogItems()
+            .Single(item => item.Id == 0x48);
+        if (templateItem.TemplateName != "战场装备设定" ||
+            templateItem.SlotCount != 6 ||
+            !templateItem.SlotSummary.Contains("武器编码", StringComparison.Ordinal) ||
+            !templateItem.Risk.Contains("0=默认", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"0x48 模板未按 6 参数装备编码语义更新：name={templateItem.TemplateName}, slots={templateItem.SlotCount}, summary={templateItem.SlotSummary}");
+        }
+        Console.WriteLine($"ITEM_CATEGORY_BOUNDARY default={itemBoundary.DefenseStartId}/{itemBoundary.AccessoryStartId} custom={customBoundary.DefenseStartId}/{customBoundary.AccessoryStartId} 0x48slots={templateItem.SlotCount}");
     
         var itemTable = tables.Single(t => t.TableName == "6.5-1 物品（0-103）");
         var itemRead = new HexTableReader().Read(project, itemTable, tables);
@@ -480,6 +578,7 @@ internal partial class Program
         var beforeWriteTime = beforeInfo.LastWriteTimeUtc;
         var people = LoadRSceneDialoguePreviewPeople(project, tables);
         var service = new RSceneDialoguePreviewService();
+        AssertRSceneDialogueTextSpeakerResolution(service);
         var model = service.BuildPreviewModel(dialogueCommand, people)
                     ?? throw new InvalidOperationException("R 场景对白预览模型构建失败。");
         using var canvas = new Bitmap(640, 400);
@@ -620,7 +719,7 @@ internal partial class Program
 
     static LegacyScenarioCommandNode BuildRSceneDialoguePreviewUnresolvedSpeakerCommand(LegacyScenarioCommandNode source)
     {
-        var text = source.TextParameters.FirstOrDefault(parameter => !string.IsNullOrWhiteSpace(parameter.Text))?.Text ?? "说话人头像占位测试";
+        const string text = "说话人头像占位测试";
         var command = new LegacyScenarioCommandNode
         {
             SceneIndex = source.SceneIndex,
@@ -646,6 +745,110 @@ internal partial class Program
             Text = text,
             ByteLength = text.Length
         });
+        return command;
+    }
+
+    static void AssertRSceneDialogueTextSpeakerResolution(RSceneDialoguePreviewService service)
+    {
+        var people = new Dictionary<int, RSceneDialoguePreviewPerson>
+        {
+            [0] = new("曹操", 0),
+            [1] = new("夏侯惇", 9),
+            [176] = new("刘由", 42)
+        };
+
+        var talk1 = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", "&曹操\n孟德在此。"),
+            people)
+            ?? throw new InvalidOperationException("R 场景对白预览 0x14 文本人名模型构建失败。");
+        if (talk1.SpeakerId != 0 || talk1.FaceId != 0 || talk1.Text.Contains("&曹操", StringComparison.Ordinal) || !talk1.Text.Contains("孟德在此", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"R 场景对白预览 0x14 未按 &姓名 反查头像：speaker={talk1.SpeakerId} face={talk1.FaceId} text={talk1.Text}");
+        }
+
+        var talk3 = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x7A, "对话3", "\r\n&夏侯惇\r\n末将在。"),
+            people)
+            ?? throw new InvalidOperationException("R 场景对白预览 0x7A 文本人名模型构建失败。");
+        if (talk3.SpeakerId != 1 || talk3.FaceId != 9 || talk3.Text.Contains("夏侯惇", StringComparison.Ordinal) || !talk3.Text.Contains("末将在", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"R 场景对白预览 0x7A 未按 &姓名 反查头像：speaker={talk3.SpeakerId} face={talk3.FaceId} text={talk3.Text}");
+        }
+
+        var explicitTalk = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x15, "对话2", "&曹操\n文本说话人优先。", speakerId: 1),
+            people)
+            ?? throw new InvalidOperationException("R 场景对白预览 0x15 显式参数模型构建失败。");
+        if (explicitTalk.SpeakerId != 0 || explicitTalk.FaceId != 0 || explicitTalk.Text.Contains("&曹操", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"R 场景对白预览 0x15 没有优先使用 &姓名 文本说话人：speaker={explicitTalk.SpeakerId} face={explicitTalk.FaceId} text={explicitTalk.Text}");
+        }
+
+        var conflictingTalk = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", "&刘由\n臣谨遵主谕。", speakerId: 8),
+            people)
+            ?? throw new InvalidOperationException("R 场景对白预览 0x14 参数/文本冲突模型构建失败。");
+        if (conflictingTalk.SpeakerId != 176 || conflictingTalk.FaceId != 42 || conflictingTalk.Text.Contains("&刘由", StringComparison.Ordinal) || !conflictingTalk.Text.Contains("臣谨遵主谕", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"R 场景对白预览 0x14 参数不应覆盖 &姓名：speaker={conflictingTalk.SpeakerId} face={conflictingTalk.FaceId} text={conflictingTalk.Text}");
+        }
+
+        var multiSegmentTalk = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", "&曹操孟德在此。\n&夏侯惇\n末将在。", speakerId: 1),
+            people)
+            ?? throw new InvalidOperationException("R 场景对白预览 0x14 多段文本模型构建失败。");
+        if (multiSegmentTalk.SpeakerId != 0 ||
+            multiSegmentTalk.FaceId != 0 ||
+            !multiSegmentTalk.Text.Contains("孟德在此", StringComparison.Ordinal) ||
+            multiSegmentTalk.Text.Contains("夏侯惇", StringComparison.Ordinal) ||
+            multiSegmentTalk.Text.Contains("末将在", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"R 场景对白预览 0x14 未按 & 分段取当前对白：speaker={multiSegmentTalk.SpeakerId} face={multiSegmentTalk.FaceId} text={multiSegmentTalk.Text}");
+        }
+
+        var unresolved = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", "&不存在\n无人匹配。"),
+            people)
+            ?? throw new InvalidOperationException("R 场景对白预览未匹配人名模型构建失败。");
+        if (unresolved.SpeakerId.HasValue || unresolved.FaceId.HasValue || unresolved.Text.Contains("&不存在", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"R 场景对白预览未匹配人名不应误配头像：speaker={unresolved.SpeakerId} face={unresolved.FaceId} text={unresolved.Text}");
+        }
+    }
+
+    static LegacyScenarioCommandNode CreateRSceneDialoguePreviewCommand(int commandId, string commandName, string text, int? speakerId = null)
+    {
+        var command = new LegacyScenarioCommandNode
+        {
+            SceneIndex = 1,
+            SectionIndex = 1,
+            CommandIndex = 1,
+            CommandId = commandId,
+            CommandName = commandName,
+            FileOffset = 0x100,
+            ConsumedBytes = 2
+        };
+
+        var nextIndex = 0;
+        if (speakerId.HasValue)
+        {
+            command.Parameters.Add(new LegacyScenarioCommandParameter
+            {
+                Index = nextIndex++,
+                Kind = LegacyScenarioParameterKind.Word16,
+                IntValue = speakerId.Value,
+                ByteLength = 2
+            });
+        }
+
+        command.Parameters.Add(new LegacyScenarioCommandParameter
+        {
+            Index = nextIndex,
+            Kind = LegacyScenarioParameterKind.Text,
+            Text = text,
+            ByteLength = text.Length
+        });
+
         return command;
     }
 

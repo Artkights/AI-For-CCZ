@@ -39,6 +39,7 @@ public sealed partial class CczMcpRuntime
     };
 
     private readonly ProjectDetector _projectDetector = new();
+    private readonly CczEngineProfileService _engineProfileService = new();
     private readonly HexTableParser _tableParser = new();
     private readonly HexTableReader _tableReader = new();
     private readonly HexTableWriter _tableWriter = new();
@@ -79,6 +80,7 @@ public sealed partial class CczMcpRuntime
     public object DetectProject(string? gameRoot)
     {
         var project = LoadProject(gameRoot);
+        var engine = _engineProfileService.Detect(project);
         return new
         {
             project.Name,
@@ -91,6 +93,7 @@ public sealed partial class CczMcpRuntime
             project.MaterialLibraryRoot,
             project.PatchConfigRoot,
             project.IsTestCopy,
+            Engine = engine,
             Files = project.GetFileStatuses().Select(x => new
             {
                 x.Name,
@@ -113,8 +116,8 @@ public sealed partial class CczMcpRuntime
         return _tableParser.Load(project.HexTableXmlPath);
     }
 
-    private static HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string tableName)
-        => HexTableNameResolver.Resolve(tables, tableName);
+    private HexTableDefinition FindTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
+        => HexTableNameResolver.ResolveForProject(project, tables, tableName);
 
     private static DataColumn FindColumn(DataTable table, string columnName)
     {
@@ -705,4 +708,7 @@ public sealed partial class CczMcpRuntime
 
     private static object BuildResourceReplacePreviewPayload(ResourceReplacePreviewResult preview)
         => new { preview.TargetPath, preview.TargetRelativePath, preview.ReplacementPath, preview.Extension, preview.OldSizeBytes, preview.NewSizeBytes, preview.SizeDeltaBytes, preview.ChangedBytesEstimate, preview.ChangedPercent, preview.OldSha256, preview.NewSha256, preview.IsContentIdentical, preview.FormatCheckSummary, preview.FormatWarnings, preview.RiskSummary };
+
+    private static object BuildMapImageReplacePreviewPayload(MapImageReplacePreviewResult preview)
+        => new { preview.TargetPath, preview.TargetRelativePath, preview.ReplacementPath, preview.OldSizeBytes, preview.NewSizeBytes, preview.SizeDeltaBytes, preview.OldWidth, preview.OldHeight, preview.NewWidth, preview.NewHeight, preview.ChangedBytesEstimate, preview.ChangedPercent, preview.OldSha256, preview.NewSha256, preview.IsContentIdentical, preview.FormatCheckSummary, preview.FormatWarnings, preview.RiskSummary, SafetyNote = "Read-only preview. No game file, backup, or report is written by preview_map_image." };
 }

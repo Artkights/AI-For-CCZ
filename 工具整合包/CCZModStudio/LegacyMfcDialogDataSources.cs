@@ -24,6 +24,7 @@ internal sealed class LegacyMfcDialogDataSources
     private const int VersionOtherSpecialSkillOffset = 0xD0FA0;
 
     private readonly HexTableReader _tableReader = new();
+    private readonly CczEngineProfileService _engineProfileService = new();
     private string? _configuredExePath;
     private bool _levelConfigured;
 
@@ -118,14 +119,15 @@ internal sealed class LegacyMfcDialogDataSources
             result.LoadProjectSettings(project);
         }
 
-        if (project != null && tables is { Count: > 0 })
-        {
-            result.LoadTableNames(project, tables);
-        }
-
         if (project != null)
         {
             result.LoadLegacyGameResources(project);
+            result.ApplyProjectEquipmentBoundary(project);
+        }
+
+        if (project != null && tables is { Count: > 0 })
+        {
+            result.LoadTableNames(project, tables);
         }
 
         return result;
@@ -512,15 +514,6 @@ internal sealed class LegacyMfcDialogDataSources
                 if (level > 0) LevelMax = level;
             }
 
-            var buffer = new byte[16];
-            for (var i = 0; i < 80; i++)
-            {
-                ReadFixedStringAt(stream, 0xD18D0 + i * 9, buffer.AsSpan(0, 8), name =>
-                {
-                    if (!string.IsNullOrWhiteSpace(name)) Job[i] = $"{i}:{name}";
-                });
-            }
-
             LoadSpecialSkillNames(path);
         }
         catch
@@ -620,6 +613,14 @@ internal sealed class LegacyMfcDialogDataSources
         }
     }
 
+    private void ApplyProjectEquipmentBoundary(CczProject project)
+    {
+        var boundary = ItemCategoryBoundaryService.Resolve(project);
+        WeaponCount = boundary.WeaponCount;
+        ArmorCount = boundary.DefenseCount;
+        AssistCount = boundary.AccessoryCount;
+    }
+
     private static void ReadFixedStringAt(Stream stream, long offset, Span<byte> buffer, Action<string> apply)
     {
         if (stream.Length < offset + buffer.Length) return;
@@ -632,10 +633,11 @@ internal sealed class LegacyMfcDialogDataSources
 
     private void LoadTableNames(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        LoadSingleTableNames(project, tables, "6.5-0 人物", Person1, 0, 1024);
-        LoadSingleTableNames(project, tables, "6.5-0 人物", Person2, 0, 1024);
+        var profile = _engineProfileService.Detect(project);
+        LoadSingleTableNames(project, tables, profile.TableHints.PersonTable, Person1, 0, 1024);
+        LoadSingleTableNames(project, tables, profile.TableHints.PersonTable, Person2, 0, 1024);
         LoadItemTableNames(project, tables);
-        LoadSingleTableNames(project, tables, "6.5-3 兵种", Job, 0, 80);
+        LoadSingleTableNames(project, tables, profile.TableHints.DetailedJobTable, Job, 0, 80);
     }
 
     private void LoadSpecialSkillNames(string exePath)
@@ -677,7 +679,7 @@ internal sealed class LegacyMfcDialogDataSources
 
     private void LoadSingleTableNames(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName, List<string> target, int offset, int maxCount)
     {
-        if (!HexTableNameResolver.TryResolve(tables, tableName, out var table)) return;
+        if (!HexTableNameResolver.TryResolveForProject(project, tables, tableName, out var table)) return;
 
         try
         {
@@ -707,7 +709,7 @@ internal sealed class LegacyMfcDialogDataSources
     {
         try
         {
-            foreach (var table in HexTableNameResolver.ResolveItemTables(tables))
+            foreach (var table in HexTableNameResolver.ResolveItemTables(project, tables))
             {
                 var read = _tableReader.Read(project, table, tables);
                 var nameColumn = FindNameColumn(read.Data);

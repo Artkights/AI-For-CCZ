@@ -139,32 +139,48 @@ public sealed class RSceneDialoguePreviewService
         int? speakerId,
         IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
     {
-        RSceneDialoguePreviewPerson? person = null;
-        if (speakerId.HasValue)
+        var textSpeaker = ResolveSpeakerFromText(text, people);
+        var resolvedSpeakerId = textSpeaker?.SpeakerId ?? speakerId;
+        var speakerSource = string.Empty;
+        if (textSpeaker?.SpeakerId.HasValue == true)
         {
-            people.TryGetValue(speakerId.Value, out person);
+            speakerSource = $"text&{textSpeaker.SpeakerName}";
+        }
+
+        RSceneDialoguePreviewPerson? person = null;
+        if (resolvedSpeakerId.HasValue)
+        {
+            people.TryGetValue(resolvedSpeakerId.Value, out person);
         }
 
         var speakerName = !string.IsNullOrWhiteSpace(person?.Name)
             ? person.Name
-            : speakerId.HasValue
-                ? $"人物 {speakerId.Value}"
+            : resolvedSpeakerId.HasValue
+                ? $"人物 {resolvedSpeakerId.Value}"
                 : "说话人";
-        var faceId = person?.FaceId ?? speakerId;
-        var speakerDetail = speakerId.HasValue
-            ? rawSpeakerValue.HasValue && rawSpeakerValue.Value != speakerId.Value
-                ? $"人物={speakerId.Value}（参数={rawSpeakerValue.Value}）"
-                : $"人物={speakerId.Value}"
+        var faceId = person?.FaceId ?? resolvedSpeakerId;
+        var speakerDetail = resolvedSpeakerId.HasValue
+            ? rawSpeakerValue.HasValue && rawSpeakerValue.Value != resolvedSpeakerId.Value
+                ? $"人物={resolvedSpeakerId.Value}（参数={rawSpeakerValue.Value}）"
+                : $"人物={resolvedSpeakerId.Value}"
             : "人物=未读取";
         var faceDetail = faceId.HasValue
             ? $"头像={faceId.Value}"
             : "头像=未读取";
+        if (textSpeaker?.SpeakerId.HasValue == true)
+        {
+            var textSpeakerId = textSpeaker.SpeakerId.Value;
+            speakerDetail = rawSpeakerValue.HasValue && rawSpeakerValue.Value != textSpeakerId
+                ? $"人物={textSpeakerId}（{speakerSource}，参数={rawSpeakerValue.Value}）"
+                : $"人物={textSpeakerId}（{speakerSource}）";
+        }
+
         return new RSceneDialoguePreviewModel(
             RSceneDialoguePreviewKind.Talk,
-            SpeakerId: speakerId,
+            SpeakerId: resolvedSpeakerId,
             FaceId: faceId,
             SpeakerName: speakerName,
-            Text: text,
+            Text: textSpeaker?.BodyText ?? text,
             HasFace: true,
             Detail: $"{command.CommandIdHex} {command.CommandName}：{speakerName}（{speakerDetail}，{faceDetail}）");
     }
@@ -381,6 +397,153 @@ public sealed class RSceneDialoguePreviewService
 
         return rawSpeakerValue is >= 0 and <= 1023 ? rawSpeakerValue : null;
     }
+
+    private static TextSpeakerCandidate? ResolveSpeakerFromText(
+        string text,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
+    {
+        var segments = ExtractSpeakerSegments(text, people);
+        return segments.Count == 0 ? null : ResolveSpeakerSegment(segments[0], people, 1, segments.Count);
+    }
+
+    private static IReadOnlyList<RawSpeakerSegment> ExtractSpeakerSegments(
+        string text,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Array.Empty<RawSpeakerSegment>();
+        }
+
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var markerIndexes = normalized
+            .Select((character, index) => (character, index))
+            .Where(x => x.character is '&' or '＆')
+            .Select(x => x.index)
+            .ToList();
+        if (markerIndexes.Count == 0)
+        {
+            return Array.Empty<RawSpeakerSegment>();
+        }
+
+        var segments = new List<RawSpeakerSegment>();
+        for (var i = 0; i < markerIndexes.Count; i++)
+        {
+            var contentStart = markerIndexes[i] + 1;
+            var contentEnd = i + 1 < markerIndexes.Count ? markerIndexes[i + 1] : normalized.Length;
+            if (contentStart >= contentEnd)
+            {
+                continue;
+            }
+
+            var content = normalized[contentStart..contentEnd].Trim();
+            if (content.Length == 0)
+            {
+                continue;
+            }
+
+            if (TryBuildKnownSpeakerSegment(content, people, out var knownSegment))
+            {
+                segments.Add(knownSegment);
+                continue;
+            }
+
+            var lines = content.Split('\n').ToList();
+            var firstLineIndex = lines.FindIndex(line => line.Trim().Length > 0);
+            if (firstLineIndex < 0)
+            {
+                continue;
+            }
+
+            var speakerName = lines[firstLineIndex].Trim();
+            lines.RemoveAt(firstLineIndex);
+            segments.Add(new RawSpeakerSegment(speakerName, NormalizeText(string.Join("\n", lines))));
+        }
+
+        return segments;
+    }
+
+    private static bool TryBuildKnownSpeakerSegment(
+        string content,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
+        out RawSpeakerSegment segment)
+    {
+        var trimmed = content.TrimStart();
+        foreach (var name in people.Values
+                     .Select(person => person.Name?.Trim() ?? string.Empty)
+                     .Where(name => name.Length > 0)
+                     .Distinct(StringComparer.Ordinal)
+                     .OrderByDescending(name => name.Length))
+        {
+            if (!trimmed.StartsWith(name, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var body = trimmed[name.Length..].TrimStart();
+            body = TrimDialogueBodyPrefix(body);
+            segment = new RawSpeakerSegment(name, NormalizeText(body));
+            return true;
+        }
+
+        segment = default;
+        return false;
+    }
+
+    private static TextSpeakerCandidate ResolveSpeakerSegment(
+        RawSpeakerSegment segment,
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
+        int segmentIndex,
+        int segmentCount)
+    {
+        var normalizedSpeakerName = NormalizeSpeakerName(segment.SpeakerName);
+        if (normalizedSpeakerName.Length == 0)
+        {
+            return new TextSpeakerCandidate(segment.SpeakerName, segment.BodyText, SpeakerId: null, segmentIndex, segmentCount);
+        }
+
+        var matches = people
+            .Where(pair => string.Equals(NormalizeSpeakerName(pair.Value.Name), normalizedSpeakerName, StringComparison.Ordinal))
+            .Take(2)
+            .ToList();
+        return matches.Count == 1
+            ? new TextSpeakerCandidate(segment.SpeakerName, segment.BodyText, matches[0].Key, segmentIndex, segmentCount)
+            : new TextSpeakerCandidate(segment.SpeakerName, segment.BodyText, SpeakerId: null, segmentIndex, segmentCount);
+    }
+
+    private static string TrimDialogueBodyPrefix(string body)
+    {
+        body = body.TrimStart();
+        while (body.Length > 0 && body[0] is ':' or '：' or '，' or ',' or '。')
+        {
+            body = body[1..].TrimStart();
+        }
+
+        return body;
+    }
+
+    private static string NormalizeSpeakerName(string name)
+    {
+        var builder = new StringBuilder();
+        foreach (var character in name.Trim())
+        {
+            if (!char.IsWhiteSpace(character))
+            {
+                builder.Append(character);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private readonly record struct RawSpeakerSegment(string SpeakerName, string BodyText);
+
+    private sealed record TextSpeakerCandidate(
+        string SpeakerName,
+        string BodyText,
+        int? SpeakerId,
+        int SegmentIndex,
+        int SegmentCount);
 
     private sealed record DialoguePreviewProfile(
         Rectangle BoxBounds,

@@ -165,6 +165,56 @@ internal partial class Program
         RunMapWorkbenchSmoke(project, testProject);
         Console.WriteLine($"RS_WRITE_SMOKE OK root={smokeRoot}");
     }
+
+    static void RunBattlefieldUnitStatusWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        _ = tables;
+        var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "BattlefieldUnitStatusWriteSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+        Directory.CreateDirectory(smokeRoot);
+        foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Star.e5", "Imsg.e5", "Hexzmap.e5" })
+        {
+            var source = Path.Combine(project.GameRoot, coreFile);
+            if (File.Exists(source))
+            {
+                File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+            }
+        }
+
+        var rsRoot = Path.Combine(smokeRoot, "RS");
+        Directory.CreateDirectory(rsRoot);
+        var sourceBattlefieldScenarioPath = Path.Combine(project.GameRoot, "RS", "S_00.eex");
+        if (!File.Exists(sourceBattlefieldScenarioPath))
+        {
+            sourceBattlefieldScenarioPath = Directory.GetFiles(Path.Combine(project.GameRoot, "RS"), "S_*.eex", SearchOption.TopDirectoryOnly)
+                .OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)
+                .FirstOrDefault()
+                ?? throw new FileNotFoundException("Battlefield unit status write smoke could not find S_*.eex.", Path.Combine(project.GameRoot, "RS", "S_*.eex"));
+        }
+
+        var battlefieldScenarioFileName = Path.GetFileName(sourceBattlefieldScenarioPath);
+        File.Copy(sourceBattlefieldScenarioPath, Path.Combine(rsRoot, battlefieldScenarioFileName), overwrite: false);
+        File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+            $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=Battlefield unit status write smoke\r\n");
+
+        var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+        var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(project);
+        if (!File.Exists(dictionaryPath))
+        {
+            throw new FileNotFoundException("Battlefield unit status write smoke requires CczString.ini.", dictionaryPath);
+        }
+
+        var dictionary = new SceneStringParser().Parse(dictionaryPath);
+        var scenario = new ScenarioFileReader()
+            .ReadAllIndex(testProject)
+            .FirstOrDefault(x => x.FileName.Equals(battlefieldScenarioFileName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Battlefield unit status write smoke could not find copied {battlefieldScenarioFileName}.");
+        var legacyDocument = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+        var target = FindSmokeWritableStatusTarget(legacyDocument)
+            ?? throw new InvalidOperationException($"Battlefield unit status write smoke found no writable 46/47 record in {battlefieldScenarioFileName}.");
+        var targetKey = BuildSmokeUnitTargetKey(target.Command, target.RecordIndex);
+
+        RunBattlefieldUnitStatusWriteSmoke(testProject, scenario, dictionary, targetKey, target.PersonId);
+    }
     
     static void RunItemEffectCatalogSmoke(CczProject testProject, string smokeRoot)
     {
@@ -761,6 +811,8 @@ internal partial class Program
         }
     
         Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_WRITE_SMOKE_OK file={scenarioFileName} target={candidate.TargetKey} person={personId} coord=({originalX},{originalY})->({actualX},{actualY}) backup={Path.GetFileName(write.BackupPath)} changedBytes={write.ChangedBytes}");
+
+        RunBattlefieldUnitStatusWriteSmoke(testProject, scenario, dictionary, candidate.TargetKey, personId);
     
         var reviewService = new BattlefieldUnitReviewService();
         var localPlacement = new BattlefieldPlacedUnit
@@ -867,6 +919,175 @@ internal partial class Program
             Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_ALLY_SLOT_WRITE_OK file={allyScenario.FileName} target={allySlot.TargetKey} coord=({allySlot.GridX},{allySlot.GridY})->({allyActualX},{allyActualY}) changedBytes={allyWrite.ChangedBytes}");
         }
     }
+
+    static void RunBattlefieldUnitStatusWriteSmoke(
+        CczProject testProject,
+        ScenarioFileInfo scenario,
+        SceneStringDocument dictionary,
+        string targetKey,
+        int personId)
+    {
+        var service = new BattlefieldUnitStatusWriteService();
+        var placement = new BattlefieldPlacedUnit
+        {
+            TargetKey = targetKey,
+            PersonId = personId,
+            Name = "SmokeUnitStatus",
+            GridX = 1,
+            GridY = 1
+        };
+        if (!BattlefieldUnitStatusWriteService.IsWritableStatusTarget(placement))
+        {
+            Console.WriteLine($"BATTLEFIELD_UNIT_STATUS_WRITE_SMOKE_SKIPPED target={targetKey}");
+            return;
+        }
+
+        var before = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+        var locator = ParseBattlefieldStatusSmokeLocator(targetKey);
+        var beforeCommand = FindSmokeCommand(before, locator)
+            ?? throw new InvalidOperationException("Battlefield unit status smoke could not find source deployment command before write.");
+        var beforeIndex = FindSmokeCommandList(before, beforeCommand, out var beforeList)
+            ? beforeList.IndexOf(beforeCommand)
+            : -1;
+        if (beforeIndex < 0)
+        {
+            throw new InvalidOperationException("Battlefield unit status smoke could not locate source command list.");
+        }
+        var beforeBlockEnd = FindSmokeDeploymentBlockEnd(beforeList, beforeIndex);
+
+        var draft = service.LoadDraft(scenario, dictionary, placement);
+        draft.LevelBonus = draft.LevelBonus == 3 ? 4 : 3;
+        draft.JobLevel = draft.JobLevel == 2 ? 1 : 2;
+        draft.AiPolicy = draft.AiPolicy == 1 ? 2 : 1;
+        draft.Weapon = 2;
+        draft.WeaponLevel = 1;
+        draft.Armor = 2;
+        draft.ArmorLevel = 1;
+        draft.Assist = 2;
+        draft.JobId = 1;
+        for (var i = 0; i < draft.Abilities.Count; i++)
+        {
+            draft.Abilities[i].Operation = 0;
+            draft.Abilities[i].Value = 80 + i;
+        }
+
+        var write = service.Save(testProject, scenario, dictionary, draft);
+        if (write.InsertedCommandCount + write.UpdatedCommandCount < 7 ||
+            string.IsNullOrWhiteSpace(write.BackupPath) ||
+            !File.Exists(write.BackupPath) ||
+            string.IsNullOrWhiteSpace(write.ReportJsonPath) ||
+            !File.Exists(write.ReportJsonPath))
+        {
+            throw new InvalidOperationException("Battlefield unit status write smoke did not create expected commands, backup, or report.");
+        }
+
+        var verify = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+        var command = FindSmokeCommand(verify, locator)
+            ?? throw new InvalidOperationException("Battlefield unit status smoke reread lost source deployment command.");
+        var layout = GetDeploymentRecordLayout(command.CommandId);
+        var levelIndex = command.CommandId == 0x46 ? 5 : 6;
+        var jobLevelIndex = command.CommandId == 0x46 ? 6 : 7;
+        var aiIndex = command.CommandId == 0x46 ? 7 : 8;
+        var start = locator.RecordIndex * layout.GroupSize;
+        AssertSmokeParameter(command, start + levelIndex, draft.LevelBonus!.Value, "level");
+        AssertSmokeParameter(command, start + jobLevelIndex, draft.JobLevel!.Value, "jobLevel");
+        AssertSmokeParameter(command, start + aiIndex, draft.AiPolicy!.Value, "ai");
+
+        if (!FindSmokeCommandList(verify, command, out var list))
+        {
+            throw new InvalidOperationException("Battlefield unit status smoke could not locate reread command list.");
+        }
+        var statusSegmentEnd = FindSmokeStatusSegmentEnd(list, beforeBlockEnd);
+        var deploymentStatusNodes = list
+            .Skip(beforeBlockEnd)
+            .Take(statusSegmentEnd - beforeBlockEnd)
+            .ToList();
+        var deploymentStatusCommands = FlattenSmokeStatusCommands(deploymentStatusNodes);
+        var equipmentBlock = AssertSmokeInternalInfoBlock(
+            list,
+            beforeBlockEnd,
+            statusSegmentEnd,
+            BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle,
+            personId,
+            expectEquipment: true,
+            expectRuntime: false);
+        var equipment = deploymentStatusCommands.FirstOrDefault(x => x.CommandId == 0x48 && x.Parameters.Count >= 6 && x.Parameters[0].IntValue == personId)
+            ?? throw new InvalidOperationException("Battlefield unit status smoke did not reread inserted 0x48.");
+        AssertSmokeParameter(equipment, 1, 2, "weapon");
+        AssertSmokeParameter(equipment, 2, 1, "weaponLevel");
+        AssertSmokeParameter(equipment, 3, 2, "armor");
+        AssertSmokeParameter(equipment, 4, 1, "armorLevel");
+        AssertSmokeParameter(equipment, 5, 2, "assist");
+
+        var drawingStatusCommands = FindSmokeDrawingStatusCommands(
+            verify,
+            command.SceneIndex,
+            command.SectionIndex,
+            out var drawingList,
+            out var drawingIndex,
+            out var drawingStatusNodes);
+        var runtimeBlock = AssertSmokeInternalInfoBlock(
+            drawingList,
+            drawingIndex + 1,
+            drawingIndex + 1 + drawingStatusNodes.Count,
+            BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle,
+            personId,
+            expectEquipment: false,
+            expectRuntime: true);
+        var job = drawingStatusCommands.FirstOrDefault(x => x.CommandId == 0x52 && x.Parameters.Count >= 2 && x.Parameters[0].IntValue == personId)
+            ?? throw new InvalidOperationException("Battlefield unit status smoke did not reread inserted 0x52.");
+        AssertSmokeParameter(job, 1, 1, "job");
+        var runtimeBlockCommands = runtimeBlock.ChildBlock?.Commands
+            ?? throw new InvalidOperationException("Battlefield unit status smoke runtime block lost child block.");
+        var jobIndex = runtimeBlockCommands.IndexOf(job);
+        if (jobIndex <= 0 ||
+            jobIndex >= runtimeBlockCommands.Count - 1 ||
+            !IsSmokeAbilityRecalcToggle(runtimeBlockCommands[jobIndex - 1], 1) ||
+            !IsSmokeAbilityRecalcToggle(runtimeBlockCommands[jobIndex + 1], 0))
+        {
+            throw new InvalidOperationException("Battlefield unit status smoke did not wrap 0x52 with 4081 ability recalculation toggles.");
+        }
+
+        foreach (var ability in draft.Abilities)
+        {
+            var abilityCommand = drawingStatusCommands.FirstOrDefault(x =>
+                x.CommandId == 0x38 &&
+                x.Parameters.Count >= 4 &&
+                x.Parameters[0].IntValue == personId &&
+                x.Parameters[1].IntValue == ability.AbilityId)
+                ?? throw new InvalidOperationException($"Battlefield unit status smoke did not reread inserted 0x38 ability={ability.AbilityId}.");
+            AssertSmokeParameter(abilityCommand, 2, 0, ability.Name + " op");
+            AssertSmokeParameter(abilityCommand, 3, ability.Value!.Value, ability.Name);
+        }
+
+        var firstStatusIndex = list.FindIndex(x => ReferenceEquals(x, equipmentBlock));
+        if (firstStatusIndex < beforeBlockEnd)
+        {
+            throw new InvalidOperationException($"Battlefield unit status smoke inserted status command before deployment block end: insert={firstStatusIndex}, blockEnd={beforeBlockEnd}.");
+        }
+
+        var firstRuntimeStatusIndex = drawingList.FindIndex(x =>
+            drawingStatusNodes.Any(commandNode => ReferenceEquals(commandNode, x)));
+        if (firstRuntimeStatusIndex <= drawingIndex)
+        {
+            throw new InvalidOperationException($"Battlefield unit status smoke did not insert runtime status commands below 0x1C drawing: drawing={drawingIndex}, status={firstRuntimeStatusIndex}.");
+        }
+
+        var deploymentBlockCountBeforeSecondSave = CountSmokeInternalInfoBlocks(verify, BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, personId);
+        var secondWrite = service.Save(testProject, scenario, dictionary, draft);
+        var secondVerify = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+        var deploymentBlockCountAfterSecondSave = CountSmokeInternalInfoBlocks(secondVerify, BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, personId);
+        if (deploymentBlockCountAfterSecondSave != deploymentBlockCountBeforeSecondSave)
+        {
+            throw new InvalidOperationException($"Battlefield unit status smoke duplicated fixed comment blocks on second save: before={deploymentBlockCountBeforeSecondSave}, after={deploymentBlockCountAfterSecondSave}.");
+        }
+        if (secondWrite.InsertedCommandCount != 0)
+        {
+            throw new InvalidOperationException($"Battlefield unit status smoke second save should update existing folded blocks, inserted={secondWrite.InsertedCommandCount}.");
+        }
+
+        Console.WriteLine($"BATTLEFIELD_UNIT_STATUS_WRITE_SMOKE_OK file={scenario.FileName} target={targetKey} person={personId} level={draft.LevelBonus} jobLevel={draft.JobLevel} ai={draft.AiPolicy} inserted={write.InsertedCommandCount} updated={write.UpdatedCommandCount} backup={Path.GetFileName(write.BackupPath)} changedBytes={write.ChangedBytes}");
+    }
     
     static BattlefieldDeploymentSlotInfo? FindOrCreateEmptyBattlefieldDeploymentSlot(
         CczProject testProject,
@@ -936,6 +1157,348 @@ internal partial class Program
         => TryGetDeploymentRecordLayout(commandId, out var layout)
             ? layout
             : throw new ArgumentOutOfRangeException(nameof(commandId), commandId, "Unsupported deployment command.");
+
+    static string BuildSmokeUnitTargetKey(LegacyScenarioCommandNode command, int recordIndex)
+        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset=0x{command.FileOffset:X6};Id={command.CommandIdHex};Record={recordIndex.ToString(CultureInfo.InvariantCulture)}";
+
+    static BattlefieldStatusSmokeTarget? FindSmokeWritableStatusTarget(LegacyScenarioDocument document)
+    {
+        foreach (var command in document.EnumerateCommands().Where(x => x.CommandId is 0x46 or 0x47))
+        {
+            if (!TryGetDeploymentRecordLayout(command.CommandId, out var layout)) continue;
+            if (!document.EnumerateCommands().Any(x =>
+                    x.SceneIndex == command.SceneIndex &&
+                    x.SectionIndex == command.SectionIndex &&
+                    x.CommandId == 0x1C))
+            {
+                continue;
+            }
+
+            for (var recordIndex = 0; recordIndex < layout.RecordCount; recordIndex++)
+            {
+                var start = recordIndex * layout.GroupSize;
+                if (start + layout.GroupSize > command.Parameters.Count) break;
+
+                var personId = command.Parameters[start].IntValue;
+                if (personId > 0)
+                {
+                    return new BattlefieldStatusSmokeTarget(command, recordIndex, personId);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    static BattlefieldStatusSmokeLocator ParseBattlefieldStatusSmokeLocator(string targetKey)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in targetKey.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var index = part.IndexOf('=');
+            if (index <= 0) continue;
+            values[part[..index].Trim()] = part[(index + 1)..].Trim();
+        }
+
+        return new BattlefieldStatusSmokeLocator(
+            int.Parse(values["Scene"], CultureInfo.InvariantCulture),
+            int.Parse(values["Section"], CultureInfo.InvariantCulture),
+            int.Parse(values["Command"], CultureInfo.InvariantCulture),
+            values.GetValueOrDefault("Offset", string.Empty),
+            values.GetValueOrDefault("Id", string.Empty),
+            int.Parse(values["Record"], CultureInfo.InvariantCulture));
+    }
+
+    static LegacyScenarioCommandNode? FindSmokeCommand(LegacyScenarioDocument document, BattlefieldStatusSmokeLocator locator)
+        => document.EnumerateCommands().FirstOrDefault(command =>
+            command.SceneIndex == locator.SceneIndex &&
+            command.SectionIndex == locator.SectionIndex &&
+            command.CommandIndex == locator.CommandIndex &&
+            (string.IsNullOrWhiteSpace(locator.OffsetHex) || string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), locator.OffsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(locator.CommandIdHex) || string.Equals(command.CommandIdHex, locator.CommandIdHex, StringComparison.OrdinalIgnoreCase)));
+
+    static bool FindSmokeCommandList(
+        LegacyScenarioDocument document,
+        LegacyScenarioCommandNode target,
+        out List<LegacyScenarioCommandNode> list)
+    {
+        foreach (var section in document.Scenes.SelectMany(scene => scene.Sections))
+        {
+            if (FindSmokeCommandList(section.Commands, target, out list))
+            {
+                return true;
+            }
+        }
+
+        list = null!;
+        return false;
+    }
+
+    static bool FindSmokeCommandList(
+        List<LegacyScenarioCommandNode> commands,
+        LegacyScenarioCommandNode target,
+        out List<LegacyScenarioCommandNode> list)
+    {
+        foreach (var command in commands)
+        {
+            if (ReferenceEquals(command, target))
+            {
+                list = commands;
+                return true;
+            }
+
+            if (command.ChildBlock != null && FindSmokeCommandList(command.ChildBlock.Commands, target, out list))
+            {
+                return true;
+            }
+        }
+
+        list = null!;
+        return false;
+    }
+
+    static int FindSmokeDeploymentBlockEnd(IReadOnlyList<LegacyScenarioCommandNode> commands, int sourceIndex)
+    {
+        var end = sourceIndex + 1;
+        while (end < commands.Count && commands[end].CommandId is 0x46 or 0x47 or 0x4B)
+        {
+            end++;
+        }
+
+        return end;
+    }
+
+    static int FindSmokeStatusSegmentEnd(IReadOnlyList<LegacyScenarioCommandNode> commands, int sourceIndex)
+    {
+        var end = sourceIndex;
+        while (end < commands.Count && IsSmokeStatusSequenceStart(commands, end, includeEquipment: true))
+        {
+            end += GetSmokeStatusSequenceLength(commands, end, includeEquipment: true);
+        }
+
+        return end;
+    }
+
+    static IReadOnlyList<LegacyScenarioCommandNode> FindSmokeDrawingStatusCommands(
+        LegacyScenarioDocument document,
+        int sceneIndex,
+        int sectionIndex,
+        out List<LegacyScenarioCommandNode> drawingList,
+        out int drawingIndex,
+        out IReadOnlyList<LegacyScenarioCommandNode> statusNodes)
+    {
+        var drawing = document.EnumerateCommands()
+            .Where(command =>
+                command.SceneIndex == sceneIndex &&
+                command.SectionIndex == sectionIndex &&
+                command.CommandId == 0x1C)
+            .OrderBy(command => command.CommandIndex)
+            .LastOrDefault()
+            ?? throw new InvalidOperationException($"Battlefield unit status smoke could not find 0x1C drawing in Scene={sceneIndex} Section={sectionIndex}.");
+        if (!FindSmokeCommandList(document, drawing, out drawingList))
+        {
+            throw new InvalidOperationException("Battlefield unit status smoke could not locate drawing command list.");
+        }
+
+        drawingIndex = drawingList.IndexOf(drawing);
+        if (drawingIndex < 0)
+        {
+            throw new InvalidOperationException("Battlefield unit status smoke drawing command is not in its located list.");
+        }
+
+        var end = drawingIndex + 1;
+        while (end < drawingList.Count && IsSmokeStatusSequenceStart(drawingList, end, includeEquipment: false))
+        {
+            end += GetSmokeStatusSequenceLength(drawingList, end, includeEquipment: false);
+        }
+
+        statusNodes = drawingList
+            .Skip(drawingIndex + 1)
+            .Take(end - drawingIndex - 1)
+            .ToList();
+        return FlattenSmokeStatusCommands(statusNodes);
+    }
+
+    static LegacyScenarioCommandNode AssertSmokeInternalInfoBlock(
+        IReadOnlyList<LegacyScenarioCommandNode> list,
+        int start,
+        int end,
+        string expectedTitle,
+        int personId,
+        bool expectEquipment,
+        bool expectRuntime)
+    {
+        for (var i = start; i < end; i++)
+        {
+            if (list[i].CommandId != 0x01 || i + 1 >= end || list[i + 1].CommandId != 0x02)
+            {
+                continue;
+            }
+
+            var block = list[i + 1];
+            var title = block.TextParameters.FirstOrDefault()?.Text.Trim() ?? string.Empty;
+            if (!title.Equals(expectedTitle, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!block.OpensSubEventBlock || block.ChildBlock?.Kind != "SubEvent")
+            {
+                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block is not a SubEvent child block.");
+            }
+
+            var childCommands = block.ChildBlock.Commands;
+            if (childCommands.Count == 0 || childCommands[^1].CommandId != 0x00 || !childCommands[^1].EndsSubEventBlock)
+            {
+                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not end with 0x00.");
+            }
+
+            var logical = FlattenSmokeStatusCommands(new[] { block });
+            if (expectEquipment &&
+                !logical.Any(x => x.CommandId == 0x48 && x.Parameters.Count > 0 && x.Parameters[0].IntValue == personId))
+            {
+                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not contain expected 0x48.");
+            }
+
+            if (expectRuntime &&
+                !logical.Any(x => x.CommandId is 0x52 or 0x38 && x.Parameters.Count > 0 && x.Parameters[0].IntValue == personId))
+            {
+                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not contain expected runtime status command.");
+            }
+
+            return block;
+        }
+
+        throw new InvalidOperationException($"Battlefield unit status smoke did not find folded block '{expectedTitle}'.");
+    }
+
+    static int CountSmokeInternalInfoBlocks(LegacyScenarioDocument document, string title, int personId)
+        => document.EnumerateCommands().Count(command =>
+            command.CommandId == 0x02 &&
+            command.ChildBlock != null &&
+            (command.TextParameters.FirstOrDefault()?.Text.Trim() ?? string.Empty).Equals(title, StringComparison.Ordinal) &&
+            FlattenSmokeStatusCommands(new[] { command })
+                .Any(child => child.Parameters.Count > 0 && child.Parameters[0].IntValue == personId));
+
+    static List<LegacyScenarioCommandNode> FlattenSmokeStatusCommands(IEnumerable<LegacyScenarioCommandNode> commands)
+    {
+        var result = new List<LegacyScenarioCommandNode>();
+        foreach (var command in commands)
+        {
+            AddSmokeLogicalCommands(command, result);
+        }
+
+        return result;
+    }
+
+    static void AddSmokeLogicalCommands(LegacyScenarioCommandNode command, List<LegacyScenarioCommandNode> result)
+    {
+        if (command.CommandId != 0x01 && command.CommandId != 0x02 && command.CommandId != 0x00)
+        {
+            result.Add(command);
+        }
+
+        if (command.ChildBlock == null)
+        {
+            return;
+        }
+
+        foreach (var child in command.ChildBlock.Commands)
+        {
+            AddSmokeLogicalCommands(child, result);
+        }
+    }
+
+    static void AssertSmokeParameter(LegacyScenarioCommandNode command, int index, int expected, string label)
+    {
+        var actual = index >= 0 && index < command.Parameters.Count ? command.Parameters[index].IntValue : int.MinValue;
+        if (actual != expected)
+        {
+            throw new InvalidOperationException($"Smoke parameter mismatch {command.CommandIdHex} {label}: expected={expected}, actual={actual}.");
+        }
+    }
+
+    static bool IsSmokeAbilityRecalcToggle(LegacyScenarioCommandNode command, int expectedValue)
+        => command.CommandId == 0x77 &&
+           command.Parameters.Count >= 5 &&
+           command.Parameters[0].IntValue == 2 &&
+           command.Parameters[1].IntValue == 4081 &&
+           command.Parameters[2].IntValue == 2 &&
+           command.Parameters[3].IntValue == 0 &&
+           command.Parameters[4].IntValue == expectedValue;
+
+    static bool IsSmokeStatusCommand(LegacyScenarioCommandNode command)
+        => command.CommandId is 0x38 or 0x48 or 0x4E or 0x52 ||
+           IsSmokeAbilityRecalcToggle(command, 0) ||
+           IsSmokeAbilityRecalcToggle(command, 1);
+
+    static bool IsSmokeDrawingStatusCommand(LegacyScenarioCommandNode command)
+        => command.CommandId is 0x38 or 0x4E or 0x52 ||
+           IsSmokeAbilityRecalcToggle(command, 0) ||
+           IsSmokeAbilityRecalcToggle(command, 1);
+
+    static bool IsSmokeStatusSequenceStart(
+        IReadOnlyList<LegacyScenarioCommandNode> commandList,
+        int index,
+        bool includeEquipment)
+    {
+        if (index < 0 || index >= commandList.Count)
+        {
+            return false;
+        }
+
+        var command = commandList[index];
+        if (includeEquipment ? IsSmokeStatusCommand(command) : IsSmokeDrawingStatusCommand(command))
+        {
+            return true;
+        }
+
+        if (command.CommandId == 0x01 &&
+            index + 1 < commandList.Count &&
+            IsSmokeInternalInfoStatusBlock(commandList[index + 1], includeEquipment))
+        {
+            return true;
+        }
+
+        return IsSmokeInternalInfoStatusBlock(command, includeEquipment);
+    }
+
+    static bool IsSmokeInternalInfoStatusBlock(LegacyScenarioCommandNode command, bool includeEquipment)
+    {
+        if (command.CommandId != 0x02 || command.ChildBlock == null)
+        {
+            return false;
+        }
+
+        var title = command.TextParameters.FirstOrDefault()?.Text.Trim() ?? string.Empty;
+        return title == BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle ||
+               title == BattlefieldUnitStatusWriteService.RuntimeStatusBlockTitle ||
+               (includeEquipment && title == BattlefieldUnitStatusWriteService.EquipmentStatusBlockTitle);
+    }
+
+    static int GetSmokeStatusSequenceLength(
+        IReadOnlyList<LegacyScenarioCommandNode> commandList,
+        int index,
+        bool includeEquipment)
+        => index >= 0 &&
+           index + 1 < commandList.Count &&
+           commandList[index].CommandId == 0x01 &&
+           IsSmokeInternalInfoStatusBlock(commandList[index + 1], includeEquipment)
+            ? 2
+            : 1;
+
+    readonly record struct BattlefieldStatusSmokeLocator(
+        int SceneIndex,
+        int SectionIndex,
+        int CommandIndex,
+        string OffsetHex,
+        string CommandIdHex,
+        int RecordIndex);
+
+    readonly record struct BattlefieldStatusSmokeTarget(
+        LegacyScenarioCommandNode Command,
+        int RecordIndex,
+        int PersonId);
     
     static void RunMapImageWriteSmoke(CczProject testProject)
     {

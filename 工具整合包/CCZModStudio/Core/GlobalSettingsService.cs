@@ -27,11 +27,13 @@ public sealed class GlobalSettingsService
     private readonly HexTableReader _reader = new();
     private readonly HexTableWriter _writer = new();
     private readonly WriteOperationReportService _reportService = new();
+    private readonly CczEngineProfileService _engineProfileService = new();
 
     public GlobalSettingsDocument Load(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var jobSeriesTable = FindTable(tables, "6.5-3 兵种系");
-        var detailedJobTable = FindTable(tables, "6.5-4 详细兵种");
+        var hints = _engineProfileService.Detect(project).TableHints;
+        var jobSeriesTable = FindTable(project, tables, hints.JobSeriesTable);
+        var detailedJobTable = FindTable(project, tables, hints.DetailedJobTable);
         var jobSeriesRead = _reader.Read(project, jobSeriesTable, tables);
         var detailedJobRead = _reader.Read(project, detailedJobTable, tables);
         if (!jobSeriesRead.Validation.IsUsable || !detailedJobRead.Validation.IsUsable)
@@ -66,7 +68,7 @@ public sealed class GlobalSettingsService
 
         if (saveJobSeries)
         {
-            var table = FindTable(tables, "6.5-3 兵种系");
+            var table = FindTable(project, tables, _engineProfileService.Detect(project).TableHints.JobSeriesTable);
             var save = _writer.Save(project, table, document.JobSeriesNames);
             changedBytes += save.ChangedBytes;
             backups.Add(save.BackupPath);
@@ -76,7 +78,7 @@ public sealed class GlobalSettingsService
 
         if (saveDetailedJobs)
         {
-            var table = FindTable(tables, "6.5-4 详细兵种");
+            var table = FindTable(project, tables, _engineProfileService.Detect(project).TableHints.DetailedJobTable);
             var save = _writer.Save(project, table, document.DetailedJobNames);
             changedBytes += save.ChangedBytes;
             backups.Add(save.BackupPath);
@@ -117,14 +119,14 @@ public sealed class GlobalSettingsService
     {
         if (verifyJobSeries)
         {
-            var table = FindTable(tables, "6.5-3 兵种系");
+            var table = FindTable(project, tables, _engineProfileService.Detect(project).TableHints.JobSeriesTable);
             var reread = _reader.Read(project, table, tables).Data;
             AssertNameTableMatches(document.JobSeriesNames, reread, "兵种名");
         }
 
         if (verifyDetailedJobs)
         {
-            var table = FindTable(tables, "6.5-4 详细兵种");
+            var table = FindTable(project, tables, _engineProfileService.Detect(project).TableHints.DetailedJobTable);
             var reread = _reader.Read(project, table, tables).Data;
             AssertNameTableMatches(document.DetailedJobNames, reread, "职业名");
         }
@@ -286,7 +288,7 @@ public sealed class GlobalSettingsService
             OffsetText = "0x" + jobSeriesTable.DataPos.ToString("X", CultureInfo.InvariantCulture),
             LengthText = $"{jobSeriesTable.RowCount} x {jobSeriesTable.RowSize}B",
             Status = "已验证：HexTable.xml + 现有兵种系烟测链路",
-            Source = "6.5-3 兵种系",
+            Source = jobSeriesTable.TableName,
             Note = "等价于旧窗口右侧“兵种名修改”。"
         };
         yield return new GlobalSettingEvidence
@@ -297,7 +299,7 @@ public sealed class GlobalSettingsService
             OffsetText = "0x" + detailedJobTable.DataPos.ToString("X", CultureInfo.InvariantCulture),
             LengthText = $"{detailedJobTable.RowCount} x {detailedJobTable.RowSize}B",
             Status = "已验证：HexTable.xml + 现有详细兵种烟测链路",
-            Source = "6.5-4 详细兵种",
+            Source = detailedJobTable.TableName,
             Note = "等价于旧窗口右侧“职业名修改”。"
         };
         yield return new GlobalSettingEvidence
@@ -353,9 +355,8 @@ public sealed class GlobalSettingsService
         Detail = "需要继续逆向旧形象指定器或用实机/调试器定位 6.5 写回地址后才开放保存。"
     };
 
-    private static HexTableDefinition FindTable(IReadOnlyList<HexTableDefinition> tables, string name)
-        => tables.FirstOrDefault(t => t.TableName.Equals(name, StringComparison.Ordinal))
-           ?? throw new InvalidOperationException("找不到表定义：" + name);
+    private static HexTableDefinition FindTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string name)
+        => HexTableNameResolver.ResolveForProject(project, tables, name);
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {

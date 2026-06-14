@@ -135,7 +135,7 @@ public sealed class HexTableReader
         var cacheKey = project.GameRoot + "\0" + indexTableName;
         if (_indexCache.TryGetValue(cacheKey, out var cached)) return cached;
 
-        if (!HexTableNameResolver.TryResolve(allTables, indexTableName, out var indexDefinition)) return null;
+        if (!HexTableNameResolver.TryResolveForProject(project, allTables, indexTableName, out var indexDefinition)) return null;
 
         var validation = Validate(project, indexDefinition);
         if (!validation.IsUsable) return null;
