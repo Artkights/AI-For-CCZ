@@ -138,7 +138,7 @@ public sealed class HexTableWriter
                 ["Version"] = table.Version,
                 ["RowCount"] = table.RowCount.ToString(CultureInfo.InvariantCulture),
                 ["RowSize"] = table.RowSize.ToString(CultureInfo.InvariantCulture),
-                ["DataPos"] = "0x" + table.DataPos.ToString("X", CultureInfo.InvariantCulture)
+                ["DataPos"] = HexDisplayFormatter.FormatOffset(table.DataPos)
             }
         };
         return _reportService.WriteJsonReport(report, backupPath);
@@ -169,7 +169,7 @@ public sealed class HexTableWriter
             TableName = table.TableName,
             RowIndex = rowIndex,
             ColumnName = field.ColumnName,
-            OffsetHex = "0x" + absoluteOffset.ToString("X", CultureInfo.InvariantCulture),
+            OffsetHex = HexDisplayFormatter.FormatOffset(absoluteOffset),
             ByteLength = byteLength ?? field.Size,
             OldValue = oldValue,
             NewValue = newValue,

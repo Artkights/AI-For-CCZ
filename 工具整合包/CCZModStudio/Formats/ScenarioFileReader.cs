@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -30,7 +31,7 @@ public sealed partial class ScenarioFileReader
         var kind = Classify(info.Name, info.Length);
         var meta = TryReadEexHeader(File.Exists(path) ? ReadHeaderBytes(path) : Array.Empty<byte>(), info.Length);
         var headerText = meta.MagicValid
-            ? $"EEX\\0，HeaderSize=0x{meta.HeaderSize:X}，区段偏移候选={FormatOffsets(meta.SectionOffsets)}。"
+            ? $"EEX\\0，HeaderSize={HexDisplayFormatter.Format(meta.HeaderSize)}，区段偏移候选={FormatOffsets(meta.SectionOffsets)}。"
             : "未识别到 EEX\\0 文件头。";
 
         return new ScenarioFileInfo
@@ -64,8 +65,8 @@ public sealed partial class ScenarioFileReader
             .OrderByDescending(g => g.Count())
             .ThenBy(g => g.Key)
             .Take(8)
-            .Select(g => $"0x{g.Key:X4}:{g.Count()}");
-        var firstWords = words.Take(24).Select(x => x.ToString("X4", CultureInfo.InvariantCulture));
+            .Select(g => $"{HexDisplayFormatter.FormatWord(g.Key)}:{g.Count()}");
+        var firstWords = words.Take(24).Select(HexDisplayFormatter.FormatWord);
         var textHits = BinaryTextScanner.ScanGbkNullTerminatedStringHits(bytes, minByteLength: 4, maxItems: 64, requireCjk: true);
         var commandHits = BuildCommandCandidateSummary(words, sceneDictionary, meta.HeaderSize);
         var lastNonZero = Array.FindLastIndex(bytes, x => x != 0);
@@ -84,7 +85,7 @@ public sealed partial class ScenarioFileReader
             DistinctWordCount = words.Distinct().Count(),
             UsedBytes = usedBytes,
             UsedPercent = bytes.Length == 0 ? 0 : usedBytes * 100.0 / bytes.Length,
-            LastNonZeroOffsetHex = lastNonZero >= 0 ? "0x" + lastNonZero.ToString("X6", CultureInfo.InvariantCulture) : string.Empty,
+            LastNonZeroOffsetHex = lastNonZero >= 0 ? HexDisplayFormatter.FormatOffset(lastNonZero) : string.Empty,
             FirstWordsHex = string.Join(" ", firstWords),
             TopWordsHex = string.Join(" / ", topWords),
             RecognizedCommandCount = commandHits.Count,
@@ -138,7 +139,7 @@ public sealed partial class ScenarioFileReader
         var textText = textHintCount > 0 ? $"发现 {textHintCount} 条 GBK 文本线索，可做原容量内短写回。" : "未发现可用文本线索。";
         var commandText = recognizedCommandCount > 0 ? $"命中 {recognizedCommandCount} 个 CczString.ini 命令候选。" : "未命中命令字典候选。";
         var headerText = meta.MagicValid
-            ? $"EEX 头：HeaderSize=0x{meta.HeaderSize:X}，区段偏移候选={FormatOffsets(meta.SectionOffsets)}。"
+            ? $"EEX 头：HeaderSize={HexDisplayFormatter.Format(meta.HeaderSize)}，区段偏移候选={FormatOffsets(meta.SectionOffsets)}。"
             : "EEX 头异常或未确认。";
         return $"{kindText}{titleText}{textText}{commandText}{headerText} 文件：{fileName}";
     }
@@ -277,7 +278,7 @@ public sealed partial class ScenarioFileReader
     }
 
     private static string FormatOffsets(IReadOnlyList<int> offsets)
-        => offsets.Count == 0 ? "???" : string.Join("/", offsets.Take(8).Select(x => "0x" + x.ToString("X", CultureInfo.InvariantCulture)));
+        => offsets.Count == 0 ? "???" : string.Join("/", offsets.Take(8).Select(x => HexDisplayFormatter.FormatOffset(x)));
 
     private sealed record EexHeaderInfo(bool MagicValid, int HeaderSize, IReadOnlyList<int> SectionOffsets);
 

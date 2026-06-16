@@ -213,11 +213,11 @@ public sealed class ScenarioStructureProbeReader
             {
                 Index = commandIndex,
                 WordIndex = commandOffsetInFile / 2,
-                OffsetHex = "0x" + commandOffsetInFile.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(commandOffsetInFile),
                 CommandId = id,
-                CommandIdHex = "0x" + id.ToString("X", CultureInfo.InvariantCulture),
+                CommandIdHex = HexDisplayFormatter.Format(id),
                 CommandName = commandName,
-                ContextWordsHex = string.Join(" ", parse.ContextWords.Select(word => word.ToString("X4", CultureInfo.InvariantCulture))),
+                ContextWordsHex = string.Join(" ", parse.ContextWords.Select(HexDisplayFormatter.FormatWord)),
                 Confidence = "高",
                 Note = "按旧 C++ 剧本编辑器参数布局解析。",
                 Annotation = string.Join(" ", annotationHints)
@@ -261,13 +261,13 @@ public sealed class ScenarioStructureProbeReader
             return "无后续参数预览";
         }
 
-        return "后续16位词：" + string.Join(' ', parse.LogicalParameters.Select(value => value.ToString("X4", CultureInfo.InvariantCulture)));
+        return "后续16位词：" + string.Join(' ', parse.LogicalParameters.Select(HexDisplayFormatter.FormatWord));
     }
 
     private static string BuildLegacyStructureAnnotation(string commandName, int id, IReadOnlyList<string> hints, LegacyParsedCommand parse)
     {
         var builder = new StringBuilder();
-        builder.Append($"旧规则命令：0x{id:X2} {commandName}。");
+        builder.Append($"旧规则命令：{HexDisplayFormatter.Format(id, 2)} {commandName}。");
         if (!string.IsNullOrWhiteSpace(parse.LayoutText))
         {
             builder.Append($" 参数布局：{parse.LayoutText}。");
@@ -431,7 +431,7 @@ public sealed class ScenarioStructureProbeReader
                         cursor += 1;
                         longCharCount++;
                         logicalParameters.Add(Math.Min(text.Length, 0xFFFF));
-                        layoutParts.Add($"STR[{tag:X2}]={TrimPreview(text, 24)}");
+                        layoutParts.Add($"STR[{HexDisplayFormatter.Format(tag, 2)}]={TrimPreview(text, 24)}");
                         break;
                     }
                 case 0x35:
@@ -451,7 +451,7 @@ public sealed class ScenarioStructureProbeReader
                             logicalParameters.Add(value);
                             contextWords.Add(unchecked((ushort)value));
                         }
-                        layoutParts.Add($"VAR{variableBlockIndex++}[{tag:X2}]={count}:{string.Join("/", values.Take(6))}");
+                        layoutParts.Add($"VAR{variableBlockIndex++}[{HexDisplayFormatter.Format(tag, 2)}]={count}:{string.Join("/", values.Take(6))}");
                         break;
                     }
                 case 0x04:
@@ -462,7 +462,7 @@ public sealed class ScenarioStructureProbeReader
                         logicalParameters.Add(value);
                         contextWords.Add(unchecked((ushort)(value & 0xFFFF)));
                         contextWords.Add(unchecked((ushort)((value >> 16) & 0xFFFF)));
-                        layoutParts.Add($"D32[{tag:X2}]={value}");
+                        layoutParts.Add($"D32[{HexDisplayFormatter.Format(tag, 2)}]={value}");
                         break;
                     }
                 default:
@@ -472,7 +472,7 @@ public sealed class ScenarioStructureProbeReader
                         cursor += 2;
                         logicalParameters.Add(value);
                         contextWords.Add(unchecked((ushort)value));
-                        layoutParts.Add($"W16[{tag:X2}]={value}");
+                        layoutParts.Add($"W16[{HexDisplayFormatter.Format(tag, 2)}]={value}");
                         break;
                     }
             }
@@ -518,7 +518,7 @@ public sealed class ScenarioStructureProbeReader
         };
 
     private static string ResolveCommandName(SceneStringDocument dictionary, int id)
-        => dictionary.Commands.FirstOrDefault(command => command.Id == id)?.Name ?? $"命令 0x{id:X2}";
+        => dictionary.Commands.FirstOrDefault(command => command.Id == id)?.Name ?? $"命令 {HexDisplayFormatter.Format(id, 2)}";
 
     private static int ReadInt16(byte[] bytes, int offset, bool signed)
     {
@@ -536,7 +536,7 @@ public sealed class ScenarioStructureProbeReader
 
     private static string BuildParameterPreview(ScenarioCommandProbeRow command)
     {
-        var words = ParseContextWords(command.ContextWordsHex).Skip(1).Take(8).Select(x => x.ToString("X4", CultureInfo.InvariantCulture)).ToList();
+        var words = ParseContextWords(command.ContextWordsHex).Skip(1).Take(8).Select(HexDisplayFormatter.FormatWord).ToList();
         return words.Count == 0 ? "无后续参数预览" : "后续16位词：" + string.Join(' ', words);
     }
 

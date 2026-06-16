@@ -1,4 +1,5 @@
 using System.Globalization;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -32,7 +33,7 @@ public sealed class ScenarioCommandProbeReader
             var context = words
                 .Skip(wordIndex)
                 .Take(10)
-                .Select(x => x.ToString("X4", CultureInfo.InvariantCulture));
+                .Select(x => HexDisplayFormatter.FormatWord(x));
             var note = BuildNote(id, words, wordIndex, scanWordLimit, eexHeaderSize > 0);
             var confidence = note.Contains("低可信度", StringComparison.Ordinal) ? "低" : id == 0 ? "低" : "中";
 
@@ -40,9 +41,9 @@ public sealed class ScenarioCommandProbeReader
             {
                 Index = rows.Count + 1,
                 WordIndex = wordIndex,
-                OffsetHex = "0x" + (wordIndex * 2).ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(wordIndex * 2),
                 CommandId = id,
-                CommandIdHex = "0x" + id.ToString("X", CultureInfo.InvariantCulture),
+                CommandIdHex = HexDisplayFormatter.Format(id),
                 CommandName = command.Name,
                 ContextWordsHex = string.Join(" ", context),
                 Confidence = confidence,

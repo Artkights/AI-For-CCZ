@@ -27,6 +27,7 @@ public sealed partial class MainForm : Form
     private sealed record JobEditorCellEdit(DataRow Row, string ColumnName, object? OldValue, object? NewValue);
     private sealed record ItemEditorCellTarget(DataRow Row, string ColumnName);
     private sealed record ItemEditorCellEdit(DataRow Row, string ColumnName, object? OldValue, object? NewValue);
+    private sealed record JobStrategyIconImportTarget(int StrategyId, string StrategyName, int IconIndex, string SourcePath);
     private sealed record BattlefieldCommand25Marker(int GridX, int GridY, LegacyScenarioCommandNode Command, int Count);
 
     private const int DefaultWindowWidth = 1280;
@@ -245,6 +246,8 @@ public sealed partial class MainForm : Form
     private LegacyScenarioDocument? _currentLegacyScriptDocument;
     private IReadOnlyList<ScenarioTextEntry> _currentScriptTextEntries = Array.Empty<ScenarioTextEntry>();
     private IReadOnlyList<ScenarioSearchResultRow> _currentScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
+    private string _currentScriptSearchKeyword = string.Empty;
+    private int _currentScriptSearchResultIndex = -1;
     private ScenarioFileInfo? _currentScriptScenario;
     private ScenarioStructureRow? _selectedScriptCommandRow;
     private ScenarioTextEntry? _selectedScriptTextEntry;
@@ -268,6 +271,8 @@ public sealed partial class MainForm : Form
     private ScenarioStructureProbeResult? _currentBattlefieldScriptStructure;
     private LegacyScenarioDocument? _currentBattlefieldLegacyScriptDocument;
     private IReadOnlyList<ScenarioTextEntry> _currentBattlefieldScriptTextEntries = Array.Empty<ScenarioTextEntry>();
+    private string _currentBattlefieldScriptSearchKeyword = string.Empty;
+    private int _currentBattlefieldScriptSearchResultIndex = -1;
     private ScenarioTextEntry? _selectedBattlefieldScriptTextEntry;
     private ScenarioStructureRow? _selectedBattlefieldScriptCommandRow;
     private readonly Dictionary<string, LegacyScenarioCommandNode> _battlefieldScriptCommandByKey = new(StringComparer.OrdinalIgnoreCase);
@@ -538,6 +543,7 @@ public sealed partial class MainForm : Form
     private readonly TextBox _jobMatrixInfoBox = new();
     private readonly Button _loadJobStrategyEditorButton = new();
     private readonly Button _saveJobStrategyEditorButton = new();
+    private readonly Button _importJobStrategyIconButton = new();
     private readonly Button _openJobStrategyTableButton = new();
     private readonly Button _filterJobStrategyEditorButton = new();
     private readonly Button _clearJobStrategyEditorFilterButton = new();
@@ -830,6 +836,9 @@ public sealed partial class MainForm : Form
     private readonly Button _showRSceneVariablesButton = new();
     private readonly Button _jumpRSceneScriptButton = new();
     private readonly TreeView _rSceneScriptTree = new();
+    private readonly TextBox _rSceneScriptSearchBox = new();
+    private string _currentRSceneScriptSearchKeyword = string.Empty;
+    private int _currentRSceneScriptSearchResultIndex = -1;
     private readonly TextBox _rSceneScriptDetailBox = new();
     private readonly LegacyMfcDialogHostControl _rSceneInlineDialogHost = new();
     private readonly Button _applyRSceneInlineDialogButton = new();
@@ -993,7 +1002,7 @@ public sealed partial class MainForm : Form
 
     private sealed record TerrainEditorPreset(byte Id, string Name)
     {
-        public string DisplayName => string.IsNullOrWhiteSpace(Name) ? $"0x{Id:X2}" : $"0x{Id:X2}  {Name}";
+        public string DisplayName => string.IsNullOrWhiteSpace(Name) ? HexDisplayFormatter.Format(Id, 2) : $"{HexDisplayFormatter.Format(Id, 2)}  {Name}";
     }
 
     public MainForm()
@@ -2335,7 +2344,7 @@ public sealed partial class MainForm : Form
 
     private sealed record ScriptCommandComboItem(int Id, string Name)
     {
-        public override string ToString() => $"0x{Id:X2} {Name}";
+        public override string ToString() => $"{HexDisplayFormatter.Format(Id, 2)} {Name}";
     }
 
     private sealed record JobStrategyComboItem(int Value, string Text);

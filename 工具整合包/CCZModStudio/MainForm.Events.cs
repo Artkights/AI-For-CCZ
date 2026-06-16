@@ -185,6 +185,7 @@ public sealed partial class MainForm
         _jobRestraintGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobRestraintGrid, e.RowIndex);
         _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
+        _importJobStrategyIconButton.Click += (_, _) => ImportSelectedJobStrategyIcons();
         _openJobStrategyTableButton.Click += (_, _) => OpenCoreTable("6.5-5 策略");
         _filterJobStrategyEditorButton.Click += (_, _) => ApplyJobStrategyFilter();
         _clearJobStrategyEditorFilterButton.Click += (_, _) => ClearJobStrategyFilter();

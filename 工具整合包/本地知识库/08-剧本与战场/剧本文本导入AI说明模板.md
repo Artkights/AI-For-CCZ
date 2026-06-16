@@ -145,15 +145,15 @@
 
 | 剧情意图 | 输出格式 | 生成指令 |
 | --- | --- | --- |
-| 人物对白 | `@dialog speaker=<人物ID或名称>` + 下一行正文 | `0x14 对话` |
-| 旁白叙述 | `@narration` + 下一行正文；禁止 `x/y/mode` | `0x14 对话` |
-| 地图文字 | `@text x=<X> y=<Y> mode=<显示方式编号>` + 下一行正文；只有地图文字使用坐标 | `0x2C 地图文字显示` |
-| 武将出场 | `@appear actor=<人物ID或名称> x=<X> y=<Y> dir=<方向> action=<普通动作编号>` | `0x30 武将出现` |
-| 武将移动 | `@move actor=<人物ID或名称> x=<X> y=<Y> dir=<方向> mode=0 battle=0` | `0x32 武将移动` |
-| 武将转向 | `@turn actor=<人物ID或名称> dir=<方向> action=<普通动作编号>` | `0x33 武将转向` |
-| 武将动作 | `@action actor=<人物ID或名称> action=<普通动作编号>` | `0x34 武将动作` |
-| 战场转向 | `@battle-turn actor=<人物ID或名称> target=<人物ID或名称> dir=<方向> turnDelay=0 preDelay=0 postDelay=0` | `0x4F 战场转向设置` |
-| 战场动作 | `@battle-action actor=<人物ID或名称> action=<战场动作编号> preDelay=0 postDelay=1` | `0x50 战场动作设定` |
+| 人物对白 | `@dialog speaker=<人物ID或名称>` + 下一行正文 | `14 对话` |
+| 旁白叙述 | `@narration` + 下一行正文；禁止 `x/y/mode` | `14 对话` |
+| 地图文字 | `@text x=<X> y=<Y> mode=<显示方式编号>` + 下一行正文；只有地图文字使用坐标 | `2C 地图文字显示` |
+| 武将出场 | `@appear actor=<人物ID或名称> x=<X> y=<Y> dir=<方向> action=<普通动作编号>` | `30 武将出现` |
+| 武将移动 | `@move actor=<人物ID或名称> x=<X> y=<Y> dir=<方向> mode=0 battle=0` | `32 武将移动` |
+| 武将转向 | `@turn actor=<人物ID或名称> dir=<方向> action=<普通动作编号>` | `33 武将转向` |
+| 武将动作 | `@action actor=<人物ID或名称> action=<普通动作编号>` | `34 武将动作` |
+| 战场转向 | `@battle-turn actor=<人物ID或名称> target=<人物ID或名称> dir=<方向> turnDelay=0 preDelay=0 postDelay=0` | `4F 战场转向设置` |
+| 战场动作 | `@battle-action actor=<人物ID或名称> action=<战场动作编号> preDelay=0 postDelay=1` | `50 战场动作设定` |
 
 ## 生成前自检清单
 

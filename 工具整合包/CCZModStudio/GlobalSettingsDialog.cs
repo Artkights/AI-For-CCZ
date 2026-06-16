@@ -330,7 +330,7 @@ public sealed class GlobalSettingsDialog : Form
     {
         if (_document == null) return;
         var count = EncodingService.GetGbkByteCount(_titleBox.Text);
-        _titleCapacityLabel.Text = $"GBK 容量：{count}/{_document.GameTitle.CapacityBytes} 字节    位置：{_document.GameTitle.FileName}@0x{_document.GameTitle.Offset:X}";
+        _titleCapacityLabel.Text = $"GBK 容量：{count}/{_document.GameTitle.CapacityBytes} 字节    位置：{_document.GameTitle.FileName}@{HexDisplayFormatter.FormatOffset(_document.GameTitle.Offset)}";
         _titleCapacityLabel.ForeColor = count > _document.GameTitle.CapacityBytes ? Color.DarkRed : SystemColors.ControlText;
     }
 

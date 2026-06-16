@@ -534,10 +534,10 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         => runtime.DebugR00ActorRouteAnalyze(route, person_id, evidence_path, include_latest_evidence, game_root, output_dir);
 
     [McpServerTool]
-    [Description("Offline scan Ekd5.exe .text for R-scene command-id comparison candidates such as 0x2D actor-click and 0x12 choice-box; optionally writes an internal probe plan.")]
+    [Description("Offline scan Ekd5.exe .text for R-scene command-id comparison candidates such as 2D actor-click and 12 choice-box; optionally writes an internal probe plan.")]
     public object debug_rscene_command_handler_scan(
-        [Description("Comma-separated command ids to scan, for example 0x2D,0x12,0x07,0x13.")]
-        string command_ids = "0x2D,0x12,0x07,0x13",
+        [Description("Comma-separated command ids to scan, for example 2D,12,07,13.")]
+        string command_ids = "2D,12,07,13",
         [Description("Maximum candidates to keep per command id.")]
         int max_candidates_per_command = 32,
         [Description("Bytes of nearby code to include in each offline evidence row.")]
@@ -766,7 +766,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("When true, run the generated handler probe plan before continue_startup so early R-scene interpreter hits are not missed.")]
         bool probe_before_startup_continue = false,
         [Description("Comma-separated R-scene command ids for handler candidate scanning.")]
-        string command_ids = "0x2D,0x12,0x07,0x13",
+        string command_ids = "2D,12,07,13",
         [Description("Maximum handler candidates to keep per command id.")]
         int max_candidates_per_command = 8,
         [Description("Keyboard delivery mode for the trigger: post_message or send_input.")]
@@ -795,7 +795,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Route: regular_start, custom_mode, or mode_help.")]
         string route = "regular_start",
         [Description("Comma-separated R-scene command ids to scan. Script-required ids are always included.")]
-        string command_ids = "0x2D,0x12,0x07,0x13",
+        string command_ids = "2D,12,07,13",
         [Description("Maximum static handler candidates to keep per command id.")]
         int max_candidates_per_command = 8,
         [Description("Optional r00-startup-route-probe-summary.json to summarize. Defaults to the latest one when include_latest_evidence=true.")]
@@ -824,7 +824,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("When true, run the generated handler probe plan before continue_startup so early R-scene interpreter hits are not missed.")]
         bool probe_before_startup_continue = true,
         [Description("Comma-separated R-scene command ids for handler candidate scanning. Script-required ids are always included.")]
-        string command_ids = "0x2D,0x12,0x07,0x13",
+        string command_ids = "2D,12,07,13",
         [Description("Maximum handler candidates to keep per command id.")]
         int max_candidates_per_command = 8,
         [Description("Optional r00-startup-route-probe-summary.json to summarize. Defaults to the latest one when include_latest_evidence=true.")]

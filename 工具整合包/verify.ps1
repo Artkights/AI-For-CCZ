@@ -1,6 +1,7 @@
 param(
     [switch]$RunWriteSmoke,
     [switch]$SkipMcpValidation,
+    [switch]$StopStaleMcp,
     [string]$Configuration = "Debug"
 )
 
@@ -15,6 +16,19 @@ function Invoke-Step {
     Write-Host ""
     Write-Host "== $Name ==" -ForegroundColor Cyan
     & $Action
+}
+
+function Invoke-External {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+    )
+
+    & $FilePath @Arguments
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "External command failed with exit code ${exitCode}: $FilePath $($Arguments -join ' ')"
+    }
 }
 
 function Find-FirstFile {
@@ -122,6 +136,98 @@ function Get-TextFilesForReferenceScan {
         Where-Object { $_.Extension -in @(".cs", ".md", ".ps1") }
 }
 
+function Assert-NoGeneratedSourcePollution {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolRoot,
+        [Parameter(Mandatory = $true)][string]$Configuration
+    )
+
+    $projects = Get-ChildItem -LiteralPath $ToolRoot -Recurse -File -Filter "*.csproj" |
+        Where-Object { $_.FullName -notmatch '\\artifacts\\|\\bin\\|\\obj\\' } |
+        Sort-Object FullName
+
+    $polluted = New-Object System.Collections.Generic.List[string]
+    foreach ($project in $projects) {
+        $output = & dotnet msbuild $project.FullName -nologo -p:Configuration=$Configuration -p:UseAppHost=false -getItem:Compile 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $output | ForEach-Object { Write-Host $_ }
+            throw "Could not evaluate Compile items for $($project.FullName). dotnet msbuild exited with $exitCode."
+        }
+
+        $jsonText = ($output -join [Environment]::NewLine)
+        $jsonStart = $jsonText.IndexOf('{')
+        if ($jsonStart -lt 0) {
+            throw "Could not find JSON Compile item output for $($project.FullName)."
+        }
+        $evaluated = $jsonText.Substring($jsonStart) | ConvertFrom-Json
+        foreach ($item in @($evaluated.Items.Compile)) {
+            $identity = [string]$item.Identity
+            $fullPath = [string]$item.FullPath
+            $relative = $fullPath
+            if ($relative.StartsWith($ToolRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                $relative = $relative.Substring($ToolRoot.Length).TrimStart('\')
+            }
+
+            $isGeneratedSource =
+                $identity -match '(^|\\)artifacts\\' -and
+                ($identity -match '\.NETCoreApp,Version=.*AssemblyAttributes\.cs$' -or
+                 $identity -match '\.AssemblyInfo\.cs$' -or
+                 $identity -match '\.GlobalUsings\.g\.cs$')
+
+            if ($isGeneratedSource) {
+                $polluted.Add("$($project.FullName) <- $relative")
+            }
+        }
+    }
+
+    if ($polluted.Count -gt 0) {
+        $polluted | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+        throw "Generated source pollution detected in MSBuild Compile items. Exclude artifacts/** before building."
+    }
+
+    Write-Host "Generated source pollution scan passed: no artifacts generated sources are compiled."
+}
+
+function Get-StaleMcpDotnetProcesses {
+    param([Parameter(Mandatory = $true)][string]$ToolRoot)
+
+    $escapedRoot = [regex]::Escape($ToolRoot)
+    Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" |
+        Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine -match $escapedRoot -and
+            ($_.CommandLine -match 'CCZModStudio\.McpServer\.dll' -or $_.CommandLine -match 'CCZModStudio\.GameDebugMcpServer\.dll')
+        } |
+        Sort-Object ProcessId
+}
+
+function Assert-StaleMcpProcesses {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolRoot,
+        [switch]$Stop
+    )
+
+    $processes = @(Get-StaleMcpDotnetProcesses -ToolRoot $ToolRoot)
+    if ($processes.Count -eq 0) {
+        return
+    }
+
+    foreach ($process in $processes) {
+        Write-Host ("Stale MCP dotnet process PID={0}: {1}" -f $process.ProcessId, $process.CommandLine) -ForegroundColor Yellow
+    }
+
+    if (-not $Stop) {
+        Write-Host "Pass -StopStaleMcp to terminate these current-workspace MCP processes before building." -ForegroundColor Yellow
+        return
+    }
+
+    foreach ($process in $processes) {
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+    }
+    Write-Host ("Stopped {0} stale MCP process(es)." -f $processes.Count)
+}
+
 function Assert-RuntimeBoundary {
     param([Parameter(Mandatory = $true)][string]$ToolRoot)
 
@@ -159,8 +265,16 @@ $smokeDll = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\bin\$Configuration\
 $mcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-mcp-config.ps1"
 $gameDebugMcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-ccz-game-debug-mcp.ps1"
 
+Invoke-Step "Generated source pollution scan" {
+    Assert-NoGeneratedSourcePollution -ToolRoot $PSScriptRoot -Configuration $Configuration
+}
+
+Invoke-Step "Stale MCP process scan" {
+    Assert-StaleMcpProcesses -ToolRoot $PSScriptRoot -Stop:$StopStaleMcp
+}
+
 Invoke-Step "Build solution" {
-    dotnet build $solution -c $Configuration -v:minimal -p:UseAppHost=false
+    Invoke-External -FilePath dotnet -Arguments @("build", $solution, "-c", $Configuration, "-v:minimal", "-p:UseAppHost=false")
 }
 
 Invoke-Step "Runtime boundary scan" {
@@ -172,30 +286,30 @@ Invoke-Step "R/S read smoke" {
         throw "Smoke test DLL was not built: $smokeDll"
     }
 
-    dotnet $smokeDll --rs-smoke
+    Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--rs-smoke")
 }
 
 Invoke-Step "Legacy MFC dialog smoke" {
-    dotnet $smokeDll --legacy-mfc-dialog-smoke
+    Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--legacy-mfc-dialog-smoke")
 }
 
 Invoke-Step "Global settings dialog smoke" {
-    dotnet $smokeDll --global-settings-dialog-smoke
+    Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--global-settings-dialog-smoke")
 }
 
 if ($RunWriteSmoke) {
     Invoke-Step "R/S write smoke on test copy" {
-        dotnet $smokeDll --rs-write-smoke
+        Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--rs-write-smoke")
     }
 }
 
 if (-not $SkipMcpValidation) {
     Invoke-Step "MCP stdio validation" {
-        powershell -NoProfile -ExecutionPolicy Bypass -File $mcpValidation
+        Invoke-External -FilePath powershell -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $mcpValidation)
     }
 
     Invoke-Step "Game debug MCP stdio validation" {
-        powershell -NoProfile -ExecutionPolicy Bypass -File $gameDebugMcpValidation
+        Invoke-External -FilePath powershell -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $gameDebugMcpValidation)
     }
 }
 

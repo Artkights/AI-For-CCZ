@@ -10,6 +10,42 @@ using System.Windows.Forms;
 
 internal partial class Program
 {
+    static void RunBattlefieldTextWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "BattlefieldTextWriteSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+        Directory.CreateDirectory(smokeRoot);
+        foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Star.e5", "Imsg.e5" })
+        {
+            var source = Path.Combine(project.GameRoot, coreFile);
+            if (!File.Exists(source))
+            {
+                throw new FileNotFoundException("战场标题/胜败条件写入烟测缺少核心文件。", source);
+            }
+
+            File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+        }
+
+        var rsRoot = Path.Combine(smokeRoot, "RS");
+        Directory.CreateDirectory(rsRoot);
+        var sourceBattlefieldScenarioPath = Path.Combine(project.GameRoot, "RS", "S_00.eex");
+        if (!File.Exists(sourceBattlefieldScenarioPath))
+        {
+            sourceBattlefieldScenarioPath = Directory.GetFiles(Path.Combine(project.GameRoot, "RS"), "S_*.eex", SearchOption.TopDirectoryOnly)
+                .OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)
+                .FirstOrDefault()
+                ?? throw new FileNotFoundException("Battlefield text write smoke could not find S_*.eex.", Path.Combine(project.GameRoot, "RS", "S_*.eex"));
+        }
+
+        var battlefieldScenarioFileName = Path.GetFileName(sourceBattlefieldScenarioPath);
+        File.Copy(sourceBattlefieldScenarioPath, Path.Combine(rsRoot, battlefieldScenarioFileName), overwrite: false);
+        File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+            $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=Battlefield title/condition write smoke\r\n");
+
+        var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+        RunBattlefieldTextWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
+        Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_ONLY_SMOKE_OK root={smokeRoot}");
+    }
+
     static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         RunRsSmoke(project, tables);
@@ -267,7 +303,7 @@ internal partial class Program
             command.Parameters.Count > 2 &&
             command.Parameters[1].Kind == LegacyScenarioParameterKind.Dword32 &&
             command.Parameters[2].Kind == LegacyScenarioParameterKind.Dword32)
-            ?? throw new InvalidOperationException($"{scenarioFileName} 没有可用于 R 场景坐标写回烟测的 0x30 武将出现命令。");
+            ?? throw new InvalidOperationException($"{scenarioFileName} 没有可用于 R 场景坐标写回烟测的 30 武将出现命令。");
     
         var originalX = command.Parameters[1].IntValue;
         var originalY = command.Parameters[2].IntValue;
@@ -285,7 +321,7 @@ internal partial class Program
             relativePath,
             document,
             sceneDoc,
-            "R场景制作 0x30 武将出现坐标写回烟测");
+            "R场景制作 30 武将出现坐标写回烟测");
     
         var verify = new LegacyScenarioReader().Read(fullPath, sceneDoc);
         var verifiedCommand = verify.EnumerateCommands().FirstOrDefault(candidate =>
@@ -293,7 +329,7 @@ internal partial class Program
             candidate.SectionIndex == command.SectionIndex &&
             candidate.CommandIndex == command.CommandIndex &&
             candidate.CommandId == command.CommandId)
-            ?? throw new InvalidOperationException("R 场景坐标写回复读失败：找不到原 0x30 命令。");
+            ?? throw new InvalidOperationException("R 场景坐标写回复读失败：找不到原 30 命令。");
     
         var actualX = verifiedCommand.Parameters.Count > 2 ? verifiedCommand.Parameters[1].IntValue : int.MinValue;
         var actualY = verifiedCommand.Parameters.Count > 2 ? verifiedCommand.Parameters[2].IntValue : int.MinValue;
@@ -696,47 +732,88 @@ internal partial class Program
             ?? throw new InvalidOperationException($"战场制作写入烟测未找到测试副本剧本：{scenarioFileName}");
         var battlefieldService = new BattlefieldEditorService();
         var document = battlefieldService.Load(testProject, scenario, dictionary, tables);
-        if (document.TitleEntry == null)
+        if (!document.CanWriteCampaignTitle)
         {
-            throw new InvalidOperationException($"战场制作写入烟测未在 {scenarioFileName} 找到标题文本线索。");
+            throw new InvalidOperationException($"战场制作写入烟测未在 {scenarioFileName} 找到战役名称表标题。");
         }
     
-        var originalTitle = BattlefieldEditorService.NormalizeText(document.TitleEntry.Text);
+        var originalTitle = BattlefieldEditorService.NormalizeText(document.CampaignTitle);
         var titleReplacement = string.Equals(originalTitle, "烟测关", StringComparison.Ordinal) ? "写测关" : "烟测关";
-        if (EncodingService.GetGbkByteCount(titleReplacement) > document.TitleEntry.ByteLength)
+        if (EncodingService.GetGbkByteCount(titleReplacement) > document.CampaignTitleCapacityBytes)
         {
             titleReplacement = string.Equals(originalTitle, "烟测", StringComparison.Ordinal) ? "写测" : "烟测";
         }
-        if (EncodingService.GetGbkByteCount(titleReplacement) > document.TitleEntry.ByteLength)
+        if (EncodingService.GetGbkByteCount(titleReplacement) > document.CampaignTitleCapacityBytes)
         {
-            throw new InvalidOperationException($"战场制作标题容量不足：file={scenarioFileName}, capacity={document.TitleEntry.ByteLength}");
+            throw new InvalidOperationException($"战场制作标题容量不足：file={scenarioFileName}, capacity={document.CampaignTitleCapacityBytes}");
         }
     
-        var conditions = document.ConditionEntry == null
+        var originalConditions = document.ConditionEntry == null
             ? string.Empty
             : BattlefieldEditorService.NormalizeText(document.ConditionEntry.Text);
-        var titleOffset = document.TitleEntry.Offset;
-        var save = battlefieldService.SaveTitleAndConditions(testProject, document, titleReplacement, conditions, dictionary);
-        var battlefieldReportJson = File.Exists(save.ReportJsonPath) ? File.ReadAllText(save.ReportJsonPath) : string.Empty;
-        if (string.IsNullOrWhiteSpace(save.BackupPath) ||
-            !File.Exists(save.BackupPath) ||
-            string.IsNullOrWhiteSpace(save.ReportJsonPath) ||
-            !File.Exists(save.ReportJsonPath) ||
-            !battlefieldReportJson.Contains("\"OperationKind\": \"Legacy R/S eex full-structure write\"", StringComparison.Ordinal))
+        var conditions = originalConditions;
+        if (dictionary != null && document.ConditionEntry != null)
         {
-            throw new InvalidOperationException("战场制作标题/胜败条件保存未生成 R/S eex 备份或结构化写入报告。");
+            conditions = originalConditions + " 烟测扩容";
+            if (EncodingService.GetGbkByteCount(conditions) <= document.ConditionEntry.ByteLength)
+            {
+                conditions += " 继续追加到超过原容量";
+            }
+        }
+
+        var save = battlefieldService.SaveTitleAndConditions(testProject, document, titleReplacement, conditions, dictionary);
+        if (save.BackupPaths.Count == 0 ||
+            save.BackupPaths.Any(path => string.IsNullOrWhiteSpace(path) || !File.Exists(path)) ||
+            save.ReportJsonPaths.Count == 0 ||
+            save.ReportJsonPaths.Any(path => string.IsNullOrWhiteSpace(path) || !File.Exists(path)) ||
+            save.TitleSave == null ||
+            save.ReportJsonPaths
+                .Select(File.ReadAllText)
+                .All(text => !text.Contains("\"OperationKind\": \"数据表保存\"", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("战场制作标题保存未生成 Imsg.e5 备份或数据表写入报告。");
+        }
+        if (dictionary != null && document.ConditionEntry != null)
+        {
+            if (save.ConditionSave == null ||
+                save.ReportJsonPaths
+                    .Select(File.ReadAllText)
+                    .All(text => !text.Contains("\"OperationKind\": \"Legacy R/S eex full-structure write\"", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("战场制作胜败条件扩容保存未生成 R/S eex 完整结构写入报告。");
+            }
         }
     
-        var verifyPath = Path.Combine(testProject.GameRoot, "RS", scenarioFileName);
-        var verifyTitle = new ScenarioTextReader().Read(verifyPath)
-            .FirstOrDefault(x => x.Offset == titleOffset);
-        var actualTitle = BattlefieldEditorService.NormalizeText(verifyTitle?.Text);
+        var titleTable = HexTableNameResolver.ResolveForProject(
+            testProject,
+            tables,
+            new CczEngineProfileService().Detect(testProject).TableHints.CampaignNameTable);
+        var titleRead = new HexTableReader().Read(testProject, titleTable, tables);
+        var actualTitle = BattlefieldEditorService.NormalizeText(
+            Convert.ToString(FindSmokeRowById(titleRead.Data, document.CampaignId)["名称"], CultureInfo.InvariantCulture));
         if (!string.Equals(actualTitle, titleReplacement, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"战场制作标题复读失败：expected={titleReplacement}, actual={actualTitle}");
         }
+
+        if (dictionary != null && document.ConditionEntry != null)
+        {
+            var verifyPath = Path.Combine(testProject.GameRoot, "RS", scenarioFileName);
+            var legacyVerify = new LegacyScenarioReader().Read(verifyPath, dictionary);
+            var conditionFound = legacyVerify
+                .EnumerateCommands()
+                .SelectMany(command => command.TextParameters)
+                .Any(parameter => string.Equals(
+                    BattlefieldEditorService.NormalizeText(parameter.Text),
+                    conditions,
+                    StringComparison.Ordinal));
+            if (!conditionFound)
+            {
+                throw new InvalidOperationException("战场制作胜败条件扩容复读失败。");
+            }
+        }
     
-        Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_SMOKE_OK file={scenarioFileName} title='{originalTitle}'->'{actualTitle}' condition={(document.ConditionEntry == null ? "none" : "present")} backup={Path.GetFileName(save.BackupPath)}");
+        Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_SMOKE_OK file={scenarioFileName} title='{originalTitle}'->'{actualTitle}' condition={(document.ConditionEntry == null ? "none" : "expanded")} backups={save.BackupPaths.Count}");
     }
     
     static void RunBattlefieldDeploymentWriteSmoke(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)
@@ -1012,7 +1089,7 @@ internal partial class Program
             expectEquipment: true,
             expectRuntime: false);
         var equipment = deploymentStatusCommands.FirstOrDefault(x => x.CommandId == 0x48 && x.Parameters.Count >= 6 && x.Parameters[0].IntValue == personId)
-            ?? throw new InvalidOperationException("Battlefield unit status smoke did not reread inserted 0x48.");
+            ?? throw new InvalidOperationException("Battlefield unit status smoke did not reread inserted 48.");
         AssertSmokeParameter(equipment, 1, 2, "weapon");
         AssertSmokeParameter(equipment, 2, 1, "weaponLevel");
         AssertSmokeParameter(equipment, 3, 2, "armor");
@@ -1034,8 +1111,16 @@ internal partial class Program
             personId,
             expectEquipment: false,
             expectRuntime: true);
+        var runtimeBlockCount = drawingStatusNodes.Count(command =>
+            command.CommandId == 0x02 &&
+            command.ChildBlock != null &&
+            string.Equals(command.TextParameters.FirstOrDefault()?.Text?.Trim(), BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, StringComparison.Ordinal));
+        if (runtimeBlockCount != 1)
+        {
+            throw new InvalidOperationException($"Battlefield unit status smoke expected one runtime folded block for consecutive 52/38 commands, actual={runtimeBlockCount}.");
+        }
         var job = drawingStatusCommands.FirstOrDefault(x => x.CommandId == 0x52 && x.Parameters.Count >= 2 && x.Parameters[0].IntValue == personId)
-            ?? throw new InvalidOperationException("Battlefield unit status smoke did not reread inserted 0x52.");
+            ?? throw new InvalidOperationException("Battlefield unit status smoke did not reread inserted 52.");
         AssertSmokeParameter(job, 1, 1, "job");
         var runtimeBlockCommands = runtimeBlock.ChildBlock?.Commands
             ?? throw new InvalidOperationException("Battlefield unit status smoke runtime block lost child block.");
@@ -1045,7 +1130,7 @@ internal partial class Program
             !IsSmokeAbilityRecalcToggle(runtimeBlockCommands[jobIndex - 1], 1) ||
             !IsSmokeAbilityRecalcToggle(runtimeBlockCommands[jobIndex + 1], 0))
         {
-            throw new InvalidOperationException("Battlefield unit status smoke did not wrap 0x52 with 4081 ability recalculation toggles.");
+            throw new InvalidOperationException("Battlefield unit status smoke did not wrap 52 with 4081 ability recalculation toggles.");
         }
 
         foreach (var ability in draft.Abilities)
@@ -1055,7 +1140,7 @@ internal partial class Program
                 x.Parameters.Count >= 4 &&
                 x.Parameters[0].IntValue == personId &&
                 x.Parameters[1].IntValue == ability.AbilityId)
-                ?? throw new InvalidOperationException($"Battlefield unit status smoke did not reread inserted 0x38 ability={ability.AbilityId}.");
+                ?? throw new InvalidOperationException($"Battlefield unit status smoke did not reread inserted 38 ability={ability.AbilityId}.");
             AssertSmokeParameter(abilityCommand, 2, 0, ability.Name + " op");
             AssertSmokeParameter(abilityCommand, 3, ability.Value!.Value, ability.Name);
         }
@@ -1070,7 +1155,7 @@ internal partial class Program
             drawingStatusNodes.Any(commandNode => ReferenceEquals(commandNode, x)));
         if (firstRuntimeStatusIndex <= drawingIndex)
         {
-            throw new InvalidOperationException($"Battlefield unit status smoke did not insert runtime status commands below 0x1C drawing: drawing={drawingIndex}, status={firstRuntimeStatusIndex}.");
+            throw new InvalidOperationException($"Battlefield unit status smoke did not insert runtime status commands below 1C drawing: drawing={drawingIndex}, status={firstRuntimeStatusIndex}.");
         }
 
         var deploymentBlockCountBeforeSecondSave = CountSmokeInternalInfoBlocks(verify, BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, personId);
@@ -1159,7 +1244,7 @@ internal partial class Program
             : throw new ArgumentOutOfRangeException(nameof(commandId), commandId, "Unsupported deployment command.");
 
     static string BuildSmokeUnitTargetKey(LegacyScenarioCommandNode command, int recordIndex)
-        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset=0x{command.FileOffset:X6};Id={command.CommandIdHex};Record={recordIndex.ToString(CultureInfo.InvariantCulture)}";
+        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset={command.FileOffset:X6};Id={command.CommandIdHex};Record={recordIndex.ToString(CultureInfo.InvariantCulture)}";
 
     static BattlefieldStatusSmokeTarget? FindSmokeWritableStatusTarget(LegacyScenarioDocument document)
     {
@@ -1214,7 +1299,7 @@ internal partial class Program
             command.SceneIndex == locator.SceneIndex &&
             command.SectionIndex == locator.SectionIndex &&
             command.CommandIndex == locator.CommandIndex &&
-            (string.IsNullOrWhiteSpace(locator.OffsetHex) || string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), locator.OffsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(locator.OffsetHex) || CCZModStudio.Core.HexDisplayFormatter.EqualsText(CCZModStudio.Core.HexDisplayFormatter.Format(command.FileOffset, 6), locator.OffsetHex)) &&
             (string.IsNullOrWhiteSpace(locator.CommandIdHex) || string.Equals(command.CommandIdHex, locator.CommandIdHex, StringComparison.OrdinalIgnoreCase)));
 
     static bool FindSmokeCommandList(
@@ -1294,7 +1379,7 @@ internal partial class Program
                 command.CommandId == 0x1C)
             .OrderBy(command => command.CommandIndex)
             .LastOrDefault()
-            ?? throw new InvalidOperationException($"Battlefield unit status smoke could not find 0x1C drawing in Scene={sceneIndex} Section={sectionIndex}.");
+            ?? throw new InvalidOperationException($"Battlefield unit status smoke could not find 1C drawing in Scene={sceneIndex} Section={sectionIndex}.");
         if (!FindSmokeCommandList(document, drawing, out drawingList))
         {
             throw new InvalidOperationException("Battlefield unit status smoke could not locate drawing command list.");
@@ -1350,14 +1435,14 @@ internal partial class Program
             var childCommands = block.ChildBlock.Commands;
             if (childCommands.Count == 0 || childCommands[^1].CommandId != 0x00 || !childCommands[^1].EndsSubEventBlock)
             {
-                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not end with 0x00.");
+                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not end with 00.");
             }
 
             var logical = FlattenSmokeStatusCommands(new[] { block });
             if (expectEquipment &&
                 !logical.Any(x => x.CommandId == 0x48 && x.Parameters.Count > 0 && x.Parameters[0].IntValue == personId))
             {
-                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not contain expected 0x48.");
+                throw new InvalidOperationException("Battlefield unit status smoke fixed comment block does not contain expected 48.");
             }
 
             if (expectRuntime &&
@@ -1589,7 +1674,7 @@ internal partial class Program
             throw new InvalidOperationException($"Hexzmap 地形写入烟测失败：expected={changed0}/{changed1}, actual={verifyCells[0]}/{verifyCells[1]}, changed={save.ChangedCells}");
         }
     
-        Console.WriteLine($"HEXZMAP_WRITE_SMOKE_OK {block.MapId} cell0=0x{original0:X2}->0x{changed0:X2} cell1=0x{original1:X2}->0x{changed1:X2} changed={save.ChangedCells} backup={Path.GetFileName(save.BackupPath)}");
+        Console.WriteLine($"HEXZMAP_WRITE_SMOKE_OK {block.MapId} cell0={original0:X2}->{changed0:X2} cell1={original1:X2}->{changed1:X2} changed={save.ChangedCells} backup={Path.GetFileName(save.BackupPath)}");
     }
     
     static void RunMapWorkbenchSmoke(CczProject sourceProject, CczProject testProject)

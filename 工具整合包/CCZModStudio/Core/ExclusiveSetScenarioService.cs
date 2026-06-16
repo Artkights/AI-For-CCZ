@@ -120,7 +120,7 @@ public sealed class ExclusiveSetScenarioService
                 var command = FindTargetCommand(document, update);
                 if (command == null)
                 {
-                    throw new InvalidOperationException($"未找到目标 72/10 命令：{relativePath} Scene {update.SceneIndex} / Section {update.SectionIndex} / Command {update.CommandIndex} / 0x{update.FileOffset:X6}");
+                    throw new InvalidOperationException($"未找到目标 72/10 命令：{relativePath} Scene {update.SceneIndex} / Section {update.SectionIndex} / Command {update.CommandIndex} / {HexDisplayFormatter.FormatOffset(update.FileOffset)}");
                 }
 
                 if (!TryGetExclusiveSetTextParameter(command, out var textParameter))
@@ -131,7 +131,7 @@ public sealed class ExclusiveSetScenarioService
                 var currentHash = ComputeTextHash(textParameter.Text);
                 if (!string.Equals(currentHash, update.OriginalTextHash, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException($"目标命令已被外部修改，拒绝覆盖：{relativePath} Scene {update.SceneIndex} / Section {update.SectionIndex} / Command {update.CommandIndex} / 0x{update.FileOffset:X6}");
+                    throw new InvalidOperationException($"目标命令已被外部修改，拒绝覆盖：{relativePath} Scene {update.SceneIndex} / Section {update.SectionIndex} / Command {update.CommandIndex} / {HexDisplayFormatter.FormatOffset(update.FileOffset)}");
                 }
 
                 var rebuilt = BuildText(update);

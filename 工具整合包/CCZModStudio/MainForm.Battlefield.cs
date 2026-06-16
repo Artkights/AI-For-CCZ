@@ -1126,7 +1126,7 @@ public sealed partial class MainForm
             command.SectionIndex == section &&
             command.CommandIndex == commandIndex &&
             (string.IsNullOrWhiteSpace(offsetHex) ||
-             string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), offsetHex, StringComparison.OrdinalIgnoreCase)) &&
+             HexDisplayFormatter.EqualsText(HexDisplayFormatter.FormatOffset(command.FileOffset), offsetHex)) &&
             (string.IsNullOrWhiteSpace(commandIdHex) ||
              string.Equals(command.CommandIdHex, commandIdHex, StringComparison.OrdinalIgnoreCase)));
     }
@@ -2472,7 +2472,7 @@ public sealed partial class MainForm
             candidate.SceneIndex == scene &&
             candidate.SectionIndex == section &&
             candidate.CommandIndex == commandIndex &&
-            (string.IsNullOrWhiteSpace(offsetHex) || candidate.OffsetHex.Equals(offsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(offsetHex) || HexDisplayFormatter.EqualsText(candidate.OffsetHex, offsetHex)) &&
             (string.IsNullOrWhiteSpace(commandIdHex) || candidate.CommandIdHex.Equals(commandIdHex, StringComparison.OrdinalIgnoreCase)));
 
         return new BattlefieldUnitCandidate
@@ -2488,7 +2488,7 @@ public sealed partial class MainForm
             AiDisplay = string.Empty,
             LevelJobDisplay = string.Empty,
             Category = slot.Category,
-            SourceCommand = $"{command?.CommandIdHex ?? "0x" + slot.CommandId.ToString("X2", CultureInfo.InvariantCulture)} {command?.CommandName ?? slot.Category} 第 {slot.RecordIndex + 1} 条",
+            SourceCommand = $"{command?.CommandIdHex ?? HexDisplayFormatter.Format(slot.CommandId, 2)} {command?.CommandName ?? slot.Category} 第 {slot.RecordIndex + 1} 条",
             SceneSection = command == null
                 ? $"Record {slot.RecordIndex}"
                 : $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Cmd {command.CommandIndex} / 第 {slot.RecordIndex + 1} 条",
@@ -3266,7 +3266,7 @@ public sealed partial class MainForm
                 NodeType = "Scene候选",
                 SceneIndex = scene.SceneIndex,
                 CommandName = $"Scene {scene.SceneIndex}",
-                OffsetHex = "0x" + scene.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(scene.FileOffset),
                 Confidence = "旧版源码",
                 Annotation = "按 CczSceneEditor2 v0.23 Scene 偏移表读取。"
             });
@@ -3281,7 +3281,7 @@ public sealed partial class MainForm
                     SceneIndex = section.SceneIndex,
                     SectionIndex = section.SectionIndex,
                     CommandName = $"Section {section.SectionIndex}",
-                    OffsetHex = "0x" + section.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                    OffsetHex = HexDisplayFormatter.FormatOffset(section.FileOffset),
                     Confidence = "旧版源码",
                     Annotation = $"按旧版 Section 长度前缀读取，长度 {section.DeclaredLength} 字节。"
                 });
@@ -4473,7 +4473,7 @@ public sealed partial class MainForm
             row.SectionIndex == command.SectionIndex &&
             row.CommandIndex == command.CommandIndex &&
             row.CommandId == command.CommandId &&
-            row.OffsetHex.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
+            HexDisplayFormatter.EqualsText(row.OffsetHex, HexDisplayFormatter.FormatOffset(command.FileOffset)));
 
     private void DrawBattlefieldSelectedCoordinateMarker(Image image, int gridWidth, int gridHeight)
     {

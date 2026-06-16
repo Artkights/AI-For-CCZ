@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <CczGeneratedItemExcludes>artifacts\**;**\artifacts\**;CCZModStudio_Reports\**;**\CCZModStudio_Reports\**;CCZModStudio_Exports\**;**\CCZModStudio_Exports\**;CCZModStudio_TestCopies\**;**\CCZModStudio_TestCopies\**;_CCZModStudio_Backups\**;**\_CCZModStudio_Backups\**;_BuildCheck\**;**\_BuildCheck\**</CczGeneratedItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(CczGeneratedItemExcludes)</DefaultItemExcludes>
+    <DefaultItemExcludesInProjectFolder>$(DefaultItemExcludesInProjectFolder);$(CczGeneratedItemExcludes)</DefaultItemExcludesInProjectFolder>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="$(CczGeneratedItemExcludes)" />
+    <EmbeddedResource Remove="$(CczGeneratedItemExcludes)" />
+    <None Remove="$(CczGeneratedItemExcludes)" />
+    <Content Remove="$(CczGeneratedItemExcludes)" />
+  </ItemGroup>
+</Project>

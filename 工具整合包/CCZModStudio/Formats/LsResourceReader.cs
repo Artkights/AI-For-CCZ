@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -31,7 +32,7 @@ public sealed partial class LsResourceReader
             .OrderByDescending(g => g.Count())
             .ThenBy(g => g.Key)
             .Take(8)
-            .Select(g => $"{g.Key:X2}:{g.Count()}");
+            .Select(g => $"{HexDisplayFormatter.FormatByte(g.Key)}:{g.Count()}");
         var firstPayload = payload[..Math.Min(32, payload.Length)].ToArray();
         var textHits = BinaryTextScanner.ScanGbkNullTerminatedStringHits(bytes, minByteLength: 5, maxItems: 6, requireCjk: true);
 

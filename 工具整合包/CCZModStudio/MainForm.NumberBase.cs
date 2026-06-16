@@ -369,10 +369,7 @@ public sealed partial class MainForm
 
     private static string FormatIntegerAsHex(ParsedIntegerValue parsed, int minHexDigits)
     {
-        var format = minHexDigits > 0
-            ? "X" + minHexDigits.ToString(CultureInfo.InvariantCulture)
-            : "X";
-        var hex = parsed.Magnitude.ToString(format, CultureInfo.InvariantCulture);
+        var hex = HexDisplayFormatter.Format(parsed.Magnitude, minHexDigits);
         return parsed.IsNegative ? "-" + hex : hex;
     }
 

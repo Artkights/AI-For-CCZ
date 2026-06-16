@@ -71,7 +71,7 @@ public sealed class HexzmapEditorService
             ReportJsonPath = reportPath,
             BlockIndex = block.Index,
             MapId = block.MapId,
-            OffsetHex = "0x" + offset.ToString("X", CultureInfo.InvariantCulture),
+            OffsetHex = HexDisplayFormatter.FormatOffset(offset),
             ChangedCells = changes.Count,
             ChangedBytes = changedBytes
         };
@@ -109,9 +109,9 @@ public sealed class HexzmapEditorService
             {
                 ["MapId"] = block.MapId,
                 ["BlockIndex"] = block.Index.ToString(CultureInfo.InvariantCulture),
-                ["PayloadOffset"] = "0x" + probe.PayloadOffset.ToString("X", CultureInfo.InvariantCulture),
+                ["PayloadOffset"] = HexDisplayFormatter.FormatOffset(probe.PayloadOffset),
                 ["BlockOffset"] = block.OffsetHex,
-                ["SegmentOffset"] = "0x" + block.SegmentOffset.ToString("X", CultureInfo.InvariantCulture),
+                ["SegmentOffset"] = HexDisplayFormatter.FormatOffset(block.SegmentOffset),
                 ["SegmentLength"] = block.SegmentLength.ToString(CultureInfo.InvariantCulture),
                 ["Width"] = block.Width.ToString(CultureInfo.InvariantCulture),
                 ["Height"] = block.Height.ToString(CultureInfo.InvariantCulture),
@@ -140,7 +140,7 @@ public sealed class HexzmapEditorService
             TableName = "Hexzmap.e5",
             RowIndex = block.Index,
             ColumnName = $"({x},{y})",
-            OffsetHex = "0x" + absoluteOffset.ToString("X", CultureInfo.InvariantCulture),
+            OffsetHex = HexDisplayFormatter.FormatOffset(absoluteOffset),
             ByteLength = 1,
             OldValue = FormatTerrainValue(oldValue, oldName),
             NewValue = FormatTerrainValue(newValue, newName),
@@ -149,7 +149,7 @@ public sealed class HexzmapEditorService
     }
 
     private static string FormatTerrainValue(byte value, string name)
-        => string.IsNullOrWhiteSpace(name) ? $"0x{value:X2}" : $"0x{value:X2}（{name}）";
+        => string.IsNullOrWhiteSpace(name) ? HexDisplayFormatter.FormatByte(value) : $"{HexDisplayFormatter.FormatByte(value)}（{name}）";
 
     private static string GetTerrainName(IReadOnlyDictionary<byte, string>? terrainNames, byte id)
         => terrainNames != null && terrainNames.TryGetValue(id, out var name) ? name : string.Empty;

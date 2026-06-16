@@ -61,7 +61,7 @@ function Read-PeMap {
         throw "64-bit PE is not expected for Ekd5.exe."
     }
     else {
-        throw ("Unknown PE optional header magic: 0x{0:X}" -f $magic)
+        throw ("Unknown PE optional header magic: {0:X}" -f $magic)
     }
 
     $sections = @()
@@ -93,7 +93,7 @@ function Convert-VaToFileOffset {
     )
 
     if ($VirtualAddress -lt $Pe.ImageBase) {
-        throw ("VA 0x{0:X} is below image base 0x{1:X}." -f $VirtualAddress, $Pe.ImageBase)
+        throw ("VA {0:X} is below image base {1:X}." -f $VirtualAddress, $Pe.ImageBase)
     }
 
     $rva = [uint32]($VirtualAddress - $Pe.ImageBase)
@@ -104,7 +104,7 @@ function Convert-VaToFileOffset {
         }
     }
 
-    throw ("Cannot map VA 0x{0:X} to a file offset." -f $VirtualAddress)
+    throw ("Cannot map VA {0:X} to a file offset." -f $VirtualAddress)
 }
 
 function Read-BytesAtVa {
@@ -116,7 +116,7 @@ function Read-BytesAtVa {
 
     $offset = Convert-VaToFileOffset -Pe $Pe -VirtualAddress $VirtualAddress
     if ($offset + $Count -gt $Pe.Bytes.LongLength) {
-        throw ("Read out of range: 0x{0:X} + {1}" -f $offset, $Count)
+        throw ("Read out of range: {0:X} + {1}" -f $offset, $Count)
     }
 
     $buffer = New-Object byte[] $Count
@@ -191,8 +191,8 @@ foreach ($target in $targets) {
         $addressRows += [pscustomobject]@{
             Group = $target.Group
             Name = $target.Name
-            VirtualAddress = ("0x{0:X6}" -f $va)
-            FileOffset = ("0x{0:X}" -f $read.FileOffset)
+            VirtualAddress = ("{0:X6}" -f $va)
+            FileOffset = ("{0:X}" -f $read.FileOffset)
             ByteCount = $ByteCount
             OriginalBytes = ConvertTo-HexBytes $read.Bytes
             EvidenceLevel = "static-byte-read"
@@ -204,7 +204,7 @@ foreach ($target in $targets) {
         $addressRows += [pscustomobject]@{
             Group = $target.Group
             Name = $target.Name
-            VirtualAddress = ("0x{0:X6}" -f $va)
+            VirtualAddress = ("{0:X6}" -f $va)
             FileOffset = "-"
             ByteCount = $ByteCount
             OriginalBytes = ""
@@ -228,9 +228,9 @@ foreach ($cave in $caves) {
         [Array]::Copy($read.Bytes, 0, $sample, 0, $sampleCount)
         $caveRows += [pscustomobject]@{
             Name = $cave.Name
-            Start = ("0x{0:X6}" -f $start)
-            End = ("0x{0:X6}" -f $end)
-            FileOffset = ("0x{0:X}" -f $read.FileOffset)
+            Start = ("{0:X6}" -f $start)
+            End = ("{0:X6}" -f $end)
+            FileOffset = ("{0:X}" -f $read.FileOffset)
             Length = $count
             AllNop = $summary.AllNop
             AllZero = $summary.AllZero
@@ -244,8 +244,8 @@ foreach ($cave in $caves) {
     catch {
         $caveRows += [pscustomobject]@{
             Name = $cave.Name
-            Start = ("0x{0:X6}" -f $start)
-            End = ("0x{0:X6}" -f $end)
+            Start = ("{0:X6}" -f $start)
+            End = ("{0:X6}" -f $end)
             FileOffset = "-"
             Length = $count
             AllNop = $false
@@ -263,7 +263,7 @@ $breakpoints = $targets | ForEach-Object {
     [pscustomobject]@{
         name = $_.Name
         group = $_.Group
-        address = ("0x{0:X6}" -f [uint32]$_.Address)
+        address = ("{0:X6}" -f [uint32]$_.Address)
         type = "software"
         plannedEvidence = @("registers", "stack", "nearby_memory", "callstack", "disassembly")
         status = "pending_dynamic_trigger"
@@ -279,7 +279,7 @@ $json = [pscustomobject]@{
     GameRoot = (Resolve-Path -LiteralPath $GameRoot).Path
     ExePath = (Resolve-Path -LiteralPath $exePath).Path
     ExeSha256 = $hash
-    ImageBase = ("0x{0:X}" -f $pe.ImageBase)
+    ImageBase = ("{0:X}" -f $pe.ImageBase)
     X32dbgPath = if (Test-Path -LiteralPath $x32dbgPath) { (Resolve-Path -LiteralPath $x32dbgPath).Path } else { $x32dbgPath }
     X64dbgMcpPluginPath = if (Test-Path -LiteralPath $pluginPath) { (Resolve-Path -LiteralPath $pluginPath).Path } else { $pluginPath }
     AddressRows = $addressRows
@@ -299,7 +299,7 @@ $md.Add("")
 $md.Add("- Session: $sessionId")
 $md.Add("- Target: $exePath")
 $md.Add("- SHA256: $hash")
-$md.Add("- ImageBase: $("0x{0:X}" -f $pe.ImageBase)")
+$md.Add("- ImageBase: $("{0:X}" -f $pe.ImageBase)")
 $md.Add("- x32dbg: $x32dbgPath")
 $md.Add("- MCP plugin: $pluginPath")
 $md.Add("- Note: This report only covers PE mapping, original byte reads, and code cave scans. Runtime semantics still require x32dbg breakpoint evidence.")

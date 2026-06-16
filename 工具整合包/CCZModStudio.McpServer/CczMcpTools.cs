@@ -97,6 +97,43 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReadScenarioCommands(game_root, relative_path, scene_index, section_index, command_filter, keyword, limit);
 
     [McpServerTool]
+    [Description("List writable battlefield unit status targets found in S scenario deployment commands.")]
+    public object list_battlefield_unit_status_targets(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional project-relative S scenario path, for example RS/S_00.eex. If omitted, scans all S scenarios.")]
+        string? relative_path = null,
+        [Description("Optional keyword across target key, person, command, location, and annotation.")]
+        string? keyword = null,
+        [Description("Maximum targets to return. Defaults to 200; capped at 1000.")]
+        int limit = 200)
+        => runtime.ListBattlefieldUnitStatusTargets(game_root, relative_path, keyword, limit);
+
+    [McpServerTool]
+    [Description("Read a writable battlefield unit status draft by target key. Read-only.")]
+    public object read_battlefield_unit_status(
+        [Description("Project-relative S scenario path, for example RS/S_00.eex.")]
+        string relative_path,
+        [Description("Target key returned by list_battlefield_unit_status_targets.")]
+        string target_key,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ReadBattlefieldUnitStatus(game_root, relative_path, target_key);
+
+    [McpServerTool]
+    [Description("Write selected battlefield unit status fields for a target key. Creates backup, report, and reread validation.")]
+    public object write_battlefield_unit_status(
+        [Description("Project-relative S scenario path, for example RS/S_00.eex.")]
+        string relative_path,
+        [Description("Status update. target_key must come from list_battlefield_unit_status_targets.")]
+        BattlefieldUnitStatusUpdate update,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.WriteBattlefieldUnitStatus(game_root, relative_path, update, write_mode);
+
+    [McpServerTool]
     [Description("Search command and text content in one or more R/S eex scenario files. Read-only.")]
     public object search_scenario_scripts(
         [Description("Required keyword across command names/ids/parameters and GBK text entries.")]
@@ -439,6 +476,78 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceE5ImageBatch(game_root, target_relative_path, updates, write_mode);
 
     [McpServerTool]
+    [Description("Preview raw R actor image replacement from a material folder without writing.")]
+    public object preview_r_image_raw_replace(
+        [Description("R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int r_image_id,
+        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_folder,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewRImageRawReplace(game_root, r_image_id, material_folder);
+
+    [McpServerTool]
+    [Description("Replace raw R actor image assets from a material folder. Creates backup and structured report.")]
+    public object replace_r_image_raw(
+        [Description("R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int r_image_id,
+        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_folder,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceRImageRaw(game_root, r_image_id, material_folder, write_mode);
+
+    [McpServerTool]
+    [Description("Preview raw S unit image replacement from a material folder without writing.")]
+    public object preview_s_image_raw_replace(
+        [Description("S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int s_image_id,
+        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_folder,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1)
+        => runtime.PreviewSImageRawReplace(game_root, s_image_id, material_folder, job_id, faction_slot);
+
+    [McpServerTool]
+    [Description("Replace raw S unit image assets from a material folder. Creates backup and structured report.")]
+    public object replace_s_image_raw(
+        [Description("S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int s_image_id,
+        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_folder,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceSImageRaw(game_root, s_image_id, material_folder, job_id, faction_slot, write_mode);
+
+    [McpServerTool]
+    [Description("Preview E5 role raw-image normalization without writing.")]
+    public object preview_e5_role_raw_normalize(
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewE5RoleRawNormalize(game_root);
+
+    [McpServerTool]
+    [Description("Normalize E5 role raw-image resources. Creates backup and structured report.")]
+    public object normalize_e5_role_raw(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.NormalizeE5RoleRaw(game_root, write_mode);
+
+    [McpServerTool]
     [Description("Preview replacement of one DLL RT_BITMAP icon resource without writing.")]
     public object preview_dll_icon_replace(
         [Description("Project-relative DLL path or known file name such as Itemicon.dll, Mgcicon.dll, or Cmdicon.dll.")]
@@ -586,6 +695,30 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null)
         => runtime.ApplyEffectPackage(game_root, package, mode, write_mode);
+
+    [McpServerTool]
+    [Description("Analyze a natural-language request into a standalone R+S scenario design draft.")]
+    public object analyze_standalone_scenario_request(
+        [Description("Natural-language standalone scenario request.")]
+        string prompt,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional scenario title.")]
+        string? title = null,
+        [Description("Optional package id.")]
+        string? package_id = null)
+        => runtime.AnalyzeStandaloneScenarioRequest(game_root, prompt, title, package_id);
+
+    [McpServerTool]
+    [Description("Compile a standalone scenario design into a force-open ModPackage draft.")]
+    public object compile_standalone_scenario_package(
+        [Description("Standalone scenario design object from analyze_standalone_scenario_request or manual input.")]
+        StandaloneScenarioDesign design,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Maximum available slots to inspect. Defaults to 64; capped at 200.")]
+        int slot_limit = 64)
+        => runtime.CompileStandaloneScenarioPackage(game_root, design, slot_limit);
 
     [McpServerTool]
     [Description("List declarative effect templates for AI-assisted EffectPackage creation.")]

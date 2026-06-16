@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -21,7 +22,7 @@ public sealed class ScenarioTextReader
             {
                 Index = result.Count + 1,
                 Offset = hit.Offset,
-                OffsetHex = "0x" + hit.Offset.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(hit.Offset),
                 ByteLength = hit.ByteLength,
                 CharLength = cleaned.Length,
                 Kind = kind,
@@ -57,7 +58,7 @@ public sealed class ScenarioTextReader
 
     private static string BuildAnnotation(string text, string kind, int offset, int byteLength)
     {
-        var capacity = $"原地容量 {byteLength} 个 GBK 字节；偏移 0x{offset:X6}。";
+        var capacity = $"原地容量 {byteLength} 个 GBK 字节；偏移 {HexDisplayFormatter.FormatOffset(offset)}。";
         return kind switch
         {
             "胜败条件" => "关卡目标说明文本，通常显示在战前/情报界面；建议只改文字含义，不扩容。" + capacity,

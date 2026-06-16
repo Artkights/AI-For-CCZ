@@ -67,7 +67,7 @@ public sealed class ScenarioCommandParameterTemplateService
             var remaining = words
                 .Skip(template.Slots.Count)
                 .Take(8)
-                .Select((value, offset) => $"P{template.Slots.Count + offset + 1}=0x{value:X4}({value})")
+                .Select((value, offset) => $"P{template.Slots.Count + offset + 1}={HexDisplayFormatter.FormatWord(value)}({value})")
                 .ToList();
             builder.AppendLine("- 模板外剩余词：" + string.Join(" / ", remaining) + "；这些可能属于后续命令、变长参数或误扫上下文，暂不强行解释。");
         }
@@ -137,7 +137,7 @@ public sealed class ScenarioCommandParameterTemplateService
                     Index = slot.Index + 1,
                     SlotName = slot.Name,
                     Kind = BuildSlotKindName(slot.Kind),
-                    RawHex = "0x" + value.ToString("X4", CultureInfo.InvariantCulture),
+                    RawHex = HexDisplayFormatter.FormatWord(value),
                     DecimalValue = value,
                     DecodedValue = decoded,
                     Meaning = slot.Meaning,
@@ -203,11 +203,11 @@ public sealed class ScenarioCommandParameterTemplateService
             {
                 if (Templates.TryGetValue(command.Id, out var template))
                 {
-                    builder.AppendLine($"| 0x{command.Id:X2} | {Escape(command.Name)} | 已覆盖 | {Escape(template.Name)}：{Escape(string.Join("，", template.Slots.Take(4).Select(slot => slot.Name)))} |");
+                    builder.AppendLine($"| {HexDisplayFormatter.Format(command.Id, 2)} | {Escape(command.Name)} | 已覆盖 | {Escape(template.Name)}：{Escape(string.Join("，", template.Slots.Take(4).Select(slot => slot.Name)))} |");
                 }
                 else
                 {
-                    builder.AppendLine($"| 0x{command.Id:X2} | {Escape(command.Name)} | 待补充 | 暂用通用参数分组和引用候选；需要结合旧工具与实机验证。 |");
+                    builder.AppendLine($"| {HexDisplayFormatter.Format(command.Id, 2)} | {Escape(command.Name)} | 待补充 | 暂用通用参数分组和引用候选；需要结合旧工具与实机验证。 |");
                 }
             }
             builder.AppendLine();
@@ -217,7 +217,7 @@ public sealed class ScenarioCommandParameterTemplateService
         builder.AppendLine();
         foreach (var template in Templates.Values.OrderBy(template => template.Id))
         {
-            builder.AppendLine($"### 0x{template.Id:X2} {Escape(template.Name)}");
+            builder.AppendLine($"### {HexDisplayFormatter.Format(template.Id, 2)} {Escape(template.Name)}");
             builder.AppendLine();
             builder.AppendLine($"- 用途：{Escape(template.Purpose)}");
             builder.AppendLine($"- 风险边界：{Escape(template.Risk)}");
@@ -302,7 +302,7 @@ public sealed class ScenarioCommandParameterTemplateService
         return new ScenarioCommandTemplateCatalogItem
         {
             Id = id,
-            IdHex = "0x" + id.ToString("X2", CultureInfo.InvariantCulture),
+            IdHex = HexDisplayFormatter.Format(id, 2),
             DictionaryName = dictionaryName,
             TemplateName = template.Name,
             Status = "已覆盖",
@@ -321,7 +321,7 @@ public sealed class ScenarioCommandParameterTemplateService
         => new()
         {
             Id = id,
-            IdHex = "0x" + id.ToString("X2", CultureInfo.InvariantCulture),
+            IdHex = HexDisplayFormatter.Format(id, 2),
             DictionaryName = dictionaryName,
             TemplateName = "暂无专用模板",
             Status = "待补充",
@@ -381,7 +381,7 @@ public sealed class ScenarioCommandParameterTemplateService
         }
 
         var value = words[slot.Index];
-        var valueText = $"0x{value:X4}({value})";
+        var valueText = $"{HexDisplayFormatter.FormatWord(value)}({value})";
         var decoded = DecodeValue(slot, words, lookups, project);
         var riskText = string.IsNullOrWhiteSpace(slot.Risk) ? string.Empty : $"；风险：{slot.Risk}";
         return $"{label}：{valueText} => {decoded}；{slot.Meaning}{riskText}";
@@ -393,7 +393,7 @@ public sealed class ScenarioCommandParameterTemplateService
             Index = index + 1,
             SlotName = $"P{index + 1}",
             Kind = "原始 16 位词",
-            RawHex = "0x" + value.ToString("X4", CultureInfo.InvariantCulture),
+            RawHex = HexDisplayFormatter.FormatWord(value),
             DecimalValue = value,
             DecodedValue = DecodeGeneralValue(value, lookups),
             Meaning = "未命中专用槽位；用于人工核对命令上下文。",

@@ -162,7 +162,7 @@ internal partial class Program
         var bodyRoot = targetSection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null);
         var bodyCommands = bodyRoot.ChildBlock!.Commands;
         var insertedCommandId = 0x09;
-        var insertedCommandName = dictionary.Commands.FirstOrDefault(command => command.Id == insertedCommandId)?.Name ?? $"Command 0x{insertedCommandId:X2}";
+        var insertedCommandName = dictionary.Commands.FirstOrDefault(command => command.Id == insertedCommandId)?.Name ?? $"Command {insertedCommandId:X2}";
         var inserted = new LegacyScenarioCommandNode
         {
             SceneIndex = targetSection.SceneIndex,
@@ -183,7 +183,15 @@ internal partial class Program
             IntValue = 0
         });
     
-        var insertIndex = GetLegacyScriptEditAppendIndex(bodyCommands);
+        var tailTerminatorIndex = bodyCommands.Count - 1;
+        if (tailTerminatorIndex < 0 ||
+            bodyCommands[tailTerminatorIndex].CommandId != 0x00 ||
+            !bodyCommands[tailTerminatorIndex].EndsSubEventBlock)
+        {
+            throw new InvalidOperationException("剧本结构编辑烟测找不到尾部 00 事件结束标记。");
+        }
+
+        var insertIndex = tailTerminatorIndex + 1;
         var jumpTargets = CaptureLegacyScriptEditJumpTargets(document);
         bodyCommands.Insert(insertIndex, inserted);
         ReindexLegacyScriptEditDocument(document);
@@ -210,6 +218,7 @@ internal partial class Program
             .First(scene => scene.SceneIndex == targetSection.SceneIndex)
             .Sections.First(section => section.SectionIndex == targetSection.SectionIndex);
         var verifyBody = verifySection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null).ChildBlock!;
+        AssertLegacyScriptTailTerminator(verifyBody.Commands, "新增剧本命令复读后");
         var deleteIndex = GetLegacyScriptEditAppendIndex(verifyBody.Commands) - 1;
         if (deleteIndex < 0 || verifyBody.Commands[deleteIndex].CommandId != insertedCommandId)
         {
@@ -232,6 +241,7 @@ internal partial class Program
             .First(scene => scene.SceneIndex == targetSection.SceneIndex)
             .Sections.First(section => section.SectionIndex == targetSection.SectionIndex);
         var paramVerifyBody = paramVerifySection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null).ChildBlock!;
+        AssertLegacyScriptTailTerminator(paramVerifyBody.Commands, "修改剧本命令参数复读后");
         var paramVerifyIndex = GetLegacyScriptEditAppendIndex(paramVerifyBody.Commands) - 1;
         if (paramVerifyIndex < 0 ||
             paramVerifyBody.Commands[paramVerifyIndex].CommandId != insertedCommandId ||
@@ -264,6 +274,11 @@ internal partial class Program
         {
             throw new InvalidOperationException("删除剧本命令后的完整保存、复读、备份或报告验证失败。");
         }
+        var deleteVerifySection = deleteVerify.Scenes
+            .First(scene => scene.SceneIndex == targetSection.SceneIndex)
+            .Sections.First(section => section.SectionIndex == targetSection.SectionIndex);
+        var deleteVerifyBody = deleteVerifySection.Commands.First(command => command.StartsBodyBlock && command.ChildBlock != null).ChildBlock!;
+        AssertLegacyScriptTailTerminator(deleteVerifyBody.Commands, "删除剧本命令复读后");
     
         var sectionEdit = reader.Read(testScenarioPath, dictionary);
         var sectionScene = sectionEdit.Scenes.FirstOrDefault(scene => scene.Sections.Count > 0)
@@ -300,7 +315,7 @@ internal partial class Program
             throw new InvalidOperationException("新增默认 Section 后的完整保存、复读、结构骨架、备份或报告验证失败。");
         }
     
-        Console.WriteLine($"LEGACY_SCRIPT_EDIT_SMOKE_OK file={scenarioFileName} section={targetSection.SceneIndex}/{targetSection.SectionIndex} command=0x{insertedCommandId:X2}/{insertedCommandName} param={editedParameterValue} count={originalCommandCount}->{addedCommandCount}->{deleteVerify.CommandCount} sections={originalSectionCount}->{sectionVerify.SectionCount} addBackup={Path.GetFileName(addSave.BackupPath)} paramBackup={Path.GetFileName(paramSave.BackupPath)} deleteBackup={Path.GetFileName(deleteSave.BackupPath)} sectionBackup={Path.GetFileName(sectionSave.BackupPath)}");
+        Console.WriteLine($"LEGACY_SCRIPT_EDIT_SMOKE_OK file={scenarioFileName} section={targetSection.SceneIndex}/{targetSection.SectionIndex} command={insertedCommandId:X2}/{insertedCommandName} param={editedParameterValue} count={originalCommandCount}->{addedCommandCount}->{deleteVerify.CommandCount} sections={originalSectionCount}->{sectionVerify.SectionCount} addBackup={Path.GetFileName(addSave.BackupPath)} paramBackup={Path.GetFileName(paramSave.BackupPath)} deleteBackup={Path.GetFileName(deleteSave.BackupPath)} sectionBackup={Path.GetFileName(sectionSave.BackupPath)}");
     }
     
     static LegacyScenarioSection CreateLegacyScriptEditDefaultSection(int sceneIndex, int sectionIndex, SceneStringDocument dictionary)
@@ -341,7 +356,7 @@ internal partial class Program
             SceneIndex = sceneIndex,
             SectionIndex = sectionIndex,
             CommandId = commandId,
-            CommandName = dictionary.Commands.FirstOrDefault(item => item.Id == commandId)?.Name ?? $"Command 0x{commandId:X2}",
+            CommandName = dictionary.Commands.FirstOrDefault(item => item.Id == commandId)?.Name ?? $"Command {commandId:X2}",
             FileOffset = 0,
             ConsumedBytes = 0,
             IsSubEventMarker = commandId == 0x01,
@@ -391,6 +406,16 @@ internal partial class Program
     
     static bool IsLegacyScriptEditTrailingBoundary(LegacyScenarioCommandNode command)
         => command.EndsSubEventBlock || command.CommandId is 0x0C or 0x0D;
+
+    static void AssertLegacyScriptTailTerminator(IReadOnlyList<LegacyScenarioCommandNode> commands, string context)
+    {
+        if (commands.Count == 0 ||
+            commands[^1].CommandId != 0x00 ||
+            !commands[^1].EndsSubEventBlock)
+        {
+            throw new InvalidOperationException($"{context}尾部事件结束标记未保持在最后。");
+        }
+    }
     
     static Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> CaptureLegacyScriptEditJumpTargets(LegacyScenarioDocument document)
     {

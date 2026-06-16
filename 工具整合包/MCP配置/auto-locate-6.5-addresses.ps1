@@ -227,7 +227,7 @@ function Add-Candidate {
             Score = 0
             Confidence = $Confidence
             Range = $Range
-            Offset = if ($Offset -ge 0) { ("0x{0:X}" -f $Offset) } else { "" }
+            Offset = if ($Offset -ge 0) { ("{0:X}" -f $Offset) } else { "" }
             Reasons = New-Object System.Collections.Generic.List[string]
             Evidence = New-Object System.Collections.Generic.List[object]
         }
@@ -242,13 +242,13 @@ function Add-Candidate {
         $candidate.Range = $Range
     }
     if ([string]::IsNullOrWhiteSpace($candidate.Offset) -and $Offset -ge 0) {
-        $candidate.Offset = "0x{0:X}" -f $Offset
+        $candidate.Offset = "{0:X}" -f $Offset
     }
 
     $candidate.Evidence.Add([pscustomobject]@{
         Source = $Source
         Range = $Range
-        Offset = if ($Offset -ge 0) { ("0x{0:X}" -f $Offset) } else { "" }
+        Offset = if ($Offset -ge 0) { ("{0:X}" -f $Offset) } else { "" }
         Before = if ($null -ne $Before) { [string]$Before } else { "" }
         After = if ($null -ne $After) { [string]$After } else { "" }
         Delta = if ($null -ne $Delta) { [string]$Delta } else { "" }
@@ -298,9 +298,9 @@ function Add-KnownMeritSeeds {
     if ($NoKnownMeritSeeds) { return }
 
     foreach ($seed in @(
-        @{ Address = "0x00492F9C"; Note = "physical sample +1 candidate in battle_globals" },
-        @{ Address = "0x00496E79"; Note = "physical sample +1 candidate in battle_globals" },
-        @{ Address = "0x004B1B1A"; Note = "physical sample +1 candidate outside initial broad range" }
+        @{ Address = "00492F9C"; Note = "physical sample +1 candidate in battle_globals" },
+        @{ Address = "00496E79"; Note = "physical sample +1 candidate in battle_globals" },
+        @{ Address = "004B1B1A"; Note = "physical sample +1 candidate outside initial broad range" }
     )) {
         Add-Candidate -Address $seed.Address -Size 1 -Type "Byte" -Score 22 -Range "known-merit-seed" -Reason $seed.Note -Source "prior-snapshot-diff" -Confidence "needs-write-breakpoint"
     }
@@ -346,7 +346,7 @@ function Analyze-SnapshotDiff {
             if (Test-NearKnownMeritSeed -Address $address) { $score += 15 }
             $reason = if ((Get-InterestingDeltaScore -Delta $delta) -gt 0) { "interesting byte delta $delta" } else { "byte changed" }
 
-            Add-Candidate -Address $address -Size 1 -Type "Byte" -Score $score -Range $afterRange.Name -Offset $i -Before ("0x{0:X2}" -f $beforeBytes[$i]) -After ("0x{0:X2}" -f $afterBytes[$i]) -Delta $delta -Reason $reason -Source "snapshot-diff" -Confidence "candidate"
+            Add-Candidate -Address $address -Size 1 -Type "Byte" -Score $score -Range $afterRange.Name -Offset $i -Before ("{0:X2}" -f $beforeBytes[$i]) -After ("{0:X2}" -f $afterBytes[$i]) -Delta $delta -Reason $reason -Source "snapshot-diff" -Confidence "candidate"
 
             foreach ($size in @(2, 4)) {
                 for ($start = $i - $size + 1; $start -le $i; $start++) {
@@ -462,7 +462,7 @@ function Analyze-EventJsonl {
                             if ($beforeBytes[$j] -eq $afterBytes[$j]) { continue }
                             $address = [uint32]($unitBase + [uint32](0x18 + $j))
                             $delta = [int]$afterBytes[$j] - [int]$beforeBytes[$j]
-                            Add-Candidate -Address $address -Size 1 -Type "Byte" -Score 9 -Range "unit_array_004A7B20" -Offset ($unitIndex * $unitStride + 0x18 + $j) -Before ("0x{0:X2}" -f $beforeBytes[$j]) -After ("0x{0:X2}" -f $afterBytes[$j]) -Delta $delta -Reason "unit Attrs byte changed" -Source ("event-jsonl event {0} unit[{1}]" -f $ev.EventIndex, $unitIndex) -Confidence "observed-unit-field"
+                            Add-Candidate -Address $address -Size 1 -Type "Byte" -Score 9 -Range "unit_array_004A7B20" -Offset ($unitIndex * $unitStride + 0x18 + $j) -Before ("{0:X2}" -f $beforeBytes[$j]) -After ("{0:X2}" -f $afterBytes[$j]) -Delta $delta -Reason "unit Attrs byte changed" -Source ("event-jsonl event {0} unit[{1}]" -f $ev.EventIndex, $unitIndex) -Confidence "observed-unit-field"
                             $changeCount++
                         }
                     }

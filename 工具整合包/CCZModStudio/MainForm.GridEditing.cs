@@ -254,7 +254,7 @@ public sealed partial class MainForm
             IsIntegerObject(value) &&
             TryGetIntegerValue(value, out var parsed))
         {
-            return (parsed.IsNegative ? "-0x" : "0x") + parsed.Magnitude.ToString("X", CultureInfo.InvariantCulture);
+            return FormatIntegerAsHex(parsed, 0);
         }
 
         return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;

@@ -143,8 +143,8 @@ public sealed class ImageAssignmentService
         {
             throw new InvalidOperationException(
                 "人物 R/S 形象表与 B形象指定器 6.5 配置不一致，已停止读取/写入。"
-                + $" 期望 R=Ekd5.exe:0x{ExpectedRImageOffset:X}，S=Ekd5.exe:0x{ExpectedSImageOffset:X}；"
-                + $" 实际 R={rTable.FileName}:0x{rTable.DataPos:X}，S={sTable.FileName}:0x{sTable.DataPos:X}。");
+                + $" 期望 R=Ekd5.exe:{HexDisplayFormatter.FormatOffset(ExpectedRImageOffset)}，S=Ekd5.exe:{HexDisplayFormatter.FormatOffset(ExpectedSImageOffset)}；"
+                + $" 实际 R={rTable.FileName}:{HexDisplayFormatter.FormatOffset(rTable.DataPos)}，S={sTable.FileName}:{HexDisplayFormatter.FormatOffset(sTable.DataPos)}。");
         }
     }
 

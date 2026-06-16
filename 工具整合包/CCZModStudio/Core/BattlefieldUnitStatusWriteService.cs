@@ -586,7 +586,7 @@ public sealed class BattlefieldUnitStatusWriteService
             SceneIndex = sceneIndex,
             SectionIndex = sectionIndex,
             CommandId = commandId,
-            CommandName = commandName ?? $"0x{commandId:X2}",
+            CommandName = commandName ?? HexDisplayFormatter.Format(commandId, 2),
             FileOffset = 0
         };
 
@@ -735,7 +735,7 @@ public sealed class BattlefieldUnitStatusWriteService
         {
             0x00 => "事件结束",
             0x01 => "子事件设定",
-            _ => $"0x{commandId:X2}"
+            _ => HexDisplayFormatter.Format(commandId, 2)
         };
         var command = CreateCommand(commandId, sceneIndex, sectionIndex, Array.Empty<int>(), commandName);
         command.IsSubEventMarker = commandId == 0x01;
@@ -1091,7 +1091,7 @@ public sealed class BattlefieldUnitStatusWriteService
             command.SceneIndex == locator.SceneIndex &&
             command.SectionIndex == locator.SectionIndex &&
             command.CommandIndex == locator.CommandIndex &&
-            (string.IsNullOrWhiteSpace(locator.OffsetHex) || string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), locator.OffsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(locator.OffsetHex) || HexDisplayFormatter.EqualsText(HexDisplayFormatter.FormatOffset(command.FileOffset), locator.OffsetHex)) &&
             (string.IsNullOrWhiteSpace(locator.CommandIdHex) || string.Equals(command.CommandIdHex, locator.CommandIdHex, StringComparison.OrdinalIgnoreCase)));
 
     private static LegacyScenarioCommandNode? FindLastSamePersonCommand(

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -30,7 +31,7 @@ public sealed partial class EexArchiveReader
             Id = ExtractNumber(info.Name),
             Length = info.Length,
             MagicValid = magicValid,
-            VersionHex = bytes.Length >= 6 ? "0x" + BitConverter.ToUInt16(bytes, 4).ToString("X4", CultureInfo.InvariantCulture) : string.Empty,
+            VersionHex = bytes.Length >= 6 ? HexDisplayFormatter.FormatWord(BitConverter.ToUInt16(bytes, 4)) : string.Empty,
             EntryCount = bytes.Length >= 14 ? checked((int)BitConverter.ToUInt32(bytes, 10)) : 0,
             Header14Hex = ReadUInt32Hex(bytes, 14),
             Header18Hex = ReadUInt32Hex(bytes, 18),
@@ -90,7 +91,7 @@ public sealed partial class EexArchiveReader
     private static string ReadUInt32Hex(byte[] bytes, int offset)
     {
         return bytes.Length >= offset + 4
-            ? "0x" + BitConverter.ToUInt32(bytes, offset).ToString("X8", CultureInfo.InvariantCulture)
+            ? HexDisplayFormatter.FormatDword(BitConverter.ToUInt32(bytes, offset))
             : string.Empty;
     }
 

@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Globalization;
 using System.Text;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -59,13 +60,13 @@ public sealed class HexzmapProbeReader
             var unknownTerrainIds = string.Join(" / ", groups
                 .Where(g => terrainNames?.ContainsKey(g.Key) != true)
                 .Take(12)
-                .Select(g => "0x" + g.Key.ToString("X2", CultureInfo.InvariantCulture)));
+                .Select(g => HexDisplayFormatter.FormatByte(g.Key)));
 
             blocks.Add(new HexzmapBlockInfo
             {
                 Index = blocks.Count,
                 MapId = map.MapId,
-                OffsetHex = "0x" + dataOffset.ToString("X", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(dataOffset),
                 DataOffset = dataOffset,
                 SegmentOffset = entry.FileOffset,
                 SegmentLength = entry.SegmentLength,
@@ -79,7 +80,7 @@ public sealed class HexzmapProbeReader
                 DominantTerrainId = dominantId,
                 DominantTerrainName = dominantName,
                 DominantTerrainCount = dominant?.Count() ?? 0,
-                TopTerrainIds = string.Join(" / ", groups.Take(8).Select(g => $"{g.Key:X2}:{g.Count()}")),
+                TopTerrainIds = string.Join(" / ", groups.Take(8).Select(g => $"{HexDisplayFormatter.FormatByte(g.Key)}:{g.Count()}")),
                 TopTerrainNames = BuildTopTerrainNames(groups, terrainNames),
                 KnownTerrainCount = knownTerrainCount,
                 UnknownTerrainIds = unknownTerrainIds,
@@ -308,7 +309,7 @@ public sealed class HexzmapProbeReader
     private static string BuildDirectoryAnnotation(int segmentLength, int lengthCopy, int fileOffset, string mapIds, string mapId)
     {
         var mapText = string.IsNullOrWhiteSpace(mapIds) ? "未匹配到同格数地图图片" : $"匹配格数：{mapIds}";
-        return $"目录项：段长度={segmentLength}，长度副本={lengthCopy}，段起始偏移=0x{fileOffset:X}；地形格数据从段起始偏移+2 开始。{mapText}；当前绑定 {mapId}。";
+        return $"目录项：段长度={segmentLength}，长度副本={lengthCopy}，段起始偏移={HexDisplayFormatter.FormatOffset(fileOffset)}；地形格数据从段起始偏移+2 开始。{mapText}；当前绑定 {mapId}。";
     }
 
     private static string BuildAnnotation(
@@ -323,8 +324,8 @@ public sealed class HexzmapProbeReader
         var cellCount = Math.Max(1, map.CellCount);
         var dominantPercent = dominantCount * 100.0 / cellCount;
         var dominantText = string.IsNullOrWhiteSpace(dominantName)
-            ? $"0x{dominantId:X2}"
-            : $"0x{dominantId:X2}（{dominantName}）";
+            ? HexDisplayFormatter.FormatByte((byte)dominantId)
+            : $"{HexDisplayFormatter.FormatByte((byte)dominantId)}（{dominantName}）";
         var knownText = knownTerrainCount > 0
             ? $"其中 {knownTerrainCount} 种可与素材库 hex 标记建立中文名称候选。"
             : "暂未能与素材库 hex 标记建立名称对应。";
@@ -336,7 +337,7 @@ public sealed class HexzmapProbeReader
         };
         var sizeText = $"{map.PixelWidth}x{map.PixelHeight} / 48 = {map.GridWidth}x{map.GridHeight}";
         return
-            $"Hexzmap 地形块 {map.MapId}：按地图图片 {map.FileName} 分辨率计算格数，{sizeText}，共 {map.CellCount} 格。段起始 0x{entry.FileOffset:X}，数据偏移 0x{entry.FileOffset + TerrainHeaderSize:X}，段长度 {entry.SegmentLength}。不同地形 {uniqueCount} 种，主地形 {dominantText} 占 {dominantPercent:0.0}%。{knownText}{density}";
+            $"Hexzmap 地形块 {map.MapId}：按地图图片 {map.FileName} 分辨率计算格数，{sizeText}，共 {map.CellCount} 格。段起始 {HexDisplayFormatter.FormatOffset(entry.FileOffset)}，数据偏移 {HexDisplayFormatter.FormatOffset(entry.FileOffset + TerrainHeaderSize)}，段长度 {entry.SegmentLength}。不同地形 {uniqueCount} 种，主地形 {dominantText} 占 {dominantPercent:0.0}%。{knownText}{density}";
     }
 
     private static string BuildTopTerrainNames(IEnumerable<IGrouping<byte, byte>> groups, IReadOnlyDictionary<byte, string>? terrainNames)
@@ -345,8 +346,8 @@ public sealed class HexzmapProbeReader
         {
             var name = GetTerrainName(terrainNames, g.Key);
             return string.IsNullOrWhiteSpace(name)
-                ? $"0x{g.Key:X2}:{g.Count()}"
-                : $"0x{g.Key:X2}({name}):{g.Count()}";
+                ? $"{HexDisplayFormatter.FormatByte(g.Key)}:{g.Count()}"
+                : $"{HexDisplayFormatter.FormatByte(g.Key)}({name}):{g.Count()}";
         }));
     }
 

@@ -3068,7 +3068,7 @@ public sealed partial class MainForm
         if (effectId == 255) return "普通装备/无扩展特效";
         return _itemEffectNames.TryGetValue(effectId, out var name)
             ? name
-            : $"未命名或未确认：0x{effectId:X2}";
+            : $"未命名或未确认：{HexDisplayFormatter.Format(effectId, 2)}";
     }
 
     private void OpenItemEffectCatalogEditor()
@@ -5671,6 +5671,7 @@ public sealed partial class MainForm
     private void LoadJobStrategyEditor()
     {
         if (_project == null) return;
+        _importJobStrategyIconButton.Enabled = false;
         if (_tables.Count == 0)
         {
             ReloadCurrentProject();
@@ -5685,6 +5686,7 @@ public sealed partial class MainForm
             _jobStrategyEditorGrid.DataSource = _currentJobStrategyData;
             ConfigureJobStrategyGrid();
             _saveJobStrategyEditorButton.Enabled = true;
+            _importJobStrategyIconButton.Enabled = true;
             _jobStrategyEditorInfoBox.Text = BuildJobStrategySummary(_currentJobStrategyData);
             ShowSelectedJobStrategyCell();
             SetStatus($"兵种策略读取完成：{_currentJobStrategyData.Rows.Count} 个策略");
@@ -6403,6 +6405,221 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.Default;
         }
+    }
+
+    private void ImportSelectedJobStrategyIcons()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentJobStrategyData == null)
+        {
+            MessageBox.Show(this, "请先读取兵种策略。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedJobStrategyRowsForIconImport();
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在兵种策略表中选中要导入图标的策略行。", "导入策略图标", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new OpenFileDialog
+        {
+            Title = "选择要导入到所选策略图标的图片",
+            Filter = "图片文件 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.FileNames.Length == 0) return;
+
+        var orderedFiles = dialog.FileNames
+            .OrderBy(Path.GetFileName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        if (orderedFiles.Length != selectedRows.Count)
+        {
+            MessageBox.Show(this,
+                $"选中策略行数为 {selectedRows.Count}，选择图片数为 {orderedFiles.Length}。请保持数量一致。\r\n\r\n匹配规则：策略按当前表格显示顺序，图片按文件名排序。",
+                "导入策略图标",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        IReadOnlyList<JobStrategyIconImportTarget> targets;
+        try
+        {
+            targets = BuildJobStrategyIconImportTargets(selectedRows, orderedFiles);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "导入策略图标", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var targetPath = Path.Combine(_project.GameRoot, JobStrategyIconResourceFileName);
+        var requests = targets.Select(target => new IconResourceBatchReplaceRequest
+        {
+            IconIndex = target.IconIndex,
+            SourcePath = target.SourcePath,
+            SourceLabel = target.SourcePath,
+            OperationKind = "兵种策略图标批量导入"
+        }).ToArray();
+
+        IconResourceBatchReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _iconResourceReplaceService.PreviewReplaceBitmapIcons(_project, targetPath, requests);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("兵种策略图标批量导入预览失败：" + ex);
+            MessageBox.Show(this, ex.Message, "策略图标导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildJobStrategyIconImportPreviewText(targets, preview);
+        _jobStrategyPreviewInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会先备份 Mgcicon.dll，再一次写入这些 RT_BITMAP 图标资源；不会修改兵种策略表字段。是否继续？",
+                "确认导入策略图标",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _iconResourceReplaceService.ReplaceBitmapIcons(_project, targetPath, requests);
+            _imageResourceCatalogService.ClearCache();
+            _itemIconPreviewService.ClearCache();
+            ShowSelectedJobStrategyCell();
+            _jobStrategyPreviewInfoBox.Text = BuildJobStrategyIconImportResultText(result);
+            System.Diagnostics.Debug.WriteLine($"兵种策略图标批量导入完成：{result.TargetRelativePath} count={result.Items.Count}");
+            SetStatus($"策略图标导入完成：{result.Items.Count} 个");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("兵种策略图标批量导入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "策略图标导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<DataGridViewRow> GetSelectedJobStrategyRowsForIconImport()
+    {
+        return _jobStrategyEditorGrid.SelectedCells
+            .Cast<DataGridViewCell>()
+            .Where(cell => cell.RowIndex >= 0)
+            .Select(cell => _jobStrategyEditorGrid.Rows[cell.RowIndex])
+            .Where(row => !row.IsNewRow)
+            .Distinct()
+            .OrderBy(row => row.Index)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<JobStrategyIconImportTarget> BuildJobStrategyIconImportTargets(
+        IReadOnlyList<DataGridViewRow> selectedRows,
+        IReadOnlyList<string> orderedFiles)
+    {
+        var targets = new List<JobStrategyIconImportTarget>();
+        for (var i = 0; i < selectedRows.Count; i++)
+        {
+            var row = selectedRows[i];
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为兵种策略数据行。");
+            var strategyId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+            var strategyName = Convert.ToString(dataRow["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+            if (!TryConvertToInt(dataRow["策略图标"], out var iconIndex))
+            {
+                throw new InvalidOperationException($"策略 ID={strategyId} 的“策略图标”字段不是有效整数。");
+            }
+
+            targets.Add(new JobStrategyIconImportTarget(
+                strategyId,
+                strategyName,
+                iconIndex,
+                orderedFiles[i]));
+        }
+
+        var duplicateIcon = targets
+            .GroupBy(target => target.IconIndex)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateIcon != null)
+        {
+            var ids = string.Join("、", duplicateIcon.Select(target => target.StrategyId.ToString(CultureInfo.InvariantCulture)));
+            throw new InvalidOperationException($"选中策略中有多个策略指向同一个图标编号 {duplicateIcon.Key}：策略 {ids}。为避免重复覆盖，请调整选择或策略图标字段。");
+        }
+
+        return targets;
+    }
+
+    private static string BuildJobStrategyIconImportPreviewText(
+        IReadOnlyList<JobStrategyIconImportTarget> targets,
+        IconResourceBatchReplacePreviewResult preview)
+    {
+        var itemByIcon = preview.Items.ToDictionary(item => item.IconIndex);
+        var builder = new StringBuilder();
+        builder.AppendLine($"目标：{preview.TargetRelativePath}");
+        builder.AppendLine($"操作：{preview.OperationKind}");
+        builder.AppendLine($"数量：{targets.Count}");
+        builder.AppendLine("匹配：");
+        foreach (var target in targets)
+        {
+            var fileName = Path.GetFileName(target.SourcePath);
+            if (itemByIcon.TryGetValue(target.IconIndex, out var item))
+            {
+                builder.AppendLine($"- 策略 {target.StrategyId:D2} {target.StrategyName} -> 图标#{target.IconIndex} RT_BITMAP ID={string.Join("/", item.ResourceIds)} <- {fileName} ({item.SourceWidth}x{item.SourceHeight})");
+            }
+            else
+            {
+                builder.AppendLine($"- 策略 {target.StrategyId:D2} {target.StrategyName} -> 图标#{target.IconIndex} <- {fileName}");
+            }
+        }
+
+        if (preview.FormatWarnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("提示：");
+            foreach (var warning in preview.FormatWarnings.Take(12))
+            {
+                builder.AppendLine("- " + warning);
+            }
+            if (preview.FormatWarnings.Count > 12)
+            {
+                builder.AppendLine($"- 还有 {preview.FormatWarnings.Count - 12} 条提示未显示。");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(preview.RiskSummary);
+        return builder.ToString();
+    }
+
+    private string BuildJobStrategyIconImportResultText(IconResourceBatchReplaceResult result)
+    {
+        return
+            $"策略图标导入完成。\r\n" +
+            $"目标：{result.TargetRelativePath}\r\n" +
+            $"数量：{result.Items.Count}\r\n" +
+            $"变化字节估计：{result.ChangedBytesEstimate:N0}\r\n" +
+            $"备份：{result.BackupPath}\r\n" +
+            $"报告：{result.ReportPath}\r\n" +
+            _writeOperationReportFormatter.FormatForCreator(result.ReportJsonPath, maxChanges: 12);
     }
 
     private IReadOnlyList<TableSaveResult> SaveJobStrategyEditorData(CczProject project, DataTable strategyData)

@@ -80,7 +80,7 @@ public sealed class AttackAreaPreviewService
             var message =
                 $"{resource.Value.DisplayName}字段值={fieldValue} -> {resource.Value.FileName} 图号 #{imageNumber}；条目数={entries.Count}。\r\n" +
                 $"{BuildFieldHint(resource.Value.Kind, fieldValue)}\r\n" +
-                $"索引项：offset=0x{entry.DataOffset:X}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。\r\n" +
+                $"索引项：offset={HexDisplayFormatter.FormatOffset(entry.DataOffset)}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。\r\n" +
                 $"文件：{info.Length:N0} 字节，修改时间 {info.LastWriteTime:yyyy-MM-dd HH:mm:ss}。";
             return new AttackAreaPreviewResult(
                 sourcePath,

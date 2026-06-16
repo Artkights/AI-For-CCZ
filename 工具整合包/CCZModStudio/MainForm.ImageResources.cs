@@ -268,7 +268,7 @@ public sealed partial class MainForm
                   : "预览：已复用宝物/策略图标预览服务按字段编号渲染。")
             : $"{entry.ResourceName}  图号 #{entry.ImageNumber}\r\n" +
               $"用途候选：{entry.Usage}\r\n" +
-              $"索引偏移：0x{entry.IndexOffset:X}    数据偏移：0x{entry.DataOffset:X}\r\n" +
+              $"索引偏移：{HexDisplayFormatter.FormatOffset(entry.IndexOffset)}    数据偏移：{HexDisplayFormatter.FormatOffset(entry.DataOffset)}\r\n" +
               $"大小：stored={entry.StoredLength:N0}    decoded={entry.DecodedLength:N0}    格式={entry.Kind}    压缩={entry.IsCompressed}\r\n" +
               $"路径：{entry.Path}\r\n" +
               (bitmap == null
@@ -1607,7 +1607,7 @@ public sealed partial class MainForm
             entry.DataOffset,
             entry.Length,
             entry.Kind,
-            $"{detail}；index=0x{entry.IndexOffset:X}；offset=0x{entry.DataOffset:X}；{sizeText}；kind={entry.Kind}"));
+            $"{detail}；index={HexDisplayFormatter.FormatOffset(entry.IndexOffset)}；offset={HexDisplayFormatter.FormatOffset(entry.DataOffset)}；{sizeText}；kind={entry.Kind}"));
     }
 
     private E5ImageReplacementTarget? SelectE5ImageReplacementTarget(IReadOnlyList<E5ImageReplacementTarget> targets, bool restoreMode)
@@ -1702,7 +1702,7 @@ public sealed partial class MainForm
             $"E5 图片条目{(restoreMode ? "还原" : "替换")}预览：{target.Label}\r\n" +
             $"目标：{preview.TargetRelativePath}    图号：#{preview.ImageNumber}\r\n" +
             $"来源：{preview.SourcePath}\r\n" +
-            $"索引偏移：0x{preview.IndexOffset:X}    数据偏移：0x{preview.OldDataOffset:X} -> 0x{preview.NewDataOffset:X}\r\n" +
+            $"索引偏移：{HexDisplayFormatter.FormatOffset(preview.IndexOffset)}    数据偏移：{HexDisplayFormatter.FormatOffset(preview.OldDataOffset)} -> {HexDisplayFormatter.FormatOffset(preview.NewDataOffset)}\r\n" +
             $"条目大小：{preview.OldSizeBytes:N0} -> {preview.NewSizeBytes:N0} 字节    格式：{preview.OldKind} -> {preview.NewKind}    来源尺寸：{sourceSize}\r\n" +
             $"文件大小：{preview.OldFileSizeBytes:N0} -> {preview.NewFileSizeBytes:N0} 字节（{FormatSignedBytes(preview.FileSizeDeltaBytes)}）\r\n" +
             $"写入方式：{preview.Placement}    改动估算：{preview.ChangedBytesEstimate:N0} 字节\r\n" +
@@ -1716,7 +1716,7 @@ public sealed partial class MainForm
     {
         return
             $"E5 图片条目写入完成：{result.TargetRelativePath} #{result.ImageNumber}\r\n" +
-            $"条目：offset=0x{result.OldDataOffset:X}/size={result.OldSizeBytes:N0}/{result.OldKind} -> offset=0x{result.NewDataOffset:X}/size={result.NewSizeBytes:N0}/{result.NewKind}\r\n" +
+            $"条目：offset={HexDisplayFormatter.FormatOffset(result.OldDataOffset)}/size={result.OldSizeBytes:N0}/{result.OldKind} -> offset={HexDisplayFormatter.FormatOffset(result.NewDataOffset)}/size={result.NewSizeBytes:N0}/{result.NewKind}\r\n" +
             $"写入方式：{result.Placement}    文件大小变化：{FormatSignedBytes(result.FileSizeDeltaBytes)}    改动估算：{result.ChangedBytesEstimate:N0} 字节\r\n" +
             $"备份：{result.BackupPath}\r\n报告：{result.ReportPath}\r\n结构化报告：{result.ReportJsonPath}";
     }

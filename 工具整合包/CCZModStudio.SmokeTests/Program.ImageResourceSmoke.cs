@@ -72,14 +72,14 @@ internal partial class Program
             var item = catalog.FirstOrDefault(x => x.FileName.Equals(required, StringComparison.OrdinalIgnoreCase));
             if (item == null || !item.Exists || item.EntryCount <= 0)
             {
-                throw new InvalidOperationException($"图片资源目录烟测未能读取 {required} 的 0x110 图片索引。");
+                throw new InvalidOperationException($"图片资源目录烟测未能读取 {required} 的 110 图片索引。");
             }
         }
     
         var mark = catalog.FirstOrDefault(x => x.FileName.Equals("Mark.e5", StringComparison.OrdinalIgnoreCase));
         if (mark == null || !mark.Exists || mark.SupportsE5Index || mark.CanReplace)
         {
-            throw new InvalidOperationException("图片资源目录烟测应将 Mark.e5 标记为非 0x110 索引资源且不可替换。");
+            throw new InvalidOperationException("图片资源目录烟测应将 Mark.e5 标记为非 110 索引资源且不可替换。");
         }
     
         var face = catalog.Single(x => x.FileName.Equals("Face.e5", StringComparison.OrdinalIgnoreCase));
@@ -267,9 +267,192 @@ internal partial class Program
         {
             throw new InvalidOperationException("DLL 图标清空写入或报告断言失败。");
         }
+
+        var mgcIconTarget = Path.Combine(smokeRoot, "Mgcicon.dll");
+        var mgcBatchPng1 = Path.Combine(smokeRoot, "Mgc_Batch_0.png");
+        var mgcBatchPng2 = Path.Combine(smokeRoot, "Mgc_Batch_1.png");
+        using (var bitmap = new System.Drawing.Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+        {
+            using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+            using var topBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 230, 70, 80));
+            using var bottomBrush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 40, 190, 80));
+            graphics.FillRectangle(topBrush, 0, 0, 32, 16);
+            graphics.FillRectangle(bottomBrush, 0, 16, 32, 16);
+            bitmap.Save(mgcBatchPng1, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        using (var bitmap = new System.Drawing.Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+        {
+            using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+            graphics.Clear(System.Drawing.Color.Transparent);
+            using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 80, 210, 120));
+            graphics.FillEllipse(brush, 4, 4, 24, 24);
+            bitmap.Save(mgcBatchPng2, System.Drawing.Imaging.ImageFormat.Png);
+        }
+
+        var backupRoot = Path.Combine(smokeRoot, "_CCZModStudio_Backups");
+        var mgcBackupsBefore = Directory.Exists(backupRoot)
+            ? Directory.GetFiles(backupRoot, "*Mgcicon.dll*", SearchOption.TopDirectoryOnly).Length
+            : 0;
+        var mgcBatchRequests = new[]
+        {
+            new IconResourceBatchReplaceRequest { IconIndex = 0, SourcePath = mgcBatchPng1, OperationKind = "烟测策略图标批量导入" },
+            new IconResourceBatchReplaceRequest { IconIndex = 1, SourcePath = mgcBatchPng2, OperationKind = "烟测策略图标批量导入" }
+        };
+        var mgcBatchPreview = iconReplaceService.PreviewReplaceBitmapIcons(testProject, mgcIconTarget, mgcBatchRequests);
+        if (mgcBatchPreview.Items.Count != 2 ||
+            mgcBatchPreview.Items.Any(item => item.ResourceIds.Count == 0) ||
+            mgcBatchPreview.OldFileSizeBytes <= 0)
+        {
+            throw new InvalidOperationException("DLL 策略图标批量替换预览断言失败。");
+        }
+
+        var mgcBatchResult = iconReplaceService.ReplaceBitmapIcons(testProject, mgcIconTarget, mgcBatchRequests);
+        var mgcBackupsAfter = Directory.GetFiles(backupRoot, "*Mgcicon.dll*", SearchOption.TopDirectoryOnly).Length;
+        if (mgcBatchResult.Items.Count != 2 ||
+            !File.Exists(mgcBatchResult.BackupPath) ||
+            !File.Exists(mgcBatchResult.ReportJsonPath) ||
+            !File.ReadAllText(mgcBatchResult.ReportJsonPath).Contains("DLL图标RT_BITMAP批量替换", StringComparison.Ordinal) ||
+            mgcBatchResult.NewFileSha256.Equals(mgcBatchResult.OldFileSha256, StringComparison.OrdinalIgnoreCase) ||
+            mgcBackupsAfter != mgcBackupsBefore + 1)
+        {
+            throw new InvalidOperationException("DLL 策略图标批量替换写入、单次备份或报告断言失败。");
+        }
+
+        AssertDllBitmapTopFirstRows(mgcIconTarget, mgcBatchResult.Items[0].ResourceIds, Color.FromArgb(255, 230, 70, 80), Color.FromArgb(255, 40, 190, 80));
     
-        Console.WriteLine($"E5_IMAGE_BATCH_AND_DLL_ICON_SMOKE OK batch={batchResult.OperationCount} clear={clearResult.OperationCount} strategyPreview={strategyPreview.Bitmap.Width}x{strategyPreview.Bitmap.Height} iconIds={string.Join(',', iconReplaceResult.ResourceIds)} iconBackup={Path.GetFileName(iconReplaceResult.BackupPath)}");
+        Console.WriteLine($"E5_IMAGE_BATCH_AND_DLL_ICON_SMOKE OK batch={batchResult.OperationCount} clear={clearResult.OperationCount} strategyPreview={strategyPreview.Bitmap.Width}x{strategyPreview.Bitmap.Height} iconIds={string.Join(',', iconReplaceResult.ResourceIds)} mgcBatch={mgcBatchResult.Items.Count} mgcBackup={Path.GetFileName(mgcBatchResult.BackupPath)} iconBackup={Path.GetFileName(iconReplaceResult.BackupPath)}");
     }
+
+    static void AssertDllBitmapTopFirstRows(string dllPath, IReadOnlyList<int> resourceIds, Color expectedTop, Color expectedBottom)
+    {
+        var sawBitmap = false;
+        foreach (var resourceId in resourceIds)
+        {
+            var dib = ReadRtBitmapResourceDib(dllPath, resourceId);
+            if (dib.Length < 40) continue;
+
+            var headerSize = BitConverter.ToInt32(dib, 0);
+            var width = BitConverter.ToInt32(dib, 4);
+            var height = BitConverter.ToInt32(dib, 8);
+            var bitCount = BitConverter.ToUInt16(dib, 14);
+            if (headerSize != 40 || width <= 0 || height <= 0 || bitCount != 32)
+            {
+                continue;
+            }
+
+            sawBitmap = true;
+            var top = ReadBgraPixel(dib, 40 + (width / 2) * 4);
+            var bottom = ReadBgraPixel(dib, 40 + ((height - 1) * width + width / 2) * 4);
+            if (!CloseColor(top, expectedTop) || !CloseColor(bottom, expectedBottom))
+            {
+                throw new InvalidOperationException(
+                    $"DLL 策略图标写入行方向断言失败：RT_BITMAP ID={resourceId} top={top} bottom={bottom}。预期顶部保持来源顶部颜色，底部保持来源底部颜色。");
+            }
+        }
+
+        if (!sawBitmap)
+        {
+            throw new InvalidOperationException("DLL 策略图标写入行方向断言未读取到 32bpp RT_BITMAP。");
+        }
+    }
+
+    static Color ReadBgraPixel(byte[] bytes, int offset)
+        => Color.FromArgb(bytes[offset + 3], bytes[offset + 2], bytes[offset + 1], bytes[offset]);
+
+    static bool CloseColor(Color actual, Color expected)
+        => Math.Abs(actual.R - expected.R) <= 2 &&
+           Math.Abs(actual.G - expected.G) <= 2 &&
+           Math.Abs(actual.B - expected.B) <= 2 &&
+           Math.Abs(actual.A - expected.A) <= 2;
+
+    static byte[] ReadRtBitmapResourceDib(string dllPath, int resourceId)
+    {
+        var data = File.ReadAllBytes(dllPath);
+        if (data.Length < 0x40 || data[0] != 'M' || data[1] != 'Z') return Array.Empty<byte>();
+        var peOffset = BitConverter.ToInt32(data, 0x3C);
+        var sectionCount = BitConverter.ToUInt16(data, peOffset + 6);
+        var optionalHeaderSize = BitConverter.ToUInt16(data, peOffset + 20);
+        var optionalHeaderOffset = peOffset + 24;
+        var magic = BitConverter.ToUInt16(data, optionalHeaderOffset);
+        var dataDirectoryOffset = magic == 0x20B ? optionalHeaderOffset + 112 : optionalHeaderOffset + 96;
+        var resourceRva = BitConverter.ToInt32(data, dataDirectoryOffset + 2 * 8);
+        var sectionOffset = optionalHeaderOffset + optionalHeaderSize;
+        var sections = new List<SmokePeSection>();
+        for (var i = 0; i < sectionCount; i++)
+        {
+            var offset = sectionOffset + i * 40;
+            sections.Add(new SmokePeSection(
+                BitConverter.ToInt32(data, offset + 12),
+                Math.Max(BitConverter.ToInt32(data, offset + 8), BitConverter.ToInt32(data, offset + 16)),
+                BitConverter.ToInt32(data, offset + 20)));
+        }
+
+        var resourceBaseOffset = SmokeRvaToFileOffset(resourceRva, sections);
+        if (resourceBaseOffset < 0) return Array.Empty<byte>();
+        return ReadRtBitmapResourceDib(data, sections, resourceBaseOffset, resourceBaseOffset, 0, new List<int>(), resourceId) ?? Array.Empty<byte>();
+    }
+
+    static byte[]? ReadRtBitmapResourceDib(
+        byte[] data,
+        IReadOnlyList<SmokePeSection> sections,
+        int resourceBaseOffset,
+        int directoryOffset,
+        int level,
+        List<int> path,
+        int resourceId)
+    {
+        if (directoryOffset < 0 || directoryOffset + 16 > data.Length || level > 3) return null;
+        var namedCount = BitConverter.ToUInt16(data, directoryOffset + 12);
+        var idCount = BitConverter.ToUInt16(data, directoryOffset + 14);
+        var entriesOffset = directoryOffset + 16;
+        for (var i = 0; i < namedCount + idCount; i++)
+        {
+            var entryOffset = entriesOffset + i * 8;
+            if (entryOffset + 8 > data.Length) return null;
+            var nameRaw = BitConverter.ToInt32(data, entryOffset);
+            var valueRaw = BitConverter.ToInt32(data, entryOffset + 4);
+            if ((nameRaw & unchecked((int)0x80000000)) != 0) continue;
+            var id = nameRaw & 0x7FFFFFFF;
+            var valueOffset = valueRaw & 0x7FFFFFFF;
+            var isDirectory = (valueRaw & unchecked((int)0x80000000)) != 0;
+            if (isDirectory)
+            {
+                path.Add(id);
+                var found = ReadRtBitmapResourceDib(data, sections, resourceBaseOffset, resourceBaseOffset + valueOffset, level + 1, path, resourceId);
+                path.RemoveAt(path.Count - 1);
+                if (found != null) return found;
+                continue;
+            }
+
+            if (path.Count < 2 || path[0] != 2 || path[1] != resourceId) continue;
+            var dataEntryOffset = resourceBaseOffset + valueOffset;
+            if (dataEntryOffset + 16 > data.Length) return null;
+            var dataRva = BitConverter.ToInt32(data, dataEntryOffset);
+            var size = BitConverter.ToInt32(data, dataEntryOffset + 4);
+            var fileOffset = SmokeRvaToFileOffset(dataRva, sections);
+            if (fileOffset < 0 || size <= 0 || fileOffset + size > data.Length) return null;
+            var bytes = new byte[size];
+            Buffer.BlockCopy(data, fileOffset, bytes, 0, size);
+            return bytes;
+        }
+
+        return null;
+    }
+
+    static int SmokeRvaToFileOffset(int rva, IReadOnlyList<SmokePeSection> sections)
+    {
+        foreach (var section in sections)
+        {
+            if (rva >= section.VirtualAddress && rva < section.VirtualAddress + section.Size)
+            {
+                return section.RawPointer + (rva - section.VirtualAddress);
+            }
+        }
+
+        return -1;
+    }
+
+    sealed record SmokePeSection(int VirtualAddress, int Size, int RawPointer);
 
     static void RunAiImageAssetSmokeDetailed(CczProject project)
     {

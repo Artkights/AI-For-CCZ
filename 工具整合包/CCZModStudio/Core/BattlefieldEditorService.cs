@@ -93,11 +93,16 @@ public sealed class BattlefieldEditorService
             throw new InvalidOperationException("当前关卡没有可安全写回的标题或胜败条件文本。");
         }
 
-        return new ScenarioTextWriter().SaveInPlace(
+        var result = new ScenarioTextWriter().SaveInPlace(
             project,
             BuildScenarioRelativePath(document.Scenario),
             entries,
             "战场制作页保存标题/胜败条件前自动备份");
+        return BuildTextSaveResult(
+            document.TitleEntry == null ? null : result,
+            document.ConditionEntry == null ? null : result,
+            result.EntriesWritten,
+            result.ChangedBytes);
     }
 
     private ScenarioTextSaveResult SaveTitleAndConditionsWithLegacyTree(
@@ -136,13 +141,47 @@ public sealed class BattlefieldEditorService
             legacyDocument,
             dictionary,
             "战场制作页标题/胜败条件完整结构保存");
-        return new ScenarioTextSaveResult
+        var textSave = new ScenarioTextSaveResult
         {
             FilePath = result.FilePath,
             BackupPath = result.BackupPath,
             ReportJsonPath = result.ReportJsonPath,
             EntriesWritten = changed,
             ChangedBytes = result.ChangedBytes
+        };
+        return BuildTextSaveResult(
+            document.TitleEntry == null ? null : textSave,
+            document.ConditionEntry == null ? null : textSave,
+            changed,
+            result.ChangedBytes);
+    }
+
+    private static ScenarioTextSaveResult BuildTextSaveResult(
+        ScenarioTextSaveResult? titleSave,
+        ScenarioTextSaveResult? conditionSave,
+        int entriesWritten,
+        int changedBytes)
+    {
+        var primary = titleSave ?? conditionSave ?? new ScenarioTextSaveResult();
+        return new ScenarioTextSaveResult
+        {
+            FilePath = primary.FilePath,
+            BackupPath = primary.BackupPath,
+            ReportJsonPath = primary.ReportJsonPath,
+            EntriesWritten = entriesWritten,
+            ChangedBytes = changedBytes,
+            TitleSave = titleSave,
+            ConditionSave = conditionSave,
+            BackupPaths = new[] { titleSave?.BackupPath, conditionSave?.BackupPath }
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Cast<string>()
+                .ToList(),
+            ReportJsonPaths = new[] { titleSave?.ReportJsonPath, conditionSave?.ReportJsonPath }
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Cast<string>()
+                .ToList()
         };
     }
 
@@ -171,6 +210,24 @@ public sealed class BattlefieldEditorService
         var byteCount = EncodingService.GetGbkByteCount(value);
         if (byteCount < 4) return $"{displayName} GBK 字节数 {byteCount} 过短，当前安全写回要求至少 4 字节。";
         if (byteCount > entry.ByteLength) return $"{displayName} GBK 字节数 {byteCount} 超过原地容量 {entry.ByteLength}，只能等长或缩短。";
+        return null;
+    }
+
+    public static string? ValidateStructuredScenarioText(
+        ScenarioTextEntry? entry,
+        string value,
+        string displayName,
+        bool allowExpansion)
+        => allowExpansion ? ValidateExpandableText(entry, value, displayName) : ValidateTextForEntry(entry, value, displayName);
+
+    private static string? ValidateExpandableText(ScenarioTextEntry? entry, string value, string displayName)
+    {
+        if (entry == null) return $"{displayName} 没有匹配到可写回文本线索。";
+        value = NormalizeText(value);
+        if (string.IsNullOrWhiteSpace(value)) return $"{displayName} 不能为空。";
+        if (value.Contains('\0')) return $"{displayName} 不能包含 NUL/零字节。";
+        var byteCount = EncodingService.GetGbkByteCount(value);
+        if (byteCount < 4) return $"{displayName} GBK 字节数 {byteCount} 过短，当前安全写回要求至少 4 字节。";
         return null;
     }
 
@@ -421,7 +478,7 @@ public sealed class BattlefieldEditorService
             SceneIndex = command.SceneIndex,
             SectionIndex = command.SectionIndex,
             CommandIndex = command.CommandIndex,
-            OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+            OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset),
             CommandId = command.CommandId,
             CommandIdHex = command.CommandIdHex,
             CommandName = command.CommandName,
@@ -434,7 +491,7 @@ public sealed class BattlefieldEditorService
             CommandTemplateHint = BuildLegacyBattlefieldParameterHint(command),
             ReferenceHint = string.Join("；", referenceParts),
             Confidence = "旧版源码",
-            Annotation = $"旧版完整树战场命令候选：{command.CommandName}，位置 0x{command.FileOffset:X6}。"
+            Annotation = $"旧版完整树战场命令候选：{command.CommandName}，位置 {HexDisplayFormatter.FormatOffset(command.FileOffset)}。"
         };
     }
 
@@ -444,9 +501,9 @@ public sealed class BattlefieldEditorService
         return string.Join(" ", command.Parameters.Take(16).Select(parameter => parameter.Kind switch
         {
             LegacyScenarioParameterKind.Text => $"T{parameter.Index}=\"{TrimForBattlefieldPreview(parameter.Text, 16)}\"",
-            LegacyScenarioParameterKind.VariableArray => $"V{parameter.Index}[{parameter.Values.Count}]=" + string.Join("/", parameter.Values.Take(8).Select(value => value.ToString("X4", CultureInfo.InvariantCulture))),
-            LegacyScenarioParameterKind.Dword32 => $"D{parameter.Index}=0x{parameter.IntValue:X8}",
-            _ => $"P{parameter.Index}={parameter.IntValue:X4}"
+            LegacyScenarioParameterKind.VariableArray => $"V{parameter.Index}[{parameter.Values.Count}]=" + string.Join("/", parameter.Values.Take(8).Select(value => HexDisplayFormatter.FormatWord(value))),
+            LegacyScenarioParameterKind.Dword32 => $"D{parameter.Index}={HexDisplayFormatter.FormatDword(parameter.IntValue)}",
+            _ => $"P{parameter.Index}={HexDisplayFormatter.FormatWord(parameter.IntValue)}"
         }));
     }
 
@@ -465,20 +522,20 @@ public sealed class BattlefieldEditorService
 
     private static string BuildLegacyBattlefieldRawWords(LegacyScenarioCommandNode command)
     {
-        var words = new List<string> { command.CommandId.ToString("X4", CultureInfo.InvariantCulture) };
+        var words = new List<string> { HexDisplayFormatter.FormatWord(command.CommandId) };
         foreach (var parameter in command.Parameters)
         {
             if (parameter.Kind == LegacyScenarioParameterKind.Word16)
             {
-                words.Add(unchecked((ushort)parameter.IntValue).ToString("X4", CultureInfo.InvariantCulture));
+                words.Add(HexDisplayFormatter.FormatWord(unchecked((ushort)parameter.IntValue)));
             }
             else if (parameter.Kind == LegacyScenarioParameterKind.Dword32)
             {
-                words.Add(unchecked((uint)parameter.IntValue).ToString("X8", CultureInfo.InvariantCulture));
+                words.Add(HexDisplayFormatter.FormatDword(unchecked((uint)parameter.IntValue)));
             }
             else if (parameter.Kind == LegacyScenarioParameterKind.VariableArray)
             {
-                words.AddRange(parameter.Values.Select(value => unchecked((ushort)value).ToString("X4", CultureInfo.InvariantCulture)));
+                words.AddRange(parameter.Values.Select(value => HexDisplayFormatter.FormatWord(unchecked((ushort)value))));
             }
         }
 

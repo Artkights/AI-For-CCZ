@@ -73,48 +73,48 @@ public sealed partial class GameDebugRuntime
 
     private static readonly IReadOnlyList<InternalProbeTarget> BuiltInProbeTargets =
     [
-        new() { Address = "0x00484002", Name = "get_char_data_ptr", Phase = "core", ExpectedSemantics = "Data id to character-data pointer; stride 0x61, base 0x4A3E77.", TriggerHint = "Title/R/S/battle actor lookups.", EvidenceLevel = "dynamic-hit-on-title", HighFrequency = true },
-        new() { Address = "0x004061F9", Name = "get_unit_ptr", Phase = "battle", ExpectedSemantics = "Battle unit id to tactical-unit pointer; stride 0x30, base 0x4A7B20.", TriggerHint = "Battle UI, action dispatch, turn loops.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", HighFrequency = true },
-        new() { Address = "0x0041B500", Name = "get_unit_hp", Phase = "battle", ExpectedSemantics = "Read tactical unit current HP at unit+0x10.", TriggerHint = "Unit panel, target selection, damage calculations.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
-        new() { Address = "0x00450986", Name = "generic_event_dispatch", Phase = "battle", ExpectedSemantics = "Generic event dispatch; suspected HP/combat event path when ECX=0x100.", TriggerHint = "Damage application, HP changes, event notifications.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
-        new() { Address = "0x0043DADA", Name = "action_dispatch", Phase = "battle", ExpectedSemantics = "Battle action dispatch entry.", TriggerHint = "Any unit action: physical attack, strategy, item, wait.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x0043DF0A", Name = "action_type_dispatch", Phase = "battle", ExpectedSemantics = "Action type dispatcher before physical/strategy branch.", TriggerHint = "Select a battle action.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x00435829", Name = "execute_attack", Phase = "attack", ExpectedSemantics = "Physical attack execution candidate.", TriggerHint = "A unit performs physical attack.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x00438E78", Name = "apply_effect", Phase = "attack", ExpectedSemantics = "Apply attack/combat effect candidate.", TriggerHint = "Damage or special effect applies.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x00442718", Name = "post_process", Phase = "attack", ExpectedSemantics = "Post damage/action processing candidate.", TriggerHint = "After damage animation/effect.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x00443AC3", Name = "cleanup", Phase = "attack", ExpectedSemantics = "Battle action cleanup candidate.", TriggerHint = "After attack/strategy resolves.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x0044AF8F", Name = "reset_turn_loop", Phase = "turn", ExpectedSemantics = "New-turn unit reset loop, traverses tactical units.", TriggerHint = "End turn or new round.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x00406690", Name = "restore_action", Phase = "turn", ExpectedSemantics = "Restore action capability by clearing unit+0x0D flags.", TriggerHint = "New turn or second-action logic.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x00412D52", Name = "try_second_action", Phase = "turn", ExpectedSemantics = "Second-action restore decision and execution candidate.", TriggerHint = "Action end with second-action capability.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
-        new() { Address = "0x0042518F", Name = "ability_check_wrapper", Phase = "core", ExpectedSemantics = "Wrapper ability check; pre-check then core engine or fallback.", TriggerHint = "Ability/special-effect checks.", EvidenceLevel = "dynamic-hit-title-entry", HighFrequency = false },
-        new() { Address = "0x004101D9", Name = "core_engine", Phase = "core", ExpectedSemantics = "Core ability engine branch after wrapper pre-check succeeds.", TriggerHint = "Valid special-effect scene.", EvidenceLevel = "pending-breakpoint", HighFrequency = false }
+        new() { Address = "00484002", Name = "get_char_data_ptr", Phase = "core", ExpectedSemantics = "Data id to character-data pointer; stride 61, base 4A3E77.", TriggerHint = "Title/R/S/battle actor lookups.", EvidenceLevel = "dynamic-hit-on-title", HighFrequency = true },
+        new() { Address = "004061F9", Name = "get_unit_ptr", Phase = "battle", ExpectedSemantics = "Battle unit id to tactical-unit pointer; stride 30, base 4A7B20.", TriggerHint = "Battle UI, action dispatch, turn loops.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", HighFrequency = true },
+        new() { Address = "0041B500", Name = "get_unit_hp", Phase = "battle", ExpectedSemantics = "Read tactical unit current HP at unit+10.", TriggerHint = "Unit panel, target selection, damage calculations.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
+        new() { Address = "00450986", Name = "generic_event_dispatch", Phase = "battle", ExpectedSemantics = "Generic event dispatch; suspected HP/combat event path when ECX=100.", TriggerHint = "Damage application, HP changes, event notifications.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
+        new() { Address = "0043DADA", Name = "action_dispatch", Phase = "battle", ExpectedSemantics = "Battle action dispatch entry.", TriggerHint = "Any unit action: physical attack, strategy, item, wait.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "0043DF0A", Name = "action_type_dispatch", Phase = "battle", ExpectedSemantics = "Action type dispatcher before physical/strategy branch.", TriggerHint = "Select a battle action.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "00435829", Name = "execute_attack", Phase = "attack", ExpectedSemantics = "Physical attack execution candidate.", TriggerHint = "A unit performs physical attack.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "00438E78", Name = "apply_effect", Phase = "attack", ExpectedSemantics = "Apply attack/combat effect candidate.", TriggerHint = "Damage or special effect applies.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "00442718", Name = "post_process", Phase = "attack", ExpectedSemantics = "Post damage/action processing candidate.", TriggerHint = "After damage animation/effect.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "00443AC3", Name = "cleanup", Phase = "attack", ExpectedSemantics = "Battle action cleanup candidate.", TriggerHint = "After attack/strategy resolves.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "0044AF8F", Name = "reset_turn_loop", Phase = "turn", ExpectedSemantics = "New-turn unit reset loop, traverses tactical units.", TriggerHint = "End turn or new round.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "00406690", Name = "restore_action", Phase = "turn", ExpectedSemantics = "Restore action capability by clearing unit+0D flags.", TriggerHint = "New turn or second-action logic.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "00412D52", Name = "try_second_action", Phase = "turn", ExpectedSemantics = "Second-action restore decision and execution candidate.", TriggerHint = "Action end with second-action capability.", EvidenceLevel = "knowledge-base-prior", HighFrequency = false },
+        new() { Address = "0042518F", Name = "ability_check_wrapper", Phase = "core", ExpectedSemantics = "Wrapper ability check; pre-check then core engine or fallback.", TriggerHint = "Ability/special-effect checks.", EvidenceLevel = "dynamic-hit-title-entry", HighFrequency = false },
+        new() { Address = "004101D9", Name = "core_engine", Phase = "core", ExpectedSemantics = "Core ability engine branch after wrapper pre-check succeeds.", TriggerHint = "Valid special-effect scene.", EvidenceLevel = "pending-breakpoint", HighFrequency = false }
     ];
 
     private static readonly IReadOnlyList<FunctionCatalogEntry> BuiltInFunctionCatalog =
     [
-        new() { Address = "0x00484002", Name = "get_char_data_ptr", Stage = "startup", Category = "character-data", ExpectedSemantics = "Data id to character-data pointer; stride 0x61, base 0x4A3E77.", TriggerHint = "Startup/title/R/S/battle actor lookups.", EvidenceLevel = "dynamic-hit-title", Source = "function-index-20260609", HighFrequency = true },
-        new() { Address = "0x0042518F", Name = "ability_check_wrapper", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Wrapper ability check; pre-check then core engine or fallback.", TriggerHint = "Title entry and valid special-effect scenes.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
-        new() { Address = "0x0041301E", Name = "dual_channel_check", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Fallback dual-channel effect check reached from ability_check_wrapper.", TriggerHint = "ability_check_wrapper fallback path.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
-        new() { Address = "0x00413009", Name = "get_effect_value", Stage = "startup", Category = "effect-value", ExpectedSemantics = "Read effect value through the dual-channel chain.", TriggerHint = "dual_channel_check internal effect lookup.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
-        new() { Address = "0x0040728F", Name = "get_max_mp", Stage = "settings", Category = "unit-panel", ExpectedSemantics = "Read or calculate a unit maximum MP for panels or battle UI.", TriggerHint = "Settings/status/unit panel refresh.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", Source = "function-index-20260609" },
-        new() { Address = "0x004061F9", Name = "get_unit_ptr", Stage = "battle_entry", Category = "unit-array", ExpectedSemantics = "Battle unit id to tactical-unit pointer; stride 0x30, base 0x4A7B20.", TriggerHint = "Battle entry, UI, action dispatch, turn loops.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", Source = "function-index-20260609", HighFrequency = true },
-        new() { Address = "0x0041B500", Name = "get_unit_hp", Stage = "battle_entry", Category = "unit-array", ExpectedSemantics = "Read tactical unit current HP at unit+0x10.", TriggerHint = "Unit panel, target selection, damage calculations.", EvidenceLevel = "pending-breakpoint", Source = "function-index-20260609" },
-        new() { Address = "0x0043DF0A", Name = "action_type_dispatch", Stage = "attack_before", Category = "action-dispatch", ExpectedSemantics = "Action type dispatcher before physical/strategy branch.", TriggerHint = "Select or execute a unit action.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x0043DADA", Name = "action_dispatch", Stage = "attack_before", Category = "action-dispatch", ExpectedSemantics = "Battle action dispatch entry.", TriggerHint = "Any unit action: physical attack, strategy, item, wait.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x004212F1", Name = "chase_attack_wrapper", Stage = "attack_before", Category = "physical-attack", ExpectedSemantics = "Chase-attack wrapper around physical attack execution and target chain.", TriggerHint = "Physical attack route, especially chase attack capability.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00417C67", Name = "target_list_builder", Stage = "attack_before", Category = "targeting", ExpectedSemantics = "Build candidate target list for attack/chase routes.", TriggerHint = "Attack target selection or attack execution.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00436499", Name = "get_target_list", Stage = "attack_before", Category = "targeting", ExpectedSemantics = "Fetch or build target list for battle actions.", TriggerHint = "Physical attack target enumeration.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00435829", Name = "execute_attack", Stage = "attack_execute", Category = "physical-attack", ExpectedSemantics = "Physical attack execution candidate.", TriggerHint = "A unit performs a physical attack.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00438E78", Name = "apply_effect", Stage = "attack_execute", Category = "damage-apply", ExpectedSemantics = "Apply attack/combat effect candidate.", TriggerHint = "Damage or special effect applies.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x0040399B", Name = "dmg_effect_exec", Stage = "attack_execute", Category = "damage-apply", ExpectedSemantics = "Damage effect execution.", TriggerHint = "Damage animation/effect application.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00450986", Name = "generic_event_dispatch", Stage = "attack_after", Category = "event-dispatch", ExpectedSemantics = "Generic event dispatch; ECX=0x100 suspected HP/combat event path.", TriggerHint = "Damage application, HP changes, event notifications.", EvidenceLevel = "pending-breakpoint", Source = "function-index-20260609" },
-        new() { Address = "0x00405966", Name = "post_dmg_dispatcher", Stage = "attack_after", Category = "post-damage-effect", ExpectedSemantics = "Post-damage special-effect dispatcher.", TriggerHint = "After damage has been applied.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00442718", Name = "post_process", Stage = "attack_after", Category = "action-cleanup", ExpectedSemantics = "Post damage/action processing candidate.", TriggerHint = "After damage animation/effect.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00443AC3", Name = "cleanup", Stage = "attack_after", Category = "action-cleanup", ExpectedSemantics = "Battle action cleanup candidate.", TriggerHint = "After attack/strategy resolves.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00412D52", Name = "try_second_action", Stage = "attack_after", Category = "second-action", ExpectedSemantics = "Second-action restore decision and execution candidate.", TriggerHint = "Action end with second-action capability.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x0044AF8F", Name = "reset_turn_loop", Stage = "turn_end", Category = "turn-loop", ExpectedSemantics = "New-turn unit reset loop, traverses tactical units.", TriggerHint = "End turn or new round.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x00406690", Name = "restore_action", Stage = "turn_end", Category = "turn-loop", ExpectedSemantics = "Restore action capability by clearing unit+0x0D flags.", TriggerHint = "New turn or second-action logic.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
-        new() { Address = "0x0043CE8F", Name = "turn_recovery_call", Stage = "turn_end", Category = "turn-recovery", ExpectedSemantics = "Turn recovery route calls recovery stubs to calculate recovery amount.", TriggerHint = "Round transition or turn-start recovery.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" }
+        new() { Address = "00484002", Name = "get_char_data_ptr", Stage = "startup", Category = "character-data", ExpectedSemantics = "Data id to character-data pointer; stride 61, base 4A3E77.", TriggerHint = "Startup/title/R/S/battle actor lookups.", EvidenceLevel = "dynamic-hit-title", Source = "function-index-20260609", HighFrequency = true },
+        new() { Address = "0042518F", Name = "ability_check_wrapper", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Wrapper ability check; pre-check then core engine or fallback.", TriggerHint = "Title entry and valid special-effect scenes.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
+        new() { Address = "0041301E", Name = "dual_channel_check", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Fallback dual-channel effect check reached from ability_check_wrapper.", TriggerHint = "ability_check_wrapper fallback path.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
+        new() { Address = "00413009", Name = "get_effect_value", Stage = "startup", Category = "effect-value", ExpectedSemantics = "Read effect value through the dual-channel chain.", TriggerHint = "dual_channel_check internal effect lookup.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
+        new() { Address = "0040728F", Name = "get_max_mp", Stage = "settings", Category = "unit-panel", ExpectedSemantics = "Read or calculate a unit maximum MP for panels or battle UI.", TriggerHint = "Settings/status/unit panel refresh.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", Source = "function-index-20260609" },
+        new() { Address = "004061F9", Name = "get_unit_ptr", Stage = "battle_entry", Category = "unit-array", ExpectedSemantics = "Battle unit id to tactical-unit pointer; stride 30, base 4A7B20.", TriggerHint = "Battle entry, UI, action dispatch, turn loops.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", Source = "function-index-20260609", HighFrequency = true },
+        new() { Address = "0041B500", Name = "get_unit_hp", Stage = "battle_entry", Category = "unit-array", ExpectedSemantics = "Read tactical unit current HP at unit+10.", TriggerHint = "Unit panel, target selection, damage calculations.", EvidenceLevel = "pending-breakpoint", Source = "function-index-20260609" },
+        new() { Address = "0043DF0A", Name = "action_type_dispatch", Stage = "attack_before", Category = "action-dispatch", ExpectedSemantics = "Action type dispatcher before physical/strategy branch.", TriggerHint = "Select or execute a unit action.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "0043DADA", Name = "action_dispatch", Stage = "attack_before", Category = "action-dispatch", ExpectedSemantics = "Battle action dispatch entry.", TriggerHint = "Any unit action: physical attack, strategy, item, wait.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "004212F1", Name = "chase_attack_wrapper", Stage = "attack_before", Category = "physical-attack", ExpectedSemantics = "Chase-attack wrapper around physical attack execution and target chain.", TriggerHint = "Physical attack route, especially chase attack capability.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00417C67", Name = "target_list_builder", Stage = "attack_before", Category = "targeting", ExpectedSemantics = "Build candidate target list for attack/chase routes.", TriggerHint = "Attack target selection or attack execution.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00436499", Name = "get_target_list", Stage = "attack_before", Category = "targeting", ExpectedSemantics = "Fetch or build target list for battle actions.", TriggerHint = "Physical attack target enumeration.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00435829", Name = "execute_attack", Stage = "attack_execute", Category = "physical-attack", ExpectedSemantics = "Physical attack execution candidate.", TriggerHint = "A unit performs a physical attack.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00438E78", Name = "apply_effect", Stage = "attack_execute", Category = "damage-apply", ExpectedSemantics = "Apply attack/combat effect candidate.", TriggerHint = "Damage or special effect applies.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "0040399B", Name = "dmg_effect_exec", Stage = "attack_execute", Category = "damage-apply", ExpectedSemantics = "Damage effect execution.", TriggerHint = "Damage animation/effect application.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00450986", Name = "generic_event_dispatch", Stage = "attack_after", Category = "event-dispatch", ExpectedSemantics = "Generic event dispatch; ECX=100 suspected HP/combat event path.", TriggerHint = "Damage application, HP changes, event notifications.", EvidenceLevel = "pending-breakpoint", Source = "function-index-20260609" },
+        new() { Address = "00405966", Name = "post_dmg_dispatcher", Stage = "attack_after", Category = "post-damage-effect", ExpectedSemantics = "Post-damage special-effect dispatcher.", TriggerHint = "After damage has been applied.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00442718", Name = "post_process", Stage = "attack_after", Category = "action-cleanup", ExpectedSemantics = "Post damage/action processing candidate.", TriggerHint = "After damage animation/effect.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00443AC3", Name = "cleanup", Stage = "attack_after", Category = "action-cleanup", ExpectedSemantics = "Battle action cleanup candidate.", TriggerHint = "After attack/strategy resolves.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00412D52", Name = "try_second_action", Stage = "attack_after", Category = "second-action", ExpectedSemantics = "Second-action restore decision and execution candidate.", TriggerHint = "Action end with second-action capability.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "0044AF8F", Name = "reset_turn_loop", Stage = "turn_end", Category = "turn-loop", ExpectedSemantics = "New-turn unit reset loop, traverses tactical units.", TriggerHint = "End turn or new round.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "00406690", Name = "restore_action", Stage = "turn_end", Category = "turn-loop", ExpectedSemantics = "Restore action capability by clearing unit+0D flags.", TriggerHint = "New turn or second-action logic.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" },
+        new() { Address = "0043CE8F", Name = "turn_recovery_call", Stage = "turn_end", Category = "turn-recovery", ExpectedSemantics = "Turn recovery route calls recovery stubs to calculate recovery amount.", TriggerHint = "Round transition or turn-start recovery.", EvidenceLevel = "knowledge-base-prior", Source = "function-index-20260609" }
     ];
 
     public object DebugSessionStart(string? gameRoot, string? x32dbgPath, string hostName, int port, int waitMs, bool hidden)
@@ -1183,7 +1183,7 @@ public sealed partial class GameDebugRuntime
             {
                 index = i + 1,
                 key = key.Name,
-                virtual_key = $"0x{key.VirtualKey:X2}",
+                virtual_key = FormatHex(key.VirtualKey, 2),
                 post,
                 runtime = GameRuntimeStateClassify(gameRoot, hostName, port, minBattleUnits: 8, sessionDir),
                 battle = SafeReadBattleState()
@@ -1315,7 +1315,7 @@ public sealed partial class GameDebugRuntime
                 paths.ExeSha256,
                 expected_sha256 = ExpectedSha256,
                 paths.IsExpectedSha256,
-                image_base = $"0x{ImageBase:X8}"
+                image_base = FormatHex(ImageBase, 8)
             },
             entry_count = enriched.Count,
             stages = entries
@@ -1386,7 +1386,7 @@ public sealed partial class GameDebugRuntime
             {
                 target.entry.Stage,
                 target.entry.Name,
-                address = $"0x{target.address:X8}",
+                address = FormatHex(target.address, 8),
                 direct_xref_count = direct.Count,
                 nearby_xref_count = nearby.Count,
                 direct_xrefs = direct.Take(64).ToList(),
@@ -1401,7 +1401,7 @@ public sealed partial class GameDebugRuntime
                 {
                     stage = target.entry.Stage,
                     target = target.entry.Name,
-                    target_address = $"0x{target.address:X8}",
+                    target_address = FormatHex(target.address, 8),
                     caller,
                     reason = "Static direct xref to staged function; use as a candidate caller breakpoint before dynamic promotion."
                 });
@@ -1418,13 +1418,13 @@ public sealed partial class GameDebugRuntime
                 paths.ExeSha256,
                 expected_sha256 = ExpectedSha256,
                 paths.IsExpectedSha256,
-                image_base = $"0x{ImageBase:X8}",
+                image_base = FormatHex(ImageBase, 8),
                 text_section = new
                 {
-                    virtual_address = $"0x{text.VirtualAddress:X8}",
-                    virtual_size = $"0x{text.VirtualSize:X}",
-                    raw_pointer = $"0x{text.RawPointer:X}",
-                    raw_size = $"0x{text.RawSize:X}"
+                    virtual_address = FormatHex(text.VirtualAddress, 8),
+                    virtual_size = FormatHex(text.VirtualSize),
+                    raw_pointer = FormatHex(text.RawPointer),
+                    raw_size = FormatHex(text.RawSize)
                 }
             },
             scan = new
@@ -1560,7 +1560,7 @@ public sealed partial class GameDebugRuntime
                 paths.ExeSha256,
                 expected_sha256 = ExpectedSha256,
                 paths.IsExpectedSha256,
-                image_base = $"0x{ImageBase:X8}"
+                image_base = FormatHex(ImageBase, 8)
             },
             summary = new
             {
@@ -2529,7 +2529,7 @@ public sealed partial class GameDebugRuntime
         var r00HandlerProbe = safePlanOnly
             ? DebugR00RuntimeInvokeCandidatePlan(
                 "regular_start",
-                "0x2D,0x12,0x07,0x13",
+                "2D,0x12,0x07,0x13",
                 maxCandidatesPerCommand: 8,
                 evidencePath: null,
                 includeLatestEvidence: true,
@@ -2542,7 +2542,7 @@ public sealed partial class GameDebugRuntime
                 startupContinueMaxRuns: 4,
                 runProbes,
                 probeBeforeStartupContinue: true,
-                commandIds: "0x2D,0x12,0x07,0x13",
+                commandIds: "2D,0x12,0x07,0x13",
                 maxCandidatesPerCommand: 8,
                 evidencePath: null,
                 includeLatestEvidence: true,
@@ -2670,6 +2670,8 @@ public sealed partial class GameDebugRuntime
                 plan_path = planPath,
                 markdown_path = markdownPath,
                 action_count = plan.Actions.Count,
+                route_error_count = plan.RouteErrors.Count,
+                route_errors = plan.RouteErrors,
                 actions = plan.Actions.Select(action => new { action.Key, action.Method, action.InvokeStrategy, action.CandidateAddress, action.RequiresRuntimeInjection, action.RequiresPausedDebuggee, action.Status }).ToList()
             });
         AppendJsonLine(Path.Combine(sessionDir, "events.jsonl"), new
@@ -2679,6 +2681,8 @@ public sealed partial class GameDebugRuntime
             stage = normalizedStage,
             route = normalizedRoute,
             action_count = plan.Actions.Count,
+            route_error_count = plan.RouteErrors.Count,
+            route_errors = plan.RouteErrors,
             path = planPath
         });
         return new
@@ -2687,6 +2691,8 @@ public sealed partial class GameDebugRuntime
             plan_path = planPath,
             markdown_path = markdownPath,
             action_count = plan.Actions.Count,
+            route_error_count = plan.RouteErrors.Count,
+            route_errors = plan.RouteErrors,
             plan
         };
     }
@@ -4207,7 +4213,7 @@ public sealed partial class GameDebugRuntime
             key_delivery_preference = "send_input",
             prerequisite = new
             {
-                command = "0x2D actor_click_test",
+                command = "2D actor_click_test",
                 person_id = xuZijiangClick.PersonId,
                 command_offset = FormatFileOffset(xuZijiangClick.CommandOffset),
                 requirement = "The Xu Zijiang R-scene actor interaction must be triggered before the two keyboard-only choice boxes are available.",
@@ -4354,7 +4360,7 @@ public sealed partial class GameDebugRuntime
             .Select(command => new
             {
                 offset = FormatFileOffset(command.Offset),
-                command = $"0x{command.CommandId:X2} {command.CommandName}",
+                command = $"{FormatHex(command.CommandId, 2)} {command.CommandName}",
                 x = command.X,
                 y = command.Y
             })
@@ -4391,7 +4397,7 @@ public sealed partial class GameDebugRuntime
                         offset = FormatFileOffset(lastKnownPosition.Offset),
                         x = lastKnownPosition.X,
                         y = lastKnownPosition.Y,
-                        command = $"0x{lastKnownPosition.CommandId:X2} {lastKnownPosition.CommandName}"
+                        command = $"{FormatHex(lastKnownPosition.CommandId, 2)} {lastKnownPosition.CommandName}"
                     },
                 click_test = click is null ? null : FormatR00ActorCommand(click)
             },
@@ -4399,7 +4405,7 @@ public sealed partial class GameDebugRuntime
             {
                 prerequisite = click is null
                     ? "actor-click command was not found"
-                    : $"0x2D actor-click test for person {normalizedPersonId} at {FormatFileOffset(click.Offset)}",
+                    : $"2D actor-click test for person {normalizedPersonId} at {FormatFileOffset(click.Offset)}",
                 first_choice = FormatR00ChoiceBox(modeChoice),
                 first_choice_cases = modeCases.Select(FormatR00CaseBranch).ToList(),
                 first_choice_regular_writes = regularVariableWrites.Select(FormatR00VariableWrite).ToList(),
@@ -4414,9 +4420,9 @@ public sealed partial class GameDebugRuntime
             {
                 current_positive_evidence = new[]
                 {
-                    "The verified R_00 script contains a single 0x2D actor-click test for Xu Zijiang/person 157.",
+                    "The verified R_00 script contains a single 2D actor-click test for Xu Zijiang/person 157.",
                     "The actor is placed and moved on the R scene before the mode-choice child event.",
-                    "The regular-start choice route is statically derivable from 0x12 choice boxes and 0x13 case branches."
+                    "The regular-start choice route is statically derivable from 12 choice boxes and 13 case branches."
                 },
                 current_negative_evidence = evidenceSummary is null
                     ? []
@@ -4490,7 +4496,7 @@ public sealed partial class GameDebugRuntime
                     .ToList();
                 return new
                 {
-                    command_id = $"0x{id:X2}",
+                    command_id = FormatHex(id, 2),
                     command_name = RSceneCommandName(id),
                     candidate_count = candidates.Count,
                     candidates
@@ -4509,13 +4515,13 @@ public sealed partial class GameDebugRuntime
                          .ThenBy(c => c.FileOffset)
                          .Take(Math.Clamp(ids.Count * maxCandidates, 1, 256)))
             {
-                var address = $"0x{candidate.Address:X8}";
+                var address = FormatHex(candidate.Address, 8);
                 AddProbeTarget(uniqueTargets, new InternalProbeTarget
                 {
                     Address = address,
                     Name = $"rscene_cmd_{candidate.CommandId:X2}_{candidate.Pattern}_{PlainAddress(address)}",
                     Phase = "settings",
-                    ExpectedSemantics = $"Offline command-id comparison candidate for R-scene command 0x{candidate.CommandId:X2} ({RSceneCommandName(candidate.CommandId)}).",
+                    ExpectedSemantics = $"Offline command-id comparison candidate for R-scene command {FormatHex(candidate.CommandId, 2)} ({RSceneCommandName(candidate.CommandId)}).",
                     TriggerHint = "Use at title/R_00 Xu Zijiang configuration flow; dynamic hit plus stack/disassembly review is required before treating this as a handler.",
                     EvidenceLevel = $"static-rscene-command-candidate-{candidate.Confidence}",
                     HighFrequency = candidate.CommandId is 0x12 or 0x13
@@ -4550,16 +4556,16 @@ public sealed partial class GameDebugRuntime
                 paths.ExeSha256,
                 expected_sha256 = ExpectedSha256,
                 paths.IsExpectedSha256,
-                image_base = $"0x{ImageBase:X8}",
+                image_base = FormatHex(ImageBase, 8),
                 text_section = new
                 {
-                    virtual_address = $"0x{text.VirtualAddress:X8}",
-                    virtual_size = $"0x{text.VirtualSize:X}",
-                    raw_pointer = $"0x{text.RawPointer:X}",
-                    raw_size = $"0x{text.RawSize:X}"
+                    virtual_address = FormatHex(text.VirtualAddress, 8),
+                    virtual_size = FormatHex(text.VirtualSize),
+                    raw_pointer = FormatHex(text.RawPointer),
+                    raw_size = FormatHex(text.RawSize)
                 }
             },
-            command_ids = ids.Select(id => $"0x{id:X2}").ToList(),
+            command_ids = ids.Select(id => FormatHex(id, 2)).ToList(),
             max_candidates_per_command = maxCandidates,
             context_bytes = context,
             command_count = grouped.Count,
@@ -6991,6 +6997,19 @@ public sealed partial class GameDebugRuntime
             lines.Add($"| {EscapeMarkdownCell(action.Key)} | {EscapeMarkdownCell(action.Method)} | `{EscapeMarkdownCell(action.CandidateAddress)}` | {action.RequiresRuntimeInjection} | {EscapeMarkdownCell(action.Status)} | {EscapeMarkdownCell(action.Verification)} |");
         }
 
+        if (plan.RouteErrors.Count > 0)
+        {
+            lines.Add("");
+            lines.Add("## Route Errors");
+            lines.Add("");
+            lines.Add("| Route | Exception | Error |");
+            lines.Add("| --- | --- | --- |");
+            foreach (var error in plan.RouteErrors)
+            {
+                lines.Add($"| `{EscapeMarkdownCell(error.Route)}` | `{EscapeMarkdownCell(error.ExceptionType)}` | {EscapeMarkdownCell(error.Error)} |");
+            }
+        }
+
         lines.Add("");
         lines.Add($"Safety: {plan.Safety}");
         File.WriteAllLines(path, lines, Encoding.UTF8);
@@ -9318,7 +9337,7 @@ public sealed partial class GameDebugRuntime
     private static object EnrichFunctionCatalogEntry(string exePath, FunctionCatalogEntry entry)
     {
         var normalized = NormalizeAddress(entry.Address);
-        var va = Convert.ToUInt32(normalized[2..], 16);
+        var va = ParseAddress(normalized);
         var fileOffset = va >= ImageBase ? va - ImageBase : uint.MaxValue;
         var fileInfo = new FileInfo(exePath);
         var mapped = fileOffset != uint.MaxValue && fileOffset < fileInfo.Length;
@@ -9347,8 +9366,8 @@ public sealed partial class GameDebugRuntime
             entry.EvidenceLevel,
             entry.Source,
             entry.HighFrequency,
-            image_base = $"0x{ImageBase:X8}",
-            file_offset = mapped ? $"0x{fileOffset:X}" : string.Empty,
+            image_base = FormatHex(ImageBase, 8),
+            file_offset = mapped ? FormatHex(fileOffset) : string.Empty,
             mapped,
             original_bytes_16 = bytesHex,
             read_error = readError
@@ -10309,19 +10328,16 @@ public sealed partial class GameDebugRuntime
     private static List<int> ParseCommandIdList(string commandIds)
     {
         var source = string.IsNullOrWhiteSpace(commandIds)
-            ? ["0x2D", "0x12", "0x07", "0x13"]
+            ? ["2D", "12", "07", "13"]
             : commandIds.Split([',', ';', '|', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var ids = new List<int>();
         foreach (var token in source)
         {
             var normalized = token.Trim();
-            var numberStyle = normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
-                ? NumberStyles.HexNumber
-                : NumberStyles.Integer;
             var text = normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? normalized[2..] : normalized;
-            if (!int.TryParse(text, numberStyle, CultureInfo.InvariantCulture, out var id) || id is < 0 or > 0xFF)
+            if (!int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id) || id is < 0 or > 0xFF)
             {
-                throw new ArgumentException($"Invalid R-scene command id '{token}'. Use 0x00..0xFF.");
+                throw new ArgumentException($"Invalid R-scene command id '{token}'. Use 00..FF.");
             }
             ids.Add(id);
         }
@@ -10425,9 +10441,9 @@ public sealed partial class GameDebugRuntime
         var context = Math.Clamp(contextBytes, 4, 128);
         return
         [
-            BuildScriptWindow(bytes, "xu_zijiang_actor_click", "0x2D", "Xu Zijiang actor-click prerequisite command", actorClick.CommandOffset, context),
-            BuildScriptWindow(bytes, "mode_choice_box", "0x12", "First mode-selection choice box", modeChoice.CommandOffset, context),
-            BuildScriptWindow(bytes, "regular_config_choice_box", "0x12", "Regular-mode configuration menu choice box", configChoice.CommandOffset, context)
+            BuildScriptWindow(bytes, "xu_zijiang_actor_click", "2D", "Xu Zijiang actor-click prerequisite command", actorClick.CommandOffset, context),
+            BuildScriptWindow(bytes, "mode_choice_box", "12", "First mode-selection choice box", modeChoice.CommandOffset, context),
+            BuildScriptWindow(bytes, "regular_config_choice_box", "12", "Regular-mode configuration menu choice box", configChoice.CommandOffset, context)
         ];
     }
 
@@ -10656,7 +10672,7 @@ public sealed partial class GameDebugRuntime
         => new
         {
             key = choice.Key,
-            command_id = "0x12",
+            command_id = "12",
             command_name = "choice_box",
             command_offset = FormatFileOffset(choice.CommandOffset),
             text_offset = FormatFileOffset(choice.TextOffset),
@@ -10669,7 +10685,7 @@ public sealed partial class GameDebugRuntime
     private static object FormatR00ActorClickTest(R00ActorClickTest actorClick)
         => new
         {
-            command_id = "0x2D",
+            command_id = "2D",
             command_name = "actor_click_test",
             person_id = actorClick.PersonId,
             command_offset = FormatFileOffset(actorClick.CommandOffset),
@@ -11567,9 +11583,37 @@ public sealed partial class GameDebugRuntime
     private RuntimeInvokePlan BuildRuntimeInvokePlan(string stage, string route, GamePaths paths)
     {
         var actions = new List<RuntimeInvokeAction>();
-        foreach (var menuRoute in ExpandMenuRoutes(route))
+        var routeErrors = new List<RuntimeInvokeRouteError>();
+        var menuRoutes = ExpandMenuRoutes(route);
+        var captureRouteErrors = menuRoutes.Count > 1;
+        foreach (var menuRoute in menuRoutes)
         {
-            actions.AddRange(BuildMenuRouteActions(menuRoute, paths));
+            try
+            {
+                actions.AddRange(BuildMenuRouteActions(menuRoute, paths));
+            }
+            catch (Exception ex) when (captureRouteErrors)
+            {
+                routeErrors.Add(new RuntimeInvokeRouteError
+                {
+                    Stage = stage,
+                    Route = menuRoute,
+                    Error = ex.Message,
+                    ExceptionType = ex.GetType().FullName ?? ex.GetType().Name
+                });
+                actions.Add(new RuntimeInvokeAction
+                {
+                    Key = $"{stage}:{menuRoute}:route-error",
+                    Intent = "Runtime invoke planning failed for this expanded route; inspect route_errors before attempting automation.",
+                    Method = "route_error",
+                    CandidateAddress = string.Empty,
+                    Verification = ex.Message,
+                    EvidenceGate = "route planning error must be resolved before promotion or execution",
+                    CandidateSource = "debug_runtime_invoke_plan",
+                    CandidateConfidence = "blocked",
+                    Status = "route-error"
+                });
+            }
         }
 
         if (stage is "all" or "battle_entry" or "attack_before" or "attack_execute" or "attack_after" or "turn_end" or "battle")
@@ -11601,7 +11645,10 @@ public sealed partial class GameDebugRuntime
             Route = route,
             TargetExeSha256 = paths.ExeSha256,
             Actions = actions,
-            Safety = "Debugger-mediated plan. Actions that require runtime injection are not executed unless allow_runtime_injection=true; persistent patching is outside this tool."
+            RouteErrors = routeErrors,
+            Safety = routeErrors.Count == 0
+                ? "Debugger-mediated plan. Actions that require runtime injection are not executed unless allow_runtime_injection=true; persistent patching is outside this tool."
+                : "Debugger-mediated plan with route_errors. Do not execute route-error actions; inspect and fix the reported route failures first."
         };
     }
 
@@ -11630,7 +11677,7 @@ public sealed partial class GameDebugRuntime
             {
                 MenuAction("title_exit", "Reach exit confirmation/exit path in an isolated debug session.", titleMenuTargets)
             },
-            "r00_regular_start" or "r00_custom_mode" or "r00_mode_help" => BuildR00RuntimeInvokeCandidateContext(route, paths, "0x2D,0x12,0x07,0x13", 8, null, true).Actions,
+            "r00_regular_start" or "r00_custom_mode" or "r00_mode_help" => BuildR00RuntimeInvokeCandidateContext(route, paths, "2D,0x12,0x07,0x13", 8, null, true).Actions,
             _ => Array.Empty<RuntimeInvokeAction>()
         };
     }
@@ -11733,7 +11780,7 @@ public sealed partial class GameDebugRuntime
                 ["script_offset"] = scriptOffset,
                 ["person_id"] = key.Contains("xu_zijiang", StringComparison.OrdinalIgnoreCase) ? "157" : string.Empty
             },
-            Breakpoints = ["0x0041648E", "0x00417EEA"],
+            Breakpoints = ["0041648E", "00417EEA"],
             Verification = "Verify exact R_00 script-window residency, command-handler hit, and route-state transition.",
             RequiresRuntimeInjection = true,
             WritesProcessMemory = true,
@@ -11906,7 +11953,7 @@ public sealed partial class GameDebugRuntime
                     ExpectedSemantics = $"R_00 {route} command-handler compare candidate for {string.Join("/", commandIds)} ({string.Join(", ", commandNames)}).",
                     TriggerHint = "Run while driving the intended R_00 route. Promote only after script-window residency, live hit, registers/stack/disassembly, and route-state transition are captured.",
                     EvidenceLevel = candidate.VerifiedHit ? "live-r00-handler-hit-needs-abi-review" : $"static-rscene-command-candidate-{candidate.Confidence}",
-                    HighFrequency = commandIds.Contains("0x12", StringComparer.OrdinalIgnoreCase) || commandIds.Contains("0x13", StringComparer.OrdinalIgnoreCase)
+                    HighFrequency = commandIds.Contains("12", StringComparer.OrdinalIgnoreCase) || commandIds.Contains("13", StringComparer.OrdinalIgnoreCase)
                 };
             })
             .OrderBy(target => target.Address, StringComparer.OrdinalIgnoreCase)
@@ -13578,7 +13625,7 @@ public sealed partial class GameDebugRuntime
 
     private static bool IsEntryPointPause(string normalizedCip, X32dbgCallResult state)
     {
-        if (normalizedCip.Equals("0x004817E0", StringComparison.OrdinalIgnoreCase))
+        if (normalizedCip.Equals("004817E0", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -13768,13 +13815,14 @@ public sealed partial class GameDebugRuntime
 
         var hex = match.Value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? match.Value[2..] : match.Value;
         var number = Convert.ToUInt64(hex, 16);
-        return "0x" + number.ToString("X8", CultureInfo.InvariantCulture);
+        return FormatHex(number, 8);
     }
 
     private static uint ParseAddress(string value)
     {
         var normalized = NormalizeAddress(value);
-        return Convert.ToUInt32(normalized[2..], 16);
+        var text = normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? normalized[2..] : normalized;
+        return Convert.ToUInt32(text, 16);
     }
 
     private static string? GetStringProperty(JsonElement element, params string[] names)
@@ -13946,10 +13994,19 @@ public sealed partial class GameDebugRuntime
     private static string FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? string.Empty;
 
-    private static string FormatHwnd(IntPtr hwnd) => "0x" + hwnd.ToInt64().ToString("X", CultureInfo.InvariantCulture);
+    private static string FormatHwnd(IntPtr hwnd) => FormatHex(hwnd.ToInt64());
 
     private static string PlainAddress(string address)
         => NormalizeAddress(address).Replace("0x", string.Empty, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatHex(long value, int minDigits = 0)
+        => value.ToString(minDigits > 0 ? "X" + minDigits.ToString(CultureInfo.InvariantCulture) : "X", CultureInfo.InvariantCulture);
+
+    private static string FormatHex(ulong value, int minDigits = 0)
+        => value.ToString(minDigits > 0 ? "X" + minDigits.ToString(CultureInfo.InvariantCulture) : "X", CultureInfo.InvariantCulture);
+
+    private static string FormatHex(uint value, int minDigits = 0)
+        => value.ToString(minDigits > 0 ? "X" + minDigits.ToString(CultureInfo.InvariantCulture) : "X", CultureInfo.InvariantCulture);
 
     private static string EscapeMarkdownCell(string value)
         => value.Replace("|", "\\|", StringComparison.Ordinal).ReplaceLineEndings(" ");

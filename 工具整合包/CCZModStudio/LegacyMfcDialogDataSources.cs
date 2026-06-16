@@ -290,7 +290,7 @@ internal sealed class LegacyMfcDialogDataSources
 
     private void BuildDefaultArrays()
     {
-        CommandNames.AddRange(Enumerable.Range(0, 124).Select(i => $"0x{i:X2}"));
+        CommandNames.AddRange(Enumerable.Range(0, 124).Select(i => HexDisplayFormatter.Format(i, 2)));
 
         for (var i = 0; i < 1024; i++)
         {

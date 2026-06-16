@@ -189,7 +189,7 @@ public sealed class ResourceReplaceService
         var warnings = new List<string>();
         if (info.AudioFormat != 1)
         {
-            warnings.Add($"WAV 编码格式为 0x{info.AudioFormat:X4}，不是最常见的 PCM(0x0001)；请确认游戏可播放。");
+            warnings.Add($"WAV 编码格式为 {HexDisplayFormatter.FormatWord(info.AudioFormat)}，不是最常见的 PCM(0001)；请确认游戏可播放。");
         }
 
         var durationText = info.DurationSeconds > 0 ? $"，估计时长 {FormatSeconds(info.DurationSeconds)}" : string.Empty;
@@ -505,7 +505,7 @@ public sealed class ResourceReplaceService
             6 => "A-law",
             7 => "μ-law",
             0x0055 => "MP3-in-WAV",
-            _ => $"编码 0x{audioFormat:X4}"
+            _ => $"编码 {HexDisplayFormatter.FormatWord(audioFormat)}"
         };
     }
 

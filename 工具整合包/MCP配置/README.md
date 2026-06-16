@@ -232,7 +232,7 @@ list_tables
 
 - MCP Server 只通过 stdout 输出 JSON-RPC，普通日志不得写 stdout。
 - `replace_resource` 禁止覆盖 `Ekd5.exe`、`Data.e5`、`Imsg.e5`、`Star.e5`、`Hexzmap.e5` 等核心文件。
-- E5 图片写入只开放可读取 `0x110` 索引表的图片载荷资源；批量写入使用单次备份和逐条复读校验。
+- E5 图片写入只开放可读取 `110` 索引表的图片载荷资源；批量写入使用单次备份和逐条复读校验。
 - DLL 图标写入只开放 `Itemicon.dll`、`Mgcicon.dll`、`Cmdicon.dll` 的 RT_BITMAP 位图资源。
 - AI 绘图素材只写 `CCZModStudio_Exports\AiImageAssets`，并调用 E5/DLL 预览工具，不直接写入游戏资源；上游 API Key 只能通过本机环境变量或非提交配置提供。
 - `export_image_resource_preview` 只写 `CCZModStudio_Exports\ImagePreviews`，不修改游戏文件。
@@ -274,7 +274,7 @@ GAME_DEBUG_MCP_RSCENE_ANCHOR_SCAN_OK status=not-running anchors=5 hits=0
 GAME_DEBUG_MCP_RSCENE_SCRIPT_WINDOW_OK status=not-running windows=3 hits=0 refs=0
 GAME_DEBUG_MCP_RSCENE_HANDLER_SCAN_OK status=handler-candidates-found commands=4 candidates=32 targets=32
 GAME_DEBUG_MCP_RSCENE_LOAD_TRANSITION_OK status=transition-candidates-found anchors=4 candidates=2 targets=20
-GAME_DEBUG_MCP_R00_ACTOR_ROUTE_OK status=actor-route-ready person=157 commands=6 click=0x002DF5 latest=plan-ready
+GAME_DEBUG_MCP_R00_ACTOR_ROUTE_OK status=actor-route-ready person=157 commands=6 click=002DF5 latest=plan-ready
 GAME_DEBUG_MCP_INTERNAL_EVIDENCE_OK includeScreenshot=False
 GAME_DEBUG_MCP_SCRIPT_DRY_RUN_OK status=dry-run
 GAME_DEBUG_MCP_BATTLE_MATCH_OK status=not_running profile=yingchuan_cao_zhangliang
@@ -321,12 +321,12 @@ Safety boundary:
 
 `debug_live_probe_auto_run` is validated as the one-call live orchestration path. Safe mode records readiness only; with explicit `start_game=true, allow_launch=true`, `start_debugger=true`, and `run_probes=true`, it can launch/attach, re-check readiness, and then run the profile-gated probe path.
 
-`game_rscene_script_window_scan` and `debug_rscene_command_handler_scan` are the current read-only R_00 startup-route probes. The first scans runtime memory for exact byte windows around the Xu Zijiang `0x2D` actor-click and two `0x12` choice commands; the second scans `Ekd5.exe` `.text` for command-id comparison candidates and writes a probe plan. They do not prove the actor-click event has been triggered; dynamic x32dbg hits are still required.
+`game_rscene_script_window_scan` and `debug_rscene_command_handler_scan` are the current read-only R_00 startup-route probes. The first scans runtime memory for exact byte windows around the Xu Zijiang `2D` actor-click and two `12` choice commands; the second scans `Ekd5.exe` `.text` for command-id comparison candidates and writes a probe plan. They do not prove the actor-click event has been triggered; dynamic x32dbg hits are still required.
 
 `debug_r00_startup_route_probe_run` is validated as the safe wrapper for that route. With `run_probes=false` and `allow_input=false`, it only builds evidence and plans. For live no-input experiments, set `probe_before_startup_continue=true` so the generated R-scene command-handler breakpoints are installed before x32dbg continues past the entry-point pause. Keyboard-only input remains a separate explicit opt-in experiment, and attack/turn semantics still require `battle_loaded` plus `game_battle_state_match(profile="yingchuan_cao_zhangliang")`.
 
 `debug_keyboard_exploration_run` is validated as the bounded keyboard-only startup exploration wrapper. In safe mode (`allow_launch=false`, `allow_input=false`) it records candidate sequences and internal probes without launching or sending input. In live mode it can try semicolon-separated sequences, then after each sequence run runtime classification, R-scene text-anchor scan, R_00 script-window scan, and the Yingchuan battle profile gate; it stops as soon as R_00 residency or `battle_loaded` is observed.
 
-`debug_r00_actor_route_analyze` is validated as the static ledger for the Xu Zijiang prerequisite. It confirms person `157`, the `0x2D` actor-click test at `0x002DF5`, six decoded actor commands, and attaches the latest no-input startup probe status when present. This narrows the next live target to the title-entry/R-scene-load transition and live interpreter script pointer; it is not battle-entry evidence.
+`debug_r00_actor_route_analyze` is validated as the static ledger for the Xu Zijiang prerequisite. It confirms person `157`, the `2D` actor-click test at `002DF5`, six decoded actor commands, and attaches the latest no-input startup probe status when present. This narrows the next live target to the title-entry/R-scene-load transition and live interpreter script pointer; it is not battle-entry evidence.
 
 `game_runtime_anchor_sweep` now records `region_kind` for every anchor hit and keeps its phase inference conservative. A live launch on 2026-06-10 found `许子将` and `张梁` in `heap_candidate` memory, but `game_rscene_script_window_scan` still reported `script-windows-not-found` and runtime remained `process_no_battle_signal`. Treat such character-name heap hits as resource residency only; strong R_00 progress still requires mode/start-game anchors, exact R_00 script windows, command-handler hits, or battle/profile gates.

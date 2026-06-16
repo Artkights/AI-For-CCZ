@@ -10,7 +10,7 @@ public sealed class SceneStringDocument
 public sealed class SceneCommandDefinition
 {
     public int Id { get; init; }
-    public string IdHex => "0x" + Id.ToString("X");
+    public string IdHex => CCZModStudio.Core.HexDisplayFormatter.Format(Id);
     public string Name { get; init; } = string.Empty;
 }
 

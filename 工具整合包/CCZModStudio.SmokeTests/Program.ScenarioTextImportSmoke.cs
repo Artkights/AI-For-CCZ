@@ -44,7 +44,7 @@ internal partial class Program
         var actualIds = result.Commands.Select(command => command.CommandId).ToArray();
         if (!actualIds.SequenceEqual(expectedIds))
         {
-            throw new InvalidOperationException($"Unexpected command IDs: {string.Join(",", actualIds.Select(id => $"0x{id:X2}"))}");
+            throw new InvalidOperationException($"Unexpected command IDs: {string.Join(",", actualIds.Select(id => $"{id:X2}"))}");
         }
 
         AssertText(result.Commands[0], "&曹操\n孟德在此，诸军听令。");
@@ -164,7 +164,7 @@ internal partial class Program
             SceneIndex = sceneIndex,
             SectionIndex = sectionIndex,
             CommandId = commandId,
-            CommandName = dictionary.Commands.FirstOrDefault(command => command.Id == commandId)?.Name ?? $"Command 0x{commandId:X2}",
+            CommandName = dictionary.Commands.FirstOrDefault(command => command.Id == commandId)?.Name ?? $"Command {commandId:X2}",
             FileOffset = 0,
             ConsumedBytes = 0
         };

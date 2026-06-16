@@ -16,7 +16,8 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
 
     public string FormatCommand(LegacyScenarioCommandNode command, bool includeIdentity = false)
     {
-        var label = $"{command.CommandId:X}:{_dataSources.CommandName(command.CommandId, command.CommandName)}";
+        var commandName = StripDuplicateCommandIdPrefix(command.CommandId, _dataSources.CommandName(command.CommandId, command.CommandName));
+        var label = $"{HexDisplayFormatter.Format(command.CommandId)}:{commandName}";
         var suffix = BuildLegacyUpdateShowSuffix(command);
         return string.IsNullOrWhiteSpace(suffix) ? label : $"{label} {suffix}";
     }
@@ -40,6 +41,36 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
             .Take(Math.Max(0, maxVisibleValues))
             .ToList();
         return values.Count == 0 ? string.Empty : TrimSingleLine(string.Join(" ", values), 132);
+    }
+
+    private static string StripDuplicateCommandIdPrefix(int commandId, string commandName)
+    {
+        if (string.IsNullOrWhiteSpace(commandName))
+        {
+            return commandName;
+        }
+
+        var colonIndex = commandName.IndexOf(':');
+        var fullWidthColonIndex = commandName.IndexOf((char)0xFF1A);
+        if (fullWidthColonIndex >= 0 && (colonIndex < 0 || fullWidthColonIndex < colonIndex))
+        {
+            colonIndex = fullWidthColonIndex;
+        }
+
+        if (colonIndex <= 0)
+        {
+            return commandName;
+        }
+
+        var prefix = commandName[..colonIndex].Trim();
+        if (prefix.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            prefix = prefix[2..];
+        }
+
+        return int.TryParse(prefix, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsedId) && parsedId == commandId
+            ? commandName[(colonIndex + 1)..].TrimStart()
+            : commandName;
     }
 
     private string BuildLegacyUpdateShowSuffix(LegacyScenarioCommandNode command)
@@ -193,7 +224,33 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
         => At(_dataSources.Person1, LegacyMfcDialogDataSources.Per1CodeToList(code));
 
     private string Per2(int code)
-        => ScriptVariableValueResolver.FormatPerson2Reference(code);
+    {
+        if (ScriptVariableValueResolver.TryDecodePerson2VariableReference(code, out var variableAddress))
+        {
+            return "V" + variableAddress.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var index = LegacyMfcDialogDataSources.Per2CodeToList(code);
+        var value = index >= 0 && index < _dataSources.Person2.Count
+            ? _dataSources.Person2[index].Trim()
+            : string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return N(code);
+        }
+
+        var prefix = code.ToString(CultureInfo.InvariantCulture);
+        if (value.Equals(prefix + ":", StringComparison.Ordinal))
+        {
+            return prefix;
+        }
+        if (value.StartsWith(prefix + ":", StringComparison.Ordinal))
+        {
+            return prefix + "(" + value[(prefix.Length + 1)..] + ")";
+        }
+
+        return value;
+    }
 
     private string ItemName(int index)
         => At(_dataSources.Item, Math.Clamp(index, 0, Math.Max(0, _dataSources.Item.Count - 1)));
@@ -428,5 +485,5 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
     }
 
     private static string FormatLargeNumber(int value)
-        => value < 0x400000 ? N(value) : "0x" + value.ToString("X", CultureInfo.InvariantCulture);
+        => value < 0x400000 ? N(value) : HexDisplayFormatter.Format(value);
 }

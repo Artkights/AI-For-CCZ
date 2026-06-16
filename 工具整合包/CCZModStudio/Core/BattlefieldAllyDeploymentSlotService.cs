@@ -81,7 +81,7 @@ public sealed partial class BattlefieldAllyDeploymentSlotService
                 RImageId = hasForcedPerson ? palette?.RImageId ?? 0 : null,
                 Source = BuildSourceText(sourceSequence, rSequence, sSequence, setup),
                 SourceFileName = sourceSequence.FileName,
-                SourceLocator = $"Scene {slot.Command.SceneIndex} / Section {slot.Command.SectionIndex} / Command {slot.Command.CommandIndex} / 0x{slot.Command.FileOffset:X6}",
+                SourceLocator = $"Scene {slot.Command.SceneIndex} / Section {slot.Command.SectionIndex} / Command {slot.Command.CommandIndex} / {HexDisplayFormatter.FormatOffset(slot.Command.FileOffset)}",
                 SourceValues = string.Join(" ", slot.Values.Select(value => value.ToString(CultureInfo.InvariantCulture)))
             });
         }

@@ -96,7 +96,7 @@ public sealed class LegacyScenarioCommandNode
     public int CommandIndex { get; set; }
     public int CommandOrdinal { get; set; }
     public int CommandId { get; init; }
-    public string CommandIdHex => "0x" + CommandId.ToString("X2");
+    public string CommandIdHex => CCZModStudio.Core.HexDisplayFormatter.Format(CommandId, 2);
     public string CommandName { get; init; } = string.Empty;
     public int FileOffset { get; init; }
     public int ConsumedBytes { get; init; }
@@ -129,8 +129,8 @@ public sealed class LegacyScenarioCommandParameter
     public List<int> Values { get; } = [];
     public int ByteLength { get; set; }
 
-    public string LayoutCodeHex => "0x" + LayoutCode.ToString("X2");
-    public string TagHex => "0x" + Tag.ToString("X2");
+    public string LayoutCodeHex => CCZModStudio.Core.HexDisplayFormatter.Format(LayoutCode, 2);
+    public string TagHex => CCZModStudio.Core.HexDisplayFormatter.Format(Tag, 2);
 
     public string DisplayValue => Kind switch
     {

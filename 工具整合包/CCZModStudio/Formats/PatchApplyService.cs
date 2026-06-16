@@ -21,7 +21,7 @@ public sealed class PatchApplyService
                 SourceLine = e.SourceLine,
                 Comment = e.Comment ?? string.Empty,
                 AddressKind = document.AddressKind.ToString(),
-                AddressHex = "0x" + e.AddressHex,
+                AddressHex = HexDisplayFormatter.NormalizeText(e.AddressHex),
                 FileOffsetHex = "-",
                 FileOffset = -1,
                 Length = e.Bytes.Length,
@@ -49,7 +49,7 @@ public sealed class PatchApplyService
                     SourceLine = e.SourceLine,
                     Comment = e.Comment ?? string.Empty,
                     AddressKind = document.AddressKind.ToString(),
-                    AddressHex = "0x" + e.AddressHex,
+                    AddressHex = HexDisplayFormatter.NormalizeText(e.AddressHex),
                     FileOffsetHex = "-",
                     FileOffset = -1,
                     Length = e.Bytes.Length,
@@ -199,12 +199,12 @@ public sealed class PatchApplyService
 
             if (fileOffset < 0 || fileOffset > targetBytes.LongLength)
             {
-                return ErrorRow(document, entry, $"文件偏移越界：0x{fileOffset:X}", fileOffset);
+                return ErrorRow(document, entry, $"文件偏移越界：{HexDisplayFormatter.FormatOffset(fileOffset)}", fileOffset);
             }
 
             if (fileOffset + entry.Bytes.Length > targetBytes.LongLength)
             {
-                return ErrorRow(document, entry, $"写入范围越界：0x{fileOffset:X} + {entry.Bytes.Length} > 文件长度 0x{targetBytes.LongLength:X}", fileOffset);
+                return ErrorRow(document, entry, $"写入范围越界：{HexDisplayFormatter.FormatOffset(fileOffset)} + {entry.Bytes.Length} > 文件长度 {HexDisplayFormatter.FormatOffset(targetBytes.LongLength)}", fileOffset);
             }
 
             var oldBytes = new byte[entry.Bytes.Length];
@@ -217,8 +217,8 @@ public sealed class PatchApplyService
                 SourceLine = entry.SourceLine,
                 Comment = entry.Comment ?? string.Empty,
                 AddressKind = document.AddressKind.ToString(),
-                AddressHex = "0x" + entry.AddressHex,
-                FileOffsetHex = "0x" + fileOffset.ToString("X", CultureInfo.InvariantCulture),
+                AddressHex = HexDisplayFormatter.NormalizeText(entry.AddressHex),
+                FileOffsetHex = HexDisplayFormatter.FormatOffset(fileOffset),
                 FileOffset = fileOffset,
                 Length = entry.Bytes.Length,
                 OldBytesHex = ToHex(oldBytes),
@@ -240,8 +240,8 @@ public sealed class PatchApplyService
         SourceLine = entry.SourceLine,
         Comment = entry.Comment ?? string.Empty,
         AddressKind = document.AddressKind.ToString(),
-        AddressHex = "0x" + entry.AddressHex,
-        FileOffsetHex = fileOffset >= 0 ? "0x" + fileOffset.ToString("X", CultureInfo.InvariantCulture) : "-",
+        AddressHex = HexDisplayFormatter.NormalizeText(entry.AddressHex),
+        FileOffsetHex = fileOffset >= 0 ? HexDisplayFormatter.FormatOffset(fileOffset) : "-",
         FileOffset = fileOffset,
         Length = entry.Bytes.Length,
         NewBytesHex = ToHex(entry.Bytes),

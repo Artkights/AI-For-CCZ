@@ -4,9 +4,12 @@ namespace CCZModStudio.Models;
 
 public sealed class ScenarioTextEntry
 {
+    private string _offsetHex = string.Empty;
+    private string _annotation = string.Empty;
+
     public int Index { get; set; }
     public int Offset { get; set; }
-    public string OffsetHex { get; set; } = string.Empty;
+    public string OffsetHex { get => _offsetHex; set => _offsetHex = HexDisplayFormatter.NormalizeText(value); }
     public int ByteLength { get; set; }
     public int CharLength { get; set; }
     public string Kind { get; set; } = string.Empty;
@@ -14,7 +17,7 @@ public sealed class ScenarioTextEntry
     public string Preview { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
     public string OriginalText { get; set; } = string.Empty;
-    public string Annotation { get; set; } = string.Empty;
+    public string Annotation { get => _annotation; set => _annotation = HexDisplayFormatter.NormalizeText(value); }
     public int GbkByteCount => EncodingService.GetGbkByteCount(Text);
     public int RemainingBytes => ByteLength - GbkByteCount;
     public string WriteStatus

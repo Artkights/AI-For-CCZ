@@ -895,6 +895,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobStrategyEditorButton.Text = "保存兵种策略";
         _saveJobStrategyEditorButton.AutoSize = true;
         _saveJobStrategyEditorButton.Enabled = false;
+        _importJobStrategyIconButton.Text = "导入策略图标";
+        _importJobStrategyIconButton.AutoSize = true;
+        _importJobStrategyIconButton.Enabled = false;
         _openJobStrategyTableButton.Text = "通用策略表";
         _openJobStrategyTableButton.AutoSize = true;
         _jobStrategyEditorSearchBox.Width = 220;
@@ -907,6 +910,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         {
             _loadJobStrategyEditorButton,
             _saveJobStrategyEditorButton,
+            _importJobStrategyIconButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _jobStrategyEditorSearchBox,
             _filterJobStrategyEditorButton,

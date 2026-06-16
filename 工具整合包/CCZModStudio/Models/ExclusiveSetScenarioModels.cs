@@ -18,7 +18,7 @@ public sealed class ExclusiveSetScenarioEntry
     public int CommandIndex { get; init; }
     public int CommandOrdinal { get; init; }
     public int FileOffset { get; init; }
-    public string OffsetHex => "0x" + FileOffset.ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
+    public string OffsetHex => CCZModStudio.Core.HexDisplayFormatter.FormatOffset(FileOffset);
     public string SourceText { get; init; } = string.Empty;
     public string SourceTextHash { get; init; } = string.Empty;
     public string Remarks { get; init; } = string.Empty;
@@ -44,7 +44,7 @@ public sealed class ExclusiveSetScenarioMalformedEntry
     public int CommandIndex { get; init; }
     public int CommandOrdinal { get; init; }
     public int FileOffset { get; init; }
-    public string OffsetHex => "0x" + FileOffset.ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
+    public string OffsetHex => CCZModStudio.Core.HexDisplayFormatter.FormatOffset(FileOffset);
     public string SourceText { get; init; } = string.Empty;
     public string SourceTextHash { get; init; } = string.Empty;
     public string Reason { get; init; } = string.Empty;

@@ -14,19 +14,19 @@ public sealed partial class GameDebugRuntime
 
     private static readonly IReadOnlyList<InternalProbeTarget> BattleAutoProbeTargets =
     [
-        new() { Address = "0x00405AD5", Name = "physical_post_damage_apply", Phase = "battle-physical", ExpectedSemantics = "Physical damage has been applied; use with HP/context diff for on_post_damage.", TriggerHint = "Execute a physical attack that deals damage.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x0043F70C", Name = "unit_hp_setter", Phase = "battle-hp", ExpectedSemantics = "Writes tactical unit HP; target unit should be recoverable from stack/registers and unit array diff.", TriggerHint = "Any HP damage or recovery.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = true },
-        new() { Address = "0x00406043", Name = "personal_exp_cache_write", Phase = "battle-exp", ExpectedSemantics = "Writes personal EXP cache at combat context +0x428.", TriggerHint = "Physical attack settle.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x00406054", Name = "weapon_exp_cache_write", Phase = "battle-exp", ExpectedSemantics = "Writes weapon EXP cache at combat context +0x42C.", TriggerHint = "Physical attack settle.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x00406074", Name = "armor_exp_cache_write", Phase = "battle-exp", ExpectedSemantics = "Writes armor EXP cache at combat context +0x430 + slot*4.", TriggerHint = "Physical attack settle or target equipment EXP.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x00406555", Name = "double_attack_candidate_before_rng", Phase = "battle-double", ExpectedSemantics = "Double/chase attack candidate before helper call.", TriggerHint = "Physical attack where attacker may double.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x0040655C", Name = "double_attack_candidate_after_rng", Phase = "battle-double", ExpectedSemantics = "Double/chase attack decision after helper call.", TriggerHint = "Physical attack where attacker may double.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x00406520", Name = "double_attack_counter_increment", Phase = "battle-double", ExpectedSemantics = "Increments combat context +0x608 after double/chase branch.", TriggerHint = "A successful double/chase attack.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x0041797E", Name = "counter_check_entry", Phase = "battle-counter", ExpectedSemantics = "Counterattack eligibility route.", TriggerHint = "Attack an enemy that can retaliate.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x004064DA", Name = "counter_execute_chain", Phase = "battle-counter", ExpectedSemantics = "Counterattack execution chain before returning to action settle.", TriggerHint = "Enemy counterattack.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x00406581", Name = "counter_execute_tail", Phase = "battle-counter", ExpectedSemantics = "Counterattack execution tail.", TriggerHint = "Enemy counterattack.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x0044AF8F", Name = "turn_start_reset_loop", Phase = "battle-turn", ExpectedSemantics = "Turn-start reset loop over tactical units.", TriggerHint = "End player turn or enter a new round.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
-        new() { Address = "0x00406690", Name = "restore_action_flag", Phase = "battle-turn", ExpectedSemantics = "Clears unit+0x0D action bits for turn start or extra-action restore.", TriggerHint = "Turn start or extra action restoration.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false }
+        new() { Address = "00405AD5", Name = "physical_post_damage_apply", Phase = "battle-physical", ExpectedSemantics = "Physical damage has been applied; use with HP/context diff for on_post_damage.", TriggerHint = "Execute a physical attack that deals damage.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "0043F70C", Name = "unit_hp_setter", Phase = "battle-hp", ExpectedSemantics = "Writes tactical unit HP; target unit should be recoverable from stack/registers and unit array diff.", TriggerHint = "Any HP damage or recovery.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = true },
+        new() { Address = "00406043", Name = "personal_exp_cache_write", Phase = "battle-exp", ExpectedSemantics = "Writes personal EXP cache at combat context +428.", TriggerHint = "Physical attack settle.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "00406054", Name = "weapon_exp_cache_write", Phase = "battle-exp", ExpectedSemantics = "Writes weapon EXP cache at combat context +42C.", TriggerHint = "Physical attack settle.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "00406074", Name = "armor_exp_cache_write", Phase = "battle-exp", ExpectedSemantics = "Writes armor EXP cache at combat context +430 + slot*4.", TriggerHint = "Physical attack settle or target equipment EXP.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "00406555", Name = "double_attack_candidate_before_rng", Phase = "battle-double", ExpectedSemantics = "Double/chase attack candidate before helper call.", TriggerHint = "Physical attack where attacker may double.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "0040655C", Name = "double_attack_candidate_after_rng", Phase = "battle-double", ExpectedSemantics = "Double/chase attack decision after helper call.", TriggerHint = "Physical attack where attacker may double.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "00406520", Name = "double_attack_counter_increment", Phase = "battle-double", ExpectedSemantics = "Increments combat context +608 after double/chase branch.", TriggerHint = "A successful double/chase attack.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "0041797E", Name = "counter_check_entry", Phase = "battle-counter", ExpectedSemantics = "Counterattack eligibility route.", TriggerHint = "Attack an enemy that can retaliate.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "004064DA", Name = "counter_execute_chain", Phase = "battle-counter", ExpectedSemantics = "Counterattack execution chain before returning to action settle.", TriggerHint = "Enemy counterattack.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "00406581", Name = "counter_execute_tail", Phase = "battle-counter", ExpectedSemantics = "Counterattack execution tail.", TriggerHint = "Enemy counterattack.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "0044AF8F", Name = "turn_start_reset_loop", Phase = "battle-turn", ExpectedSemantics = "Turn-start reset loop over tactical units.", TriggerHint = "End player turn or enter a new round.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false },
+        new() { Address = "00406690", Name = "restore_action_flag", Phase = "battle-turn", ExpectedSemantics = "Clears unit+0D action bits for turn start or extra-action restore.", TriggerHint = "Turn start or extra action restoration.", EvidenceLevel = "dynamic-confirmed-local", HighFrequency = false }
     ];
 
     private sealed record BattleGridCalibration(int OriginX, int OriginY, int CellWidth, int CellHeight);
@@ -940,7 +940,7 @@ public sealed partial class GameDebugRuntime
         {
             confidence = 0.72;
             reasons.Add("side=0 alive units with action bit not completed were decoded");
-            reasons.Add("action completion heuristic: (unit+0x0D & 0x02) == 0; pending cross-battle validation");
+            reasons.Add("action completion heuristic: (unit+0D & 02) == 0; pending cross-battle validation");
             return "player_control";
         }
 
@@ -1388,7 +1388,7 @@ public sealed partial class GameDebugRuntime
         => offset >= 0 && offset + 3 < bytes.Length ? BitConverter.ToUInt32(bytes, offset) : null;
 
     private static string FormatNullableAddress(uint? value)
-        => value.HasValue ? $"0x{value.Value:X8}" : string.Empty;
+        => value.HasValue ? value.Value.ToString("X8", CultureInfo.InvariantCulture) : string.Empty;
 
     private static string ToHex(IEnumerable<byte> bytes)
         => string.Join(" ", bytes.Select(b => b.ToString("X2", CultureInfo.InvariantCulture)));

@@ -2,6 +2,7 @@ using CCZModStudio;
 using CCZModStudio.Core;
 using CCZModStudio.Formats;
 using CCZModStudio.Models;
+using System.Globalization;
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
@@ -22,7 +23,11 @@ internal partial class Program
                     ?? throw new InvalidOperationException("No battlefield S_XX.eex scenario was found.");
                 var mapResources = new MapResourceIndexer().Index(project);
                 var hexzmap = new HexzmapProbeReader().Read(project);
-                var document = new BattlefieldEditorService().Load(project, scenario, dictionary: null, tables);
+                var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(project);
+                var dictionary = File.Exists(dictionaryPath) ? new SceneStringParser().Parse(dictionaryPath) : null;
+                var document = new BattlefieldEditorService().Load(project, scenario, dictionary, tables);
+                AssertBattlefieldTitleMatchesCampaignName(project, tables, document);
+                AssertBattlefieldConditionExpansionValidation(document, dictionary != null);
 
                 SetPrivateField(form, "_project", project);
                 SetPrivateField(form, "_currentMapResources", mapResources);
@@ -43,7 +48,7 @@ internal partial class Program
                     throw new InvalidOperationException("Battlefield map preview rendered a blank image.");
                 }
 
-                Console.WriteLine($"BATTLEFIELD_PREVIEW_SMOKE_OK scenario={scenario.FileName} image={previewBox.Image.Width}x{previewBox.Image.Height} colorPixels={colorPixels} hint={hintLabel.Text}");
+                Console.WriteLine($"BATTLEFIELD_PREVIEW_SMOKE_OK scenario={scenario.FileName} title=\"{document.CampaignTitle}\" image={previewBox.Image.Width}x{previewBox.Image.Height} colorPixels={colorPixels} hint={hintLabel.Text}");
             }
             catch (Exception ex)
             {
@@ -79,6 +84,50 @@ internal partial class Program
         }
 
         return count;
+    }
+
+    private static void AssertBattlefieldTitleMatchesCampaignName(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        BattlefieldEditorDocument document)
+    {
+        if (!document.CanWriteCampaignTitle)
+        {
+            throw new InvalidOperationException("Battlefield title did not resolve to the campaign-name table.");
+        }
+
+        var profile = new CczEngineProfileService().Detect(project);
+        var table = HexTableNameResolver.ResolveForProject(project, tables, profile.TableHints.CampaignNameTable);
+        var read = new HexTableReader().Read(project, table, tables);
+        var row = read.Data.Rows
+            .Cast<System.Data.DataRow>()
+            .FirstOrDefault(x => Convert.ToInt32(x["ID"], CultureInfo.InvariantCulture) == document.CampaignId)
+            ?? throw new InvalidOperationException("Campaign-name table row was not found for battlefield scenario.");
+        var expected = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+        if (!string.Equals(expected, document.CampaignTitle, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Battlefield title source mismatch: expected={expected}, actual={document.CampaignTitle}");
+        }
+    }
+
+    private static void AssertBattlefieldConditionExpansionValidation(BattlefieldEditorDocument document, bool hasDictionary)
+    {
+        if (!hasDictionary || document.ConditionEntry == null) return;
+        var expanded = document.ConditionEntry.Text + " 扩容校验文本";
+        if (EncodingService.GetGbkByteCount(expanded) <= document.ConditionEntry.ByteLength)
+        {
+            expanded += "继续增加到超过原始容量";
+        }
+
+        var error = BattlefieldEditorService.ValidateStructuredScenarioText(
+            document.ConditionEntry,
+            expanded,
+            "胜败条件",
+            allowExpansion: true);
+        if (error != null)
+        {
+            throw new InvalidOperationException("Battlefield condition expansion validation should allow full-structure text growth: " + error);
+        }
     }
 
     private static void SetPrivateField<T>(MainForm form, string fieldName, T value)

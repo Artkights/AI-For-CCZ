@@ -185,7 +185,7 @@ public sealed partial class MainForm
         _lsResourceInfoBox.Text =
             $"文件：{item.FileName}    分类：{item.Category}    ID：{item.Id}    角色：{item.RoleHint}\r\n" +
             $"路径：{item.Path}\r\n" +
-            $"长度：{item.Length:N0} 字节    Magic：{item.Magic}    Header：{item.HeaderText}    PayloadOffset：0x{item.PayloadOffset:X}\r\n" +
+            $"长度：{item.Length:N0} 字节    Magic：{item.Magic}    Header：{item.HeaderText}    PayloadOffset：{HexDisplayFormatter.FormatOffset(item.PayloadOffset)}\r\n" +
             $"载荷：{item.PayloadLength:N0} 字节    不同字节：{item.UniqueByteCount}    00占比：{item.ZeroPercent:F2}%\r\n" +
             $"前 32 载荷字节：{item.FirstPayloadBytesHex}\r\n" +
             $"高频字节：{item.TopBytesHex}\r\n" +
@@ -335,8 +335,8 @@ public sealed partial class MainForm
 
     private string FormatTerrainValue(byte value)
         => _terrainEditorTerrainLookup.TryGetValue(value, out var name) && !string.IsNullOrWhiteSpace(name)
-            ? $"0x{value:X2}（{name}）"
-            : $"0x{value:X2}";
+            ? $"{HexDisplayFormatter.FormatByte(value)}（{name}）"
+            : HexDisplayFormatter.FormatByte(value);
 
     private void LoadHexzmapProbe()
     {
@@ -357,7 +357,7 @@ public sealed partial class MainForm
             _exportHexzmapOverlayPngButton.Enabled = _currentHexzmapProbe.Blocks.Count > 0;
             _hexzmapInfoBox.Text =
                 $"文件：{_currentHexzmapProbe.Path}\r\n" +
-                $"Magic：{_currentHexzmapProbe.Magic}    有效Ls头：{_currentHexzmapProbe.MagicValid}    PayloadOffset：0x{_currentHexzmapProbe.PayloadOffset:X}\r\n" +
+                $"Magic：{_currentHexzmapProbe.Magic}    有效Ls头：{_currentHexzmapProbe.MagicValid}    PayloadOffset：{HexDisplayFormatter.FormatOffset(_currentHexzmapProbe.PayloadOffset)}\r\n" +
                 $"分块解释：按 Map\\Mxxx.jpg/JPG 图片分辨率 / 48 计算地形格数；地形块数：{_currentHexzmapProbe.Blocks.Count}；尾部未解释字节：{_currentHexzmapProbe.TrailingBytes}\r\n" +
                 $"素材库地形图例：{terrainLookup.Count} 个 hex 标记可用于中文注释。\r\n" +
                 "说明：地形格数不再固定，960x960 地图为 20x20，37x30 地图对应 1776x1440。";
@@ -427,7 +427,7 @@ public sealed partial class MainForm
         _exportHexzmapOverlayPngButton.Enabled = _hexzmapPreviewBox.Image != null;
         _hexzmapInfoBox.Text =
             $"候选地图块：{block.MapId}    Index={block.Index}    偏移：{block.OffsetHex}    {block.Width}x{block.Height}\r\n" +
-            $"对应地图图片：{(block.MapImageExists ? block.MapImageName : "未找到同编号 Mxxx.jpg")}    地形种类：{block.UniqueTerrainCount}    已知图例：{block.KnownTerrainCount}    主地形：0x{block.DominantTerrainId:X2} {block.DominantTerrainName} x {block.DominantTerrainCount}\r\n" +
+            $"对应地图图片：{(block.MapImageExists ? block.MapImageName : "未找到同编号 Mxxx.jpg")}    地形种类：{block.UniqueTerrainCount}    已知图例：{block.KnownTerrainCount}    主地形：{HexDisplayFormatter.Format(block.DominantTerrainId, 2)} {block.DominantTerrainName} x {block.DominantTerrainCount}\r\n" +
             $"高频地形ID：{block.TopTerrainIds}\r\n" +
             $"高频地形中文候选：{block.TopTerrainNames}\r\n" +
             $"未匹配图例ID：{block.UnknownTerrainIds}\r\n" +

@@ -297,7 +297,7 @@ public sealed class ShopEditorService
         if (effectId == 255) return "普通装备/无扩展特效";
         return itemEffectNames.TryGetValue(effectId, out var name)
             ? name
-            : $"未命名或未确认：0x{effectId:X2}";
+            : $"未命名或未确认：{HexDisplayFormatter.Format(effectId, 2)}";
     }
 
     private static string BuildItemEffectNameDisplay(

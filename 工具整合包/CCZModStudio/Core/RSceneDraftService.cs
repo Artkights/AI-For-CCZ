@@ -105,7 +105,7 @@ public sealed class RSceneDraftService
                 Index = result.Count + 1,
                 TargetKey = BuildCommandTargetKey(command),
                 SceneSection = $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex}",
-                OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset),
                 CommandId = command.CommandId,
                 CommandName = string.IsNullOrWhiteSpace(displayName) ? command.CommandName : displayName,
                 RoleHint = BuildRoleHint(command.CommandId),
@@ -153,7 +153,7 @@ public sealed class RSceneDraftService
                     StartCommandIndex = command.CommandIndex,
                     CurrentCommandIndex = command.CommandIndex,
                     EndCommandIndex = endCommandIndex ?? commands.LastOrDefault()?.CommandIndex ?? command.CommandIndex,
-                    OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                    OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset),
                     BackgroundImageNumber = snapshot.BackgroundImageNumber,
                     ActorCount = snapshot.Actors.Count,
                     MapFaceCount = snapshot.MapFaces.Count,
@@ -423,7 +423,7 @@ public sealed class RSceneDraftService
     }
 
     private static string BuildCommandTargetKey(LegacyScenarioCommandNode command)
-        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset=0x{command.FileOffset:X6};Id=0x{command.CommandId:X2}";
+        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset={HexDisplayFormatter.FormatOffset(command.FileOffset)};Id={HexDisplayFormatter.Format(command.CommandId, 2)}";
 
     private static void ApplyShowActor(
         IDictionary<int, MutableActorState> actors,

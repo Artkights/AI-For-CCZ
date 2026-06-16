@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 10000,
-    [int]$MinimumToolCount = 47
+    [int]$MinimumToolCount = 56
 )
 
 $ErrorActionPreference = "Stop"
@@ -176,6 +176,9 @@ try {
         "write_table_rows",
         "list_scenario_files",
         "read_scenario_commands",
+        "list_battlefield_unit_status_targets",
+        "read_battlefield_unit_status",
+        "write_battlefield_unit_status",
         "search_knowledge_entries",
         "list_hexzmap_blocks",
         "read_hexzmap_block",
@@ -192,6 +195,12 @@ try {
         "preview_e5_image_batch_replace",
         "replace_e5_image_entry",
         "replace_e5_image_batch",
+        "preview_r_image_raw_replace",
+        "replace_r_image_raw",
+        "preview_s_image_raw_replace",
+        "replace_s_image_raw",
+        "preview_e5_role_raw_normalize",
+        "normalize_e5_role_raw",
         "preview_dll_icon_replace",
         "replace_dll_icon",
         "preview_clear_dll_icon",
@@ -201,6 +210,8 @@ try {
         "export_effect_package",
         "preview_effect_package",
         "apply_effect_package",
+        "analyze_standalone_scenario_request",
+        "compile_standalone_scenario_package",
         "list_effect_templates",
         "build_effect_package_from_template",
         "preview_effect_patch",

@@ -395,7 +395,7 @@ public sealed class TableReferenceLookupService
             var storeFile = Path.GetFileName(_itemEffectCatalogService.GetStorePath(project));
             return
                 $"\r\n\r\n跨表引用解释：装备特效号\r\n" +
-                $"当前值：{id} (0x{id:X2}) -> 项目侧宝物特效目录 / 名称={effectName}\r\n" +
+                $"当前值：{id} ({HexDisplayFormatter.Format(id, 2)}) -> 项目侧宝物特效目录 / 名称={effectName}\r\n" +
                 (string.IsNullOrWhiteSpace(effectDescription) ? string.Empty : $"说明：{effectDescription}\r\n") +
                 $"依据：字段“{field.ColumnName}”当前优先读取 `CCZModStudio_Notes\\{storeFile}` 中的 UTF-8 宝物特效目录；同一特效号允许重复，宝物页会按“名称1 / 名称2”合并显示。\r\n" +
                 "建议：若需统一中文名或补充长中文说明，请在“宝物设定 -> 宝物特效”维护；同步检查本行“装备特效号-效果值”，改动后务必进战场验证。";
@@ -406,14 +406,14 @@ public sealed class TableReferenceLookupService
         {
             return
                 $"\r\n\r\n跨表引用解释：装备特效号\r\n" +
-                $"当前值：{id} (0x{id:X2}) -> 基础装备特效名称表 / 名称={baseName}\r\n" +
+                $"当前值：{id} ({HexDisplayFormatter.Format(id, 2)}) -> 基础装备特效名称表 / 名称={baseName}\r\n" +
                 $"依据：字段“{field.ColumnName}”未在项目侧宝物特效目录中命中，当前回退到 `6.5-1-2/6.5-1-3 装备特效名称` 的基础中文名。\r\n" +
                 "建议：若要使用可重复编号、变长中文名或补充中文说明，请在“宝物设定 -> 宝物特效”中新增项目侧目录记录；同步检查本行“装备特效号-效果值”。";
         }
 
         return
             $"\r\n\r\n跨表引用解释：装备特效号\r\n" +
-            $"当前值：{id} (0x{id:X2}) 未在项目侧宝物特效目录和基础装备特效名称表中找到。\r\n" +
+            $"当前值：{id} ({HexDisplayFormatter.Format(id, 2)}) 未在项目侧宝物特效目录和基础装备特效名称表中找到。\r\n" +
             "建议：这可能是原版特效、未命名扩展值或越界值；若需要稳定的中文显示，请在“宝物设定 -> 宝物特效”中补充该编号的项目侧 UTF-8 记录。";
     }
 
@@ -631,7 +631,7 @@ public sealed class TableReferenceLookupService
                 SourceFieldName = sourceField.ColumnName,
                 SourceValue = sourceValue,
                 ReferenceKind = "装备特效号",
-                Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = 0x{effectId:X2}：项目侧宝物特效目录已定义，当前名称={effectName}。",
+                Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = {HexDisplayFormatter.Format(effectId, 2)}：项目侧宝物特效目录已定义，当前名称={effectName}。",
                 SafetyNote = $"当前“跳到数据表”只支持 HexTable 表格导航；项目侧 UTF-8 目录请在“宝物设定 -> 宝物特效”中维护。目录文件：CCZModStudio_Notes\\{storeFile}"
             };
         }
@@ -654,7 +654,7 @@ public sealed class TableReferenceLookupService
                 SourceFieldName = sourceField.ColumnName,
                 SourceValue = sourceValue,
                 ReferenceKind = "装备特效号",
-                Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = 0x{effectId:X2}：既不在项目侧宝物特效目录中，也不在当前已确认基础特效名称表范围内，暂不跳转。",
+                Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = {HexDisplayFormatter.Format(effectId, 2)}：既不在项目侧宝物特效目录中，也不在当前已确认基础特效名称表范围内，暂不跳转。",
                 SafetyNote = "可能是未使用值、特殊值或需要继续研究的扩展值；建议补充外部制作记录，或在“游戏设定 -> 宝物特效”中补充项目侧目录后再实机验证。"
             };
         }
@@ -671,7 +671,7 @@ public sealed class TableReferenceLookupService
                 SourceValue = sourceValue,
                 ReferenceKind = "装备特效号",
                 TargetTableName = targetTableName,
-                Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = 0x{effectId:X2}：目标表“{targetTableName}”未找到。",
+                Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = {HexDisplayFormatter.Format(effectId, 2)}：目标表“{targetTableName}”未找到。",
                 SafetyNote = reason
             };
         }
@@ -706,7 +706,7 @@ public sealed class TableReferenceLookupService
             TargetRowId = targetRowId,
             TargetFieldName = targetFieldName,
             TargetName = targetName,
-            Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = 0x{effectId:X2} -> {targetTable.TableName} / ID={targetRowId} / {targetFieldName} / {targetName}",
+            Summary = $"{sourceTable.TableName} / ID={sourceRowId} / {sourceField.ColumnName} = {HexDisplayFormatter.Format(effectId, 2)} -> {targetTable.TableName} / ID={targetRowId} / {targetFieldName} / {targetName}",
             SafetyNote = "当前未命中项目侧宝物特效目录，故跳转到基础装备特效名称表；若宝物页显示名需按项目定制，请改用“宝物设定 -> 宝物特效”维护。"
         };
     }

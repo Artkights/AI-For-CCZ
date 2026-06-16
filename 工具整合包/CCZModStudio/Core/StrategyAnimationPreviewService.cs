@@ -66,13 +66,13 @@ public sealed class StrategyAnimationPreviewService
                     imageNumber,
                     entries.Count,
                     null,
-                    $"策略动画字段值 {animationValue} -> Meff.e5 图号 #{imageNumber}（字段值+1）；条目存在，但不是当前可渲染的图片/字节图。索引：offset=0x{entry.DataOffset:X}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。");
+                    $"策略动画字段值 {animationValue} -> Meff.e5 图号 #{imageNumber}（字段值+1）；条目存在，但不是当前可渲染的图片/字节图。索引：offset={HexDisplayFormatter.FormatOffset(entry.DataOffset)}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。");
             }
 
             var info = new FileInfo(sourcePath);
             var message =
                 $"策略动画字段值 {animationValue} -> Meff.e5 图号 #{imageNumber}（字段值+1）；条目数={entries.Count}。\r\n" +
-                $"索引：offset=0x{entry.DataOffset:X}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。\r\n" +
+                $"索引：offset={HexDisplayFormatter.FormatOffset(entry.DataOffset)}，size={entry.StoredLength:N0}/{entry.DecodedLength:N0}，类型={entry.Kind}。\r\n" +
                 $"预览模式：{renderMode}；若显示为未知字节图候选，需用旧工具或实机确认真实帧宽高。\r\n" +
                 $"文件：{info.Length:N0} 字节，修改时间 {info.LastWriteTime:yyyy-MM-dd HH:mm:ss}。";
             return new StrategyAnimationPreviewResult(

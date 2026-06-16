@@ -7,10 +7,97 @@ param(
 $ErrorActionPreference = "Stop"
 
 $configRoot = $PSScriptRoot
+$toolRoot = Split-Path -Parent $configRoot
+$workspaceRoot = Split-Path -Parent $toolRoot
+$expectedEkd5Sha256 = "84E3A1DC085AE6F9900D1E8C388A9CD6766379832DDF51BC7BDF780C6615B4A3"
 $startScript = Join-Path $configRoot "start-ccz-game-debug-mcp.ps1"
 
 if (-not (Test-Path -LiteralPath $startScript -PathType Leaf)) {
     throw "Game debug MCP start script not found: $startScript"
+}
+
+function Test-ExpectedGameDebugRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return $false
+    }
+
+    $exe = Join-Path $Path "Ekd5.exe"
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+        return $false
+    }
+
+    foreach ($required in @("Data.e5", "Imsg.e5", "Star.e5", "RS")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Path $required))) {
+            return $false
+        }
+    }
+
+    try {
+        return (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -eq $ExpectedSha256
+    }
+    catch {
+        return $false
+    }
+}
+
+function Find-ExpectedGameDebugRoot {
+    param([Parameter(Mandatory = $true)][string]$WorkspaceRoot)
+
+    $skipParts = @(
+        "\.git\",
+        "\.vs\",
+        "\bin\",
+        "\obj\",
+        "\_BuildCheck\",
+        "\CCZModStudio_Reports\",
+        "\CCZModStudio_Exports\",
+        "\_CCZModStudio_Backups\"
+    )
+
+    $candidates = foreach ($exe in Get-ChildItem -LiteralPath $WorkspaceRoot -Recurse -File -Filter "Ekd5.exe" -ErrorAction SilentlyContinue) {
+        $fullName = $exe.FullName
+        if (($skipParts | Where-Object { $fullName.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0) {
+            continue
+        }
+
+        try {
+            if ((Get-FileHash -LiteralPath $fullName -Algorithm SHA256).Hash -ne $expectedEkd5Sha256) {
+                continue
+            }
+        }
+        catch {
+            continue
+        }
+
+        $root = $exe.DirectoryName
+        if (-not (Test-ExpectedGameDebugRoot -Path $root -ExpectedSha256 $expectedEkd5Sha256)) {
+            continue
+        }
+
+        $leaf = Split-Path -Leaf $root
+        [pscustomobject]@{
+            Root = $root
+            PreferredName = if ($leaf -like "*加强版6.5未加密版*") { 0 } else { 1 }
+            InTestCopy = if ($root.IndexOf("\CCZModStudio_TestCopies\", [StringComparison]::OrdinalIgnoreCase) -ge 0) { 1 } else { 0 }
+            PathLength = $root.Length
+            LastWriteTime = $exe.LastWriteTimeUtc
+        }
+    }
+
+    $selected = $candidates |
+        Sort-Object PreferredName, InTestCopy, PathLength, Root |
+        Select-Object -First 1
+
+    if (-not $selected) {
+        throw "Could not find an Ekd5.exe with expected SHA256 $expectedEkd5Sha256 under $WorkspaceRoot. Pass -GameRoot explicitly."
+    }
+
+    return $selected.Root
 }
 
 function Read-LineWithTimeout {
@@ -28,6 +115,57 @@ function Read-LineWithTimeout {
     return $task.Result
 }
 
+function Assert-McpResponseSucceeded {
+    param(
+        [Parameter(Mandatory = $true)]$Response,
+        [Parameter(Mandatory = $true)][string]$ToolName
+    )
+
+    if ($Response.error) {
+        throw "MCP $ToolName failed: $($Response.error.message)"
+    }
+
+    if ($Response.result -and $Response.result.isError -eq $true) {
+        $text = ""
+        $content = @($Response.result.content)
+        if ($content.Count -gt 0 -and $content[0].text) {
+            $text = [string]$content[0].text
+        }
+        throw "MCP $ToolName returned tool error: $text"
+    }
+}
+
+function ConvertFrom-McpToolTextJson {
+    param(
+        [Parameter(Mandatory = $true)]$Response,
+        [Parameter(Mandatory = $true)][string]$ToolName
+    )
+
+    Assert-McpResponseSucceeded -Response $Response -ToolName $ToolName
+    $content = @($Response.result.content)
+    if ($content.Count -lt 1 -or -not $content[0].text) {
+        throw "MCP $ToolName returned no text content."
+    }
+
+    $text = [string]$content[0].text
+    try {
+        return $text | ConvertFrom-Json
+    }
+    catch {
+        throw "MCP $ToolName returned non-JSON text: $text"
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($GameRoot)) {
+    $GameRoot = Find-ExpectedGameDebugRoot -WorkspaceRoot $workspaceRoot
+}
+
+if (-not (Test-ExpectedGameDebugRoot -Path $GameRoot -ExpectedSha256 $expectedEkd5Sha256)) {
+    throw "Game root must contain Ekd5.exe with expected SHA256 $expectedEkd5Sha256 and core 6.5 resource files: $GameRoot"
+}
+
+$resolvedGameRoot = (Resolve-Path -LiteralPath $GameRoot).Path
+Write-Host ("GAME_DEBUG_MCP_GAME_ROOT {0}" -f $resolvedGameRoot)
 $resolvedStartScript = (Resolve-Path -LiteralPath $startScript).Path
 $argsList = @(
     "-NoLogo",
@@ -40,7 +178,7 @@ $argsList = @(
 )
 
 if (-not [string]::IsNullOrWhiteSpace($GameRoot)) {
-    $argsList += @("-GameRoot", "`"$((Resolve-Path -LiteralPath $GameRoot).Path)`"")
+    $argsList += @("-GameRoot", "`"$resolvedGameRoot`"")
 }
 
 $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -71,7 +209,7 @@ try {
     $runtimeWaitCall = '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"game_runtime_wait_for_state","arguments":{"target_classifications":"not_running","timeout_ms":1000,"poll_interval_ms":100}}}'
     $rsceneAnchorCall = '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"game_rscene_text_anchor_scan","arguments":{"max_scan_bytes":1048576,"max_hits_per_anchor":2}}}'
     $rsceneScriptWindowCall = '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"game_rscene_script_window_scan","arguments":{"route":"regular_start","max_scan_bytes":1048576,"max_hits_per_window":2,"include_pointer_refs":false}}}'
-    $rsceneHandlerScanCall = '{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"debug_rscene_command_handler_scan","arguments":{"command_ids":"0x2D,0x12,0x07,0x13","max_candidates_per_command":8,"context_bytes":12,"write_probe_plan":true}}}'
+    $rsceneHandlerScanCall = '{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"debug_rscene_command_handler_scan","arguments":{"command_ids":"2D,12,07,13","max_candidates_per_command":8,"context_bytes":12,"write_probe_plan":true}}}'
     $rsceneLoadTransitionScanCall = '{"jsonrpc":"2.0","id":27,"method":"tools/call","params":{"name":"debug_rscene_load_transition_scan","arguments":{"route":"regular_start","max_candidates":16,"context_bytes":12,"write_probe_plan":true,"include_runtime_scan":false}}}'
     $rsceneLoadTransitionProbeCall = '{"jsonrpc":"2.0","id":38,"method":"tools/call","params":{"name":"debug_rscene_load_transition_probe_run","arguments":{"route":"regular_start","start_debugger":false,"continue_startup":false,"run_probes":false,"max_candidates":16,"context_bytes":12,"candidate_filter":"anchor_functions,direct_refs,no_imports","timeout_ms":1000,"max_scan_bytes":1048576}}}'
     $titleMenuDispatchScanCall = '{"jsonrpc":"2.0","id":39,"method":"tools/call","params":{"name":"debug_title_menu_dispatch_scan","arguments":{"max_candidates_per_api":6,"context_bytes":12,"include_function_entries":true,"write_probe_plan":true}}}'
@@ -270,7 +408,7 @@ try {
     if ($runtimeInvokePlanPreview.error) {
         throw "MCP debug_runtime_invoke_plan failed: $($runtimeInvokePlanPreview.error.message)"
     }
-    $runtimeInvokePlanTextPreview = $runtimeInvokePlanPreview.result.content[0].text | ConvertFrom-Json
+    $runtimeInvokePlanTextPreview = ConvertFrom-McpToolTextJson -Response $runtimeInvokePlanPreview -ToolName "runtimeInvokePlanPreview"
     $runtimeInvokeRunCall = ('{{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{{"name":"debug_runtime_invoke_run","arguments":{{"plan_path":"{0}","allow_runtime_injection":false,"allow_debug_invoke":false}}}}}}' -f (($runtimeInvokePlanTextPreview.plan_path -replace '\\','\\') -replace '"','\"'))
     $proc.StandardInput.WriteLine($runtimeInvokeRunCall)
     $proc.StandardInput.Flush()
@@ -288,7 +426,7 @@ try {
     if ($addressVerifyPreview.error) {
         throw "MCP debug_address_verify_run failed: $($addressVerifyPreview.error.message)"
     }
-    $addressVerifyTextPreview = $addressVerifyPreview.result.content[0].text | ConvertFrom-Json
+    $addressVerifyTextPreview = ConvertFrom-McpToolTextJson -Response $addressVerifyPreview -ToolName "addressVerifyPreview"
     $knowledgePromoteCall = ('{{"jsonrpc":"2.0","id":34,"method":"tools/call","params":{{"name":"debug_knowledge_promote","arguments":{{"evidence_path":"{0}","topic":"function-index","allow_write":false}}}}}}' -f (($addressVerifyTextPreview.session_dir -replace '\\','\\') -replace '"','\"'))
     $proc.StandardInput.WriteLine($knowledgePromoteCall)
     $proc.StandardInput.Flush()
@@ -556,8 +694,8 @@ try {
         throw "Missing required tools: $($missing -join ', ')"
     }
 
-    $catalogText = $catalog.result.content[0].text | ConvertFrom-Json
-    $processStartText = $processStart.result.content[0].text | ConvertFrom-Json
+    $catalogText = ConvertFrom-McpToolTextJson -Response $catalog -ToolName "catalog"
+    $processStartText = ConvertFrom-McpToolTextJson -Response $processStart -ToolName "processStart"
     if (-not $processStartText.dry_run) {
         throw "game_process_start validation must stay dry-run when allow_launch=false."
     }
@@ -571,21 +709,21 @@ try {
     if (-not (Test-Path -LiteralPath $catalogText.markdown_path -PathType Leaf)) {
         throw "debug_function_catalog did not write markdown_path: $($catalogText.markdown_path)"
     }
-    $xrefText = $xref.result.content[0].text | ConvertFrom-Json
+    $xrefText = ConvertFrom-McpToolTextJson -Response $xref -ToolName "xref"
     if (-not (Test-Path -LiteralPath $xrefText.xref_path -PathType Leaf)) {
         throw "debug_static_xref_scan did not write xref_path: $($xrefText.xref_path)"
     }
     if (-not (Test-Path -LiteralPath $xrefText.markdown_path -PathType Leaf)) {
         throw "debug_static_xref_scan did not write markdown_path: $($xrefText.markdown_path)"
     }
-    $addressReportText = $addressReport.result.content[0].text | ConvertFrom-Json
+    $addressReportText = ConvertFrom-McpToolTextJson -Response $addressReport -ToolName "addressReport"
     if (-not (Test-Path -LiteralPath $addressReportText.report_path -PathType Leaf)) {
         throw "debug_address_report did not write report_path: $($addressReportText.report_path)"
     }
     if (-not (Test-Path -LiteralPath $addressReportText.markdown_path -PathType Leaf)) {
         throw "debug_address_report did not write markdown_path: $($addressReportText.markdown_path)"
     }
-    $addressProbePlanText = $addressProbePlan.result.content[0].text | ConvertFrom-Json
+    $addressProbePlanText = ConvertFrom-McpToolTextJson -Response $addressProbePlan -ToolName "addressProbePlan"
     if (-not (Test-Path -LiteralPath $addressProbePlanText.plan_path -PathType Leaf)) {
         throw "debug_address_report_probe_plan did not write plan_path: $($addressProbePlanText.plan_path)"
     }
@@ -593,7 +731,7 @@ try {
         throw "debug_address_report_probe_plan returned no probe targets."
     }
 
-    $addressProbeRunText = $addressProbeRun.result.content[0].text | ConvertFrom-Json
+    $addressProbeRunText = ConvertFrom-McpToolTextJson -Response $addressProbeRun -ToolName "addressProbeRun"
     if ($addressProbeRunText.status -ne "plan-ready") {
         throw "debug_address_probe_run safe validation expected status plan-ready, got: $($addressProbeRunText.status)"
     }
@@ -607,7 +745,7 @@ try {
         throw "debug_address_probe_run returned no probe targets."
     }
 
-    $autonomyText = $autonomy.result.content[0].text | ConvertFrom-Json
+    $autonomyText = ConvertFrom-McpToolTextJson -Response $autonomy -ToolName "autonomy"
     $autonomySummaryPath = Join-Path $autonomyText.session_dir "autonomy-run-summary.json"
     if (-not (Test-Path -LiteralPath $autonomySummaryPath -PathType Leaf)) {
         throw "debug_autonomy_run did not write summary: $autonomySummaryPath"
@@ -619,11 +757,11 @@ try {
         throw "debug_autonomy_run safe validation executed startup continuation unexpectedly."
     }
 
-    $runtimeStateText = $runtimeState.result.content[0].text | ConvertFrom-Json
+    $runtimeStateText = ConvertFrom-McpToolTextJson -Response $runtimeState -ToolName "runtimeState"
     if ([string]::IsNullOrWhiteSpace($runtimeStateText.runtime.classification)) {
         throw "game_runtime_state_classify did not return a classification."
     }
-    $runtimeWaitText = $runtimeWait.result.content[0].text | ConvertFrom-Json
+    $runtimeWaitText = ConvertFrom-McpToolTextJson -Response $runtimeWait -ToolName "runtimeWait"
     if ([string]::IsNullOrWhiteSpace($runtimeWaitText.final_classification)) {
         throw "game_runtime_wait_for_state did not return a final_classification."
     }
@@ -631,7 +769,7 @@ try {
         throw "game_runtime_wait_for_state did not write runtime-wait-summary.json."
     }
 
-    $rsceneAnchorText = $rsceneAnchor.result.content[0].text | ConvertFrom-Json
+    $rsceneAnchorText = ConvertFrom-McpToolTextJson -Response $rsceneAnchor -ToolName "rsceneAnchor"
     if ([string]::IsNullOrWhiteSpace($rsceneAnchorText.status)) {
         throw "game_rscene_text_anchor_scan did not return a status."
     }
@@ -648,7 +786,7 @@ try {
         throw "game_rscene_text_anchor_scan did not preserve anchor list."
     }
 
-    $rsceneScriptWindowText = $rsceneScriptWindow.result.content[0].text | ConvertFrom-Json
+    $rsceneScriptWindowText = ConvertFrom-McpToolTextJson -Response $rsceneScriptWindow -ToolName "rsceneScriptWindow"
     if ([string]::IsNullOrWhiteSpace($rsceneScriptWindowText.status)) {
         throw "game_rscene_script_window_scan did not return a status."
     }
@@ -665,7 +803,7 @@ try {
         throw "game_rscene_script_window_scan did not write rscene-script-window-scan.md."
     }
 
-    $rsceneHandlerScanText = $rsceneHandlerScan.result.content[0].text | ConvertFrom-Json
+    $rsceneHandlerScanText = ConvertFrom-McpToolTextJson -Response $rsceneHandlerScan -ToolName "rsceneHandlerScan"
     if ($rsceneHandlerScanText.status -ne "handler-candidates-found") {
         throw "debug_rscene_command_handler_scan expected handler-candidates-found, got: $($rsceneHandlerScanText.status)"
     }
@@ -685,7 +823,7 @@ try {
         throw "debug_rscene_command_handler_scan did not write probe_plan_path: $($rsceneHandlerScanText.probe_plan_path)"
     }
 
-    $rsceneLoadTransitionScanText = $rsceneLoadTransitionScan.result.content[0].text | ConvertFrom-Json
+    $rsceneLoadTransitionScanText = ConvertFrom-McpToolTextJson -Response $rsceneLoadTransitionScan -ToolName "rsceneLoadTransitionScan"
     if ($rsceneLoadTransitionScanText.status -ne "transition-candidates-found" -and $rsceneLoadTransitionScanText.status -ne "anchors-found-no-text-refs") {
         throw "debug_rscene_load_transition_scan returned unexpected status: $($rsceneLoadTransitionScanText.status)"
     }
@@ -702,7 +840,7 @@ try {
         throw "debug_rscene_load_transition_scan did not write probe_plan_path: $($rsceneLoadTransitionScanText.probe_plan_path)"
     }
 
-    $rsceneLoadTransitionProbeText = $rsceneLoadTransitionProbe.result.content[0].text | ConvertFrom-Json
+    $rsceneLoadTransitionProbeText = ConvertFrom-McpToolTextJson -Response $rsceneLoadTransitionProbe -ToolName "rsceneLoadTransitionProbe"
     if ($rsceneLoadTransitionProbeText.status -ne "plan-ready") {
         throw "debug_rscene_load_transition_probe_run dry validation expected plan-ready, got: $($rsceneLoadTransitionProbeText.status)"
     }
@@ -732,7 +870,7 @@ try {
         throw "debug_rscene_load_transition_probe_run did not write rscene-load-transition-probe-summary.md."
     }
 
-    $titleMenuDispatchScanText = $titleMenuDispatchScan.result.content[0].text | ConvertFrom-Json
+    $titleMenuDispatchScanText = ConvertFrom-McpToolTextJson -Response $titleMenuDispatchScan -ToolName "titleMenuDispatchScan"
     if ($titleMenuDispatchScanText.status -ne "title-menu-dispatch-candidates-found") {
         throw "debug_title_menu_dispatch_scan expected candidates-found, got: $($titleMenuDispatchScanText.status)"
     }
@@ -765,7 +903,7 @@ try {
         throw "debug_title_menu_dispatch_scan should include SendMessageA candidates for title/menu dispatch probing."
     }
 
-    $titleWndProcDispatchScanText = $titleWndProcDispatchScan.result.content[0].text | ConvertFrom-Json
+    $titleWndProcDispatchScanText = ConvertFrom-McpToolTextJson -Response $titleWndProcDispatchScan -ToolName "titleWndProcDispatchScan"
     if ($titleWndProcDispatchScanText.status -ne "title-wndproc-dispatch-candidates-found") {
         throw "debug_title_wndproc_dispatch_scan expected candidates-found, got: $($titleWndProcDispatchScanText.status)"
     }
@@ -798,7 +936,7 @@ try {
         throw "debug_title_wndproc_dispatch_scan should include WM_COMMAND or WM_KEYDOWN candidates."
     }
 
-    $titleMenuDispatchProbeText = $titleMenuDispatchProbe.result.content[0].text | ConvertFrom-Json
+    $titleMenuDispatchProbeText = ConvertFrom-McpToolTextJson -Response $titleMenuDispatchProbe -ToolName "titleMenuDispatchProbe"
     if ($titleMenuDispatchProbeText.status -ne "plan-ready") {
         throw "debug_title_menu_dispatch_probe_run dry validation expected plan-ready, got: $($titleMenuDispatchProbeText.status)"
     }
@@ -828,7 +966,7 @@ try {
         throw "debug_title_menu_dispatch_probe_run did not write title-menu-dispatch-probe-summary.md."
     }
 
-    $titleMenuDispatchMatrixText = $titleMenuDispatchMatrix.result.content[0].text | ConvertFrom-Json
+    $titleMenuDispatchMatrixText = ConvertFrom-McpToolTextJson -Response $titleMenuDispatchMatrix -ToolName "titleMenuDispatchMatrix"
     if ($titleMenuDispatchMatrixText.status -ne "title-menu-dispatch-matrix-plan-ready") {
         throw "debug_title_menu_dispatch_matrix_run dry validation expected matrix-plan-ready, got: $($titleMenuDispatchMatrixText.status)"
     }
@@ -863,7 +1001,7 @@ try {
         throw "debug_title_menu_dispatch_matrix_run did not write action-chain.jsonl."
     }
 
-    $r00ActorRouteText = $r00ActorRoute.result.content[0].text | ConvertFrom-Json
+    $r00ActorRouteText = ConvertFrom-McpToolTextJson -Response $r00ActorRoute -ToolName "r00ActorRoute"
     if ($r00ActorRouteText.status -ne "actor-route-ready") {
         throw "debug_r00_actor_route_analyze expected actor-route-ready, got: $($r00ActorRouteText.status)"
     }
@@ -883,7 +1021,7 @@ try {
         throw "debug_r00_actor_route_analyze did not write markdown_path: $($r00ActorRouteText.markdown_path)"
     }
 
-    $r00RuntimeInvokeCandidateText = $r00RuntimeInvokeCandidate.result.content[0].text | ConvertFrom-Json
+    $r00RuntimeInvokeCandidateText = ConvertFrom-McpToolTextJson -Response $r00RuntimeInvokeCandidate -ToolName "r00RuntimeInvokeCandidate"
     if ($r00RuntimeInvokeCandidateText.status -ne "r00-runtime-invoke-candidate-plan-ready") {
         throw "debug_r00_runtime_invoke_candidate_plan expected r00-runtime-invoke-candidate-plan-ready, got: $($r00RuntimeInvokeCandidateText.status)"
     }
@@ -916,7 +1054,7 @@ try {
     if (($r00RuntimeActions | Where-Object { $_.requires_runtime_injection -or $_.writes_process_memory }).Count -gt 0) {
         throw "R_00 candidate plan must not require injection or process-memory writes before ABI proof."
     }
-    if (($r00RuntimeActions | Where-Object { $_.candidate_address -like "0x002*" }).Count -gt 0) {
+    if (($r00RuntimeActions | Where-Object { $_.candidate_address -like "002*" }).Count -gt 0) {
         throw "R_00 candidate plan treated script offsets as executable candidate addresses."
     }
     $r00RuntimeProbePlanJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $r00RuntimeInvokeCandidateText.probe_plan_path | ConvertFrom-Json
@@ -927,7 +1065,7 @@ try {
         throw "R_00 runtime candidate probe target count did not match generated plan."
     }
 
-    $r00RuntimeHandlerProbeText = $r00RuntimeHandlerProbe.result.content[0].text | ConvertFrom-Json
+    $r00RuntimeHandlerProbeText = ConvertFrom-McpToolTextJson -Response $r00RuntimeHandlerProbe -ToolName "r00RuntimeHandlerProbe"
     if ($r00RuntimeHandlerProbeText.status -ne "plan-ready") {
         throw "debug_r00_runtime_handler_probe_run dry validation expected plan-ready, got: $($r00RuntimeHandlerProbeText.status)"
     }
@@ -953,7 +1091,7 @@ try {
         throw "debug_r00_runtime_handler_probe_run did not write r00-runtime-handler-probe-summary.md."
     }
 
-    $internalEvidenceText = $internalEvidence.result.content[0].text | ConvertFrom-Json
+    $internalEvidenceText = ConvertFrom-McpToolTextJson -Response $internalEvidence -ToolName "internalEvidence"
     if (-not (Test-Path -LiteralPath $internalEvidenceText.evidence_path -PathType Leaf)) {
         throw "debug_capture_evidence did not write evidence_path: $($internalEvidenceText.evidence_path)"
     }
@@ -964,7 +1102,7 @@ try {
         throw "debug_capture_evidence captured a screenshot even though include_screenshot=false."
     }
 
-    $scriptDryRunText = $scriptDryRun.result.content[0].text | ConvertFrom-Json
+    $scriptDryRunText = ConvertFrom-McpToolTextJson -Response $scriptDryRun -ToolName "scriptDryRun"
     if ($scriptDryRunText.dryRun.status -ne "dry-run") {
         throw "debug_script_run validation expected dry-run status, got: $($scriptDryRunText.dryRun.status)"
     }
@@ -972,7 +1110,7 @@ try {
         throw "debug_script_run dry-run did not report the no-input/no-screenshot safety boundary."
     }
 
-    $battleMatchText = $battleMatch.result.content[0].text | ConvertFrom-Json
+    $battleMatchText = ConvertFrom-McpToolTextJson -Response $battleMatch -ToolName "battleMatch"
     if ([string]::IsNullOrWhiteSpace($battleMatchText.status)) {
         throw "game_battle_state_match did not return a status."
     }
@@ -986,7 +1124,7 @@ try {
         throw "game_battle_state_match did not write battle-state-match.md."
     }
 
-    $battleProfileProbeText = $battleProfileProbe.result.content[0].text | ConvertFrom-Json
+    $battleProfileProbeText = ConvertFrom-McpToolTextJson -Response $battleProfileProbe -ToolName "battleProfileProbe"
     if ($battleProfileProbeText.status -ne "profile-not-ready-plan-ready" -and $battleProfileProbeText.status -ne "profile-plan-ready") {
         throw "debug_battle_profile_probe_run safe validation expected plan-ready status, got: $($battleProfileProbeText.status)"
     }
@@ -1006,7 +1144,7 @@ try {
         throw "debug_battle_profile_probe_run returned no probe targets."
     }
 
-    $liveReadinessText = $liveReadiness.result.content[0].text | ConvertFrom-Json
+    $liveReadinessText = ConvertFrom-McpToolTextJson -Response $liveReadiness -ToolName "liveReadiness"
     if ([string]::IsNullOrWhiteSpace($liveReadinessText.status)) {
         throw "debug_live_probe_readiness did not return a status."
     }
@@ -1026,7 +1164,7 @@ try {
         throw "debug_live_probe_readiness returned no probe targets."
     }
 
-    $liveAutoRunText = $liveAutoRun.result.content[0].text | ConvertFrom-Json
+    $liveAutoRunText = ConvertFrom-McpToolTextJson -Response $liveAutoRun -ToolName "liveAutoRun"
     if ($liveAutoRunText.status -ne "readiness-recorded") {
         throw "debug_live_probe_auto_run safe validation expected readiness-recorded, got: $($liveAutoRunText.status)"
     }
@@ -1052,7 +1190,7 @@ try {
         throw "debug_live_probe_auto_run returned no probe targets."
     }
 
-    $battleAutoStepText = $battleAutoStep.result.content[0].text | ConvertFrom-Json
+    $battleAutoStepText = ConvertFrom-McpToolTextJson -Response $battleAutoStep -ToolName "battleAutoStep"
     if ($battleAutoStepText.status -notlike "dry-run*") {
         throw "game_battle_auto_step validation expected dry-run status, got: $($battleAutoStepText.status)"
     }
@@ -1063,7 +1201,7 @@ try {
         throw "game_battle_auto_step did not write an evidence session."
     }
 
-    $battleAutoRunText = $battleAutoRun.result.content[0].text | ConvertFrom-Json
+    $battleAutoRunText = ConvertFrom-McpToolTextJson -Response $battleAutoRun -ToolName "battleAutoRun"
     if ($battleAutoRunText.status -notlike "dry-run*") {
         throw "game_battle_auto_run validation expected dry-run status, got: $($battleAutoRunText.status)"
     }
@@ -1074,7 +1212,7 @@ try {
         throw "game_battle_auto_run did not write battle-auto-run-summary.json."
     }
 
-    $battleAutoProbeText = $battleAutoProbe.result.content[0].text | ConvertFrom-Json
+    $battleAutoProbeText = ConvertFrom-McpToolTextJson -Response $battleAutoProbe -ToolName "battleAutoProbe"
     if ($battleAutoProbeText.status -ne "plan-only") {
         throw "debug_battle_auto_probe_run validation expected plan-only, got: $($battleAutoProbeText.status)"
     }
@@ -1097,7 +1235,7 @@ try {
         throw "debug_battle_auto_probe_run did not write battle-auto-probe-summary.md."
     }
 
-    $keySequenceText = $keySequence.result.content[0].text | ConvertFrom-Json
+    $keySequenceText = ConvertFrom-McpToolTextJson -Response $keySequence -ToolName "keySequence"
     if ($keySequenceText.status -ne "dry-run" -and $keySequenceText.status -ne "dry-run-no-process") {
         throw "game_key_sequence validation expected dry-run status, got: $($keySequenceText.status)"
     }
@@ -1108,7 +1246,7 @@ try {
         throw "game_key_sequence did not write a session directory."
     }
 
-    $transitionProbeText = $transitionProbe.result.content[0].text | ConvertFrom-Json
+    $transitionProbeText = ConvertFrom-McpToolTextJson -Response $transitionProbe -ToolName "transitionProbe"
     if ($transitionProbeText.status -ne "dry-run" -and $transitionProbeText.status -ne "bridge-unavailable") {
         throw "debug_transition_probe_run validation expected dry-run or bridge-unavailable, got: $($transitionProbeText.status)"
     }
@@ -1125,7 +1263,7 @@ try {
         throw "debug_transition_probe_run did not write plan_path: $($transitionProbeText.plan_path)"
     }
 
-    $r00RouteText = $r00Route.result.content[0].text | ConvertFrom-Json
+    $r00RouteText = ConvertFrom-McpToolTextJson -Response $r00Route -ToolName "r00Route"
     if ($r00RouteText.status -ne "route-plan-ready") {
         throw "debug_r00_mode_route_analyze expected route-plan-ready, got: $($r00RouteText.status)"
     }
@@ -1148,7 +1286,7 @@ try {
         throw "debug_r00_mode_route_analyze did not write markdown_path: $($r00RouteText.markdown_path)"
     }
 
-    $r00StartupProbeText = $r00StartupProbe.result.content[0].text | ConvertFrom-Json
+    $r00StartupProbeText = ConvertFrom-McpToolTextJson -Response $r00StartupProbe -ToolName "r00StartupProbe"
     if ($r00StartupProbeText.status -ne "plan-ready") {
         throw "debug_r00_startup_route_probe_run safe validation expected plan-ready, got: $($r00StartupProbeText.status)"
     }
@@ -1171,7 +1309,7 @@ try {
         throw "debug_r00_startup_route_probe_run did not write r00-startup-route-probe-summary.md."
     }
 
-    $keyboardExplorationText = $keyboardExploration.result.content[0].text | ConvertFrom-Json
+    $keyboardExplorationText = ConvertFrom-McpToolTextJson -Response $keyboardExploration -ToolName "keyboardExploration"
     if ($keyboardExplorationText.status -ne "plan-ready") {
         throw "debug_keyboard_exploration_run safe validation expected plan-ready, got: $($keyboardExplorationText.status)"
     }
@@ -1191,7 +1329,7 @@ try {
         throw "debug_keyboard_exploration_run did not write keyboard-exploration-summary.md."
     }
 
-    $runtimeAnchorSweepText = $runtimeAnchorSweep.result.content[0].text | ConvertFrom-Json
+    $runtimeAnchorSweepText = ConvertFrom-McpToolTextJson -Response $runtimeAnchorSweep -ToolName "runtimeAnchorSweep"
     if ([string]::IsNullOrWhiteSpace($runtimeAnchorSweepText.status)) {
         throw "game_runtime_anchor_sweep did not return a status."
     }
@@ -1208,7 +1346,7 @@ try {
         throw "game_runtime_anchor_sweep did not write runtime-anchor-sweep.md."
     }
 
-    $runtimeInvokePlanText = $runtimeInvokePlan.result.content[0].text | ConvertFrom-Json
+    $runtimeInvokePlanText = ConvertFrom-McpToolTextJson -Response $runtimeInvokePlan -ToolName "runtimeInvokePlan"
     if ($runtimeInvokePlanText.action_count -lt 1) {
         throw "debug_runtime_invoke_plan returned no actions."
     }
@@ -1243,7 +1381,7 @@ try {
         throw "R_00 runtime invoke actions must include candidate_source and evidence_gate."
     }
 
-    $runtimeInvokeRunText = $runtimeInvokeRun.result.content[0].text | ConvertFrom-Json
+    $runtimeInvokeRunText = ConvertFrom-McpToolTextJson -Response $runtimeInvokeRun -ToolName "runtimeInvokeRun"
     if ($runtimeInvokeRunText.status -ne "runtime-invoke-plan-only" -and $runtimeInvokeRunText.status -ne "runtime-invoke-attempted") {
         throw "debug_runtime_invoke_run returned unexpected status: $($runtimeInvokeRunText.status)"
     }
@@ -1260,7 +1398,7 @@ try {
         throw "debug_runtime_invoke_run did not write action-chain.jsonl."
     }
 
-    $menuRouteText = $menuRoute.result.content[0].text | ConvertFrom-Json
+    $menuRouteText = ConvertFrom-McpToolTextJson -Response $menuRoute -ToolName "menuRoute"
     if ($menuRouteText.status -ne "menu-route-recorded") {
         throw "debug_menu_route_run returned unexpected status: $($menuRouteText.status)"
     }
@@ -1274,7 +1412,7 @@ try {
         throw "debug_menu_route_run did not write action-chain.jsonl."
     }
 
-    $addressVerifyText = $addressVerify.result.content[0].text | ConvertFrom-Json
+    $addressVerifyText = ConvertFrom-McpToolTextJson -Response $addressVerify -ToolName "addressVerify"
     if ($addressVerifyText.status -ne "address-verification-plan-ready" -and $addressVerifyText.status -ne "profile-gate-blocked" -and $addressVerifyText.status -ne "address-verification-probe-attempted") {
         throw "debug_address_verify_run returned unexpected status: $($addressVerifyText.status)"
     }
@@ -1291,7 +1429,7 @@ try {
         throw "debug_address_verify_run did not write probe-hits.jsonl."
     }
 
-    $knowledgePromoteText = $knowledgePromote.result.content[0].text | ConvertFrom-Json
+    $knowledgePromoteText = ConvertFrom-McpToolTextJson -Response $knowledgePromote -ToolName "knowledgePromote"
     if ($knowledgePromoteText.status -ne "promotion-preview" -and $knowledgePromoteText.status -ne "promotion-refused") {
         throw "debug_knowledge_promote returned unexpected status: $($knowledgePromoteText.status)"
     }
@@ -1302,7 +1440,7 @@ try {
         throw "debug_knowledge_promote did not write report_path: $($knowledgePromoteText.report_path)"
     }
 
-    $fullAutoText = $fullAuto.result.content[0].text | ConvertFrom-Json
+    $fullAutoText = ConvertFrom-McpToolTextJson -Response $fullAuto -ToolName "fullAuto"
     if ($fullAutoText.status -ne "full-auto-plan-ready" -and $fullAutoText.status -ne "full-auto-run-attempted") {
         throw "debug_full_auto_run returned unexpected status: $($fullAutoText.status)"
     }

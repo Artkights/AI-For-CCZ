@@ -90,7 +90,7 @@ public sealed class E5ImageReplaceService
             if (writtenEntry.DataOffset != operation.NewDataOffset || writtenEntry.Length != operation.NewSizeBytes)
             {
                 throw new InvalidOperationException(
-                    $"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 索引项不匹配。预期 offset=0x{operation.NewDataOffset:X}, size={operation.NewSizeBytes}；实际 offset=0x{writtenEntry.DataOffset:X}, size={writtenEntry.Length}。");
+                    $"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 索引项不匹配。预期 offset={HexDisplayFormatter.FormatOffset(operation.NewDataOffset)}, size={operation.NewSizeBytes}；实际 offset={HexDisplayFormatter.FormatOffset(writtenEntry.DataOffset)}, size={writtenEntry.Length}。");
             }
 
             var writtenBytes = ReadEntryBytes(writtenData, writtenEntry);
@@ -124,7 +124,7 @@ public sealed class E5ImageReplaceService
         if (writtenEntry.DataOffset != preview.NewDataOffset || writtenEntry.Length != preview.NewSizeBytes)
         {
             throw new InvalidOperationException(
-                $"E5 写入后复读失败：索引项不匹配。预期 offset=0x{preview.NewDataOffset:X}, size={preview.NewSizeBytes}；实际 offset=0x{writtenEntry.DataOffset:X}, size={writtenEntry.Length}。");
+                $"E5 写入后复读失败：索引项不匹配。预期 offset={HexDisplayFormatter.FormatOffset(preview.NewDataOffset)}, size={preview.NewSizeBytes}；实际 offset={HexDisplayFormatter.FormatOffset(writtenEntry.DataOffset)}, size={writtenEntry.Length}。");
         }
 
         var writtenBytes = ReadEntryBytes(writtenData, writtenEntry);
@@ -530,7 +530,7 @@ public sealed class E5ImageReplaceService
         if (bytes.Length >= PngMagic.Length && bytes[..PngMagic.Length].SequenceEqual(PngMagic)) return "PNG";
         if (LooksLikeKnownRoleRaw(fileName, bytes.Length)) return "RAW";
         if (bytes[0] == 0) return "RAW";
-        return $"0x{bytes[0]:X2}";
+        return HexDisplayFormatter.FormatByte(bytes[0]);
     }
 
     private static bool LooksLikeKnownRoleRaw(string? fileName, int length)
@@ -706,9 +706,9 @@ public sealed class E5ImageReplaceService
             "Target=" + preview.TargetPath,
             "TargetRelative=" + preview.TargetRelativePath,
             "ImageNumber=" + preview.ImageNumber.ToString(CultureInfo.InvariantCulture),
-            "IndexOffset=0x" + preview.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
-            "OldDataOffset=0x" + preview.OldDataOffset.ToString("X", CultureInfo.InvariantCulture),
-            "NewDataOffset=0x" + preview.NewDataOffset.ToString("X", CultureInfo.InvariantCulture),
+            "IndexOffset=" + HexDisplayFormatter.FormatOffset(preview.IndexOffset),
+            "OldDataOffset=" + HexDisplayFormatter.FormatOffset(preview.OldDataOffset),
+            "NewDataOffset=" + HexDisplayFormatter.FormatOffset(preview.NewDataOffset),
             "OldSize=" + preview.OldSizeBytes.ToString(CultureInfo.InvariantCulture),
             "NewSize=" + preview.NewSizeBytes.ToString(CultureInfo.InvariantCulture),
             "OldKind=" + preview.OldKind,
@@ -754,19 +754,19 @@ public sealed class E5ImageReplaceService
                     TableName = preview.TargetRelativePath,
                     RowIndex = preview.ImageNumber,
                     ColumnName = $"图#{preview.ImageNumber}",
-                    OffsetHex = "0x" + preview.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
+                    OffsetHex = HexDisplayFormatter.FormatOffset(preview.IndexOffset),
                     ByteLength = preview.NewSizeBytes,
-                    OldValue = $"offset=0x{preview.OldDataOffset:X}; size={preview.OldSizeBytes}; kind={preview.OldKind}",
-                    NewValue = $"offset=0x{preview.NewDataOffset:X}; size={preview.NewSizeBytes}; kind={preview.NewKind}; source={preview.SourcePath}",
+                    OldValue = $"offset={HexDisplayFormatter.FormatOffset(preview.OldDataOffset)}; size={preview.OldSizeBytes}; kind={preview.OldKind}",
+                    NewValue = $"offset={HexDisplayFormatter.FormatOffset(preview.NewDataOffset)}; size={preview.NewSizeBytes}; kind={preview.NewKind}; source={preview.SourcePath}",
                     Annotation = $"按 E5 0x110 索引表替换单个图片条目。{preview.Placement}。"
                 }
             ],
             Metadata =
             {
                 ["ImageNumber"] = preview.ImageNumber.ToString(CultureInfo.InvariantCulture),
-                ["IndexOffsetHex"] = "0x" + preview.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
-                ["OldDataOffsetHex"] = "0x" + preview.OldDataOffset.ToString("X", CultureInfo.InvariantCulture),
-                ["NewDataOffsetHex"] = "0x" + preview.NewDataOffset.ToString("X", CultureInfo.InvariantCulture),
+                ["IndexOffsetHex"] = HexDisplayFormatter.FormatOffset(preview.IndexOffset),
+                ["OldDataOffsetHex"] = HexDisplayFormatter.FormatOffset(preview.OldDataOffset),
+                ["NewDataOffsetHex"] = HexDisplayFormatter.FormatOffset(preview.NewDataOffset),
                 ["OldSizeBytes"] = preview.OldSizeBytes.ToString(CultureInfo.InvariantCulture),
                 ["NewSizeBytes"] = preview.NewSizeBytes.ToString(CultureInfo.InvariantCulture),
                 ["OldKind"] = preview.OldKind,
@@ -809,7 +809,7 @@ public sealed class E5ImageReplaceService
         foreach (var operation in preview.Operations)
         {
             lines.Add(
-                $"#{operation.ImageNumber} {operation.OperationKind} source={operation.SourcePath} oldOffset=0x{operation.OldDataOffset:X} newOffset=0x{operation.NewDataOffset:X} oldSize={operation.OldSizeBytes} newSize={operation.NewSizeBytes} kind={operation.OldKind}->{operation.NewKind} placement={operation.Placement}");
+                $"#{operation.ImageNumber} {operation.OperationKind} source={operation.SourcePath} oldOffset={HexDisplayFormatter.FormatOffset(operation.OldDataOffset)} newOffset={HexDisplayFormatter.FormatOffset(operation.NewDataOffset)} oldSize={operation.OldSizeBytes} newSize={operation.NewSizeBytes} kind={operation.OldKind}->{operation.NewKind} placement={operation.Placement}");
         }
 
         File.WriteAllLines(reportPath, lines, Encoding.UTF8);
@@ -840,10 +840,10 @@ public sealed class E5ImageReplaceService
                 TableName = preview.TargetRelativePath,
                 RowIndex = operation.ImageNumber,
                 ColumnName = $"图#{operation.ImageNumber}",
-                OffsetHex = "0x" + operation.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(operation.IndexOffset),
                 ByteLength = operation.NewSizeBytes,
-                OldValue = $"offset=0x{operation.OldDataOffset:X}; size={operation.OldSizeBytes}; kind={operation.OldKind}",
-                NewValue = $"offset=0x{operation.NewDataOffset:X}; size={operation.NewSizeBytes}; kind={operation.NewKind}; source={operation.SourcePath}",
+                OldValue = $"offset={HexDisplayFormatter.FormatOffset(operation.OldDataOffset)}; size={operation.OldSizeBytes}; kind={operation.OldKind}",
+                NewValue = $"offset={HexDisplayFormatter.FormatOffset(operation.NewDataOffset)}; size={operation.NewSizeBytes}; kind={operation.NewKind}; source={operation.SourcePath}",
                 Annotation = $"{operation.OperationKind}；{operation.Placement}"
             }).ToList(),
             Metadata =

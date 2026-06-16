@@ -169,7 +169,7 @@ public sealed class GlobalSettingsService
         var data = File.ReadAllBytes(filePath);
         if (data.Length < GameTitleOffset + GameTitleCapacityBytes)
         {
-            throw new InvalidOperationException($"Ekd5.exe 长度不足，无法读取游戏标题 0x{GameTitleOffset:X}。");
+            throw new InvalidOperationException($"Ekd5.exe 长度不足，无法读取游戏标题 {HexDisplayFormatter.FormatOffset(GameTitleOffset)}。");
         }
 
         var bytes = new byte[GameTitleCapacityBytes];
@@ -218,7 +218,7 @@ public sealed class GlobalSettingsService
             BeforeSha256 = WriteOperationReportService.ComputeSha256(original),
             AfterSha256 = WriteOperationReportService.ComputeSha256(output),
             ChangedBytes = changedBytes,
-            Summary = $"保存全局设定“游戏标题”，目标 Ekd5.exe@0x{GameTitleOffset:X}，字节改动 {changedBytes:N0}。",
+            Summary = $"保存全局设定“游戏标题”，目标 Ekd5.exe@{HexDisplayFormatter.FormatOffset(GameTitleOffset)}，字节改动 {changedBytes:N0}。",
             SafetyNotes = project.IsTestCopy
                 ? "该报告由测试副本写入流程自动生成。"
                 : "保存前已备份 Ekd5.exe；如需回退，请使用备份文件手动恢复。",
@@ -229,7 +229,7 @@ public sealed class GlobalSettingsService
                     Category = "全局设定",
                     TableName = "游戏标题",
                     ColumnName = "游戏标题",
-                    OffsetHex = "0x" + GameTitleOffset.ToString("X", CultureInfo.InvariantCulture),
+                    OffsetHex = HexDisplayFormatter.FormatOffset(GameTitleOffset),
                     ByteLength = GameTitleCapacityBytes,
                     OldValue = EncodingService.DecodeFixedString(oldBytes),
                     NewValue = title,
@@ -239,7 +239,7 @@ public sealed class GlobalSettingsService
             Metadata =
             {
                 ["Field"] = "GameTitle",
-                ["Offset"] = "0x" + GameTitleOffset.ToString("X", CultureInfo.InvariantCulture),
+                ["Offset"] = HexDisplayFormatter.FormatOffset(GameTitleOffset),
                 ["CapacityBytes"] = GameTitleCapacityBytes.ToString(CultureInfo.InvariantCulture),
                 ["Evidence"] = GameTitleSource
             }
@@ -285,7 +285,7 @@ public sealed class GlobalSettingsService
             Area = "名称设置",
             Item = "兵种名修改",
             Target = jobSeriesTable.FileName,
-            OffsetText = "0x" + jobSeriesTable.DataPos.ToString("X", CultureInfo.InvariantCulture),
+            OffsetText = HexDisplayFormatter.FormatOffset(jobSeriesTable.DataPos),
             LengthText = $"{jobSeriesTable.RowCount} x {jobSeriesTable.RowSize}B",
             Status = "已验证：HexTable.xml + 现有兵种系烟测链路",
             Source = jobSeriesTable.TableName,
@@ -296,7 +296,7 @@ public sealed class GlobalSettingsService
             Area = "名称设置",
             Item = "职业名修改",
             Target = detailedJobTable.FileName,
-            OffsetText = "0x" + detailedJobTable.DataPos.ToString("X", CultureInfo.InvariantCulture),
+            OffsetText = HexDisplayFormatter.FormatOffset(detailedJobTable.DataPos),
             LengthText = $"{detailedJobTable.RowCount} x {detailedJobTable.RowSize}B",
             Status = "已验证：HexTable.xml + 现有详细兵种烟测链路",
             Source = detailedJobTable.TableName,
@@ -307,7 +307,7 @@ public sealed class GlobalSettingsService
             Area = "标题设置",
             Item = "游戏标题修改",
             Target = title.FileName,
-            OffsetText = "0x" + title.Offset.ToString("X", CultureInfo.InvariantCulture),
+            OffsetText = HexDisplayFormatter.FormatOffset(title.Offset),
             LengthText = $"{title.CapacityBytes}B",
             Status = title.Status,
             Source = title.Source,

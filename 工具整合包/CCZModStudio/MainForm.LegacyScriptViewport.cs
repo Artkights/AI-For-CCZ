@@ -187,7 +187,7 @@ public sealed partial class MainForm
             row?.SectionIndex ?? command?.SectionIndex ?? section?.SectionIndex ?? 0,
             row?.CommandIndex ?? command?.CommandIndex ?? 0,
             row?.CommandId ?? command?.CommandId,
-            row?.OffsetHex ?? (command == null ? string.Empty : "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture)),
+            row?.OffsetHex ?? (command == null ? string.Empty : CCZModStudio.Core.HexDisplayFormatter.FormatOffset(command.FileOffset)),
             textOffset,
             GetLegacyScriptNodePath(node));
     }

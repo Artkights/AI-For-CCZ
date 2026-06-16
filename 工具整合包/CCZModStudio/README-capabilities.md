@@ -13,7 +13,7 @@
 ## Supporting Tools
 
 - Resource indexing, diagnostics, replacement preview, backup restore, EEX/Ls probes, byte heatmaps, and cross-file comparison.
-- Image resource catalog, E5 `0x110` entry preview/replacement, E5 batch replacement, and DLL icon preview/replacement.
+- Image resource catalog, E5 `110` entry preview/replacement, E5 batch replacement, and DLL icon preview/replacement.
 - Creator notes, workflow guide, project audit, test-copy diff, backup history, release copy generation, and delivery reports.
 - Local MCP server exposing project detection, tables, scenarios, resources, images, notes, knowledge entries, and guarded write tools.
 

@@ -32,7 +32,7 @@ function ConvertTo-NormalizedHexAddress {
         $Value -is [uint32] -or
         $Value -is [long] -or
         $Value -is [uint64]) {
-        return "0x" + (("{0:X}" -f ([uint64]$Value)).PadLeft(8, "0"))
+        return (("{0:X}" -f ([uint64]$Value)).PadLeft(8, "0"))
     }
 
     $text = ([string]$Value).Trim()
@@ -46,7 +46,7 @@ function ConvertTo-NormalizedHexAddress {
     }
 
     $number = [Convert]::ToUInt64($hex, 16)
-    return "0x" + (("{0:X}" -f $number).PadLeft(8, "0"))
+    return (("{0:X}" -f $number).PadLeft(8, "0"))
 }
 
 function Find-LatestWatchpointRunDir {
@@ -430,7 +430,7 @@ if (-not $SkipKnowledgeDraft) {
         $draft.Add("")
         $draft.Add("Allowed pending-note wording:")
         $draft.Add("")
-        $draft.Add("- Merit candidate addresses still require write-breakpoint closure: 0x00492F9C, 0x00496E79, 0x004B1B1A, 0x00492C20.")
+        $draft.Add("- Merit candidate addresses still require write-breakpoint closure: 00492F9C, 00496E79, 004B1B1A, 00492C20.")
         $draft.Add("- Next run must keep x32dbg bridge online, place the game before one narrow merit event, and capture CIP, disassembly, registers, candidate memory, and UI merit change.")
     }
     else {

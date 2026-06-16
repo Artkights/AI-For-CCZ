@@ -1582,7 +1582,7 @@ public sealed partial class MainForm
            row.SectionIndex == command.SectionIndex &&
            row.CommandIndex == command.CommandIndex &&
            row.CommandId == command.CommandId &&
-           string.Equals(row.OffsetHex, "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase);
+           HexDisplayFormatter.EqualsText(row.OffsetHex, HexDisplayFormatter.FormatOffset(command.FileOffset));
 
     private void ReconcileLegacyScriptItemDataIndex(LegacyScenarioDocument document)
     {
@@ -3313,7 +3313,7 @@ public sealed partial class MainForm
 
     private string ResolveLegacyScriptCommandName(int commandId)
         => _currentSceneStringDocument?.Commands.FirstOrDefault(command => command.Id == commandId)?.Name
-           ?? $"Command 0x{commandId:X2}";
+           ?? $"Command {HexDisplayFormatter.Format(commandId, 2)}";
 
     private static int GetLegacyScriptAppendIndex(List<LegacyScenarioCommandNode> commands)
     {
@@ -3758,7 +3758,7 @@ public sealed partial class MainForm
                 NodeType = "Scene候选",
                 SceneIndex = scene.SceneIndex,
                 CommandName = $"Scene {scene.SceneIndex}",
-                OffsetHex = "0x" + scene.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(scene.FileOffset),
                 Confidence = "旧版源码",
                 Annotation = "按 CczSceneEditor2 v0.23 Scene 偏移表读取。"
             });
@@ -3773,7 +3773,7 @@ public sealed partial class MainForm
                     SceneIndex = section.SceneIndex,
                     SectionIndex = section.SectionIndex,
                     CommandName = $"Section {section.SectionIndex}",
-                    OffsetHex = "0x" + section.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                    OffsetHex = HexDisplayFormatter.FormatOffset(section.FileOffset),
                     Confidence = "旧版源码",
                     Annotation = $"按旧版 Section 长度前缀读取，长度 {section.DeclaredLength} 字节。"
                 });
@@ -3819,7 +3819,7 @@ public sealed partial class MainForm
             SceneIndex = command.SceneIndex,
             SectionIndex = command.SectionIndex,
             CommandIndex = command.CommandIndex,
-            OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+            OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset),
             CommandId = command.CommandId,
             CommandIdHex = command.CommandIdHex,
             CommandName = command.CommandName,
@@ -4515,14 +4515,14 @@ public sealed partial class MainForm
     }
 
     private static string BuildLegacyCommandKey(LegacyScenarioCommandNode command)
-        => $"{command.SceneIndex}:{command.SectionIndex}:{command.CommandIndex}:0x{command.FileOffset:X6}:{command.CommandId:X2}";
+        => $"{command.SceneIndex}:{command.SectionIndex}:{command.CommandIndex}:{HexDisplayFormatter.FormatOffset(command.FileOffset)}:{HexDisplayFormatter.Format(command.CommandId, 2)}";
 
     private static string BuildLegacyCommandKey(ScenarioStructureRow row)
-        => $"{row.SceneIndex}:{row.SectionIndex}:{row.CommandIndex}:{row.OffsetHex}:{row.CommandId:X2}";
+        => $"{row.SceneIndex}:{row.SectionIndex}:{row.CommandIndex}:{HexDisplayFormatter.NormalizeText(row.OffsetHex)}:{HexDisplayFormatter.Format(row.CommandId, 2)}";
 
     private static string FormatLegacyScriptOffset(int offset, int syntheticIndex)
         => offset >= 0
-            ? "0x" + offset.ToString("X6", CultureInfo.InvariantCulture)
+            ? HexDisplayFormatter.FormatOffset(offset)
             : $"new:{syntheticIndex:000}";
 
     private static string BuildLegacyScriptParameterPreview(LegacyScenarioCommandNode command)
@@ -4567,13 +4567,13 @@ public sealed partial class MainForm
 
     private static string BuildLegacyScriptRawWords(LegacyScenarioCommandNode command)
     {
-        var words = new List<string> { command.CommandId.ToString("X4", CultureInfo.InvariantCulture) };
+        var words = new List<string> { HexDisplayFormatter.FormatWord(command.CommandId) };
         foreach (var parameter in command.Parameters.Take(16))
         {
-            words.Add(parameter.Tag.ToString("X4", CultureInfo.InvariantCulture));
+            words.Add(HexDisplayFormatter.FormatWord(parameter.Tag));
             if (parameter.Kind is LegacyScenarioParameterKind.Word16 or LegacyScenarioParameterKind.Dword32)
             {
-                words.Add(unchecked((ushort)parameter.IntValue).ToString("X4", CultureInfo.InvariantCulture));
+                words.Add(HexDisplayFormatter.FormatWord(unchecked((ushort)parameter.IntValue)));
             }
         }
         return string.Join(" ", words);
@@ -4604,13 +4604,13 @@ public sealed partial class MainForm
         };
         foreach (var scene in document.Scenes)
         {
-            lines.Add($"  <Scene index=\"{scene.SceneIndex}\" offset=\"0x{scene.FileOffset:X6}\">");
+            lines.Add($"  <Scene index=\"{scene.SceneIndex}\" offset=\"{HexDisplayFormatter.FormatOffset(scene.FileOffset)}\">");
             foreach (var section in scene.Sections)
             {
-                lines.Add($"    <Section index=\"{section.SectionIndex}\" offset=\"0x{section.FileOffset:X6}\" length=\"{section.DeclaredLength}\">");
+                lines.Add($"    <Section index=\"{section.SectionIndex}\" offset=\"{HexDisplayFormatter.FormatOffset(section.FileOffset)}\" length=\"{section.DeclaredLength}\">");
                 foreach (var command in section.EnumerateCommands())
                 {
-                    lines.Add($"      <Command index=\"{command.CommandIndex}\" ord=\"{command.CommandOrdinal}\" offset=\"0x{command.FileOffset:X6}\" id=\"{command.CommandIdHex}\" name=\"{System.Security.SecurityElement.Escape(command.CommandName)}\" />");
+                    lines.Add($"      <Command index=\"{command.CommandIndex}\" ord=\"{command.CommandOrdinal}\" offset=\"{HexDisplayFormatter.FormatOffset(command.FileOffset)}\" id=\"{HexDisplayFormatter.NormalizeText(command.CommandIdHex)}\" name=\"{System.Security.SecurityElement.Escape(command.CommandName)}\" />");
                 }
                 lines.Add("    </Section>");
             }
@@ -4787,8 +4787,8 @@ public sealed partial class MainForm
     private static string BuildScriptCommandSummary(ScenarioStructureRow command, bool includeIdentity, int maxVisibleValues)
     {
         var label = includeIdentity
-            ? $"{command.CommandId:X}:{command.CommandName}"
-            : $"{command.CommandId:X}:{command.CommandName}";
+            ? $"{HexDisplayFormatter.Format(command.CommandId)}:{command.CommandName}"
+            : $"{HexDisplayFormatter.Format(command.CommandId)}:{command.CommandName}";
         var suffix = BuildScriptCommandValuesPreview(command, maxVisibleValues);
         return string.IsNullOrWhiteSpace(suffix) ? label : $"{label} {suffix}";
     }
@@ -4866,7 +4866,7 @@ public sealed partial class MainForm
         }
 
         return words
-            .Select(value => $"0x{value:X4}({value})")
+            .Select(value => $"{HexDisplayFormatter.FormatWord(value)}({value})")
             .ToList();
     }
 
@@ -5083,7 +5083,7 @@ public sealed partial class MainForm
 
     private static string FormatScriptNumber(int value)
         => value >= 0x400000
-            ? "0x" + value.ToString("X", CultureInfo.InvariantCulture)
+            ? HexDisplayFormatter.Format(value)
             : value.ToString(CultureInfo.InvariantCulture);
 
     private static string BuildLegacyInternalInfoText(int value)
@@ -5150,13 +5150,13 @@ public sealed partial class MainForm
                     for (var valueIndex = 0; valueIndex < parameter.Values.Count; valueIndex++)
                     {
                         var value = parameter.Values[valueIndex];
-                        tokens.Add($"槽{parameter.Index + 1}[{valueIndex}]: 0x{unchecked((ushort)value):X4}({value})");
+                        tokens.Add($"槽{parameter.Index + 1}[{valueIndex}]: {HexDisplayFormatter.FormatWord(unchecked((ushort)value))}({value})");
                     }
                     break;
                 }
                 case LegacyScenarioParameterKind.Dword32:
                 {
-                    var token = $"槽{parameter.Index + 1}: 0x{unchecked((uint)parameter.IntValue):X8}({parameter.IntValue})";
+                    var token = $"槽{parameter.Index + 1}: {HexDisplayFormatter.FormatDword(unchecked((uint)parameter.IntValue))}({parameter.IntValue})";
                     if (command.CommandId == 0x76 && command.JumpTargetOrdinal.HasValue)
                     {
                         token += $" -> ord {command.JumpTargetOrdinal.Value} / Command {command.JumpTargetCommandIndex}";
@@ -5165,7 +5165,7 @@ public sealed partial class MainForm
                     break;
                 }
                 default:
-                    tokens.Add($"槽{parameter.Index + 1}: 0x{unchecked((ushort)parameter.IntValue):X4}({parameter.IntValue})");
+                    tokens.Add($"槽{parameter.Index + 1}: {HexDisplayFormatter.FormatWord(unchecked((ushort)parameter.IntValue))}({parameter.IntValue})");
                     break;
             }
         }
@@ -6767,7 +6767,7 @@ public sealed partial class MainForm
                 : BuildScriptRowDetail(row);
             UpdateScriptImagePreview(row);
             SetStatus(itemData.Command != null
-                ? $"旧版 ItemData：ord {itemData.Ord} id 0x{itemData.Id:X2}"
+                ? $"旧版 ItemData：ord {itemData.Ord} id {HexDisplayFormatter.Format(itemData.Id, 2)}"
                 : row.CommandName);
             UpdateScriptStructureEditButtons();
         }
@@ -6960,7 +6960,7 @@ public sealed partial class MainForm
             }
 
             resourceName = "Mmap.e5";
-            title = $"{row.CommandId:X}:{row.CommandName}";
+            title = $"{HexDisplayFormatter.Format(row.CommandId)}:{row.CommandName}";
             return true;
         }
 
@@ -6968,7 +6968,7 @@ public sealed partial class MainForm
         {
             resourceName = "Tr.e5";
             scriptImageNumber = values[1];
-            title = $"{row.CommandId:X}:{row.CommandName} R插图";
+            title = $"{HexDisplayFormatter.Format(row.CommandId)}:{row.CommandName} R插图";
             return true;
         }
 

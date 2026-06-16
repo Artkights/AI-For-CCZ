@@ -37,9 +37,25 @@ public sealed class WriteOperationReportService
             path = Path.Combine(backupRoot, $"{stamp}_{suffix++}_{safeKind}_WriteOperationReport.json");
         }
 
+        NormalizeCreatorHexDisplay(report);
         report.JsonReportPath = path;
         File.WriteAllText(path, JsonSerializer.Serialize(report, JsonOptions));
         return path;
+    }
+
+    private static void NormalizeCreatorHexDisplay(WriteOperationReport report)
+    {
+        report.Summary = HexDisplayFormatter.NormalizeText(report.Summary);
+        report.SafetyNotes = HexDisplayFormatter.NormalizeText(report.SafetyNotes);
+        report.FormatCheckSummary = HexDisplayFormatter.NormalizeText(report.FormatCheckSummary);
+        report.RiskSummary = HexDisplayFormatter.NormalizeText(report.RiskSummary);
+        foreach (var change in report.Changes)
+        {
+            change.OffsetHex = HexDisplayFormatter.NormalizeText(change.OffsetHex);
+            change.OldValue = HexDisplayFormatter.NormalizeText(change.OldValue);
+            change.NewValue = HexDisplayFormatter.NormalizeText(change.NewValue);
+            change.Annotation = HexDisplayFormatter.NormalizeText(change.Annotation);
+        }
     }
 
     public static string ComputeSha256(byte[] bytes)

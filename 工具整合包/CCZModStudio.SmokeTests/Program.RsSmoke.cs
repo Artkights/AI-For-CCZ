@@ -14,7 +14,7 @@ internal partial class Program
     {
         var rTable = tables.Single(t => t.TableName == "6.5-0-4 R形象");
         var sTable = tables.Single(t => t.TableName == "6.5-0-5 S形象");
-        Console.WriteLine($"RS_TABLE R={rTable.FileName}:0x{rTable.DataPos:X} S={sTable.FileName}:0x{sTable.DataPos:X}");
+        Console.WriteLine($"RS_TABLE R={rTable.FileName}:{rTable.DataPos:X} S={sTable.FileName}:{sTable.DataPos:X}");
         if (!rTable.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
             !sTable.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
             rTable.DataPos != 0xE1000 ||
@@ -55,7 +55,7 @@ internal partial class Program
             {
                 throw new InvalidOperationException("Legacy R/S eex scenario tree read result is incomplete.");
             }
-            Console.WriteLine($"LEGACY_SCENARIO_READ file={firstScenario.FileName} scenes={legacyDocument.SceneCount} sections={legacyDocument.SectionCount} commands={legacyDocument.CommandCount} jumps={legacyDocument.EnumerateCommands().Count(command => command.CommandId == 0x76)} texts={legacyDocument.EnumerateCommands().SelectMany(command => command.TextParameters).Count()}");
+            Console.WriteLine($"LEGACY_SCENARIO_READ file={firstScenario.FileName} scenes={legacyDocument.SceneCount} sections={legacyDocument.SectionCount} commands={legacyDocument.CommandCount} jumps={legacyDocument.EnumerateCommands().Count(command => command.CommandId == 76)} texts={legacyDocument.EnumerateCommands().SelectMany(command => command.TextParameters).Count()}");
             var scriptTreeSummary = BuildScriptEditorTreeSummary(scriptStructure, scriptTexts);
             if (scriptTreeSummary.SectionTextGroupCount == 0 || scriptTreeSummary.AttachedTextNodeCount == 0)
             {
@@ -111,19 +111,19 @@ internal partial class Program
                 .ToList();
             if (battlefieldDeploymentCategories.Count == 0)
             {
-                throw new InvalidOperationException("Battlefield editor did not split any 0x46/0x47/0x4B deployment records.");
+                throw new InvalidOperationException("Battlefield editor did not split any 46/47/4B deployment records.");
             }
 
             var firstFriendDeployment = battlefieldDocs[0].UnitCandidates
                 .FirstOrDefault(candidate => candidate.Category == "友军出场" && candidate.BattlefieldNumber == 20);
             if (firstFriendDeployment == null)
             {
-                throw new InvalidOperationException("Battlefield editor did not include the first 0x46 friend deployment record.");
+                throw new InvalidOperationException("Battlefield editor did not include the first 46 friend deployment record.");
             }
 
             if (!firstFriendDeployment.LevelJobDisplay.Contains("高级", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"Battlefield 0x46 preview did not read the job level slot used by the deployment dialog: {firstFriendDeployment.LevelJobDisplay}");
+                throw new InvalidOperationException($"Battlefield 46 preview did not read the job level slot used by the deployment dialog: {firstFriendDeployment.LevelJobDisplay}");
             }
     
             var allyDeploymentSlotScenario = battlefieldScenarios.Count > 1 ? battlefieldScenarios[1] : battlefieldScenarios[0];
@@ -151,7 +151,7 @@ internal partial class Program
                 throw new InvalidOperationException($"Battlefield candidate cannot be located in legacy script tree: {battlefieldDocs[0].Scenario.FileName} {battlefieldCoordinateCandidate.TargetKey}");
             }
     
-            Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@0x{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")} allySlots={allyDeploymentSlotScenario.FileName}:{allyDeploymentSlots.Count} first=#{firstAllyDeploymentSlot.DisplayOrder}@({firstAllyDeploymentSlot.GridX},{firstAllyDeploymentSlot.GridY}) forced={allyDeploymentSlots.Count(slot => slot.IsForced)}");
+            Console.WriteLine($"BATTLEFIELD_LEGACY_CANDIDATES first={battlefieldDocs[0].Scenario.FileName} commands={battlefieldDocs[0].CommandCandidates.Count} units={battlefieldDocs[0].UnitCandidates.Count} deployment={string.Join("/", battlefieldDeploymentCategories)} located={battlefieldLinkedCommand.CommandName}@{battlefieldLinkedCommand.FileOffset:X6} compare={(battlefieldDocs.Count > 1 ? battlefieldDocs[1].Scenario.FileName : "none")} allySlots={allyDeploymentSlotScenario.FileName}:{allyDeploymentSlots.Count} first=#{firstAllyDeploymentSlot.DisplayOrder}@({firstAllyDeploymentSlot.GridX},{firstAllyDeploymentSlot.GridY}) forced={allyDeploymentSlots.Count(slot => slot.IsForced)}");
         }
         else
         {
@@ -189,7 +189,7 @@ internal partial class Program
         var unitMovEntries = e5ImageReplaceService.ReadIndex(unitMovPath);
         if (unitMovEntries.Count < 556)
         {
-            throw new InvalidOperationException($"Unit_mov.e5 0x110 图片索引表条目不足，预期至少 556，实际 {unitMovEntries.Count}。");
+            throw new InvalidOperationException($"Unit_mov.e5 110 图片索引表条目不足，预期至少 556，实际 {unitMovEntries.Count}。");
         }
         var e5ReplacePreview = e5ImageReplaceService.PreviewReplacementFromEntry(project, unitMovPath, 554, unitMovPath);
         if (e5ReplacePreview.ImageNumber != 554 ||
@@ -215,17 +215,17 @@ internal partial class Program
         {
             if (rResourcePreview == null)
             {
-                throw new InvalidOperationException("R 形象应能从 Pmapobj.e5 的 0x110 索引表生成预览。");
+                throw new InvalidOperationException("R 形象应能从 Pmapobj.e5 的 110 索引表生成预览。");
             }
     
             if (row0S > 0 && normalSResourcePreview == null)
             {
-                throw new InvalidOperationException($"S={row0S} 形象应能从 Unit_*.e5 的 0x110 索引表生成预览。");
+                throw new InvalidOperationException($"S={row0S} 形象应能从 Unit_*.e5 的 110 索引表生成预览。");
             }
     
             if (indexedSResourcePreview == null)
             {
-                throw new InvalidOperationException($"S={indexedSId} 形象应能从 Unit_*.e5 的 0x110 索引表生成预览。");
+                throw new InvalidOperationException($"S={indexedSId} 形象应能从 Unit_*.e5 的 110 索引表生成预览。");
             }
     
             if (defaultSAllyPreview == null || defaultSFriendPreview == null || defaultSEnemyPreview == null)
@@ -343,7 +343,7 @@ internal partial class Program
         {
             throw new InvalidOperationException("Hexzmap 目录候选探针没有发现与真实地图格数相匹配的候选项。");
         }
-        Console.WriteLine($"HEXZMAP_DIRECTORY entries={hexzmapProbe.DirectoryEntries.Count} firstHitOff=0x{hexzmapDirectoryHit.EntryOffset:X} segment={hexzmapDirectoryHit.SegmentLength} fileOff=0x{hexzmapDirectoryHit.FileOffset:X} next={hexzmapDirectoryHit.NextSegmentLength}");
+        Console.WriteLine($"HEXZMAP_DIRECTORY entries={hexzmapProbe.DirectoryEntries.Count} firstHitOff={hexzmapDirectoryHit.EntryOffset:X} segment={hexzmapDirectoryHit.SegmentLength} fileOff={hexzmapDirectoryHit.FileOffset:X} next={hexzmapDirectoryHit.NextSegmentLength}");
         if (!previewInfo.Contains("FileHead=D2800", StringComparison.Ordinal) ||
             !previewInfo.Contains("RFileHead=E1000", StringComparison.Ordinal) ||
             !previewInfo.Contains("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
@@ -457,9 +457,9 @@ internal partial class Program
             !templateItem.SlotSummary.Contains("武器编码", StringComparison.Ordinal) ||
             !templateItem.Risk.Contains("0=默认", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"0x48 模板未按 6 参数装备编码语义更新：name={templateItem.TemplateName}, slots={templateItem.SlotCount}, summary={templateItem.SlotSummary}");
+            throw new InvalidOperationException($"48 模板未按 6 参数装备编码语义更新：name={templateItem.TemplateName}, slots={templateItem.SlotCount}, summary={templateItem.SlotSummary}");
         }
-        Console.WriteLine($"ITEM_CATEGORY_BOUNDARY default={itemBoundary.DefenseStartId}/{itemBoundary.AccessoryStartId} custom={customBoundary.DefenseStartId}/{customBoundary.AccessoryStartId} 0x48slots={templateItem.SlotCount}");
+        Console.WriteLine($"ITEM_CATEGORY_BOUNDARY default={itemBoundary.DefenseStartId}/{itemBoundary.AccessoryStartId} custom={customBoundary.DefenseStartId}/{customBoundary.AccessoryStartId} 48slots={templateItem.SlotCount}");
     
         var itemTable = tables.Single(t => t.TableName == "6.5-1 物品（0-103）");
         var itemRead = new HexTableReader().Read(project, itemTable, tables);
@@ -682,7 +682,7 @@ internal partial class Program
             throw new InvalidOperationException("R 场景对白预览 PNG 未写出。");
         }
 
-        Console.WriteLine($"RSCENE_DIALOG_PREVIEW_OK file={dialogueScenario.FileName} command={dialogueCommand.CommandIdHex}@0x{dialogueCommand.FileOffset:X6} png={Path.GetFileName(output)} boxPixels={boxPixels} textPixels={textPixels} missingFacePixels={missingFacePixels} readonly=ok detail={result.Message}");
+        Console.WriteLine($"RSCENE_DIALOG_PREVIEW_OK file={dialogueScenario.FileName} command={dialogueCommand.CommandIdHex}@{dialogueCommand.FileOffset:X6} png={Path.GetFileName(output)} boxPixels={boxPixels} textPixels={textPixels} missingFacePixels={missingFacePixels} readonly=ok detail={result.Message}");
     }
 
     static LegacyScenarioCommandNode BuildRSceneDialoguePreviewMissingFaceCommand(LegacyScenarioCommandNode source, IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
@@ -760,50 +760,50 @@ internal partial class Program
         var talk1 = service.BuildPreviewModel(
             CreateRSceneDialoguePreviewCommand(0x14, "对话", "&曹操\n孟德在此。"),
             people)
-            ?? throw new InvalidOperationException("R 场景对白预览 0x14 文本人名模型构建失败。");
+            ?? throw new InvalidOperationException("R 场景对白预览 14 文本人名模型构建失败。");
         if (talk1.SpeakerId != 0 || talk1.FaceId != 0 || talk1.Text.Contains("&曹操", StringComparison.Ordinal) || !talk1.Text.Contains("孟德在此", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"R 场景对白预览 0x14 未按 &姓名 反查头像：speaker={talk1.SpeakerId} face={talk1.FaceId} text={talk1.Text}");
+            throw new InvalidOperationException($"R 场景对白预览 14 未按 &姓名 反查头像：speaker={talk1.SpeakerId} face={talk1.FaceId} text={talk1.Text}");
         }
 
         var talk3 = service.BuildPreviewModel(
             CreateRSceneDialoguePreviewCommand(0x7A, "对话3", "\r\n&夏侯惇\r\n末将在。"),
             people)
-            ?? throw new InvalidOperationException("R 场景对白预览 0x7A 文本人名模型构建失败。");
+            ?? throw new InvalidOperationException("R 场景对白预览 7A 文本人名模型构建失败。");
         if (talk3.SpeakerId != 1 || talk3.FaceId != 9 || talk3.Text.Contains("夏侯惇", StringComparison.Ordinal) || !talk3.Text.Contains("末将在", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"R 场景对白预览 0x7A 未按 &姓名 反查头像：speaker={talk3.SpeakerId} face={talk3.FaceId} text={talk3.Text}");
+            throw new InvalidOperationException($"R 场景对白预览 7A 未按 &姓名 反查头像：speaker={talk3.SpeakerId} face={talk3.FaceId} text={talk3.Text}");
         }
 
         var explicitTalk = service.BuildPreviewModel(
             CreateRSceneDialoguePreviewCommand(0x15, "对话2", "&曹操\n文本说话人优先。", speakerId: 1),
             people)
-            ?? throw new InvalidOperationException("R 场景对白预览 0x15 显式参数模型构建失败。");
+            ?? throw new InvalidOperationException("R 场景对白预览 15 显式参数模型构建失败。");
         if (explicitTalk.SpeakerId != 0 || explicitTalk.FaceId != 0 || explicitTalk.Text.Contains("&曹操", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"R 场景对白预览 0x15 没有优先使用 &姓名 文本说话人：speaker={explicitTalk.SpeakerId} face={explicitTalk.FaceId} text={explicitTalk.Text}");
+            throw new InvalidOperationException($"R 场景对白预览 15 没有优先使用 &姓名 文本说话人：speaker={explicitTalk.SpeakerId} face={explicitTalk.FaceId} text={explicitTalk.Text}");
         }
 
         var conflictingTalk = service.BuildPreviewModel(
             CreateRSceneDialoguePreviewCommand(0x14, "对话", "&刘由\n臣谨遵主谕。", speakerId: 8),
             people)
-            ?? throw new InvalidOperationException("R 场景对白预览 0x14 参数/文本冲突模型构建失败。");
+            ?? throw new InvalidOperationException("R 场景对白预览 14 参数/文本冲突模型构建失败。");
         if (conflictingTalk.SpeakerId != 176 || conflictingTalk.FaceId != 42 || conflictingTalk.Text.Contains("&刘由", StringComparison.Ordinal) || !conflictingTalk.Text.Contains("臣谨遵主谕", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"R 场景对白预览 0x14 参数不应覆盖 &姓名：speaker={conflictingTalk.SpeakerId} face={conflictingTalk.FaceId} text={conflictingTalk.Text}");
+            throw new InvalidOperationException($"R 场景对白预览 14 参数不应覆盖 &姓名：speaker={conflictingTalk.SpeakerId} face={conflictingTalk.FaceId} text={conflictingTalk.Text}");
         }
 
         var multiSegmentTalk = service.BuildPreviewModel(
             CreateRSceneDialoguePreviewCommand(0x14, "对话", "&曹操孟德在此。\n&夏侯惇\n末将在。", speakerId: 1),
             people)
-            ?? throw new InvalidOperationException("R 场景对白预览 0x14 多段文本模型构建失败。");
+            ?? throw new InvalidOperationException("R 场景对白预览 14 多段文本模型构建失败。");
         if (multiSegmentTalk.SpeakerId != 0 ||
             multiSegmentTalk.FaceId != 0 ||
             !multiSegmentTalk.Text.Contains("孟德在此", StringComparison.Ordinal) ||
             multiSegmentTalk.Text.Contains("夏侯惇", StringComparison.Ordinal) ||
             multiSegmentTalk.Text.Contains("末将在", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"R 场景对白预览 0x14 未按 & 分段取当前对白：speaker={multiSegmentTalk.SpeakerId} face={multiSegmentTalk.FaceId} text={multiSegmentTalk.Text}");
+            throw new InvalidOperationException($"R 场景对白预览 14 未按 & 分段取当前对白：speaker={multiSegmentTalk.SpeakerId} face={multiSegmentTalk.FaceId} text={multiSegmentTalk.Text}");
         }
 
         var unresolved = service.BuildPreviewModel(
@@ -942,10 +942,10 @@ internal partial class Program
 
         var snapshot = new RSceneDraftService().BuildStateSnapshot(section, currentCommandIndex: 11);
         var actor = snapshot.Actors.SingleOrDefault(x => x.PersonId == personId)
-                    ?? throw new InvalidOperationException("R 场景 0x34 动作帧烟测没有推演出目标人物。");
+                    ?? throw new InvalidOperationException("R 场景 34 动作帧烟测没有推演出目标人物。");
         if (actor.FrameIndex != 6)
         {
-            throw new InvalidOperationException($"R 场景 0x34 动作枚举应读取第二参数 6，实际={actor.FrameIndex}");
+            throw new InvalidOperationException($"R 场景 34 动作枚举应读取第二参数 6，实际={actor.FrameIndex}");
         }
     }
 
@@ -969,7 +969,7 @@ internal partial class Program
         }
 
         var face = moved.MapFaces.SingleOrDefault(x => x.PersonId == personId)
-                   ?? throw new InvalidOperationException("R 场景地图头像烟测没有推演出 0x29/0x2A 头像。");
+                   ?? throw new InvalidOperationException("R 场景地图头像烟测没有推演出 29/2A 头像。");
         if (face.X != 425 || face.Y != 125)
         {
             throw new InvalidOperationException($"R 场景地图头像坐标应保留画布像素 (425,125)，实际=({face.X},{face.Y})");
@@ -978,7 +978,7 @@ internal partial class Program
         var hidden = new RSceneDraftService().BuildStateSnapshot(section, currentCommandIndex: 13);
         if (hidden.MapFaces.Count != 0)
         {
-            throw new InvalidOperationException($"R 场景 0x2B 应移除地图头像，实际残留 {hidden.MapFaces.Count} 个。");
+            throw new InvalidOperationException($"R 场景 2B 应移除地图头像，实际残留 {hidden.MapFaces.Count} 个。");
         }
     }
 

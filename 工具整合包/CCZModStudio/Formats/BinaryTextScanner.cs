@@ -81,5 +81,5 @@ public static class BinaryTextScanner
 
 public sealed record BinaryTextHit(int Offset, int ByteLength, string Text)
 {
-    public string OffsetHex => "0x" + Offset.ToString("X6");
+    public string OffsetHex => HexDisplayFormatter.FormatOffset(Offset);
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -23,9 +24,9 @@ public sealed class EexEntryProbeReader
             Category = category,
             Index = 0,
             NodeType = "文件头",
-            OffsetHex = "0x000000",
+            OffsetHex = HexDisplayFormatter.FormatOffset(0),
             Length = Math.Min(HeaderSize, bytes.Length),
-            ValueHex = bytes.Length >= 6 ? "Version=0x" + BitConverter.ToUInt16(bytes, 4).ToString("X4", CultureInfo.InvariantCulture) : string.Empty,
+            ValueHex = bytes.Length >= 6 ? "Version=" + HexDisplayFormatter.FormatWord(BitConverter.ToUInt16(bytes, 4)) : string.Empty,
             RoleHint = magicValid ? "EEX头" : "魔数异常",
             UniqueByteCount = CountUnique(bytes.AsSpan(0, Math.Min(HeaderSize, bytes.Length))),
             ZeroPercent = ComputeZeroPercent(bytes.AsSpan(0, Math.Min(HeaderSize, bytes.Length))),
@@ -45,9 +46,9 @@ public sealed class EexEntryProbeReader
                 Category = category,
                 Index = 1,
                 NodeType = "头字段",
-                OffsetHex = "0x00000A",
+                OffsetHex = HexDisplayFormatter.FormatOffset(10),
                 Length = 4,
-                ValueHex = "0x" + entryCount.ToString("X8", CultureInfo.InvariantCulture),
+                ValueHex = HexDisplayFormatter.FormatDword(entryCount),
                 RoleHint = "疑似条目数",
                 Annotation = $"当前按疑似条目数解释为 {entryCount}。R/S 资源常见值约 20-40，但条目表边界尚未完全确认。",
                 Path = path
@@ -59,7 +60,7 @@ public sealed class EexEntryProbeReader
         {
             if (bytes.Length < offset + 4) continue;
             var value = BitConverter.ToUInt32(bytes, offset);
-            var valueHex = "0x" + value.ToString("X8", CultureInfo.InvariantCulture);
+            var valueHex = HexDisplayFormatter.FormatDword(value);
             var plausible = value >= HeaderSize && value < bytes.Length;
             if (plausible) boundaries.Add((int)value);
             rows.Add(new EexEntryProbeRow
@@ -68,12 +69,12 @@ public sealed class EexEntryProbeReader
                 Category = category,
                 Index = rows.Count,
                 NodeType = "头字段",
-                OffsetHex = "0x" + offset.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(offset),
                 Length = 4,
                 ValueHex = valueHex,
                 RoleHint = plausible ? "候选区段偏移" : "头字段/非偏移",
                 Annotation = plausible
-                    ? $"该 32 位值落在文件范围内，作为候选区段边界 0x{value:X6} 参与切分。"
+                    ? $"该 32 位值落在文件范围内，作为候选区段边界 {HexDisplayFormatter.FormatOffset(value)} 参与切分。"
                     : "该 32 位值不在有效文件偏移范围内，暂不作为区段边界；可能是计数、标志或其他头字段。",
                 Path = path
             });
@@ -98,7 +99,7 @@ public sealed class EexEntryProbeReader
         var textHits = BinaryTextScanner.ScanGbkNullTerminatedStringHits(slice, minByteLength: 5, maxItems: 5, requireCjk: false);
         var textHints = textHits.Count == 0
             ? string.Empty
-            : string.Join(" / ", textHits.Select(x => $"0x{offset + x.Offset:X6}:{(x.Text.Length > 24 ? x.Text[..24] + "…" : x.Text)}"));
+            : string.Join(" / ", textHits.Select(x => $"{HexDisplayFormatter.FormatOffset(offset + x.Offset)}:{(x.Text.Length > 24 ? x.Text[..24] + "…" : x.Text)}"));
         var unique = CountUnique(span);
         var zero = ComputeZeroPercent(span);
         var smallWordPercent = ComputeSmallWordPercent(span);
@@ -110,9 +111,9 @@ public sealed class EexEntryProbeReader
             Category = category,
             Index = index,
             NodeType = "区段候选",
-            OffsetHex = "0x" + offset.ToString("X6", CultureInfo.InvariantCulture),
+            OffsetHex = HexDisplayFormatter.FormatOffset(offset),
             Length = length,
-            ValueHex = $"0x{offset:X6}-0x{offset + length - 1:X6}",
+            ValueHex = HexDisplayFormatter.FormatRange(offset, offset + length - 1),
             RoleHint = role,
             TextHintCount = textHits.Count,
             TextHints = textHints,
@@ -181,5 +182,5 @@ public sealed class EexEntryProbeReader
     }
 
     private static string ToHex(ReadOnlySpan<byte> span)
-        => string.Join(" ", span.ToArray().Select(x => x.ToString("X2", CultureInfo.InvariantCulture)));
+        => HexDisplayFormatter.FormatByteList(span.ToArray());
 }

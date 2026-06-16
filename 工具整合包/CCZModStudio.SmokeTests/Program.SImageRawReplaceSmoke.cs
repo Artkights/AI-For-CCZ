@@ -57,6 +57,71 @@ internal partial class Program
         VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), 554, 64 * 768);
         VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), 554, 48 * 240);
 
+        var moveOnlyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsMoveOnly");
+        Directory.CreateDirectory(moveOnlyRoot);
+        CreateSmokeBmp(Path.Combine(moveOnlyRoot, "MOV.BMP"), 48, 528, Color.FromArgb(255, 90, 180, 230), Color.FromArgb(255, 230, 90, 150));
+        var moveOnlyPreview = service.Preview(testProject, new SImageReplaceRequest
+        {
+            SImageId = 249,
+            MaterialFolder = moveOnlyRoot,
+            WriteMode = "test_copy"
+        });
+        if (moveOnlyPreview.Mapping.ImageNumbers.Count != 1 ||
+            moveOnlyPreview.Mapping.ImageNumbers[0] != 553 ||
+            moveOnlyPreview.TotalOperationCount != 1 ||
+            moveOnlyPreview.Files.Count != 1 ||
+            moveOnlyPreview.Files[0].TargetFileName != "Unit_mov.e5")
+        {
+            throw new InvalidOperationException("S 部分导入预览未只匹配移动素材。");
+        }
+
+        var moveOnlyResult = service.Replace(testProject, new SImageReplaceRequest
+        {
+            SImageId = 249,
+            MaterialFolder = moveOnlyRoot,
+            WriteMode = "test_copy"
+        });
+        if (moveOnlyResult.TotalOperationCount != 1 || !File.Exists(moveOnlyResult.AggregateReportPath))
+        {
+            throw new InvalidOperationException("S 部分导入写入结果不符合预期。");
+        }
+
+        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 553, 48 * 528);
+
+        var atkOnlyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsAtkOnly");
+        Directory.CreateDirectory(atkOnlyRoot);
+        CreateSmokeBmp(Path.Combine(atkOnlyRoot, "ATK.BMP"), 64, 768, Color.FromArgb(255, 190, 80, 220), Color.FromArgb(255, 80, 220, 180));
+        var atkOnly = service.Replace(testProject, new SImageReplaceRequest
+        {
+            SImageId = 1,
+            MaterialFolder = atkOnlyRoot,
+            WriteMode = "test_copy"
+        });
+        if (!atkOnly.Mapping.ImageNumbers.SequenceEqual(new[] { 241, 242, 243 }) ||
+            atkOnly.TotalOperationCount != 3 ||
+            atkOnly.Files.Count != 1 ||
+            atkOnly.Files[0].TargetFileName != "Unit_atk.e5")
+        {
+            throw new InvalidOperationException("S=1 部分导入未只写入攻击素材对应三张 Unit 图。");
+        }
+
+        foreach (var imageNumber in new[] { 241, 242, 243 })
+        {
+            VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
+        }
+
+        var emptyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsEmpty");
+        Directory.CreateDirectory(emptyRoot);
+        File.WriteAllText(Path.Combine(emptyRoot, "readme.txt"), "unused");
+        AssertPreviewFails(
+            () => service.Preview(testProject, new SImageReplaceRequest
+            {
+                SImageId = 248,
+                MaterialFolder = emptyRoot,
+                WriteMode = "test_copy"
+            }),
+            "没有找到可导入的 S 形象素材");
+
         var staged = service.Replace(testProject, new SImageReplaceRequest
         {
             SImageId = 1,

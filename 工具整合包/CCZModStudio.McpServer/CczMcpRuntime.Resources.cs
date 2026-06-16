@@ -30,7 +30,7 @@ public sealed partial class CczMcpRuntime
             probe.MagicValid,
             probe.PayloadOffset,
             probe.PayloadLength,
-            DirectoryTableOffsetHex = "0x" + probe.DirectoryTableOffset.ToString("X", CultureInfo.InvariantCulture),
+            DirectoryTableOffsetHex = HexDisplayFormatter.FormatOffset(probe.DirectoryTableOffset),
             DirectoryEntryCount = probe.DirectoryEntries.Count,
             TotalBlocks = filtered.Count,
             ReturnedBlocks = Math.Min(filtered.Count, effectiveLimit),
@@ -335,8 +335,8 @@ public sealed partial class CczMcpRuntime
                 entry.StoredLength,
                 entry.DecodedLength,
                 entry.IsCompressed,
-                IndexOffsetHex = "0x" + entry.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
-                DataOffsetHex = "0x" + entry.DataOffset.ToString("X", CultureInfo.InvariantCulture),
+                IndexOffsetHex = HexDisplayFormatter.FormatOffset(entry.IndexOffset),
+                DataOffsetHex = HexDisplayFormatter.FormatOffset(entry.DataOffset),
                 entry.IndexOffset,
                 entry.DataOffset
             })

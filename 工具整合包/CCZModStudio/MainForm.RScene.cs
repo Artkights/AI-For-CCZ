@@ -262,7 +262,7 @@ public sealed partial class MainForm
                 NodeType = "Scene候选",
                 SceneIndex = scene.SceneIndex,
                 CommandName = $"Scene {scene.SceneIndex}",
-                OffsetHex = "0x" + scene.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                OffsetHex = HexDisplayFormatter.FormatOffset(scene.FileOffset),
                 Confidence = "旧版源码",
                 Annotation = "按 CczSceneEditor2 v0.23 Scene 偏移表读取。"
             });
@@ -277,7 +277,7 @@ public sealed partial class MainForm
                     SceneIndex = section.SceneIndex,
                     SectionIndex = section.SectionIndex,
                     CommandName = $"Section {section.SectionIndex}",
-                    OffsetHex = "0x" + section.FileOffset.ToString("X6", CultureInfo.InvariantCulture),
+                    OffsetHex = HexDisplayFormatter.FormatOffset(section.FileOffset),
                     Confidence = "旧版源码",
                     Annotation = $"按旧版 Section 长度前缀读取，长度 {section.DeclaredLength} 字节。"
                 });
@@ -527,7 +527,7 @@ public sealed partial class MainForm
                 ? $" target ord {itemData.Command.JumpTargetOrdinal.Value}"
                 : " target ord 未解析"
             : string.Empty;
-        return $"旧版 ItemData：ord {itemData.Ord} id 0x{itemData.Id:X2}{suffix}";
+        return $"旧版 ItemData：ord {itemData.Ord} id {HexDisplayFormatter.Format(itemData.Id, 2)}{suffix}";
     }
 
     private void NormalizeEditedRSceneJumpCommand(LegacyScenarioCommandNode command)
@@ -680,7 +680,7 @@ public sealed partial class MainForm
     }
 
     private static string BuildRSceneCommandTargetKey(LegacyScenarioCommandNode command)
-        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset=0x{command.FileOffset:X6};Id={command.CommandIdHex}";
+        => $"Scene={command.SceneIndex};Section={command.SectionIndex};Command={command.CommandIndex};Offset={HexDisplayFormatter.FormatOffset(command.FileOffset)};Id={HexDisplayFormatter.NormalizeText(command.CommandIdHex)}";
 
     private static string BuildRSceneCommandTargetKey(ScenarioStructureRow row)
         => $"Scene={row.SceneIndex};Section={row.SectionIndex};Command={row.CommandIndex};Offset={row.OffsetHex};Id={row.CommandIdHex}";
@@ -2218,7 +2218,7 @@ public sealed partial class MainForm
             candidate.SceneIndex == scene &&
             candidate.SectionIndex == section &&
             candidate.CommandIndex == commandIndex &&
-            (string.IsNullOrWhiteSpace(offsetHex) || string.Equals("0x" + candidate.FileOffset.ToString("X6", CultureInfo.InvariantCulture), offsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(offsetHex) || HexDisplayFormatter.EqualsText(HexDisplayFormatter.FormatOffset(candidate.FileOffset), offsetHex)) &&
             (string.IsNullOrWhiteSpace(commandIdHex) || candidate.CommandIdHex.Equals(commandIdHex, StringComparison.OrdinalIgnoreCase)))!;
         return command != null;
     }

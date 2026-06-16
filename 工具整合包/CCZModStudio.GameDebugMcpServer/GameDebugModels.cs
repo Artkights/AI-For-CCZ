@@ -61,10 +61,10 @@ public sealed class BattleStateSnapshot
     public string Source { get; init; } = "ReadProcessMemory";
 
     [JsonPropertyName("unit_array_address")]
-    public string UnitArrayAddress { get; init; } = "0x004A7B20";
+    public string UnitArrayAddress { get; init; } = "004A7B20";
 
     [JsonPropertyName("unit_stride")]
-    public string UnitStride { get; init; } = "0x30";
+    public string UnitStride { get; init; } = "30";
 
     [JsonPropertyName("active_unit_count")]
     public int ActiveUnitCount { get; init; }
@@ -97,7 +97,7 @@ public sealed class BattleOccupiedCell
 public sealed class BattleCombatContextSnapshot
 {
     [JsonPropertyName("base_address")]
-    public string BaseAddress { get; init; } = "0x004927F0";
+    public string BaseAddress { get; init; } = "004927F0";
 
     [JsonPropertyName("bytes_read")]
     public int BytesRead { get; init; }
@@ -310,6 +310,21 @@ public sealed class AutonomyPlan
     public string Safety { get; init; } = "Internal/debugger/read-only automation plan only; no mouse input, screenshots, process-memory writes, or game-file writes.";
 }
 
+public sealed class RuntimeInvokeRouteError
+{
+    [JsonPropertyName("route")]
+    public string Route { get; init; } = string.Empty;
+
+    [JsonPropertyName("stage")]
+    public string Stage { get; init; } = string.Empty;
+
+    [JsonPropertyName("error")]
+    public string Error { get; init; } = string.Empty;
+
+    [JsonPropertyName("exception_type")]
+    public string ExceptionType { get; init; } = string.Empty;
+}
+
 public sealed class RuntimeInvokePlan
 {
     [JsonPropertyName("schema_version")]
@@ -329,6 +344,9 @@ public sealed class RuntimeInvokePlan
 
     [JsonPropertyName("actions")]
     public List<RuntimeInvokeAction> Actions { get; init; } = [];
+
+    [JsonPropertyName("route_errors")]
+    public List<RuntimeInvokeRouteError> RouteErrors { get; init; } = [];
 
     [JsonPropertyName("safety")]
     public string Safety { get; init; } = "Plan only; no process-memory writes, game-file writes, mouse input, or screenshots.";

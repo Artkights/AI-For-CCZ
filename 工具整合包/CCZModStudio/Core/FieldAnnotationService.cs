@@ -80,7 +80,7 @@ public sealed class FieldAnnotationService
         var warnings = validation.Warnings.Count == 0 ? "无结构警告。" : string.Join("；", validation.Warnings);
         return
             $"表说明：{table.TableName}\r\n" +
-            $"文件：{table.FileName}    行数：{table.RowCount}    行长：{table.RowSize} 字节    起始偏移：0x{table.DataPos:X}\r\n" +
+            $"文件：{table.FileName}    行数：{table.RowCount}    行长：{table.RowSize} 字节    起始偏移：{HexDisplayFormatter.FormatOffset(table.DataPos)}\r\n" +
             $"字段数：{table.Fields.Count}    版本：{table.Version}    ReadOnly标记={table.ReadOnly}（不再作为写入拦截）\r\n" +
             $"{writeMode}\r\n" +
             $"结构检查：{warnings}\r\n" +
@@ -119,7 +119,7 @@ public sealed class FieldAnnotationService
             lines.Add(string.Join(',',
                 Csv(table.TableName),
                 Csv(table.FileName),
-                Csv("0x" + table.DataPos.ToString("X", CultureInfo.InvariantCulture)),
+                Csv(HexDisplayFormatter.FormatOffset(table.DataPos)),
                 Csv(table.RowCount.ToString(CultureInfo.InvariantCulture)),
                 Csv(field.ColumnName),
                 Csv(BuildShortFieldAnnotation(table, field)),

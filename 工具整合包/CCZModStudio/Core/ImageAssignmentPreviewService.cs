@@ -401,7 +401,7 @@ public sealed class ImageAssignmentPreviewService
             }
         }
 
-        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
+        detail = $"未知格式 first={HexDisplayFormatter.Format(bytes.Length == 0 ? 0 : bytes[0], 2)}{BuildEntryLocationText(entry)}";
         return null;
     }
 
@@ -451,7 +451,7 @@ public sealed class ImageAssignmentPreviewService
         }
         else
         {
-            detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
+            detail = $"未知格式 first={HexDisplayFormatter.Format(bytes.Length == 0 ? 0 : bytes[0], 2)}{BuildEntryLocationText(entry)}";
             return null;
         }
 
@@ -649,8 +649,8 @@ public sealed class ImageAssignmentPreviewService
     private static string BuildEntryLocationText(E5ImageEntry entry)
     {
         return entry.IsCompressed
-            ? $" offset=0x{entry.Offset:X} stored={entry.StoredLength:N0} decoded={entry.DecodedLength:N0}"
-            : $" offset=0x{entry.Offset:X} size={entry.DecodedLength:N0}";
+            ? $" offset={HexDisplayFormatter.FormatOffset(entry.Offset)} stored={entry.StoredLength:N0} decoded={entry.DecodedLength:N0}"
+            : $" offset={HexDisplayFormatter.FormatOffset(entry.Offset)} size={entry.DecodedLength:N0}";
     }
 
     private static Bitmap? TryDecodeStandardImage(byte[] bytes)
@@ -684,7 +684,7 @@ public sealed class ImageAssignmentPreviewService
         if (offset + 1 < data.Length && data[offset] == 0xFF && data[offset + 1] == 0xD8) return "JPG";
         if (offset + PngMagic.Length <= data.Length && Matches(data, offset, PngMagic)) return "PNG";
         if (data[offset] == 0) return "RAW";
-        return $"0x{data[offset]:X2}";
+        return HexDisplayFormatter.FormatByte(data[offset]);
     }
 
     private static bool LooksLikeRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight)
@@ -1172,7 +1172,7 @@ public sealed class ImageAssignmentPreviewService
 
         return new EexPreviewMetadata(
             magic,
-            bytes.Length >= 6 ? "0x" + BitConverter.ToUInt16(bytes, 4).ToString("X4", CultureInfo.InvariantCulture) : "??",
+            bytes.Length >= 6 ? HexDisplayFormatter.FormatWord(BitConverter.ToUInt16(bytes, 4)) : "??",
             headerSize,
             offsets.Distinct().OrderBy(x => x).ToList(),
             textHints);
@@ -1299,7 +1299,7 @@ public sealed class ImageAssignmentPreviewService
             return image;
         }
 
-        detail = $"未知格式 first=0x{(bytes.Length == 0 ? 0 : bytes[0]):X2}{BuildEntryLocationText(entry)}";
+        detail = $"未知格式 first={HexDisplayFormatter.Format(bytes.Length == 0 ? 0 : bytes[0], 2)}{BuildEntryLocationText(entry)}";
         return null;
     }
 

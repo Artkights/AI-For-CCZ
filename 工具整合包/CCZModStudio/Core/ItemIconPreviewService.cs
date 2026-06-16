@@ -9,6 +9,8 @@ public sealed class ItemIconPreviewService
 {
     private readonly Dictionary<string, IReadOnlyList<BitmapResource>> _bitmapResourceCache = new(StringComparer.OrdinalIgnoreCase);
 
+    public void ClearCache() => _bitmapResourceCache.Clear();
+
     public ItemIconPreviewResult BuildPreview(CczProject project, int iconIndex, int canvasSize = 96)
         => BuildPreview(project, iconIndex, "Itemicon.dll", "物品图标", canvasSize);
 
@@ -199,6 +201,15 @@ public sealed class ItemIconPreviewService
     private static Bitmap? RenderDib(byte[] dibBytes, int canvasSize)
     {
         if (dibBytes.Length < 40) return null;
+        var gameBitmap = DecodeGameBitmapDib(dibBytes);
+        if (gameBitmap != null)
+        {
+            using (gameBitmap)
+            {
+                return RenderBitmapToCanvas(gameBitmap, canvasSize);
+            }
+        }
+
         var dibHeaderSize = BitConverter.ToInt32(dibBytes, 0);
         if (dibHeaderSize <= 0 || dibHeaderSize > dibBytes.Length) return null;
         var bitCount = BitConverter.ToUInt16(dibBytes, 14);
@@ -226,6 +237,63 @@ public sealed class ItemIconPreviewService
         {
             return null;
         }
+    }
+
+    private static Bitmap? DecodeGameBitmapDib(byte[] dibBytes)
+    {
+        var headerSize = BitConverter.ToInt32(dibBytes, 0);
+        if (headerSize != 40 || dibBytes.Length < headerSize) return null;
+
+        var width = BitConverter.ToInt32(dibBytes, 4);
+        var signedHeight = BitConverter.ToInt32(dibBytes, 8);
+        var height = Math.Abs(signedHeight);
+        var planes = BitConverter.ToUInt16(dibBytes, 12);
+        var bitCount = BitConverter.ToUInt16(dibBytes, 14);
+        var compression = BitConverter.ToInt32(dibBytes, 16);
+        var colorUsed = BitConverter.ToInt32(dibBytes, 32);
+        if (width <= 0 || height <= 0 || planes != 1 || compression != 0 || bitCount is not (4 or 8 or 24 or 32))
+        {
+            return null;
+        }
+
+        var paletteEntries = bitCount <= 8 ? (colorUsed > 0 ? colorUsed : 1 << bitCount) : 0;
+        var pixelOffset = headerSize + paletteEntries * 4;
+        var stride = ((width * bitCount + 31) / 32) * 4;
+        if (stride <= 0 || pixelOffset < 0 || pixelOffset + stride * height > dibBytes.Length)
+        {
+            return null;
+        }
+
+        var palette = new Color[paletteEntries];
+        for (var i = 0; i < paletteEntries; i++)
+        {
+            var offset = headerSize + i * 4;
+            palette[i] = Color.FromArgb(255, dibBytes[offset + 2], dibBytes[offset + 1], dibBytes[offset]);
+        }
+
+        var bitmap = new Bitmap(width, height);
+        for (var y = 0; y < height; y++)
+        {
+            var rowOffset = pixelOffset + y * stride;
+            for (var x = 0; x < width; x++)
+            {
+                bitmap.SetPixel(x, y, ReadGameDibPixel(dibBytes, rowOffset, x, bitCount, palette));
+            }
+        }
+
+        return bitmap;
+    }
+
+    private static Color ReadGameDibPixel(byte[] bytes, int rowOffset, int x, int bitCount, IReadOnlyList<Color> palette)
+    {
+        return bitCount switch
+        {
+            4 => palette[(bytes[rowOffset + x / 2] >> (x % 2 == 0 ? 4 : 0)) & 0x0F],
+            8 => palette[bytes[rowOffset + x]],
+            24 => Color.FromArgb(255, bytes[rowOffset + x * 3 + 2], bytes[rowOffset + x * 3 + 1], bytes[rowOffset + x * 3]),
+            32 => Color.FromArgb(bytes[rowOffset + x * 4 + 3], bytes[rowOffset + x * 4 + 2], bytes[rowOffset + x * 4 + 1], bytes[rowOffset + x * 4]),
+            _ => Color.Transparent
+        };
     }
 
     private static Bitmap RenderBitmapToCanvas(Bitmap raw, int canvasSize)

@@ -55,11 +55,16 @@ public sealed partial class CczMcpRuntime
     private readonly ImageResourceCatalogService _imageResourceCatalog = new();
     private readonly IconResourceReplaceService _iconResourceReplace = new();
     private readonly AiImageAssetService _aiImageAssetService = new();
+    private readonly RImageReplaceService _rImageReplaceService = new();
+    private readonly SImageReplaceService _sImageReplaceService = new();
+    private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly ResourceReplaceService _resourceReplace = new();
     private readonly BackupManager _backupManager = new();
     private readonly SceneStringParser _sceneStringParser = new();
     private readonly ScenarioCommandParameterTemplateService _scenarioCommandTemplates = new();
     private readonly EffectPackageService _effectPackageService = new();
+    private readonly BattlefieldEditorService _battlefieldEditorService = new();
+    private readonly BattlefieldUnitStatusWriteService _battlefieldUnitStatusWriteService = new();
 
     private CczProject LoadProject(string? gameRoot)
     {
@@ -266,6 +271,27 @@ public sealed partial class CczMcpRuntime
         return found;
     }
 
+    private static string ResolveExternalDirectory(CczProject project, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("material_folder is required.");
+        var normalized = path.Replace('/', Path.DirectorySeparatorChar);
+        var candidates = new List<string>();
+        if (Path.IsPathRooted(normalized))
+        {
+            candidates.Add(Path.GetFullPath(normalized));
+        }
+        else
+        {
+            candidates.Add(Path.GetFullPath(Path.Combine(project.WorkspaceRoot, normalized)));
+            candidates.Add(Path.GetFullPath(Path.Combine(project.GameRoot, normalized)));
+            candidates.Add(Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, normalized)));
+        }
+
+        var found = candidates.FirstOrDefault(Directory.Exists);
+        if (found == null) throw new DirectoryNotFoundException("Material folder was not found: " + candidates.First());
+        return found;
+    }
+
     private static string ResolveDllIconTarget(CczProject project, string targetRelativePath)
     {
         var targetPath = ResolveProjectFile(project, targetRelativePath, mustExist: true);
@@ -337,9 +363,9 @@ public sealed partial class CczMcpRuntime
             preview.TargetRelativePath,
             preview.SourcePath,
             preview.ImageNumber,
-            IndexOffsetHex = "0x" + preview.IndexOffset.ToString("X", CultureInfo.InvariantCulture),
-            OldDataOffsetHex = "0x" + preview.OldDataOffset.ToString("X", CultureInfo.InvariantCulture),
-            NewDataOffsetHex = "0x" + preview.NewDataOffset.ToString("X", CultureInfo.InvariantCulture),
+            IndexOffsetHex = HexDisplayFormatter.FormatOffset(preview.IndexOffset),
+            OldDataOffsetHex = HexDisplayFormatter.FormatOffset(preview.OldDataOffset),
+            NewDataOffsetHex = HexDisplayFormatter.FormatOffset(preview.NewDataOffset),
             preview.IndexOffset,
             preview.OldDataOffset,
             preview.NewDataOffset,
@@ -474,12 +500,12 @@ public sealed partial class CczMcpRuntime
     }
 
     private static object BuildHexzmapBlockPayload(HexzmapBlockInfo block)
-        => new { block.Index, block.MapId, block.MapImageName, block.MapImageExists, block.MapPixelWidth, block.MapPixelHeight, block.Width, block.Height, block.BytesRead, block.CanEdit, block.OffsetHex, block.DataOffset, block.SegmentOffset, SegmentOffsetHex = "0x" + block.SegmentOffset.ToString("X", CultureInfo.InvariantCulture), block.SegmentLength, block.UniqueTerrainCount, block.DominantTerrainId, DominantTerrainHex = "0x" + block.DominantTerrainId.ToString("X2", CultureInfo.InvariantCulture), block.DominantTerrainName, block.DominantTerrainCount, block.TopTerrainIds, block.TopTerrainNames, block.KnownTerrainCount, block.UnknownTerrainIds, block.Annotation };
+        => new { block.Index, block.MapId, block.MapImageName, block.MapImageExists, block.MapPixelWidth, block.MapPixelHeight, block.Width, block.Height, block.BytesRead, block.CanEdit, OffsetHex = HexDisplayFormatter.NormalizeText(block.OffsetHex), block.DataOffset, block.SegmentOffset, SegmentOffsetHex = HexDisplayFormatter.FormatOffset(block.SegmentOffset), block.SegmentLength, block.UniqueTerrainCount, block.DominantTerrainId, DominantTerrainHex = HexDisplayFormatter.Format(block.DominantTerrainId, 2), block.DominantTerrainName, block.DominantTerrainCount, TopTerrainIds = HexDisplayFormatter.NormalizeText(block.TopTerrainIds), block.TopTerrainNames, block.KnownTerrainCount, UnknownTerrainIds = HexDisplayFormatter.NormalizeText(block.UnknownTerrainIds), Annotation = HexDisplayFormatter.NormalizeText(block.Annotation) };
 
     private static IReadOnlyList<object> BuildHexzmapTerrainCounts(byte[] cells, IReadOnlyDictionary<byte, string> terrainLookup)
     {
         var total = Math.Max(1, cells.Length);
-        return cells.GroupBy(value => value).OrderByDescending(group => group.Count()).ThenBy(group => group.Key).Take(16).Select(group => new { TerrainId = (int)group.Key, TerrainHex = "0x" + group.Key.ToString("X2", CultureInfo.InvariantCulture), TerrainName = ResolveTerrainName(terrainLookup, group.Key), Count = group.Count(), Percent = Math.Round(group.Count() * 100.0 / total, 2) }).Cast<object>().ToList();
+        return cells.GroupBy(value => value).OrderByDescending(group => group.Count()).ThenBy(group => group.Key).Take(16).Select(group => new { TerrainId = (int)group.Key, TerrainHex = HexDisplayFormatter.FormatByte(group.Key), TerrainName = ResolveTerrainName(terrainLookup, group.Key), Count = group.Count(), Percent = Math.Round(group.Count() * 100.0 / total, 2) }).Cast<object>().ToList();
     }
 
     private static IReadOnlyList<object> BuildHexzmapCellRows(byte[] cells, int width, IReadOnlyDictionary<byte, string> terrainLookup, int maxRows)
@@ -493,13 +519,13 @@ public sealed partial class CczMcpRuntime
             var count = Math.Min(width, cells.Length - start);
             if (count <= 0) break;
             var row = cells.AsSpan(start, count).ToArray();
-            rows.Add(new { Y = y, TerrainIds = row.Select(value => (int)value).ToArray(), TerrainHex = row.Select(value => "0x" + value.ToString("X2", CultureInfo.InvariantCulture)).ToArray(), TerrainSummary = BuildHexzmapRowTerrainSummary(row, terrainLookup) });
+            rows.Add(new { Y = y, TerrainIds = row.Select(value => (int)value).ToArray(), TerrainHex = row.Select(HexDisplayFormatter.FormatByte).ToArray(), TerrainSummary = BuildHexzmapRowTerrainSummary(row, terrainLookup) });
         }
         return rows;
     }
 
     private static string BuildHexzmapRowTerrainSummary(byte[] row, IReadOnlyDictionary<byte, string> terrainLookup)
-        => string.Join(" / ", row.GroupBy(value => value).OrderByDescending(group => group.Count()).ThenBy(group => group.Key).Take(8).Select(group => { var name = ResolveTerrainName(terrainLookup, group.Key); var label = string.IsNullOrWhiteSpace(name) ? "0x" + group.Key.ToString("X2", CultureInfo.InvariantCulture) : "0x" + group.Key.ToString("X2", CultureInfo.InvariantCulture) + "(" + name + ")"; return label + ":" + group.Count().ToString(CultureInfo.InvariantCulture); }));
+        => string.Join(" / ", row.GroupBy(value => value).OrderByDescending(group => group.Count()).ThenBy(group => group.Key).Take(8).Select(group => { var name = ResolveTerrainName(terrainLookup, group.Key); var terrainHex = HexDisplayFormatter.FormatByte(group.Key); var label = string.IsNullOrWhiteSpace(name) ? terrainHex : terrainHex + "(" + name + ")"; return label + ":" + group.Count().ToString(CultureInfo.InvariantCulture); }));
 
     private static string ResolveTerrainName(IReadOnlyDictionary<byte, string> terrainLookup, byte terrainId)
         => terrainLookup.TryGetValue(terrainId, out var name) ? name : string.Empty;
@@ -573,17 +599,17 @@ public sealed partial class CczMcpRuntime
     private static bool MatchesLegacyCommandKeyword(LegacyScenarioCommandNode command, string? keyword)
     {
         if (string.IsNullOrWhiteSpace(keyword)) return true;
-        return command.CommandName.Contains(keyword, StringComparison.OrdinalIgnoreCase) || command.CommandIdHex.Contains(keyword, StringComparison.OrdinalIgnoreCase) || command.FileOffset.ToString(CultureInfo.InvariantCulture).Contains(keyword, StringComparison.OrdinalIgnoreCase) || ("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture)).Contains(keyword, StringComparison.OrdinalIgnoreCase) || command.Parameters.Any(parameter => parameter.DisplayValue.Contains(keyword, StringComparison.OrdinalIgnoreCase) || parameter.LayoutCodeHex.Contains(keyword, StringComparison.OrdinalIgnoreCase) || parameter.TagHex.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+        return command.CommandName.Contains(keyword, StringComparison.OrdinalIgnoreCase) || command.CommandIdHex.Contains(keyword, StringComparison.OrdinalIgnoreCase) || command.FileOffset.ToString(CultureInfo.InvariantCulture).Contains(keyword, StringComparison.OrdinalIgnoreCase) || HexDisplayFormatter.FormatOffset(command.FileOffset).Contains(HexDisplayFormatter.NormalizeText(keyword), StringComparison.OrdinalIgnoreCase) || command.Parameters.Any(parameter => parameter.DisplayValue.Contains(keyword, StringComparison.OrdinalIgnoreCase) || parameter.LayoutCodeHex.Contains(keyword, StringComparison.OrdinalIgnoreCase) || parameter.TagHex.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesScenarioTextKeyword(ScenarioTextEntry text, string keyword)
         => text.Text.Contains(keyword, StringComparison.OrdinalIgnoreCase) || text.Preview.Contains(keyword, StringComparison.OrdinalIgnoreCase) || text.Kind.Contains(keyword, StringComparison.OrdinalIgnoreCase) || text.Annotation.Contains(keyword, StringComparison.OrdinalIgnoreCase) || text.OffsetHex.Contains(keyword, StringComparison.OrdinalIgnoreCase);
 
     private static object BuildLegacyScenarioCommandPayload(LegacyScenarioCommandNode command)
-        => new { command.CommandOrdinal, command.SceneIndex, command.SectionIndex, command.CommandIndex, command.CommandId, command.CommandIdHex, command.CommandName, OffsetHex = "0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), command.FileOffset, command.ConsumedBytes, command.StartsBodyBlock, command.IsSubEventMarker, command.OpensSubEventBlock, command.EndsSubEventBlock, command.JumpTargetOrdinal, command.JumpTargetCommandIndex, command.OriginalJumpDisplacement, TextParameterCount = command.TextParameters.Count(), Parameters = command.Parameters.Select(BuildLegacyScenarioParameterPayload) };
+        => new { command.CommandOrdinal, command.SceneIndex, command.SectionIndex, command.CommandIndex, command.CommandId, CommandIdHex = HexDisplayFormatter.NormalizeText(command.CommandIdHex), command.CommandName, OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset), command.FileOffset, command.ConsumedBytes, command.StartsBodyBlock, command.IsSubEventMarker, command.OpensSubEventBlock, command.EndsSubEventBlock, command.JumpTargetOrdinal, command.JumpTargetCommandIndex, command.OriginalJumpDisplacement, TextParameterCount = command.TextParameters.Count(), Parameters = command.Parameters.Select(BuildLegacyScenarioParameterPayload) };
 
     private static object BuildLegacyScenarioParameterPayload(LegacyScenarioCommandParameter parameter)
-        => new { parameter.Index, Kind = parameter.Kind.ToString(), parameter.LayoutCode, parameter.LayoutCodeHex, parameter.Tag, parameter.TagHex, OffsetHex = "0x" + parameter.FileOffset.ToString("X6", CultureInfo.InvariantCulture), parameter.FileOffset, parameter.ByteLength, parameter.IntValue, Values = parameter.Values.Take(32).ToList(), ValuePreview = TrimForMcp(parameter.DisplayValue, 600) };
+        => new { parameter.Index, Kind = parameter.Kind.ToString(), parameter.LayoutCode, LayoutCodeHex = HexDisplayFormatter.NormalizeText(parameter.LayoutCodeHex), parameter.Tag, TagHex = HexDisplayFormatter.NormalizeText(parameter.TagHex), OffsetHex = HexDisplayFormatter.FormatOffset(parameter.FileOffset), parameter.FileOffset, parameter.ByteLength, parameter.IntValue, Values = parameter.Values.Take(32).ToList(), ValuePreview = HexDisplayFormatter.NormalizeText(TrimForMcp(parameter.DisplayValue, 600)) };
 
     private static bool MatchesScenarioCommandKeyword(ScenarioCommandTemplateCatalogItem item, string? keyword)
     {
@@ -650,7 +676,7 @@ public sealed partial class CczMcpRuntime
         => new { resource.Key, resource.Category, resource.DisplayName, resource.FileName, resource.Aliases, resource.Usage, resource.RelativePath, ProjectRelativePath = TryNormalizeProjectRelativePath(project, resource.Path), resource.Path, resource.Exists, resource.SizeBytes, resource.EntryCount, resource.SupportsE5Index, resource.SupportsPreview, resource.CanReplace, resource.ResourceFormat, resource.KindSummary, resource.Status, resource.SafetyNote };
 
     private static object BuildImageResourceEntryPayload(CczProject project, ImageResourceEntryInfo entry)
-        => new { entry.ResourceKey, entry.Category, entry.ResourceName, entry.FileName, ProjectRelativePath = TryNormalizeProjectRelativePath(project, entry.Path), entry.Path, entry.ImageNumber, IndexOffsetHex = "0x" + entry.IndexOffset.ToString("X", CultureInfo.InvariantCulture), DataOffsetHex = "0x" + entry.DataOffset.ToString("X", CultureInfo.InvariantCulture), entry.IndexOffset, entry.DataOffset, entry.StoredLength, entry.DecodedLength, entry.IsCompressed, entry.Kind, entry.Usage, entry.CanReplace };
+        => new { entry.ResourceKey, entry.Category, entry.ResourceName, entry.FileName, ProjectRelativePath = TryNormalizeProjectRelativePath(project, entry.Path), entry.Path, entry.ImageNumber, IndexOffsetHex = HexDisplayFormatter.FormatOffset(entry.IndexOffset), DataOffsetHex = HexDisplayFormatter.FormatOffset(entry.DataOffset), entry.IndexOffset, entry.DataOffset, entry.StoredLength, entry.DecodedLength, entry.IsCompressed, entry.Kind, entry.Usage, entry.CanReplace };
 
     private object BuildAiImageReplacementPreview(CczProject project, AiImagePromptPlan plan, string outputPath)
     {
@@ -701,7 +727,7 @@ public sealed partial class CczMcpRuntime
     }
 
     private static object BuildE5ImageBatchReplacePayload(E5ImageBatchReplacePreviewResult preview)
-        => new { preview.TargetPath, preview.TargetRelativePath, preview.OperationCount, preview.OldFileSizeBytes, preview.NewFileSizeBytes, preview.FileSizeDeltaBytes, preview.ChangedBytesEstimate, preview.OldFileSha256, preview.NewFileSha256, preview.FormatWarnings, preview.RiskSummary, Operations = preview.Operations.Select(operation => new { operation.ImageNumber, IndexOffsetHex = "0x" + operation.IndexOffset.ToString("X", CultureInfo.InvariantCulture), OldDataOffsetHex = "0x" + operation.OldDataOffset.ToString("X", CultureInfo.InvariantCulture), NewDataOffsetHex = "0x" + operation.NewDataOffset.ToString("X", CultureInfo.InvariantCulture), operation.IndexOffset, operation.OldDataOffset, operation.NewDataOffset, operation.OldSizeBytes, operation.NewSizeBytes, operation.OldKind, operation.NewKind, operation.SourcePath, operation.OperationKind, operation.SourceSha256, operation.SourceWidth, operation.SourceHeight, operation.Placement, operation.FormatWarnings }) };
+        => new { preview.TargetPath, preview.TargetRelativePath, preview.OperationCount, preview.OldFileSizeBytes, preview.NewFileSizeBytes, preview.FileSizeDeltaBytes, preview.ChangedBytesEstimate, preview.OldFileSha256, preview.NewFileSha256, preview.FormatWarnings, preview.RiskSummary, Operations = preview.Operations.Select(operation => new { operation.ImageNumber, IndexOffsetHex = HexDisplayFormatter.FormatOffset(operation.IndexOffset), OldDataOffsetHex = HexDisplayFormatter.FormatOffset(operation.OldDataOffset), NewDataOffsetHex = HexDisplayFormatter.FormatOffset(operation.NewDataOffset), operation.IndexOffset, operation.OldDataOffset, operation.NewDataOffset, operation.OldSizeBytes, operation.NewSizeBytes, operation.OldKind, operation.NewKind, operation.SourcePath, operation.OperationKind, operation.SourceSha256, operation.SourceWidth, operation.SourceHeight, operation.Placement, operation.FormatWarnings }) };
 
     private static object BuildDllIconReplacePayload(IconResourceReplacePreviewResult preview)
         => new { preview.TargetPath, preview.TargetRelativePath, preview.IconIndex, preview.ResourceIds, preview.SourcePath, preview.OperationKind, preview.OldFileSizeBytes, preview.SourceSizeBytes, preview.OldFileSha256, preview.SourceSha256, preview.SourceWidth, preview.SourceHeight, preview.ResourceFormat, preview.FormatWarnings, preview.RiskSummary };

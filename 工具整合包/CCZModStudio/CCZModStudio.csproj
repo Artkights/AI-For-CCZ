@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,6 +9,68 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSelfContained>true</PublishSelfContained>
+    <ApplicationIcon>Assets\About\Doro-white.ico</ApplicationIcon>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**;_BuildCheck\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained Condition="'$(UseAppHost)' != 'false'">true</SelfContained>
+    <SelfContained Condition="'$(UseAppHost)' == 'false'">false</SelfContained>
+  </PropertyGroup>
+
+  <UsingTask TaskName="RemoveEmptyLayoutDirectoriesUnder"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Root ParameterType="System.String" Required="true" />
+      <ExcludedRoot ParameterType="System.String" Required="false" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var root = Path.GetFullPath(Root);
+        var excludedRoot = string.IsNullOrWhiteSpace(ExcludedRoot) ? null : Path.GetFullPath(ExcludedRoot);
+
+        if (Directory.Exists(root))
+        {
+            if (!root.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                root += Path.DirectorySeparatorChar;
+            }
+
+            if (excludedRoot != null && !excludedRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                excludedRoot += Path.DirectorySeparatorChar;
+            }
+
+            foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories).OrderByDescending(path => path.Length))
+            {
+                var fullPath = Path.GetFullPath(directory);
+                var fullPathWithSlash = fullPath.EndsWith(Path.DirectorySeparatorChar.ToString())
+                    ? fullPath
+                    : fullPath + Path.DirectorySeparatorChar;
+
+                if (excludedRoot != null && fullPathWithSlash.StartsWith(excludedRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!Directory.EnumerateFileSystemEntries(fullPath).Any())
+                {
+                    Directory.Delete(fullPath, false);
+                    Log.LogMessage(MessageImportance.Low, "Removed empty output directory '{0}'.", fullPath);
+                }
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <PropertyGroup>
+    <CczPublishRuntimeSubdirectory>net</CczPublishRuntimeSubdirectory>
+    <CczLauncherName>普罗工具整合包</CczLauncherName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,10 +90,156 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>Assets\About\doro.jpg</TargetPath>
     </Content>
+    <Content Include="Assets\About\Doro.webp">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>Assets\About\Doro.webp</TargetPath>
+    </Content>
     <Content Include="Assets\LegacyResources\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>LegacyResources\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
     </Content>
   </ItemGroup>
+
+  <Target Name="ArrangeSelfContainedBuildLayout"
+          AfterTargets="Build"
+          Condition="'$(Configuration)' == 'Release' and '$(_IsPublishing)' != 'true' and '$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' != '' and '$(PublishSingleFile)' != 'true'">
+    <PropertyGroup>
+      <_CczBuildLayoutRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_CczBuildLayoutRoot>
+      <_CczBuildLayoutRoot Condition="!HasTrailingSlash('$(_CczBuildLayoutRoot)')">$(_CczBuildLayoutRoot)\</_CczBuildLayoutRoot>
+      <_CczBuildRuntimeDirectory>$(_CczBuildLayoutRoot)$(CczPublishRuntimeSubdirectory)\</_CczBuildRuntimeDirectory>
+      <_CczBuildRuntimeDirectoryNoSlash>$([System.IO.Path]::GetFullPath('$(_CczBuildLayoutRoot)$(CczPublishRuntimeSubdirectory)'))</_CczBuildRuntimeDirectoryNoSlash>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_CczBuildRuntimeDirectory)" />
+
+    <ItemGroup>
+      <_CczBuildFilesToMove Include="@(FileWrites)"
+                            Condition="Exists('%(FullPath)') and
+                                       $([System.String]::Copy('%(FullPath)').StartsWith('$(_CczBuildLayoutRoot)')) and
+                                       !$([System.String]::Copy('%(FullPath)').StartsWith('$(_CczBuildRuntimeDirectory)'))">
+        <CczRelativePath>$([System.String]::Copy('%(FullPath)').Replace('$(_CczBuildLayoutRoot)', ''))</CczRelativePath>
+      </_CczBuildFilesToMove>
+    </ItemGroup>
+
+    <Move SourceFiles="@(_CczBuildFilesToMove)"
+          DestinationFiles="@(_CczBuildFilesToMove->'$(_CczBuildRuntimeDirectory)%(CczRelativePath)')"
+          OverwriteReadOnlyFiles="true" />
+
+    <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczBuildLayoutRoot)"
+                                       ExcludedRoot="$(_CczBuildRuntimeDirectory)" />
+
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(_CczBuildLayoutRoot)$(CczLauncherName)$(_NativeExecutableExtension)"
+                   AppBinaryName="$(CczPublishRuntimeSubdirectory)\$(AssemblyName)$(TargetExt)"
+                   IntermediateAssembly="$(_CczBuildRuntimeDirectory)$(AssemblyName)$(TargetExt)"
+                   WindowsGraphicalUserInterface="true"
+                   Retries="$(CopyRetryCount)"
+                   RetryDelayMilliseconds="$(CopyRetryDelayMilliseconds)" />
+
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(_CczBuildLayoutRoot)$(AssemblyName)$(_NativeExecutableExtension)"
+                   AppBinaryName="$(CczPublishRuntimeSubdirectory)\$(AssemblyName)$(TargetExt)"
+                   IntermediateAssembly="$(_CczBuildRuntimeDirectory)$(AssemblyName)$(TargetExt)"
+                   WindowsGraphicalUserInterface="true"
+                   Retries="$(CopyRetryCount)"
+                   RetryDelayMilliseconds="$(CopyRetryDelayMilliseconds)"
+                   Condition="'$(CczLauncherName)' != '$(AssemblyName)'" />
+  </Target>
+
+  <Target Name="ArrangeSelfContainedPublishLayout"
+          AfterTargets="Publish"
+          Condition="'$(Configuration)' == 'Release' and '$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' != '' and '$(PublishSingleFile)' != 'true'">
+    <PropertyGroup>
+      <_CczPublishLayoutRoot>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_CczPublishLayoutRoot>
+      <_CczPublishLayoutRoot Condition="!HasTrailingSlash('$(_CczPublishLayoutRoot)')">$(_CczPublishLayoutRoot)\</_CczPublishLayoutRoot>
+      <_CczPublishRuntimeDirectory>$(_CczPublishLayoutRoot)$(CczPublishRuntimeSubdirectory)\</_CczPublishRuntimeDirectory>
+      <_CczPublishRuntimeDirectoryNoSlash>$([System.IO.Path]::GetFullPath('$(_CczPublishLayoutRoot)$(CczPublishRuntimeSubdirectory)'))</_CczPublishRuntimeDirectoryNoSlash>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_CczPublishRuntimeDirectory)" />
+
+    <ItemGroup>
+      <_CczPublishFilesToMove Include="@(FileWrites)"
+                              Condition="Exists('%(FullPath)') and
+                                         $([System.String]::Copy('%(FullPath)').StartsWith('$(_CczPublishLayoutRoot)')) and
+                                         !$([System.String]::Copy('%(FullPath)').StartsWith('$(_CczPublishRuntimeDirectory)'))">
+        <CczRelativePath>$([System.String]::Copy('%(FullPath)').Replace('$(_CczPublishLayoutRoot)', ''))</CczRelativePath>
+      </_CczPublishFilesToMove>
+    </ItemGroup>
+
+    <Move SourceFiles="@(_CczPublishFilesToMove)"
+          DestinationFiles="@(_CczPublishFilesToMove->'$(_CczPublishRuntimeDirectory)%(CczRelativePath)')"
+          OverwriteReadOnlyFiles="true" />
+
+    <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPublishLayoutRoot)"
+                                       ExcludedRoot="$(_CczPublishRuntimeDirectory)" />
+
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(_CczPublishLayoutRoot)$(CczLauncherName)$(_NativeExecutableExtension)"
+                   AppBinaryName="$(CczPublishRuntimeSubdirectory)\$(AssemblyName)$(TargetExt)"
+                   IntermediateAssembly="$(_CczPublishRuntimeDirectory)$(AssemblyName)$(TargetExt)"
+                   WindowsGraphicalUserInterface="true"
+                   Retries="$(CopyRetryCount)"
+                   RetryDelayMilliseconds="$(CopyRetryDelayMilliseconds)" />
+
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(_CczPublishLayoutRoot)$(AssemblyName)$(_NativeExecutableExtension)"
+                   AppBinaryName="$(CczPublishRuntimeSubdirectory)\$(AssemblyName)$(TargetExt)"
+                   IntermediateAssembly="$(_CczPublishRuntimeDirectory)$(AssemblyName)$(TargetExt)"
+                   WindowsGraphicalUserInterface="true"
+                   Retries="$(CopyRetryCount)"
+                   RetryDelayMilliseconds="$(CopyRetryDelayMilliseconds)"
+                   Condition="'$(CczLauncherName)' != '$(AssemblyName)'" />
+  </Target>
+
+  <Target Name="ArrangeSelfContainedBuildLayoutAfterPublish"
+          AfterTargets="Publish"
+          Condition="'$(Configuration)' == 'Release' and '$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' != '' and '$(PublishSingleFile)' != 'true'">
+    <PropertyGroup>
+      <_CczPostPublishBuildLayoutRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_CczPostPublishBuildLayoutRoot>
+      <_CczPostPublishBuildLayoutRoot Condition="!HasTrailingSlash('$(_CczPostPublishBuildLayoutRoot)')">$(_CczPostPublishBuildLayoutRoot)\</_CczPostPublishBuildLayoutRoot>
+      <_CczPostPublishRuntimeDirectory>$(_CczPostPublishBuildLayoutRoot)$(CczPublishRuntimeSubdirectory)\</_CczPostPublishRuntimeDirectory>
+      <_CczPostPublishRuntimeDirectoryNoSlash>$([System.IO.Path]::GetFullPath('$(_CczPostPublishBuildLayoutRoot)$(CczPublishRuntimeSubdirectory)'))</_CczPostPublishRuntimeDirectoryNoSlash>
+      <_CczPostPublishDirectory>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_CczPostPublishDirectory>
+      <_CczPostPublishDirectory Condition="!HasTrailingSlash('$(_CczPostPublishDirectory)')">$(_CczPostPublishDirectory)\</_CczPostPublishDirectory>
+      <_CczPostPublishDirectoryNoSlash>$([System.IO.Path]::GetFullPath('$(PublishDir)'))</_CczPostPublishDirectoryNoSlash>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_CczPostPublishRuntimeDirectory)" />
+
+    <ItemGroup>
+      <_CczPostPublishBuildFilesToMove Include="@(FileWrites)"
+                                       Condition="Exists('%(FullPath)') and
+                                                  $([System.String]::Copy('%(FullPath)').StartsWith('$(_CczPostPublishBuildLayoutRoot)')) and
+                                                  !$([System.String]::Copy('%(FullPath)').StartsWith('$(_CczPostPublishRuntimeDirectory)')) and
+                                                  !$([System.String]::Copy('%(FullPath)').StartsWith('$(_CczPostPublishDirectory)'))">
+        <CczRelativePath>$([System.String]::Copy('%(FullPath)').Replace('$(_CczPostPublishBuildLayoutRoot)', ''))</CczRelativePath>
+      </_CczPostPublishBuildFilesToMove>
+    </ItemGroup>
+
+    <Move SourceFiles="@(_CczPostPublishBuildFilesToMove)"
+          DestinationFiles="@(_CczPostPublishBuildFilesToMove->'$(_CczPostPublishRuntimeDirectory)%(CczRelativePath)')"
+          OverwriteReadOnlyFiles="true" />
+
+    <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPostPublishBuildLayoutRoot)"
+                                       ExcludedRoot="$(_CczPostPublishRuntimeDirectory)" />
+
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(_CczPostPublishBuildLayoutRoot)$(CczLauncherName)$(_NativeExecutableExtension)"
+                   AppBinaryName="$(CczPublishRuntimeSubdirectory)\$(AssemblyName)$(TargetExt)"
+                   IntermediateAssembly="$(_CczPostPublishRuntimeDirectory)$(AssemblyName)$(TargetExt)"
+                   WindowsGraphicalUserInterface="true"
+                   Retries="$(CopyRetryCount)"
+                   RetryDelayMilliseconds="$(CopyRetryDelayMilliseconds)" />
+
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(_CczPostPublishBuildLayoutRoot)$(AssemblyName)$(_NativeExecutableExtension)"
+                   AppBinaryName="$(CczPublishRuntimeSubdirectory)\$(AssemblyName)$(TargetExt)"
+                   IntermediateAssembly="$(_CczPostPublishRuntimeDirectory)$(AssemblyName)$(TargetExt)"
+                   WindowsGraphicalUserInterface="true"
+                   Retries="$(CopyRetryCount)"
+                   RetryDelayMilliseconds="$(CopyRetryDelayMilliseconds)"
+                   Condition="'$(CczLauncherName)' != '$(AssemblyName)'" />
+  </Target>
 
 </Project>

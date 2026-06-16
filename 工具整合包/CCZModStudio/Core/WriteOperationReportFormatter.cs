@@ -76,7 +76,7 @@ public sealed class WriteOperationReportFormatter
             }
         }
 
-        return builder.ToString();
+        return HexDisplayFormatter.NormalizeText(builder.ToString());
     }
 
     private static string ShortHash(string hash)

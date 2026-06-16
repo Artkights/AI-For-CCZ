@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Globalization;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Formats;
@@ -55,7 +56,7 @@ public sealed class EexByteHeatmapService
         var textHits = BinaryTextScanner.ScanGbkNullTerminatedStringHits(span.ToArray(), minByteLength: 5, maxItems: 6, requireCjk: false);
         var textHints = textHits.Count == 0
             ? string.Empty
-            : string.Join(" / ", textHits.Select(x => $"0x{start + x.Offset:X6}:{(x.Text.Length > 24 ? x.Text[..24] + "…" : x.Text)}"));
+            : string.Join(" / ", textHits.Select(x => $"{HexDisplayFormatter.FormatOffset(start + x.Offset)}:{(x.Text.Length > 24 ? x.Text[..24] + "…" : x.Text)}"));
         var unique = histogram.Count(x => x > 0);
         var zeroPercent = histogram[0] * 100.0 / actualLength;
         var ffPercent = histogram[0xFF] * 100.0 / actualLength;
@@ -218,7 +219,7 @@ public sealed class EexByteHeatmapService
             .OrderByDescending(x => x.Count)
             .ThenBy(x => x.Value)
             .Take(8)
-            .Select(x => $"0x{x.Value:X2}:{x.Count}"));
+            .Select(x => $"{HexDisplayFormatter.Format(x.Value, 2)}:{x.Count}"));
     }
 
     private static string FormatTopWords(ReadOnlySpan<byte> span)
@@ -234,7 +235,7 @@ public sealed class EexByteHeatmapService
             .OrderByDescending(x => x.Value)
             .ThenBy(x => x.Key)
             .Take(8)
-            .Select(x => $"0x{x.Key:X4}:{x.Value}"));
+            .Select(x => $"{HexDisplayFormatter.FormatWord(x.Key)}:{x.Value}"));
     }
 
     private static string InferRole(

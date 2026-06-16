@@ -513,7 +513,7 @@ public sealed class ScenarioTextImportService
             return command;
         }
 
-        errors.Add(new ScenarioTextImportError(block.StartLine, $"无法创建命令 0x{commandId:X2}。请确认 CczString.ini 已加载且该命令有旧版参数布局。"));
+        errors.Add(new ScenarioTextImportError(block.StartLine, $"无法创建命令 {HexDisplayFormatter.Format(commandId, 2)}。请确认 CczString.ini 已加载且该命令有旧版参数布局。"));
         return null;
     }
 

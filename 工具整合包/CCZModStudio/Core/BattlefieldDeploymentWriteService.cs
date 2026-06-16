@@ -204,7 +204,7 @@ public sealed class BattlefieldDeploymentWriteService
             command.SceneIndex == locator.SceneIndex &&
             command.SectionIndex == locator.SectionIndex &&
             command.CommandIndex == locator.CommandIndex &&
-            (string.IsNullOrWhiteSpace(locator.OffsetHex) || string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), locator.OffsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(locator.OffsetHex) || HexDisplayFormatter.EqualsText(HexDisplayFormatter.FormatOffset(command.FileOffset), locator.OffsetHex)) &&
             (string.IsNullOrWhiteSpace(locator.CommandIdHex) || string.Equals(command.CommandIdHex, locator.CommandIdHex, StringComparison.OrdinalIgnoreCase)));
     }
 

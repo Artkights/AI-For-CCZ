@@ -273,10 +273,10 @@ function Get-DiffRows {
         if ($Before[$i] -eq $After[$i]) { continue }
         $rows.Add([pscustomobject]@{
             Range = $RangeName
-            Offset = ("0x{0:X}" -f $i)
-            Address = ("0x{0:X8}" -f ($BaseAddress + [uint32]$i))
-            Before = ("0x{0:X2}" -f $Before[$i])
-            After = ("0x{0:X2}" -f $After[$i])
+            Offset = ("{0:X}" -f $i)
+            Address = ("{0:X8}" -f ($BaseAddress + [uint32]$i))
+            Before = ("{0:X2}" -f $Before[$i])
+            After = ("{0:X2}" -f $After[$i])
             DeltaSigned = ([int]$After[$i] - [int]$Before[$i])
         })
         if ($rows.Count -ge $Limit) { break }
@@ -314,7 +314,7 @@ if ($registers.Ok -and $registers.Data.success -and $registers.Data.data) {
     )) {
         $dynamicRanges += [pscustomobject]@{
             Name = $pair.Name
-            Address = ("0x{0:X8}" -f $pair.Address)
+            Address = ("{0:X8}" -f $pair.Address)
             Size = [int]$pair.Size
             Kind = "dynamic-register"
         }
@@ -322,10 +322,10 @@ if ($registers.Ok -and $registers.Data.success -and $registers.Data.data) {
 }
 
 $ranges = @(
-    [pscustomobject]@{ Name = "char_data_004A3E77"; Address = "0x004A3E77"; Size = 0x3CA0; Kind = "known-global-first-160-records" },
-    [pscustomobject]@{ Name = "unit_array_004A7B20"; Address = "0x004A7B20"; Size = 0x3000; Kind = "known-global" },
-    [pscustomobject]@{ Name = "battle_globals_00490000"; Address = "0x00490000"; Size = 0x22000; Kind = "broad-global" },
-    [pscustomobject]@{ Name = "runtime_heap_02E90000"; Address = "0x02E90000"; Size = 0x30000; Kind = "observed-runtime" }
+    [pscustomobject]@{ Name = "char_data_004A3E77"; Address = "004A3E77"; Size = 0x3CA0; Kind = "known-global-first-160-records" },
+    [pscustomobject]@{ Name = "unit_array_004A7B20"; Address = "004A7B20"; Size = 0x3000; Kind = "known-global" },
+    [pscustomobject]@{ Name = "battle_globals_00490000"; Address = "00490000"; Size = 0x22000; Kind = "broad-global" },
+    [pscustomobject]@{ Name = "runtime_heap_02E90000"; Address = "02E90000"; Size = 0x30000; Kind = "observed-runtime" }
 ) + $dynamicRanges
 
 foreach ($extra in $ExtraRange) {

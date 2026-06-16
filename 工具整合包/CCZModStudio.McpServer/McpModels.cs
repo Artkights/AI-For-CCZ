@@ -47,3 +47,51 @@ public sealed class E5ImageBatchUpdate
     [JsonPropertyName("operation_kind")]
     public string OperationKind { get; init; } = "replace";
 }
+
+public sealed class BattlefieldUnitStatusUpdate
+{
+    [JsonPropertyName("target_key")]
+    public string TargetKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("level_bonus")]
+    public int? LevelBonus { get; init; }
+
+    [JsonPropertyName("job_level")]
+    public int? JobLevel { get; init; }
+
+    [JsonPropertyName("ai_policy")]
+    public int? AiPolicy { get; init; }
+
+    [JsonPropertyName("weapon")]
+    public int? Weapon { get; init; }
+
+    [JsonPropertyName("weapon_level")]
+    public int? WeaponLevel { get; init; }
+
+    [JsonPropertyName("armor")]
+    public int? Armor { get; init; }
+
+    [JsonPropertyName("armor_level")]
+    public int? ArmorLevel { get; init; }
+
+    [JsonPropertyName("assist")]
+    public int? Assist { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public int? JobId { get; init; }
+
+    [JsonPropertyName("abilities")]
+    public List<BattlefieldUnitAbilityUpdate>? Abilities { get; init; }
+}
+
+public sealed class BattlefieldUnitAbilityUpdate
+{
+    [JsonPropertyName("ability_id")]
+    public int AbilityId { get; init; }
+
+    [JsonPropertyName("operation")]
+    public int? Operation { get; init; }
+
+    [JsonPropertyName("value")]
+    public int? Value { get; init; }
+}

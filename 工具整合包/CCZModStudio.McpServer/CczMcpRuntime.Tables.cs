@@ -30,7 +30,7 @@ public sealed partial class CczMcpRuntime
                 BeginId = table.BeginId,
                 table.RowCount,
                 table.RowSize,
-                DataPosHex = "0x" + table.DataPos.ToString("X", CultureInfo.InvariantCulture),
+                DataPosHex = HexDisplayFormatter.FormatOffset(table.DataPos),
                 table.ReadOnly,
                 Fields = table.Fields.Select(field => new
                 {

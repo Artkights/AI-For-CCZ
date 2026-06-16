@@ -248,7 +248,7 @@ function Read-ProcessMemoryBytes {
     $ok = [CczReadProcessMemory.NativeMethods]::ReadProcessMemory($script:processHandle, [IntPtr]([int64]$Address), $buffer, $Size, [ref]$bytesRead)
     if (-not $ok) {
         $lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw ("ReadProcessMemory failed at 0x{0:X8}, size {1}, error {2}" -f $Address, $Size, $lastError)
+        throw ("ReadProcessMemory failed at {0:X8}, size {1}, error {2}" -f $Address, $Size, $lastError)
     }
 
     $actual = $bytesRead.ToInt32()
@@ -421,7 +421,7 @@ function Get-EventSummary {
         $bits = @()
         foreach ($fieldChange in $change.Changes) {
             if ($fieldChange.Field -eq "Action") {
-                $bits += ("Action 0x{0:X2}->0x{1:X2}" -f [int]$fieldChange.Before, [int]$fieldChange.After)
+                $bits += ("Action {0:X2}->0x{1:X2}" -f [int]$fieldChange.Before, [int]$fieldChange.After)
             }
             elseif ($fieldChange.Field -eq "X" -or $fieldChange.Field -eq "Y") {
                 continue

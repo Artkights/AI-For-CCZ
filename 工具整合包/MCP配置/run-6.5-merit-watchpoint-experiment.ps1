@@ -192,12 +192,12 @@ function Get-CandidateMemoryReads {
         $size = [Math]::Max([int]$candidate.HardwareSize, [int]$MemoryAroundCandidate)
         $base = [uint32]((ConvertTo-UInt32Address $address) - [uint32]([Math]::Min(8, $MemoryAroundCandidate)))
         $read = Invoke-X32dbgJson GET "/api/memory/read" @{
-            address = ("0x{0:X8}" -f $base)
+            address = ("{0:X8}" -f $base)
             size = [string]$size
         } -TimeoutSec 5
         $rows.Add([pscustomobject]@{
             CandidateAddress = $address
-            ReadAddress = ("0x{0:X8}" -f $base)
+            ReadAddress = ("{0:X8}" -f $base)
             Size = $size
             Candidate = $candidate
             Read = $read

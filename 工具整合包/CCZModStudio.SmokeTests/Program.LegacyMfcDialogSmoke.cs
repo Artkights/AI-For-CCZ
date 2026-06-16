@@ -66,25 +66,31 @@ internal partial class Program
         var variableTest = BuildDisplayCommand(0x05, "变量测试", [], string.Empty);
         variableTest.Parameters.Add(new LegacyScenarioCommandParameter { Index = 0, Kind = LegacyScenarioParameterKind.VariableArray, Values = { 20 } });
         variableTest.Parameters.Add(new LegacyScenarioCommandParameter { Index = 1, Kind = LegacyScenarioParameterKind.VariableArray });
-        AssertTrue(formatter.FormatCommand(variableTest).Contains("Var20;无", StringComparison.Ordinal), "command 0x05 display uses old variable-array summary");
+        AssertTrue(formatter.FormatCommand(variableTest).Contains("Var20;无", StringComparison.Ordinal), "command 05 display uses old variable-array summary");
 
         var positionTest = BuildDisplayCommand(0x25, "武将进入指定地点测试", [LegacyMfcDialogDataSources.Per2ListToCode(1025), 13, 12], string.Empty);
         var positionText = formatter.FormatCommand(positionTest);
-        AssertTrue(positionText.Contains("13,12", StringComparison.Ordinal), "command 0x25 display includes coordinates");
-        AssertTrue(!positionText.Contains("P0=", StringComparison.Ordinal), "command 0x25 display hides raw parameter tokens");
+        AssertTrue(positionText.Contains("13,12", StringComparison.Ordinal), "command 25 display includes coordinates");
+        AssertTrue(!positionText.Contains("P0=", StringComparison.Ordinal), "command 25 display hides raw parameter tokens");
 
         var personCondition = BuildDisplayCommand(0x36, "武将状态测试", [146, 7, 0, 2], string.Empty);
         var conditionText = formatter.FormatCommand(personCondition);
-        AssertTrue(conditionText.Contains("HPCur", StringComparison.Ordinal), "command 0x36 display maps condition name");
-        AssertTrue(conditionText.Contains("=", StringComparison.Ordinal), "command 0x36 display maps compare operator");
+        AssertTrue(conditionText.Contains("HPCur", StringComparison.Ordinal), "command 36 display maps condition name");
+        AssertTrue(conditionText.Contains("=", StringComparison.Ordinal), "command 36 display maps compare operator");
 
         AssertEqual(70, dataSources.WeaponCount, "legacy equipment preview weapon count follows System.ini DefID");
         AssertEqual(39, dataSources.ArmorCount, "legacy equipment preview armor count follows System.ini AssID");
         AssertEqual(147, dataSources.AssistCount, "legacy equipment preview assist count follows System.ini AssID");
         var equipmentSet = BuildDisplayCommand(0x48, "战场装备设定", [0, 0, 0, 0, 0, 15], string.Empty);
         var equipmentSetText = formatter.FormatCommand(equipmentSet);
-        AssertTrue(equipmentSetText.Contains("122:绝影", StringComparison.Ordinal), "command 0x48 assist code 15 maps to global item ID122");
-        AssertTrue(!equipmentSetText.Contains("132:太平清领道", StringComparison.Ordinal), "command 0x48 assist preview must not use stale ItemDefenseSum=49 offset");
+        AssertTrue(equipmentSetText.Contains("122:绝影", StringComparison.Ordinal), "command 48 assist code 15 maps to global item ID122");
+        AssertTrue(!equipmentSetText.Contains("132:太平清领道", StringComparison.Ordinal), "command 48 assist preview must not use stale ItemDefenseSum=49 offset");
+
+        var prefixedEquipmentSet = BuildDisplayCommand(0x48, "48:敌方装备设定", [321, 0, 0, 0, 0, 15], string.Empty);
+        var prefixedEquipmentSetText = formatter.FormatCommand(prefixedEquipmentSet);
+        AssertTrue(prefixedEquipmentSetText.StartsWith("48:敌方装备设定 ", StringComparison.Ordinal), "command display strips duplicate numeric prefix");
+        AssertTrue(!prefixedEquipmentSetText.Contains("48:48:", StringComparison.Ordinal), "command display does not duplicate command id prefix");
+        AssertTrue(prefixedEquipmentSetText.Contains("321(", StringComparison.Ordinal), "command display includes person name next to Per2 id");
 
         var rSceneDocument = new LegacyScenarioDocument { FilePath = "R_00.eex" };
         var rScene = new LegacyScenarioScene { SceneIndex = 0 };
@@ -92,9 +98,9 @@ internal partial class Program
         var rSceneAppearance = BuildDisplayCommand(0x30, "武将出现", [LegacyMfcDialogDataSources.Per2ListToCode(12), 13, 12, 0, 0], string.Empty);
         var rSceneMove = BuildDisplayCommand(0x32, "武将移动", [0, LegacyMfcDialogDataSources.Per2ListToCode(12), 0, 40, 15, 0], string.Empty);
         var rSceneMoveText = formatter.FormatCommand(rSceneMove);
-        AssertTrue(rSceneMoveText.Contains("12", StringComparison.Ordinal), "command 0x32 display keeps data-role person number");
-        AssertTrue(!rSceneMoveText.Contains("data角色", StringComparison.Ordinal), "command 0x32 data-role display matches command 0x30 person label style");
-        AssertTrue(!rSceneMoveText.Contains("战场编号 0", StringComparison.Ordinal), "command 0x32 display does not misread mode 0 as battle number");
+        AssertTrue(rSceneMoveText.Contains("12", StringComparison.Ordinal), "command 32 display keeps data-role person number");
+        AssertTrue(!rSceneMoveText.Contains("data角色", StringComparison.Ordinal), "command 32 data-role display matches command 30 person label style");
+        AssertTrue(!rSceneMoveText.Contains("战场编号 0", StringComparison.Ordinal), "command 32 display does not misread mode 0 as battle number");
         rSection.Commands.Add(rSceneAppearance);
         rScene.Sections.Add(rSection);
         rSceneDocument.Scenes.Add(rScene);
@@ -109,7 +115,7 @@ internal partial class Program
 
         var variablePersonCode = ScriptVariableValueResolver.EncodePerson2VariableReference(44);
         var variableAppearance = BuildDisplayCommand(0x30, "R scene variable appearance", [variablePersonCode, 7, 8, 0, 0], string.Empty);
-        AssertTrue(formatter.FormatCommand(variableAppearance).Contains("V44", StringComparison.Ordinal), "command 0x30 variable person displays as V-number");
+        AssertTrue(formatter.FormatCommand(variableAppearance).Contains("V44", StringComparison.Ordinal), "command 30 variable person displays as V-number");
         var variableDocument = new LegacyScenarioDocument { FilePath = "R_01.eex" };
         var variableScene = new LegacyScenarioScene { SceneIndex = 0 };
         var variableSection = new LegacyScenarioSection { SceneIndex = 0, SectionIndex = 0 };

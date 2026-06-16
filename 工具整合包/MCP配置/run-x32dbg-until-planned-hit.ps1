@@ -64,10 +64,10 @@ function Normalize-X32Address {
     try {
         $number = [Convert]::ToUInt64($hex, 16)
         if ($hex.Length -le 8) {
-            return "0x" + (("{0:X}" -f $number).PadLeft(8, "0"))
+            return (("{0:X}" -f $number).PadLeft(8, "0"))
         }
 
-        return ("0x{0:X}" -f $number)
+        return ("{0:X}" -f $number)
     }
     catch {
         return $text.ToUpperInvariant()

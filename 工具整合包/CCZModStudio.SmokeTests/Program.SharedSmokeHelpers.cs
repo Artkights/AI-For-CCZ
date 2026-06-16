@@ -31,7 +31,7 @@ internal partial class Program
             command.SceneIndex == scene &&
             command.SectionIndex == section &&
             command.CommandIndex == commandIndex &&
-            (string.IsNullOrWhiteSpace(offsetHex) || string.Equals("0x" + command.FileOffset.ToString("X6", CultureInfo.InvariantCulture), offsetHex, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(offsetHex) || CCZModStudio.Core.HexDisplayFormatter.EqualsText(CCZModStudio.Core.HexDisplayFormatter.Format(command.FileOffset, 6), offsetHex)) &&
             (string.IsNullOrWhiteSpace(commandIdHex) || string.Equals(command.CommandIdHex, commandIdHex, StringComparison.OrdinalIgnoreCase)));
     }
     
@@ -157,5 +157,26 @@ internal partial class Program
         {
             throw new InvalidOperationException($"EffectPackage apply result validation failed: domain={result.Domain}, changes={result.ChangeCount}, manifest={result.ManifestPath}, backups={result.BackupPaths.Count}, reports={result.ReportPaths.Count}");
         }
+    }
+
+    static void AssertPreviewFails(Action action, string expectedMessagePart)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            var message = ex.Message ?? string.Empty;
+            if (message.Contains(expectedMessagePart, StringComparison.OrdinalIgnoreCase) ||
+                ex.InnerException?.Message.Contains(expectedMessagePart, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"Preview failed, but the message did not contain the expected text. expected={expectedMessagePart}, actual={message}", ex);
+        }
+
+        throw new InvalidOperationException($"Preview was expected to fail with: {expectedMessagePart}");
     }
 }

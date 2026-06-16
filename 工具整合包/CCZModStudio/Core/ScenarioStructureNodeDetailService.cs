@@ -68,11 +68,11 @@ public sealed class ScenarioStructureNodeDetailService
 
         builder.AppendLine();
         builder.AppendLine("参数分组解释（只读候选）：");
-        builder.AppendLine("- 逻辑参数候选：" + string.Join(" ", words.Select(word => $"0x{word:X4}({word})")));
+        builder.AppendLine("- 逻辑参数候选：" + string.Join(" ", words.Select(word => $"{HexDisplayFormatter.FormatWord(word)}({word})")));
         var rawWords = ScenarioStructureParameterExtractor.ExtractRawContextWords(row).Take(16).ToList();
         if (rawWords.Count > 0)
         {
-            builder.AppendLine("- 原始上下文 16 位词：" + string.Join(" ", rawWords.Select(word => $"0x{word:X4}({word})")));
+            builder.AppendLine("- 原始上下文 16 位词：" + string.Join(" ", rawWords.Select(word => $"{HexDisplayFormatter.FormatWord(word)}({word})")));
         }
         builder.AppendLine("- 说明：当前尚未确认每条命令的真实参数长度；若旧版解析器已识别逻辑参数，则优先展示逻辑参数，同时保留原始上下文词供交叉核对。");
 
@@ -121,7 +121,7 @@ public sealed class ScenarioStructureNodeDetailService
             .Where(word => word <= 0x00FF)
             .Distinct()
             .Take(10)
-            .Select(word => $"0x{word:X2}/{word}")
+            .Select(word => $"{HexDisplayFormatter.Format(word, 2)}/{word}")
             .ToList();
         if (flowValues.Count > 0)
         {
