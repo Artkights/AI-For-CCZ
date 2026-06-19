@@ -74,6 +74,8 @@ public sealed partial class MainForm
             _roleEditorGrid.DataSource = _currentRoleEditorData;
             ConfigureRoleEditorGrid();
             _saveRoleEditorButton.Enabled = true;
+            _importRoleFaceButton.Enabled = true;
+            _batchImportRoleFaceButton.Enabled = true;
             _exportRoleEditorCsvButton.Enabled = true;
             _importRoleEditorCsvButton.Enabled = true;
             _roleEditorInfoBox.Text = BuildRoleEditorSummary(_currentRoleEditorData);
@@ -474,13 +476,13 @@ public sealed partial class MainForm
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         _roleBiographyBox.Text = Convert.ToString(bioRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
-        _roleCriticalQuoteBox.Text = BuildCriticalQuoteEditorText(criticalMapping);
+        ShowCriticalQuoteEditor(criticalMapping);
         _roleRetreatQuoteBox.Text = Convert.ToString(retreatMapping.QuoteRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
 
         var canSaveAny = bioRow != null || criticalMapping.QuoteRows.Count > 0 || retreatMapping.QuoteRow != null;
         _saveRoleTextDetailButton.Enabled = canSaveAny;
 
-        var criticalByteHint = BuildCriticalQuoteByteHint(criticalMapping, _roleCriticalQuoteBox.Text);
+        var criticalByteHint = BuildCriticalQuoteByteHint(criticalMapping);
         var retreatHint = retreatMapping.QuoteRow == null
             ? retreatMapping.Explanation
             : $"{retreatMapping.Explanation} GBK {EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200 字节。";
@@ -491,66 +493,54 @@ public sealed partial class MainForm
             "保存会写回 Imsg.e5，保存前自动备份，保存后复读校验。";
     }
 
-    private static string BuildCriticalQuoteEditorText(RoleCriticalQuoteMapping mapping)
+    private void ShowCriticalQuoteEditor(RoleCriticalQuoteMapping mapping)
     {
-        if (mapping.QuoteRows.Count == 0)
+        for (var i = 0; i < _roleCriticalQuoteBoxes.Length; i++)
         {
-            return string.Empty;
-        }
+            var hasRow = i < mapping.QuoteRows.Count;
+            var box = _roleCriticalQuoteBoxes[i];
+            var label = _roleCriticalQuoteLabels[i];
 
-        if (mapping.IsSpecialRoleQuote || mapping.QuoteRows.Count == 1)
-        {
-            return Convert.ToString(mapping.QuoteRows[0]["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
-        }
+            box.Text = hasRow
+                ? Convert.ToString(mapping.QuoteRows[i]["介绍"], CultureInfo.InvariantCulture) ?? string.Empty
+                : string.Empty;
+            box.Enabled = hasRow;
+            box.ReadOnly = !hasRow;
 
-        return string.Join(
-            Environment.NewLine + Environment.NewLine,
-            mapping.QuoteRows.Select(row => Convert.ToString(row["介绍"], CultureInfo.InvariantCulture) ?? string.Empty));
+            if (!hasRow)
+            {
+                label.Text = $"第{i + 1}句";
+            }
+            else if (mapping.IsSpecialRoleQuote)
+            {
+                label.Text = $"特殊台词 #{mapping.QuoteIds[i]}";
+            }
+            else
+            {
+                label.Text = $"第{i + 1}句 #{mapping.QuoteIds[i]}";
+            }
+        }
     }
 
-    private static string BuildCriticalQuoteByteHint(RoleCriticalQuoteMapping mapping, string editorText)
+    private void ApplyCriticalQuoteEditorToRows(RoleCriticalQuoteMapping mapping)
+    {
+        for (var i = 0; i < mapping.QuoteRows.Count && i < _roleCriticalQuoteBoxes.Length; i++)
+        {
+            mapping.QuoteRows[i]["介绍"] = _roleCriticalQuoteBoxes[i].Text;
+        }
+    }
+
+    private string BuildCriticalQuoteByteHint(RoleCriticalQuoteMapping mapping)
     {
         if (mapping.QuoteRows.Count == 0)
         {
             return "没有可编辑的暴击台词行。";
         }
 
-        if (mapping.IsSpecialRoleQuote || mapping.QuoteRows.Count == 1)
-        {
-            return $"GBK {EncodingService.GetGbkByteCount(editorText)}/200 字节。";
-        }
-
-        var parts = SplitCriticalQuoteEditorText(editorText, mapping.QuoteRows.Count);
-        var hints = parts
-            .Select((part, index) => $"#{mapping.QuoteIds[index]}={EncodingService.GetGbkByteCount(part)}/200")
+        var hints = mapping.QuoteIds
+            .Select((id, index) => $"#{id}={EncodingService.GetGbkByteCount(_roleCriticalQuoteBoxes[index].Text)}/200")
             .ToArray();
         return "每条 GBK 字节：" + string.Join("，", hints) + "。";
-    }
-
-    private static IReadOnlyList<string> SplitCriticalQuoteEditorText(string text, int expectedCount)
-    {
-        if (expectedCount <= 1)
-        {
-            return new[] { text };
-        }
-
-        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        var parts = normalized
-            .Split(new[] { "\n\n" }, StringSplitOptions.None)
-            .Select(part => part.Replace("\n", "\r\n", StringComparison.Ordinal))
-            .ToList();
-        while (parts.Count < expectedCount)
-        {
-            parts.Add(string.Empty);
-        }
-
-        if (parts.Count > expectedCount)
-        {
-            parts[expectedCount - 1] = string.Join("\r\n\r\n", parts.Skip(expectedCount - 1));
-            parts.RemoveRange(expectedCount, parts.Count - expectedCount);
-        }
-
-        return parts;
     }
 
     private void SaveSelectedRoleTextDetails()
@@ -571,11 +561,7 @@ public sealed partial class MainForm
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         bioRow["介绍"] = _roleBiographyBox.Text;
-        var criticalParts = SplitCriticalQuoteEditorText(_roleCriticalQuoteBox.Text, Math.Max(1, criticalMapping.QuoteRows.Count));
-        for (var i = 0; i < criticalMapping.QuoteRows.Count; i++)
-        {
-            criticalMapping.QuoteRows[i]["介绍"] = criticalParts[i];
-        }
+        ApplyCriticalQuoteEditorToRows(criticalMapping);
 
         if (retreatMapping.QuoteRow != null)
         {
@@ -593,7 +579,7 @@ public sealed partial class MainForm
         var preview =
             $"角色：{roleId} {roleName}\r\n" +
             $"列传 GBK：{EncodingService.GetGbkByteCount(_roleBiographyBox.Text)}/200\r\n" +
-            $"暴击台词：{string.Join(", ", criticalMapping.QuoteIds.Select(id => "#" + id.ToString(CultureInfo.InvariantCulture)))} {BuildCriticalQuoteByteHint(criticalMapping, _roleCriticalQuoteBox.Text)}\r\n" +
+            $"暴击台词：{string.Join(", ", criticalMapping.QuoteIds.Select(id => "#" + id.ToString(CultureInfo.InvariantCulture)))} {BuildCriticalQuoteByteHint(criticalMapping)}\r\n" +
             (retreatMapping.QuoteRow == null
                 ? "撤退台词：未找到实际会使用的撤退台词行，本次不写回撤退台词。"
                 : $"撤退台词 #{retreatMapping.QuoteId} GBK：{EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200");
@@ -4311,6 +4297,216 @@ public sealed partial class MainForm
         _itemIconPreviewInfoBox.Text = message;
     }
 
+    private void BatchImportSelectedItemIcons()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentItemEditorData == null)
+        {
+            MessageBox.Show(this, "请先读取宝物/物品。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedItemRowsForIconImport();
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在宝物表中选中要导入图标的行。", "批量导入宝物图标", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new OpenFileDialog
+        {
+            Title = "选择要导入到所选宝物图标的图片",
+            Filter = "图片文件 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.FileNames.Length == 0) return;
+
+        BatchItemIconImportRequest request;
+        try
+        {
+            request = new BatchItemIconImportRequest
+            {
+                SourceFiles = dialog.FileNames.OrderBy(Path.GetFileName, StringComparer.CurrentCultureIgnoreCase).ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase).ToArray(),
+                TargetRows = BuildItemIconImportTargetRows(selectedRows),
+                MatchMode = "auto",
+                WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+            };
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "批量导入宝物图标", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        BatchItemIconImportPreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchItemIconImportService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch item icon import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "宝物图标批量导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchItemIconImportPreviewText(preview);
+        _itemIconPreviewInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "宝物图标批量导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会批量写入目标图标资源，并自动备份；不会修改宝物表“图标”字段。是否继续？",
+                "确认批量导入宝物图标",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchItemIconImportService.Replace(_project, request);
+            _imageResourceCatalogService.ClearCache();
+            _itemIconPreviewService.ClearCache();
+            ShowSelectedItemEditorCell();
+            _itemIconPreviewInfoBox.Text = BuildBatchItemIconImportResultText(result);
+            SetStatus($"宝物图标批量导入完成：{result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch item icon import failed: " + ex);
+            MessageBox.Show(this, ex.Message, "宝物图标批量导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<DataGridViewRow> GetSelectedItemRowsForIconImport()
+    {
+        return _itemEditorGrid.SelectedCells
+            .Cast<DataGridViewCell>()
+            .Where(cell => cell.RowIndex >= 0)
+            .Select(cell => _itemEditorGrid.Rows[cell.RowIndex])
+            .Where(row => !row.IsNewRow)
+            .Distinct()
+            .OrderBy(row => row.Index)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<BatchItemIconTargetRow> BuildItemIconImportTargetRows(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        var targets = new List<BatchItemIconTargetRow>();
+        foreach (var row in selectedRows)
+        {
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为宝物数据行。");
+            var itemId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+            var nameColumn = dataRow.Table.Columns.Contains("名称") ? "名称" : "鍚嶇О";
+            var iconColumn = dataRow.Table.Columns.Contains("图标") ? "图标" : "鍥炬爣";
+            var itemName = dataRow.Table.Columns.Contains(nameColumn)
+                ? Convert.ToString(dataRow[nameColumn], CultureInfo.InvariantCulture) ?? string.Empty
+                : string.Empty;
+            if (!dataRow.Table.Columns.Contains(iconColumn) || !TryConvertToInt(dataRow[iconColumn], out var iconIndex))
+            {
+                throw new InvalidOperationException($"宝物 ID={itemId} 的图标字段不是有效整数。");
+            }
+
+            targets.Add(new BatchItemIconTargetRow(itemId, itemName, iconIndex));
+        }
+
+        var duplicateIcon = targets.GroupBy(target => target.IconIndex).FirstOrDefault(group => group.Count() > 1);
+        if (duplicateIcon != null)
+        {
+            var ids = string.Join(", ", duplicateIcon.Select(target => target.RowId.ToString(CultureInfo.InvariantCulture)));
+            throw new InvalidOperationException($"选中宝物中有多个条目指向同一图标编号 {duplicateIcon.Key}: {ids}。请调整选择或图标字段。");
+        }
+
+        return targets;
+    }
+
+    private static string BuildBatchItemIconImportPreviewText(BatchItemIconImportPreviewResult preview)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("宝物图标批量导入预览");
+        builder.AppendLine($"目标：{preview.TargetRelativePath} ({preview.ResourceKind})");
+        builder.AppendLine($"匹配成功：{preview.Items.Count}，写入条目：{preview.TotalOperationCount}");
+        builder.AppendLine($"跳过/问题：{preview.SkippedItems.Count}");
+        foreach (var item in preview.Items.Take(30))
+        {
+            var target = preview.ResourceKind.Equals("E5", StringComparison.OrdinalIgnoreCase)
+                ? string.Join("/", item.TargetImageNumbers.Select(number => "#" + number.ToString(CultureInfo.InvariantCulture)))
+                : "RT_BITMAP " + string.Join("/", item.ResourceIds);
+            builder.AppendLine($"- ID={item.RowId} {item.DisplayName} -> 图标#{item.IconIndex} {target} <- {Path.GetFileName(item.SourcePath)}");
+        }
+
+        AppendBatchSkippedAndWarnings(builder, preview.SkippedItems, preview.Warnings);
+        return builder.ToString();
+    }
+
+    private static string BuildBatchItemIconImportResultText(BatchItemIconImportResult result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("宝物图标批量导入完成");
+        builder.AppendLine($"目标：{result.TargetRelativePath} ({result.ResourceKind})");
+        builder.AppendLine($"写入条目：{result.TotalOperationCount}");
+        if (result.DllResult != null)
+        {
+            builder.AppendLine($"备份：{result.DllResult.BackupPath}");
+            builder.AppendLine($"报告：{result.DllResult.ReportJsonPath}");
+        }
+        if (result.E5Result != null)
+        {
+            builder.AppendLine($"备份：{result.E5Result.BackupPath}");
+            builder.AppendLine($"报告：{result.E5Result.ReportJsonPath}");
+        }
+        builder.AppendLine($"汇总报告：{result.AggregateReportPath}");
+        return builder.ToString();
+    }
+
+    private static void AppendBatchSkippedAndWarnings(StringBuilder builder, IReadOnlyList<BatchImageImportSkippedItem> skipped, IReadOnlyList<string> warnings)
+    {
+        if (skipped.Count > 0)
+        {
+            builder.AppendLine("跳过/问题：");
+            foreach (var item in skipped.Take(30))
+            {
+                builder.AppendLine($"- {item.Key}: {item.Reason} {item.SourcePath}");
+            }
+            if (skipped.Count > 30) builder.AppendLine($"- ... 还有 {skipped.Count - 30} 项");
+        }
+
+        if (warnings.Count > 0)
+        {
+            builder.AppendLine("提示：");
+            foreach (var warning in warnings.Take(20))
+            {
+                builder.AppendLine("- " + warning);
+            }
+            if (warnings.Count > 20) builder.AppendLine($"- ... 还有 {warnings.Count - 20} 条");
+        }
+        else
+        {
+            builder.AppendLine("提示：无");
+        }
+    }
+
     private void ValidateItemEditorCell(DataGridViewCellValidatingEventArgs e)
     {
         if (_itemEditorGrid.ReadOnly || e.RowIndex < 0 || e.ColumnIndex < 0) return;
@@ -5672,6 +5868,7 @@ public sealed partial class MainForm
     {
         if (_project == null) return;
         _importJobStrategyIconButton.Enabled = false;
+        _editJobStrategyIconButton.Enabled = false;
         if (_tables.Count == 0)
         {
             ReloadCurrentProject();
@@ -5687,6 +5884,7 @@ public sealed partial class MainForm
             ConfigureJobStrategyGrid();
             _saveJobStrategyEditorButton.Enabled = true;
             _importJobStrategyIconButton.Enabled = true;
+            _editJobStrategyIconButton.Enabled = true;
             _jobStrategyEditorInfoBox.Text = BuildJobStrategySummary(_currentJobStrategyData);
             ShowSelectedJobStrategyCell();
             SetStatus($"兵种策略读取完成：{_currentJobStrategyData.Rows.Count} 个策略");
@@ -5910,8 +6108,8 @@ public sealed partial class MainForm
         {
             return columnName switch
             {
-                "小动画" => "策略第一段动画/主动画编号，写入 6.5-5-2 策略动画1 / Ekd5.exe；对应截图中的“小动画”。",
-                "大动画" => "策略第二段动画/附加动画编号，写入 6.5-5-3 策略动画2 / Ekd5.exe；对应截图中的“大动画”。",
+                "大动画" => "策略大动画 / Mcall 编号，写入 6.5-5-2 策略动画1 / Ekd5.exe（MgMcall=668144）。值 >=100 时按 Mcall{值-100}.e5 定位；小于 100 或 255 表示无 Mcall 大动画。",
+                "小动画" => "策略小动画 / Meff 编号，写入 6.5-5-3 策略动画2 / Ekd5.exe（MgMeff=668000）。值 N 按 Meff.e5 图号 N+1 定位；255 表示无动画或保留。",
                 "是否伤血" => "策略伤害类型/是否伤血候选，写入 6.5-5-4 策略伤害类型 / Ekd5.exe；语义需结合实机验证。",
                 "伤害系数" => "策略伤害比例/倍率参数，写入 6.5-5-5 策略伤害比例 / Ekd5.exe。",
                 "命中上限" => "策略命中率参数，写入 6.5-5-6 策略命中率 / Ekd5.exe；旧界面标为“命中上限”。",
@@ -6196,6 +6394,7 @@ public sealed partial class MainForm
         {
             case "施法范围":
             {
+                ClearJobStrategyAnimationPreview();
                 var result = _attackAreaPreviewService.BuildPreview(_project, "攻击范围", fieldValue);
                 SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
@@ -6208,6 +6407,7 @@ public sealed partial class MainForm
             }
             case "穿透范围":
             {
+                ClearJobStrategyAnimationPreview();
                 var result = _attackAreaPreviewService.BuildPreview(_project, "穿透范围", fieldValue);
                 SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
@@ -6220,7 +6420,8 @@ public sealed partial class MainForm
             }
             case "策略图标":
             {
-                var result = _itemIconPreviewService.BuildPreview(_project, fieldValue, JobStrategyIconResourceFileName, "策略图标");
+                ClearJobStrategyAnimationPreview();
+                var result = _itemIconPreviewService.BuildPreview(_project, fieldValue, Ccz66RevisedLayout.ResolveStrategyIconResourceFile(_project), "策略图标");
                 SetJobStrategyPreviewImageVisible(true);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
@@ -6233,12 +6434,19 @@ public sealed partial class MainForm
             case "小动画":
             case "大动画":
             {
-                var result = _strategyAnimationPreviewService.BuildPreview(_project, fieldValue);
+                var previewKind = columnName == "大动画"
+                    ? StrategyAnimationPreviewKind.BigMcall
+                    : StrategyAnimationPreviewKind.SmallMeff;
+                var result = _strategyAnimationPreviewService.BuildAnimatedPreview(_project, previewKind, fieldValue);
                 SetJobStrategyPreviewImageVisible(true);
-                SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
+                SetJobStrategyAnimatedPreview(result);
+                var resourceCountLabel = previewKind == StrategyAnimationPreviewKind.BigMcall
+                    ? "Mcall条目数"
+                    : "Meff条目数";
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
                     $"字段={columnName}  值={fieldValue}\r\n" +
+                    $"资源编号=#{result.ImageNumber}  {resourceCountLabel}={result.EntryCount}  帧数={result.Frames.Count}  间隔={result.FrameIntervalMs}ms  模式={result.RenderMode}\r\n" +
                     result.Message + "\r\n" +
                     $"资源路径：{result.SourcePath}";
                 return;
@@ -6248,6 +6456,7 @@ public sealed partial class MainForm
 
     private void ClearJobStrategyPreview(string message)
     {
+        ClearJobStrategyAnimationPreview();
         SetJobStrategyPreviewImageVisible(false);
         SetPictureBoxImage(_jobStrategyPreviewBox, null);
         _jobStrategyPreviewInfoBox.Text = message;
@@ -6268,6 +6477,7 @@ public sealed partial class MainForm
 
     private void ShowJobStrategyLearningPreview(DataGridViewRow row, string columnName, string id, string name)
     {
+        ClearJobStrategyAnimationPreview();
         SetJobStrategyPreviewImageVisible(false);
         SetPictureBoxImage(_jobStrategyPreviewBox, null);
         var dataRow = TryGetDataRow(row);
@@ -6282,6 +6492,51 @@ public sealed partial class MainForm
             $"策略 ID={id}  名称={name}\r\n" +
             "兵种学习情况：\r\n" +
             body;
+    }
+
+    private void SetJobStrategyAnimatedPreview(StrategyAnimationAnimatedPreviewResult result)
+    {
+        ClearJobStrategyAnimationPreview();
+        if (result.Frames.Count == 0)
+        {
+            SetPictureBoxImage(_jobStrategyPreviewBox, null);
+            return;
+        }
+
+        _jobStrategyAnimationFrames = result.Frames;
+        _jobStrategyAnimationFrameIndex = 0;
+        SetPictureBoxImage(_jobStrategyPreviewBox, new Bitmap(_jobStrategyAnimationFrames[0]));
+        if (result.Frames.Count <= 1)
+        {
+            return;
+        }
+
+        _jobStrategyAnimationTimer.Interval = Math.Clamp(result.FrameIntervalMs, 40, 2000);
+        _jobStrategyAnimationTimer.Start();
+    }
+
+    private void AdvanceJobStrategyAnimationPreview()
+    {
+        if (_jobStrategyAnimationFrames.Count <= 1)
+        {
+            _jobStrategyAnimationTimer.Stop();
+            return;
+        }
+
+        _jobStrategyAnimationFrameIndex = (_jobStrategyAnimationFrameIndex + 1) % _jobStrategyAnimationFrames.Count;
+        SetPictureBoxImage(_jobStrategyPreviewBox, new Bitmap(_jobStrategyAnimationFrames[_jobStrategyAnimationFrameIndex]));
+    }
+
+    private void ClearJobStrategyAnimationPreview()
+    {
+        _jobStrategyAnimationTimer.Stop();
+        _jobStrategyAnimationFrameIndex = 0;
+        foreach (var frame in _jobStrategyAnimationFrames)
+        {
+            frame.Dispose();
+        }
+
+        _jobStrategyAnimationFrames = Array.Empty<Bitmap>();
     }
 
     private static IReadOnlyList<string> SplitJobStrategyLearningSummary(string summary)
@@ -6462,7 +6717,14 @@ public sealed partial class MainForm
             return;
         }
 
-        var targetPath = Path.Combine(_project.GameRoot, JobStrategyIconResourceFileName);
+        var targetResource = Ccz66RevisedLayout.ResolveStrategyIconResourceFile(_project);
+        var targetPath = Ccz66RevisedLayout.ResolveResourcePath(_project, targetResource);
+        if (Ccz66RevisedLayout.IsE5IconResource(targetResource))
+        {
+            ImportSelectedJobStrategyIconsToE5(targets, targetPath);
+            return;
+        }
+
         var requests = targets.Select(target => new IconResourceBatchReplaceRequest
         {
             IconIndex = target.IconIndex,
@@ -6513,6 +6775,66 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine("兵种策略图标批量导入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "策略图标导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void ImportSelectedJobStrategyIconsToE5(IReadOnlyList<JobStrategyIconImportTarget> targets, string targetPath)
+    {
+        var requests = targets.Select(target => new E5ImageBatchReplaceRequest
+        {
+            ImageNumber = target.IconIndex + 1,
+            SourcePath = target.SourcePath,
+            SourceLabel = target.SourcePath,
+            OperationKind = "6.6 strategy icon E5 batch import"
+        }).ToArray();
+
+        E5ImageBatchReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _e5ImageReplaceService.PreviewBatchReplacement(_project!, targetPath, requests);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("6.6 strategy icon E5 batch import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "策略图标导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildJobStrategyIconImportE5PreviewText(targets, preview);
+        _jobStrategyPreviewInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n6.6 修正版将策略图标写入 E5\\Mtem.e5，确认后会先备份目标 E5，再按“策略图标字段+1”的 E5 图号写入；不会修改兵种策略表字段。是否继续？",
+                "确认导入策略图标",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _e5ImageReplaceService.ReplaceBatch(_project!, targetPath, requests);
+            _imageResourceCatalogService.ClearCache();
+            _itemIconPreviewService.ClearCache();
+            ShowSelectedJobStrategyCell();
+            _jobStrategyPreviewInfoBox.Text = BuildJobStrategyIconImportE5ResultText(result);
+            System.Diagnostics.Debug.WriteLine($"6.6 strategy icon E5 batch import completed: {result.TargetRelativePath} count={result.OperationCount}");
+            SetStatus($"策略图标导入完成：{result.OperationCount} 个");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("6.6 strategy icon E5 batch import failed: " + ex);
             MessageBox.Show(this, ex.Message, "策略图标导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -6616,6 +6938,61 @@ public sealed partial class MainForm
             $"策略图标导入完成。\r\n" +
             $"目标：{result.TargetRelativePath}\r\n" +
             $"数量：{result.Items.Count}\r\n" +
+            $"变化字节估计：{result.ChangedBytesEstimate:N0}\r\n" +
+            $"备份：{result.BackupPath}\r\n" +
+            $"报告：{result.ReportPath}\r\n" +
+            _writeOperationReportFormatter.FormatForCreator(result.ReportJsonPath, maxChanges: 12);
+    }
+
+    private static string BuildJobStrategyIconImportE5PreviewText(
+        IReadOnlyList<JobStrategyIconImportTarget> targets,
+        E5ImageBatchReplacePreviewResult preview)
+    {
+        var itemByImage = preview.Operations.ToDictionary(item => item.ImageNumber);
+        var builder = new StringBuilder();
+        builder.AppendLine($"目标：{preview.TargetRelativePath}");
+        builder.AppendLine("操作：6.6 strategy icon E5 batch import");
+        builder.AppendLine($"数量：{targets.Count}");
+        builder.AppendLine("匹配：");
+        foreach (var target in targets)
+        {
+            var imageNumber = target.IconIndex + 1;
+            var fileName = Path.GetFileName(target.SourcePath);
+            if (itemByImage.TryGetValue(imageNumber, out var item))
+            {
+                builder.AppendLine($"- 策略 {target.StrategyId:D2} {target.StrategyName} -> 字段#{target.IconIndex} / E5图号#{imageNumber} <- {fileName} ({item.SourceWidth}x{item.SourceHeight})");
+            }
+            else
+            {
+                builder.AppendLine($"- 策略 {target.StrategyId:D2} {target.StrategyName} -> 字段#{target.IconIndex} / E5图号#{imageNumber} <- {fileName}");
+            }
+        }
+
+        if (preview.FormatWarnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("提示：");
+            foreach (var warning in preview.FormatWarnings.Take(12))
+            {
+                builder.AppendLine("- " + warning);
+            }
+            if (preview.FormatWarnings.Count > 12)
+            {
+                builder.AppendLine($"- 还有 {preview.FormatWarnings.Count - 12} 条提示未显示。");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(preview.RiskSummary);
+        return builder.ToString();
+    }
+
+    private string BuildJobStrategyIconImportE5ResultText(E5ImageBatchReplaceResult result)
+    {
+        return
+            $"策略图标导入完成。\r\n" +
+            $"目标：{result.TargetRelativePath}\r\n" +
+            $"数量：{result.OperationCount}\r\n" +
             $"变化字节估计：{result.ChangedBytesEstimate:N0}\r\n" +
             $"备份：{result.BackupPath}\r\n" +
             $"报告：{result.ReportPath}\r\n" +

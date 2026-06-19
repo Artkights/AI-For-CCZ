@@ -9,6 +9,8 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
 {
     private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, SolidBrush> _terrainBrushCache = new();
+    private readonly MapCanvasComposeService _composeService = new();
+    private IReadOnlyList<MaterialAsset> _materials = Array.Empty<MaterialAsset>();
 
     private Bitmap? _preview;
     private int _gridWidth;
@@ -17,8 +19,39 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
     private bool _showTerrain;
     private bool _showGrid;
     private int _terrainOpacityPercent;
+    private bool _terrainLayerOnly;
 
     public Bitmap Rebuild(MapWorkbenchDraft draft, bool showTerrain, bool showGrid, int terrainOpacityPercent)
+        => Rebuild(draft, Array.Empty<MaterialAsset>(), showTerrain, showGrid, terrainOpacityPercent);
+
+    public Bitmap Rebuild(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, bool showTerrain, bool showGrid, int terrainOpacityPercent)
+        => Rebuild(draft, materials, showTerrain, showGrid, terrainOpacityPercent, beautifyGeneratedMap: draft.BeautifyGeneratedMap);
+
+    public Bitmap Rebuild(
+        MapWorkbenchDraft draft,
+        IReadOnlyList<MaterialAsset> materials,
+        bool showTerrain,
+        bool showGrid,
+        int terrainOpacityPercent,
+        bool beautifyGeneratedMap)
+    {
+        ValidateDraft(draft);
+        Clear();
+
+        _materials = materials;
+        _gridWidth = draft.GridWidth;
+        _gridHeight = draft.GridHeight;
+        _tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
+        _showTerrain = showTerrain;
+        _showGrid = showGrid;
+        _terrainOpacityPercent = Math.Clamp(terrainOpacityPercent, 0, 100);
+        _terrainLayerOnly = false;
+
+        _preview = _composeService.ComposePreview(draft, materials, showTerrain, showGrid, _terrainOpacityPercent, beautifyGeneratedMap);
+        return _preview;
+    }
+
+    public Bitmap RebuildTerrainLayer(MapWorkbenchDraft draft, bool showGrid)
     {
         ValidateDraft(draft);
         Clear();
@@ -26,37 +59,26 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _gridWidth = draft.GridWidth;
         _gridHeight = draft.GridHeight;
         _tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
-        _showTerrain = showTerrain;
+        _showTerrain = true;
         _showGrid = showGrid;
-        _terrainOpacityPercent = Math.Clamp(terrainOpacityPercent, 0, 100);
+        _terrainOpacityPercent = 100;
+        _terrainLayerOnly = true;
+        _materials = Array.Empty<MaterialAsset>();
 
-        var pixelWidth = checked(_gridWidth * _tileSize);
-        var pixelHeight = checked(_gridHeight * _tileSize);
-        _preview = CreateBitmap(pixelWidth, pixelHeight);
-
-        using var g = CreateGraphics(_preview);
-        DrawBase(g, draft, new Rectangle(0, 0, pixelWidth, pixelHeight), checkerboardBlank: true);
-        foreach (var cell in draft.MapCellOverrides.OrderBy(x => x.Index))
-        {
-            DrawMapCell(g, draft, cell.Index, cell);
-        }
-
-        if (_showTerrain && draft.TerrainCells.Length == draft.CellCount)
-        {
-            DrawTerrain(g, draft);
-        }
-
-        if (_showGrid)
-        {
-            DrawGrid(g, _gridWidth, _gridHeight, pixelWidth, pixelHeight);
-        }
-
+        _preview = _composeService.ComposeTerrainLayerPreview(draft, showGrid);
         return _preview;
     }
 
     public Rectangle UpdateMapCell(MapWorkbenchDraft draft, int index, MapCellOverride? cell)
     {
         if (!CanUpdateCell(draft, index) || _preview == null) return Rectangle.Empty;
+        if (_terrainLayerOnly) return Rectangle.Empty;
+        if (draft.AutoGenerateMapFromTerrain)
+        {
+            Rebuild(draft, _materials, _showTerrain, _showGrid, _terrainOpacityPercent);
+            return GetTileRectangle(index);
+        }
+
         var rect = GetTileRectangle(index);
         RedrawTile(draft, index, cell);
         return rect;
@@ -64,9 +86,21 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
 
     public Rectangle UpdateTerrainCell(MapWorkbenchDraft draft, int index)
     {
-        if (!_showTerrain) return Rectangle.Empty;
         if (!CanUpdateCell(draft, index) || _preview == null) return Rectangle.Empty;
         if (draft.TerrainCells.Length != draft.CellCount) return Rectangle.Empty;
+        if (_terrainLayerOnly)
+        {
+            RedrawTerrainLayerTile(draft, index);
+            return GetTileRectangle(index);
+        }
+
+        if (draft.AutoGenerateMapFromTerrain)
+        {
+            Rebuild(draft, _materials, _showTerrain, _showGrid, _terrainOpacityPercent);
+            return GetTileRectangle(index);
+        }
+
+        if (!_showTerrain) return Rectangle.Empty;
         RedrawTile(draft, index, null);
         return GetTileRectangle(index);
     }
@@ -81,6 +115,8 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _showTerrain = false;
         _showGrid = false;
         _terrainOpacityPercent = 0;
+        _terrainLayerOnly = false;
+        _materials = Array.Empty<MaterialAsset>();
     }
 
     public void Dispose()
@@ -115,6 +151,28 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         }
 
         if (_showTerrain && draft.TerrainCells.Length == draft.CellCount)
+        {
+            DrawTerrainCell(g, draft, index);
+        }
+
+        if (_showGrid)
+        {
+            DrawGrid(g, _gridWidth, _gridHeight, _preview.Width, _preview.Height);
+        }
+
+        g.ResetClip();
+    }
+
+    private void RedrawTerrainLayerTile(MapWorkbenchDraft draft, int index)
+    {
+        if (_preview == null) return;
+        var rect = GetTileRectangle(index);
+        using var g = CreateGraphics(_preview);
+        g.SetClip(rect);
+        using var black = new SolidBrush(Color.Black);
+        g.FillRectangle(black, rect);
+
+        if (draft.TerrainCells.Length == draft.CellCount)
         {
             DrawTerrainCell(g, draft, index);
         }

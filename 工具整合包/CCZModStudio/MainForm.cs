@@ -55,7 +55,6 @@ public sealed partial class MainForm : Form
     private static readonly bool ShowGenericTableEditorPage = false;
     private static readonly bool ShowLegacyProbePages = false;
     private const string JobStrategyLearningPrefix = "学会等级_";
-    private const string JobStrategyIconResourceFileName = "Mgcicon.dll";
     private const string LegacyScriptClipboardFormat = "CCZModStudio.LegacyScriptCommands";
     private const string LegacyScriptClipboardBeginMarker = "-----BEGIN CCZMODSTUDIO LEGACY SCRIPT COMMANDS JSON-----";
     private const string LegacyScriptClipboardEndMarker = "-----END CCZMODSTUDIO LEGACY SCRIPT COMMANDS JSON-----";
@@ -88,8 +87,8 @@ public sealed partial class MainForm : Form
 
     private static readonly (string ColumnName, string TableName)[] JobStrategyCompanionColumns =
     [
-        ("小动画", "6.5-5-2 策略动画1"),
-        ("大动画", "6.5-5-3 策略动画2"),
+        ("大动画", "6.5-5-2 策略动画1"),
+        ("小动画", "6.5-5-3 策略动画2"),
         ("是否伤血", "6.5-5-4 策略伤害类型"),
         ("伤害系数", "6.5-5-5 策略伤害比例"),
         ("命中上限", "6.5-5-6 策略命中率"),
@@ -172,8 +171,13 @@ public sealed partial class MainForm : Form
     private readonly ResourceReplaceService _resourceReplaceService = new();
     private readonly E5ImageReplaceService _e5ImageReplaceService = new();
     private readonly IconResourceReplaceService _iconResourceReplaceService = new();
+    private readonly EditableImageCodecService _editableImageCodecService = new();
     private readonly RImageReplaceService _rImageReplaceService = new();
     private readonly SImageReplaceService _sImageReplaceService = new();
+    private readonly BatchRImageReplaceService _batchRImageReplaceService = new();
+    private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
+    private readonly BatchItemIconImportService _batchItemIconImportService = new();
+    private readonly BatchRoleFaceImportService _batchRoleFaceImportService = new();
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
@@ -185,6 +189,7 @@ public sealed partial class MainForm : Form
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
     private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
+    private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
     private readonly ImageResourceCatalogService _imageResourceCatalogService = new();    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
     private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
@@ -254,8 +259,10 @@ public sealed partial class MainForm : Form
     private ScenarioCommandClipboardItem? _scriptCommandClipboardItem;
     private LegacyScenarioCommandNode? _legacyScriptCommandClipboard;
     private IReadOnlyList<LegacyScenarioCommandNode> _legacyScriptCommandClipboardItems = Array.Empty<LegacyScenarioCommandNode>();
+    private IReadOnlyList<LegacyScenarioScene> _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
     private IReadOnlyList<LegacyScenarioSection> _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
     private string _legacyScriptCommandClipboardScenarioName = string.Empty;
+    private string _legacyScriptCommandClipboardGameRoot = string.Empty;
     private bool _updatingScriptTreeChecks;
     private int _nextLegacyScriptSyntheticOffset = -1;
     private readonly Dictionary<string, LegacyScenarioCommandNode> _legacyScriptCommandByKey = new(StringComparer.OrdinalIgnoreCase);
@@ -306,6 +313,9 @@ public sealed partial class MainForm : Form
     private readonly System.Windows.Forms.Timer _battlefieldUnitAnimationTimer = new() { Interval = BattlefieldUnitAnimationIntervalMs };
     private int _battlefieldUnitAnimationPhase;
     private readonly System.Windows.Forms.Timer _rScenePlaybackTimer = new();
+    private readonly System.Windows.Forms.Timer _jobStrategyAnimationTimer = new();
+    private IReadOnlyList<Bitmap> _jobStrategyAnimationFrames = Array.Empty<Bitmap>();
+    private int _jobStrategyAnimationFrameIndex;
     private ScenarioFileInfo? _currentRSceneScenario;
     private LegacyScenarioDocument? _currentRSceneLegacyScriptDocument;
     private IReadOnlyList<LegacyScenarioDocument> _currentRScenePrecedingVariableDocuments = Array.Empty<LegacyScenarioDocument>();
@@ -413,7 +423,7 @@ public sealed partial class MainForm : Form
     private MapWorkbenchDraft? _currentMapWorkbenchDraft;
     private MapWorkbenchSettings _mapWorkbenchSettings = new();
     private MaterialAsset? _mapMakerSelectedMaterial;
-    private MapWorkbenchBrushMode _mapWorkbenchBrushMode = MapWorkbenchBrushMode.Browse;
+    private MapWorkbenchBrushMode _mapWorkbenchBrushMode = MapWorkbenchBrushMode.TerrainBrush;
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapUndoStack = new();
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapRedoStack = new();
     private readonly Stack<List<TerrainEditorCellChange>> _mapMakerTerrainUndoStack = new();
@@ -491,6 +501,8 @@ public sealed partial class MainForm : Form
     private readonly Button _openPlanButton = new();
     private readonly Button _loadRoleEditorButton = new();
     private readonly Button _saveRoleEditorButton = new();
+    private readonly Button _importRoleFaceButton = new();
+    private readonly Button _batchImportRoleFaceButton = new();
     private readonly Button _openRoleInTableEditorButton = new();
     private readonly Button _openRolePersonalEffectButton = new();
     private readonly Button _openRoleEffectButton = new();
@@ -507,7 +519,8 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _roleEditorGrid = new();
     private readonly TextBox _roleEditorInfoBox = new();
     private readonly TextBox _roleBiographyBox = new();
-    private readonly TextBox _roleCriticalQuoteBox = new();
+    private readonly Label[] _roleCriticalQuoteLabels = Enumerable.Range(0, RoleQuoteMappingService.CriticalGenericGroupSize).Select(_ => new Label()).ToArray();
+    private readonly TextBox[] _roleCriticalQuoteBoxes = Enumerable.Range(0, RoleQuoteMappingService.CriticalGenericGroupSize).Select(_ => new TextBox()).ToArray();
     private readonly TextBox _roleRetreatQuoteBox = new();
     private readonly TextBox _roleTextDetailInfoBox = new();
     private readonly Button _loadJobEditorButton = new();
@@ -544,6 +557,7 @@ public sealed partial class MainForm : Form
     private readonly Button _loadJobStrategyEditorButton = new();
     private readonly Button _saveJobStrategyEditorButton = new();
     private readonly Button _importJobStrategyIconButton = new();
+    private readonly Button _editJobStrategyIconButton = new();
     private readonly Button _openJobStrategyTableButton = new();
     private readonly Button _filterJobStrategyEditorButton = new();
     private readonly Button _clearJobStrategyEditorFilterButton = new();
@@ -568,6 +582,8 @@ public sealed partial class MainForm : Form
     private readonly Button _copyItemEditorSelectionButton = new();
     private readonly Button _pasteItemEditorSelectionButton = new();
     private readonly Button _batchFillItemEditorColumnButton = new();
+    private readonly Button _batchImportItemIconButton = new();
+    private readonly Button _editItemIconButton = new();
     private readonly Button _undoItemEditorButton = new();
     private readonly Button _redoItemEditorButton = new();
     private readonly Button _filterItemEditorButton = new();
@@ -673,6 +689,10 @@ public sealed partial class MainForm : Form
     private readonly CheckBox _mapMakerShowTerrainCheckBox = new();
     private readonly CheckBox _mapMakerShowGridCheckBox = new();
     private readonly CheckBox _mapMakerEditTerrainCheckBox = new();
+    private readonly CheckBox _mapMakerAutoGenerateCheckBox = new();
+    private readonly CheckBox _mapMakerBeautifyCheckBox = new();
+    private readonly NumericUpDown _mapMakerBeautifyStrengthInput = new();
+    private readonly NumericUpDown _mapMakerFeatherRadiusInput = new();
     private readonly TrackBar _mapMakerTerrainOpacityTrackBar = new();
     private readonly Label _mapMakerTerrainOpacityLabel = new();
     private readonly ComboBox _mapMakerTerrainPresetCombo = new();
@@ -686,9 +706,11 @@ public sealed partial class MainForm : Form
     private readonly Button _mapMakerExportJpgButton = new();
     private readonly Button _mapMakerPublishMapButton = new();
     private readonly Button _mapMakerPublishTerrainButton = new();
+    private readonly Button _mapMakerPublishAllButton = new();
     private readonly Button _loadImageResourcesButton = new();
     private readonly Button _openImageResourceButton = new();
     private readonly Button _replaceImageResourceEntryButton = new();
+    private readonly Button _editImageResourceEntryButton = new();
     private readonly Button _restoreImageResourceEntryButton = new();
     private readonly Button _batchImportImageResourceEntriesButton = new();
     private readonly Button _batchClearImageResourceEntriesButton = new();
@@ -712,8 +734,14 @@ public sealed partial class MainForm : Form
     private readonly Button _clearImageAssignmentFilterButton = new();
     private readonly Button _locateImageResourceButton = new();
     private readonly Button _replaceImageResourceButton = new();
+    private readonly Button _editRImageResourceButton = new();
+    private readonly Button _editSImageResourceButton = new();
     private readonly Button _replaceRImageSetButton = new();
     private readonly Button _replaceSImageSetButton = new();
+    private readonly Button _batchReplaceRImageSetButton = new();
+    private readonly Button _batchReplaceSImageSetButton = new();
+    private readonly Button _importImageAssignmentFaceButton = new();
+    private readonly Button _batchImportImageAssignmentFaceButton = new();
     private readonly Button _restoreImageResourceButton = new();
     private readonly Button _exportMissingImageResourcesButton = new();
     private readonly DataGridView _imageAssignmentGrid = new();
@@ -902,8 +930,10 @@ public sealed partial class MainForm : Form
     private readonly ToolStripMenuItem _scriptContextMoveDownItem = new("下移命令");
     private readonly ContextMenuStrip _legacyScriptTreeContextMenu = new();
     private readonly ToolStripMenuItem _legacyScriptContextEditItem = new("修改(&E)\tCtrl+E");
-    private readonly ToolStripMenuItem _legacyScriptContextAddItem = new("添加(&I)\tCtrl+I");
-    private readonly ToolStripMenuItem _legacyScriptContextAddSubEventItem = new("添加子事件(&S)\tCtrl+O");
+    private readonly ToolStripMenuItem _legacyScriptContextAddBeforeItem = new("在上方添加(&A)\tCtrl+Shift+I");
+    private readonly ToolStripMenuItem _legacyScriptContextAddItem = new("在下方添加(&I)\tCtrl+I");
+    private readonly ToolStripMenuItem _legacyScriptContextAddSubEventBeforeItem = new("在上方添加子事件(&B)\tCtrl+Shift+O");
+    private readonly ToolStripMenuItem _legacyScriptContextAddSubEventItem = new("在下方添加子事件(&S)\tCtrl+O");
     private readonly ToolStripMenuItem _legacyScriptContextDuplicateItem = new("步进复制(&D)\tCtrl+D");
     private readonly ToolStripMenuItem _legacyScriptContextDeleteItem = new("删除(&D)\tDelete");
     private readonly ToolStripMenuItem _legacyScriptContextMoveUpItem = new("上移(&U)\tCtrl+Up");
@@ -987,7 +1017,8 @@ public sealed partial class MainForm : Form
     {
         Browse,
         MapBrush,
-        TerrainBrush
+        TerrainBrush,
+        BuildingBrush
     }
 
     private sealed record TerrainEditorCellChange(int Index, byte OldValue, byte NewValue);
@@ -1008,6 +1039,7 @@ public sealed partial class MainForm : Form
     public MainForm()
     {
         Text = "CCZModStudio 6.5 - V0.6 集成原型";
+        Icon = LoadApplicationIcon();
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScroll = true;
         Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
@@ -1021,9 +1053,27 @@ public sealed partial class MainForm : Form
         WireEvents();
     }
 
+    private static Icon? LoadApplicationIcon()
+    {
+        var associatedIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        if (associatedIcon != null)
+        {
+            return associatedIcon;
+        }
+
+        var bundledIconPath = PortableInstallPaths.AboutAsset("Doro-white.ico");
+        if (File.Exists(bundledIconPath))
+        {
+            return new Icon(bundledIconPath);
+        }
+
+        return null;
+    }
+
     protected override void OnLoad(EventArgs e)
     {
         base.OnLoad(e);
+        RunPackageSelfCheck();
         LoadDefaultProject();
     }
 
@@ -1458,6 +1508,8 @@ public sealed partial class MainForm : Form
         _openImageResourceButton.AutoSize = true;
         _replaceImageResourceEntryButton.Text = "替换E5条目";
         _replaceImageResourceEntryButton.AutoSize = true;
+        _editImageResourceEntryButton.Text = "像素编辑";
+        _editImageResourceEntryButton.AutoSize = true;
         _restoreImageResourceEntryButton.Text = "从备份还原";
         _restoreImageResourceEntryButton.AutoSize = true;
         _batchImportImageResourceEntriesButton.Text = "批量导入";
@@ -1481,6 +1533,7 @@ public sealed partial class MainForm : Form
             _loadImageResourcesButton,
             _openImageResourceButton,
             _replaceImageResourceEntryButton,
+            _editImageResourceEntryButton,
             _restoreImageResourceEntryButton,
             _batchImportImageResourceEntriesButton,
             _batchClearImageResourceEntriesButton,
@@ -1573,10 +1626,24 @@ public sealed partial class MainForm : Form
         _locateImageResourceButton.AutoSize = true;
         _replaceImageResourceButton.Text = "导入/替换E5";
         _replaceImageResourceButton.AutoSize = true;
+        _editRImageResourceButton.Text = "编辑R形象";
+        _editRImageResourceButton.AutoSize = true;
+        _editSImageResourceButton.Text = "编辑S形象";
+        _editSImageResourceButton.AutoSize = true;
         _replaceRImageSetButton.Text = "一键替换R形象";
         _replaceRImageSetButton.AutoSize = true;
         _replaceSImageSetButton.Text = "一键替换S形象";
         _replaceSImageSetButton.AutoSize = true;
+        _batchReplaceRImageSetButton.Text = "批量导入R形象";
+        _batchReplaceRImageSetButton.AutoSize = true;
+        _batchReplaceSImageSetButton.Text = "批量导入S形象";
+        _batchReplaceSImageSetButton.AutoSize = true;
+        _importImageAssignmentFaceButton.Text = "一键导入头像";
+        _importImageAssignmentFaceButton.AutoSize = true;
+        _importImageAssignmentFaceButton.Enabled = false;
+        _batchImportImageAssignmentFaceButton.Text = "批量导入头像";
+        _batchImportImageAssignmentFaceButton.AutoSize = true;
+        _batchImportImageAssignmentFaceButton.Enabled = false;
         _restoreImageResourceButton.Text = "还原E5条目";
         _restoreImageResourceButton.AutoSize = true;
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
@@ -1594,8 +1661,14 @@ public sealed partial class MainForm : Form
             _clearImageAssignmentFilterButton,
             _locateImageResourceButton,
             _replaceImageResourceButton,
+            _editRImageResourceButton,
+            _editSImageResourceButton,
             _replaceRImageSetButton,
             _replaceSImageSetButton,
+            _batchReplaceRImageSetButton,
+            _batchReplaceSImageSetButton,
+            _importImageAssignmentFaceButton,
+            _batchImportImageAssignmentFaceButton,
             _restoreImageResourceButton,
             _exportMissingImageResourcesButton
         });
@@ -2366,6 +2439,13 @@ public sealed partial class MainForm : Form
         public string SourceScenarioName { get; init; } = string.Empty;
         public string CreatedAtLocal { get; init; } = string.Empty;
         public List<LegacyScriptClipboardCommand> Commands { get; init; } = [];
+        public List<LegacyScriptClipboardScene> Scenes { get; init; } = [];
+        public List<LegacyScriptClipboardSection> Sections { get; init; } = [];
+    }
+
+    private sealed class LegacyScriptClipboardScene
+    {
+        public int SceneIndex { get; init; }
         public List<LegacyScriptClipboardSection> Sections { get; init; } = [];
     }
 

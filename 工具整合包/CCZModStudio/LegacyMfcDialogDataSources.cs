@@ -329,8 +329,7 @@ internal sealed class LegacyMfcDialogDataSources
 
     private void LoadBundledLegacySettings()
     {
-        var root = AppContext.BaseDirectory;
-        var legacyRoot = Path.Combine(root, "LegacyResources", "a新剧本编辑器v0.23");
+        var legacyRoot = PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23");
         LoadStringConfig(Path.Combine(legacyRoot, "CczString.ini"));
         LoadEditorConfig(Path.Combine(legacyRoot, "CczSceneEditor2.ini"));
     }
@@ -343,8 +342,7 @@ internal sealed class LegacyMfcDialogDataSources
             !string.IsNullOrWhiteSpace(project.SceneEditorDirectory) ? Path.Combine(project.SceneEditorDirectory, "CczString.ini") : string.Empty,
             Path.Combine(project.GameRoot, "CczString.ini"),
             Path.Combine(project.GameRoot, "a新剧本编辑器v0.23", "CczString.ini"),
-            Path.Combine(project.WorkspaceRoot, "老版游戏制作工具", "a新剧本编辑器v0.23", "CczString.ini"),
-            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "LegacyResources", "a新剧本编辑器v0.23", "CczString.ini")
+            PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23", "CczString.ini")
         };
         foreach (var path in candidates)
         {
@@ -357,8 +355,7 @@ internal sealed class LegacyMfcDialogDataSources
             Path.Combine(project.GameRoot, "CczSceneEditor2.ini"),
             !string.IsNullOrWhiteSpace(project.SceneEditorDirectory) ? Path.Combine(project.SceneEditorDirectory, "CczSceneEditor2.ini") : string.Empty,
             Path.Combine(project.GameRoot, "a新剧本编辑器v0.23", "CczSceneEditor2.ini"),
-            Path.Combine(project.WorkspaceRoot, "老版游戏制作工具", "a新剧本编辑器v0.23", "CczSceneEditor2.ini"),
-            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "LegacyResources", "a新剧本编辑器v0.23", "CczSceneEditor2.ini")
+            PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23", "CczSceneEditor2.ini")
         };
         foreach (var path in configCandidates)
         {

@@ -16,6 +16,24 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private enum LegacyScriptContextMenuRole
+    {
+        Edit,
+        AddBefore,
+        AddAfter,
+        AddSubEventBefore,
+        AddSubEventAfter,
+        Duplicate,
+        Delete,
+        MoveUp,
+        MoveDown,
+        Undo,
+        Redo,
+        Cut,
+        Copy,
+        Paste
+    }
+
     private void ConfigureHiddenScriptGrids()
     {
         _scriptCommandGrid.Dock = DockStyle.Fill;
@@ -80,7 +98,23 @@ public sealed partial class MainForm
         {
             _scriptContextEditItem,
             new ToolStripSeparator(),
-            _scriptContextApplyParameterItem
+            _scriptContextApplyParameterItem,
+            new ToolStripSeparator(),
+            _scriptContextAppendSectionItem,
+            _scriptContextInsertBeforeItem,
+            _scriptContextInsertAfterItem,
+            _scriptContextAppendChildItem,
+            _scriptContextDeleteItem,
+            new ToolStripSeparator(),
+            _scriptContextCopyItem,
+            _scriptContextPreviewPasteItem,
+            _scriptContextPasteBeforeItem,
+            _scriptContextPasteAfterItem,
+            new ToolStripSeparator(),
+            _scriptContextMoveUpItem,
+            _scriptContextMoveDownItem,
+            new ToolStripSeparator(),
+            _scriptContextSaveTextItem
         });
     }
 
@@ -88,9 +122,26 @@ public sealed partial class MainForm
     {
         if (_legacyScriptTreeContextMenu.Items.Count > 0) return;
 
+        _legacyScriptContextEditItem.Tag = LegacyScriptContextMenuRole.Edit.ToString();
+        _legacyScriptContextAddBeforeItem.Tag = LegacyScriptContextMenuRole.AddBefore.ToString();
+        _legacyScriptContextAddItem.Tag = LegacyScriptContextMenuRole.AddAfter.ToString();
+        _legacyScriptContextAddSubEventBeforeItem.Tag = LegacyScriptContextMenuRole.AddSubEventBefore.ToString();
+        _legacyScriptContextAddSubEventItem.Tag = LegacyScriptContextMenuRole.AddSubEventAfter.ToString();
+        _legacyScriptContextDuplicateItem.Tag = LegacyScriptContextMenuRole.Duplicate.ToString();
+        _legacyScriptContextDeleteItem.Tag = LegacyScriptContextMenuRole.Delete.ToString();
+        _legacyScriptContextMoveUpItem.Tag = LegacyScriptContextMenuRole.MoveUp.ToString();
+        _legacyScriptContextMoveDownItem.Tag = LegacyScriptContextMenuRole.MoveDown.ToString();
+        _legacyScriptContextUndoItem.Tag = LegacyScriptContextMenuRole.Undo.ToString();
+        _legacyScriptContextRedoItem.Tag = LegacyScriptContextMenuRole.Redo.ToString();
+        _legacyScriptContextCutItem.Tag = LegacyScriptContextMenuRole.Cut.ToString();
+        _legacyScriptContextCopyItem.Tag = LegacyScriptContextMenuRole.Copy.ToString();
+        _legacyScriptContextPasteItem.Tag = LegacyScriptContextMenuRole.Paste.ToString();
+
         _legacyScriptContextEditItem.Click += (_, _) => EditSelectedLegacyItemDataCommand(LegacyScriptEditorScope.Script);
-        _legacyScriptContextAddItem.Click += (_, _) => AddLegacyScriptCommandBeforeSelected(LegacyScriptEditorScope.Script);
-        _legacyScriptContextAddSubEventItem.Click += (_, _) => AddLegacyScriptSubEventBeforeSelected(LegacyScriptEditorScope.Script);
+        _legacyScriptContextAddBeforeItem.Click += (_, _) => AddLegacyScriptCommandNearSelected(LegacyScriptEditorScope.Script, beforeSelected: true);
+        _legacyScriptContextAddItem.Click += (_, _) => AddLegacyScriptCommandNearSelected(LegacyScriptEditorScope.Script, beforeSelected: false);
+        _legacyScriptContextAddSubEventBeforeItem.Click += (_, _) => AddLegacyScriptSubEventNearSelected(LegacyScriptEditorScope.Script, beforeSelected: true);
+        _legacyScriptContextAddSubEventItem.Click += (_, _) => AddLegacyScriptSubEventNearSelected(LegacyScriptEditorScope.Script, beforeSelected: false);
         _legacyScriptContextDuplicateItem.Click += (_, _) => StepDuplicateSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
         _legacyScriptContextDeleteItem.Click += (_, _) => DeleteSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
         _legacyScriptContextMoveUpItem.Click += (_, _) => MoveSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script, up: true);
@@ -116,7 +167,9 @@ public sealed partial class MainForm
         _legacyScriptTreeContextMenu.Items.AddRange(new ToolStripItem[]
         {
             _legacyScriptContextEditItem,
+            _legacyScriptContextAddBeforeItem,
             _legacyScriptContextAddItem,
+            _legacyScriptContextAddSubEventBeforeItem,
             _legacyScriptContextAddSubEventItem,
             _legacyScriptContextDuplicateItem,
             _legacyScriptContextDeleteItem,
@@ -153,21 +206,23 @@ public sealed partial class MainForm
             }
         };
 
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("修改(&E)\tCtrl+E", () => EditSelectedLegacyItemDataCommand(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("添加(&I)\tCtrl+I", () => AddLegacyScriptCommandBeforeSelected(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("添加子事件(&S)\tCtrl+O", () => AddLegacyScriptSubEventBeforeSelected(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("步进复制(&D)\tCtrl+D", () => StepDuplicateSelectedLegacyScriptCommand(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("删除(&D)\tDelete", () => DeleteSelectedLegacyScriptCommand(scope)));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("修改(&E)\tCtrl+E", () => EditSelectedLegacyItemDataCommand(scope), LegacyScriptContextMenuRole.Edit));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("在上方添加(&A)\tCtrl+Shift+I", () => AddLegacyScriptCommandNearSelected(scope, beforeSelected: true), LegacyScriptContextMenuRole.AddBefore));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("在下方添加(&I)\tCtrl+I", () => AddLegacyScriptCommandNearSelected(scope, beforeSelected: false), LegacyScriptContextMenuRole.AddAfter));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("在上方添加子事件(&B)\tCtrl+Shift+O", () => AddLegacyScriptSubEventNearSelected(scope, beforeSelected: true), LegacyScriptContextMenuRole.AddSubEventBefore));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("在下方添加子事件(&S)\tCtrl+O", () => AddLegacyScriptSubEventNearSelected(scope, beforeSelected: false), LegacyScriptContextMenuRole.AddSubEventAfter));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("步进复制(&D)\tCtrl+D", () => StepDuplicateSelectedLegacyScriptCommand(scope), LegacyScriptContextMenuRole.Duplicate));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("删除(&D)\tDelete", () => DeleteSelectedLegacyScriptCommand(scope), LegacyScriptContextMenuRole.Delete));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("上移(&U)\tCtrl+Up", () => MoveSelectedLegacyScriptCommand(scope, up: true)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("下移(&D)\tCtrl+Down", () => MoveSelectedLegacyScriptCommand(scope, up: false)));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("上移(&U)\tCtrl+Up", () => MoveSelectedLegacyScriptCommand(scope, up: true), LegacyScriptContextMenuRole.MoveUp));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("下移(&D)\tCtrl+Down", () => MoveSelectedLegacyScriptCommand(scope, up: false), LegacyScriptContextMenuRole.MoveDown));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("撤销(&Z)\tCtrl+Z", () => UndoLegacyScenarioEdit(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("前进(&Y)\tCtrl+Y", () => RedoLegacyScenarioEdit(scope)));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("撤销(&Z)\tCtrl+Z", () => UndoLegacyScenarioEdit(scope), LegacyScriptContextMenuRole.Undo));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("前进(&Y)\tCtrl+Y", () => RedoLegacyScenarioEdit(scope), LegacyScriptContextMenuRole.Redo));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("剪切(&T)\tCtrl+X", () => CutSelectedLegacyScriptCommand(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("复制(&C)\tCtrl+C", () => CopySelectedScriptCommandSummary(scope)));
-        menu.Items.Add(CreateLegacyScriptContextMenuItem("粘贴(&P)\tCtrl+V", () => PasteCopiedLegacyScriptCommandAtDefaultTarget(scope)));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("剪切(&T)\tCtrl+X", () => CutSelectedLegacyScriptCommand(scope), LegacyScriptContextMenuRole.Cut));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("复制(&C)\tCtrl+C", () => CopySelectedScriptCommandSummary(scope), LegacyScriptContextMenuRole.Copy));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("粘贴(&P)\tCtrl+V", () => PasteCopiedLegacyScriptCommandAtDefaultTarget(scope), LegacyScriptContextMenuRole.Paste));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("文本导入...", () => ImportScenarioTextBelowSelected(scope), "TextImport"));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateLegacyScriptContextMenuItem("全部展开\tCtrl+Q", () => ExpandSelectedLegacyScriptTreeNode(scope)));
@@ -182,6 +237,12 @@ public sealed partial class MainForm
         return item;
     }
 
+    private static ToolStripMenuItem CreateLegacyScriptContextMenuItem(
+        string text,
+        Action action,
+        LegacyScriptContextMenuRole role)
+        => CreateLegacyScriptContextMenuItem(text, action, role.ToString());
+
     private void UpdateLegacyStyleScriptTreeContextMenuItems()
         => UpdateLegacyStyleScriptTreeContextMenuItems(LegacyScriptEditorScope.Script);
 
@@ -190,74 +251,191 @@ public sealed partial class MainForm
         EnsureScriptCommandComboReady();
         var menu = GetLegacyScriptContextMenu(scope);
         var selectedItemData = TryGetSelectedLegacyItemData(scope, out var itemData) ? itemData : null;
+        var selectedSceneNode = TryGetSelectedLegacyScriptSceneNode(scope, out var selectedScene);
         var selectedSectionNode = TryGetSelectedLegacyScriptSectionNode(scope, out _);
         LegacyScenarioCommandNode command = null!;
-        var selectedCommand = !selectedSectionNode && TryGetSelectedLegacyScriptCommand(scope, out command);
+        var selectedCommand = !selectedSceneNode && !selectedSectionNode && TryGetSelectedLegacyScriptCommand(scope, out command);
         var checkedCommands = GetCheckedLegacyScriptCommands(scope);
-        var copySourceCount = checkedCommands.Count > 0 ? checkedCommands.Count : selectedCommand || selectedSectionNode ? 1 : 0;
+        var copySourceCount = checkedCommands.Count > 0 ? checkedCommands.Count : selectedCommand || selectedSceneNode || selectedSectionNode ? 1 : 0;
         var canEdit = selectedItemData?.Command != null && LegacyCommandEditDispatcher.CanEdit(selectedItemData.Id);
-        var canAdd = (selectedItemData?.Scene != null || selectedItemData?.Section != null) ||
-                     (selectedCommand && CanAddLegacyScriptCommandBeforeSelected(scope, command, out _));
-        var canAddSubEvent = selectedCommand && CanAddLegacySubEventBeforeSelected(scope, command, out _);
+        var canAddBefore = (selectedItemData?.Scene != null || selectedItemData?.Section != null) ||
+                           (selectedCommand && CanAddLegacyScriptCommandNearSelected(scope, command, beforeSelected: true, out _));
+        var canAddAfter = (selectedItemData?.Scene != null || selectedItemData?.Section != null) ||
+                          (selectedCommand && CanAddLegacyScriptCommandNearSelected(scope, command, beforeSelected: false, out _));
+        var canAddSubEventBefore = selectedCommand && CanAddLegacySubEventNearSelected(scope, command, beforeSelected: true, out _);
+        var canAddSubEventAfter = selectedCommand && CanAddLegacySubEventNearSelected(scope, command, beforeSelected: false, out _);
         var canDuplicate = selectedCommand && CanStepDuplicateLegacyScriptCommand(command, out _);
-        var canDelete = selectedCommand && CanDeleteLegacyScriptCommand(scope, command, out _);
+        var document = GetCurrentLegacyScriptDocument(scope);
+        var deleteCommands = GetLegacyScriptCommandDeleteSelection(scope);
+        var canDeleteCommandBatch = deleteCommands.Count > 0 &&
+                                    deleteCommands.All(candidate => CanDeleteLegacyScriptCommand(scope, candidate, out _));
+        var canDelete = deleteCommands.Count > 0
+            ? canDeleteCommandBatch
+            : selectedSceneNode && document != null
+            ? CanDeleteLegacyScriptScene(document, selectedScene, out _)
+            : selectedSectionNode && document != null && TryGetSelectedLegacyScriptSectionNode(scope, out var selectedSection)
+                ? CanDeleteLegacyScriptSection(document, selectedSection, out _)
+                : selectedCommand && CanDeleteLegacyScriptCommand(scope, command, out _);
         var canMoveUp = selectedCommand && CanMoveLegacyScriptCommand(scope, command, up: true, out _);
         var canMoveDown = selectedCommand && CanMoveLegacyScriptCommand(scope, command, up: false, out _);
         var canCopy = checkedCommands.Count > 0
             ? checkedCommands.All(candidate => CanCopyLegacyScriptCommand(candidate, out _))
-            : selectedSectionNode || (selectedCommand && CanCopyLegacyScriptCommand(command, out _));
+            : selectedSceneNode || selectedSectionNode || (selectedCommand && CanCopyLegacyScriptCommand(command, out _));
         var canPaste = CanPasteCopiedLegacyScriptCommandNearSelected(scope, beforeSelected: true, out _);
+        var pasteSceneCount = GetLegacyScriptClipboardScenesForPaste().Count;
         var pasteSectionCount = GetLegacyScriptClipboardSectionsForPaste().Count;
         var pasteCommandCount = GetLegacyScriptClipboardCommandsForPaste().Count;
         var selectedTree = GetLegacyScriptTree(scope);
 
-        var items = menu.Items.OfType<ToolStripMenuItem>().ToList();
-        if (items.Count >= 15)
+        var editItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextEditItem, LegacyScriptContextMenuRole.Edit);
+        var addBeforeItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextAddBeforeItem, LegacyScriptContextMenuRole.AddBefore);
+        var addAfterItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextAddItem, LegacyScriptContextMenuRole.AddAfter);
+        var addSubEventBeforeItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextAddSubEventBeforeItem, LegacyScriptContextMenuRole.AddSubEventBefore);
+        var addSubEventAfterItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextAddSubEventItem, LegacyScriptContextMenuRole.AddSubEventAfter);
+        var duplicateItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextDuplicateItem, LegacyScriptContextMenuRole.Duplicate);
+        var deleteItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextDeleteItem, LegacyScriptContextMenuRole.Delete);
+        var moveUpItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextMoveUpItem, LegacyScriptContextMenuRole.MoveUp);
+        var moveDownItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextMoveDownItem, LegacyScriptContextMenuRole.MoveDown);
+        var undoItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextUndoItem, LegacyScriptContextMenuRole.Undo);
+        var redoItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextRedoItem, LegacyScriptContextMenuRole.Redo);
+        var cutItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextCutItem, LegacyScriptContextMenuRole.Cut);
+        var copyItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextCopyItem, LegacyScriptContextMenuRole.Copy);
+        var pasteItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextPasteItem, LegacyScriptContextMenuRole.Paste);
+
+        if (editItem != null)
         {
-            items[0].Enabled = canEdit;
-            items[1].Enabled = canAdd;
-            items[2].Enabled = canAddSubEvent;
-            items[3].Enabled = canDuplicate;
-            items[4].Enabled = canDelete;
-            items[5].Enabled = canMoveUp;
-            items[6].Enabled = canMoveDown;
-            items[7].Enabled = CanUndoLegacyScenarioEdit(scope);
-            items[8].Enabled = CanRedoLegacyScenarioEdit(scope);
-            items[9].Enabled = checkedCommands.Count == 0 && canCopy && canDelete;
-            items[10].Enabled = canCopy;
-            items[11].Enabled = canPaste;
-            items[10].Text = checkedCommands.Count > 1
-                ? $"复制选中 {copySourceCount} 条(&C)\tCtrl+C"
+            editItem.Enabled = canEdit;
+        }
+
+        if (addBeforeItem != null)
+        {
+            addBeforeItem.Enabled = canAddBefore;
+            addBeforeItem.Text = selectedSceneNode
+                ? "在上方添加 Scene(&A)\tCtrl+Shift+I"
                 : selectedSectionNode
+                    ? "在上方添加 Section(&A)\tCtrl+Shift+I"
+                    : "在上方添加指令(&A)\tCtrl+Shift+I";
+        }
+
+        if (addAfterItem != null)
+        {
+            addAfterItem.Enabled = canAddAfter;
+            addAfterItem.Text = selectedSceneNode
+                ? "在下方添加 Scene(&I)\tCtrl+I"
+                : selectedSectionNode
+                    ? "在下方添加 Section(&I)\tCtrl+I"
+                    : "在下方添加指令(&I)\tCtrl+I";
+        }
+
+        if (addSubEventBeforeItem != null)
+        {
+            addSubEventBeforeItem.Enabled = canAddSubEventBefore;
+            addSubEventBeforeItem.Text = "在上方添加子事件(&B)\tCtrl+Shift+O";
+        }
+
+        if (addSubEventAfterItem != null)
+        {
+            addSubEventAfterItem.Enabled = canAddSubEventAfter;
+            addSubEventAfterItem.Text = "在下方添加子事件(&S)\tCtrl+O";
+        }
+
+        if (duplicateItem != null)
+        {
+            duplicateItem.Enabled = canDuplicate;
+        }
+
+        if (deleteItem != null)
+        {
+            deleteItem.Enabled = canDelete;
+            deleteItem.Text = deleteCommands.Count > 1
+                ? $"删除选中 {deleteCommands.Count} 条命令(&D)\tDelete"
+                : deleteCommands.Count == 1
+                    ? "删除命令(&D)\tDelete"
+                    : selectedSceneNode
+                ? "删除 Scene(&D)\tDelete"
+                : selectedSectionNode
+                    ? "删除 Section(&D)\tDelete"
+                    : "删除命令(&D)\tDelete";
+        }
+
+        if (moveUpItem != null)
+        {
+            moveUpItem.Enabled = canMoveUp;
+        }
+
+        if (moveDownItem != null)
+        {
+            moveDownItem.Enabled = canMoveDown;
+        }
+
+        if (undoItem != null)
+        {
+            undoItem.Enabled = CanUndoLegacyScenarioEdit(scope);
+        }
+
+        if (redoItem != null)
+        {
+            redoItem.Enabled = CanRedoLegacyScenarioEdit(scope);
+        }
+
+        if (cutItem != null)
+        {
+            cutItem.Enabled = checkedCommands.Count == 0 && canCopy && canDelete && deleteCommands.Count <= 1;
+        }
+
+        if (copyItem != null)
+        {
+            copyItem.Enabled = canCopy;
+            copyItem.Text = checkedCommands.Count > 1
+                ? $"复制选中 {copySourceCount} 条(&C)\tCtrl+C"
+                : selectedSceneNode
+                    ? "复制 Scene(&C)\tCtrl+C"
+                    : selectedSectionNode
                     ? "复制 Section(&C)\tCtrl+C"
                     : "复制(&C)\tCtrl+C";
-            items[11].Text = pasteSectionCount > 0
+        }
+
+        if (pasteItem != null)
+        {
+            pasteItem.Enabled = canPaste;
+            pasteItem.Text = pasteSceneCount > 0
+                ? pasteSceneCount > 1
+                    ? $"粘贴 {pasteSceneCount} 个 Scene 到后面(&P)\tCtrl+V"
+                    : "粘贴 Scene 到后面(&P)\tCtrl+V"
+                : pasteSectionCount > 0
                 ? pasteSectionCount > 1
                     ? $"粘贴 {pasteSectionCount} 个 Section 到后面(&P)\tCtrl+V"
                     : "粘贴 Section 到后面(&P)\tCtrl+V"
                 : pasteCommandCount > 1
                     ? $"粘贴 {pasteCommandCount} 条(&P)\tCtrl+V"
                     : "粘贴(&P)\tCtrl+V";
-            var expandItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextExpandItem, "全部展开");
-            if (expandItem != null)
-            {
-                expandItem.Enabled = selectedTree.SelectedNode?.Nodes.Count > 0;
-            }
+        }
 
-            var jumpItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextJumpItem, "跳转到");
-            if (jumpItem != null)
-            {
-                jumpItem.Enabled = selectedCommand && command.CommandId == 0x76 && command.JumpTargetOrdinal.HasValue;
-            }
+        var expandItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextExpandItem, "全部展开");
+        if (expandItem != null)
+        {
+            expandItem.Enabled = selectedTree.SelectedNode?.Nodes.Count > 0;
+        }
 
-            var textImportItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextTextImportItem, "TextImport");
-            if (textImportItem != null)
-            {
-                textImportItem.Enabled = selectedCommand &&
-                                         TryGetLegacyScriptCommandPasteTarget(scope, beforeSelected: false, out _, out _);
-            }
+        var jumpItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextJumpItem, "跳转到");
+        if (jumpItem != null)
+        {
+            jumpItem.Enabled = selectedCommand && command.CommandId == 0x76 && command.JumpTargetOrdinal.HasValue;
+        }
+
+        var textImportItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextTextImportItem, "TextImport");
+        if (textImportItem != null)
+        {
+            textImportItem.Enabled = selectedCommand &&
+                                     TryGetLegacyScriptCommandPasteTarget(scope, beforeSelected: false, out _, out _);
         }
     }
+
+    private static ToolStripMenuItem? FindLegacyScriptMenuItem(
+        ContextMenuStrip menu,
+        ToolStripMenuItem fallback,
+        LegacyScriptContextMenuRole role)
+        => FindLegacyScriptMenuItem(menu, fallback, role.ToString());
 
     private static ToolStripMenuItem? FindLegacyScriptMenuItem(
         ContextMenuStrip menu,
@@ -379,9 +557,11 @@ public sealed partial class MainForm
         var hasLegacyDocument = _currentLegacyScriptDocument != null;
         var hasCommandTemplate = _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem;
         var selectedCommand = TryGetSelectedLegacyScriptCommand(out var command);
+        var selectedSceneNode = TryGetSelectedLegacyScriptSceneNode(LegacyScriptEditorScope.Script, out var selectedScene);
         var selectedSectionNode = TryGetSelectedLegacyScriptSectionNode(LegacyScriptEditorScope.Script, out _);
         var selectedText = GetSelectedScriptTextEntry();
         var checkedCommands = GetCheckedLegacyScriptCommands();
+        var deleteCommands = GetLegacyScriptCommandDeleteSelection(LegacyScriptEditorScope.Script);
         var canInsertNear = hasLegacyDocument &&
                             hasCommandTemplate &&
                             selectedCommand &&
@@ -395,28 +575,49 @@ public sealed partial class MainForm
                 : "查看当前节点";
         _scriptContextApplyParameterItem.Text = "旧版修改指令...";
         _scriptContextEditItem.Enabled = selectedCommand || selectedText != null || _scriptTree.SelectedNode?.Tag is ScenarioStructureRow || _scriptTree.SelectedNode?.Tag is LegacyScenarioItemData;
-        _scriptContextAppendSectionItem.Enabled = false;
-        _scriptContextInsertBeforeItem.Enabled = false;
-        _scriptContextInsertAfterItem.Enabled = false;
-        _scriptContextAppendChildItem.Enabled = false;
-        _scriptContextDeleteItem.Enabled = false;
+        _scriptContextAppendSectionItem.Enabled = hasLegacyDocument && hasCommandTemplate && selectedSectionNode;
+        _scriptContextInsertBeforeItem.Enabled = canInsertNear;
+        _scriptContextInsertAfterItem.Enabled = canInsertNear;
+        _scriptContextAppendChildItem.Enabled = hasLegacyDocument &&
+                                               hasCommandTemplate &&
+                                               selectedCommand &&
+                                               command.ChildBlock != null;
+        _scriptContextDeleteItem.Enabled = deleteCommands.Count > 0
+            ? CanDeleteLegacyScriptCommandBatch(LegacyScriptEditorScope.Script, out _)
+            : selectedSceneNode && _currentLegacyScriptDocument != null
+            ? CanDeleteLegacyScriptScene(_currentLegacyScriptDocument, selectedScene, out _)
+            : selectedSectionNode && _currentLegacyScriptDocument != null && TryGetSelectedLegacyScriptSectionNode(LegacyScriptEditorScope.Script, out var selectedSection)
+                ? CanDeleteLegacyScriptSection(_currentLegacyScriptDocument, selectedSection, out _)
+                : selectedCommand && CanDeleteLegacyScriptCommand(command, out _);
+        _scriptContextDeleteItem.Text = deleteCommands.Count > 1
+            ? $"删除选中 {deleteCommands.Count} 条命令"
+            : deleteCommands.Count == 1
+                ? "删除命令"
+                : selectedSceneNode
+            ? "删除 Scene"
+            : selectedSectionNode
+                ? "删除 Section"
+                : "删除命令";
         _scriptContextApplyParameterItem.Enabled = TryGetSelectedLegacyItemData(out var selectedItemData) && LegacyCommandEditDispatcher.CanEdit(selectedItemData.Id);
         _scriptContextSaveTextItem.Text = "保存当前文本";
         _scriptContextSaveTextItem.Enabled = _saveScriptTextButton.Enabled;
-        _scriptContextCopyItem.Enabled = selectedCommand || selectedSectionNode || checkedCommands.Count > 0;
+        _scriptContextCopyItem.Enabled = selectedCommand || selectedSceneNode || selectedSectionNode || checkedCommands.Count > 0;
         _scriptContextCopyItem.Text = checkedCommands.Count > 1
             ? $"复制选中 {checkedCommands.Count} 条"
-            : selectedSectionNode
+            : selectedSceneNode
+                ? "复制 Scene"
+                : selectedSectionNode
                 ? "复制 Section"
                 : "复制命令";
-        _scriptContextPreviewPasteItem.Enabled = (selectedCommand || selectedSectionNode) &&
+        _scriptContextPreviewPasteItem.Enabled = (selectedCommand || selectedSceneNode || selectedSectionNode) &&
                                                  (_scriptCommandClipboardItem != null ||
                                                   _legacyScriptCommandClipboardItems.Count > 0 ||
+                                                  _legacyScriptSceneClipboardItems.Count > 0 ||
                                                   _legacyScriptSectionClipboardItems.Count > 0);
         _scriptContextPasteBeforeItem.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true, out _);
         _scriptContextPasteAfterItem.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false, out _);
-        _scriptContextMoveUpItem.Enabled = false;
-        _scriptContextMoveDownItem.Enabled = false;
+        _scriptContextMoveUpItem.Enabled = selectedCommand && CanMoveLegacyScriptCommand(LegacyScriptEditorScope.Script, command, up: true, out _);
+        _scriptContextMoveDownItem.Enabled = selectedCommand && CanMoveLegacyScriptCommand(LegacyScriptEditorScope.Script, command, up: false, out _);
 
         var commandName = FormatScriptNewCommandMenuText();
         _scriptContextAppendSectionItem.Text = string.IsNullOrWhiteSpace(commandName)
@@ -457,16 +658,30 @@ public sealed partial class MainForm
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.I)
+        if (e.Control && e.Shift && e.KeyCode == Keys.I)
         {
-            AddLegacyScriptCommandBeforeSelected();
+            AddLegacyScriptCommandNearSelected(LegacyScriptEditorScope.Script, beforeSelected: true);
             e.SuppressKeyPress = true;
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.O)
+        if (e.Control && !e.Shift && e.KeyCode == Keys.I)
         {
-            AddLegacyScriptSubEventBeforeSelected();
+            AddLegacyScriptCommandNearSelected(LegacyScriptEditorScope.Script, beforeSelected: false);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.Shift && e.KeyCode == Keys.O)
+        {
+            AddLegacyScriptSubEventNearSelected(LegacyScriptEditorScope.Script, beforeSelected: true);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && !e.Shift && e.KeyCode == Keys.O)
+        {
+            AddLegacyScriptSubEventNearSelected(LegacyScriptEditorScope.Script, beforeSelected: false);
             e.SuppressKeyPress = true;
             return;
         }
@@ -551,16 +766,30 @@ public sealed partial class MainForm
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.I)
+        if (e.Control && e.Shift && e.KeyCode == Keys.I)
         {
-            AddLegacyScriptCommandBeforeSelected(scope);
+            AddLegacyScriptCommandNearSelected(scope, beforeSelected: true);
             e.SuppressKeyPress = true;
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.O)
+        if (e.Control && !e.Shift && e.KeyCode == Keys.I)
         {
-            AddLegacyScriptSubEventBeforeSelected(scope);
+            AddLegacyScriptCommandNearSelected(scope, beforeSelected: false);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && e.Shift && e.KeyCode == Keys.O)
+        {
+            AddLegacyScriptSubEventNearSelected(scope, beforeSelected: true);
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.Control && !e.Shift && e.KeyCode == Keys.O)
+        {
+            AddLegacyScriptSubEventNearSelected(scope, beforeSelected: false);
             e.SuppressKeyPress = true;
             return;
         }
@@ -672,9 +901,12 @@ public sealed partial class MainForm
             : null;
 
     private void AddLegacyScriptCommandBeforeSelected()
-        => AddLegacyScriptCommandBeforeSelected(LegacyScriptEditorScope.Script);
+        => AddLegacyScriptCommandNearSelected(LegacyScriptEditorScope.Script, beforeSelected: false);
 
     private void AddLegacyScriptCommandBeforeSelected(LegacyScriptEditorScope scope)
+        => AddLegacyScriptCommandNearSelected(scope, beforeSelected: false);
+
+    private void AddLegacyScriptCommandNearSelected(LegacyScriptEditorScope scope, bool beforeSelected)
     {
         var document = GetCurrentLegacyScriptDocument(scope);
         if (document == null)
@@ -685,7 +917,7 @@ public sealed partial class MainForm
 
         if (TryGetSelectedLegacyItemData(scope, out var itemData) && itemData.Command == null)
         {
-            AddLegacyScriptSceneOrSectionBeforeSelected(scope, document, itemData);
+            AddLegacyScriptSceneOrSectionNearSelected(scope, document, itemData, beforeSelected);
             return;
         }
 
@@ -695,7 +927,7 @@ public sealed partial class MainForm
             return;
         }
 
-        if (!CanAddLegacyScriptCommandBeforeSelected(scope, selected, out var reason))
+        if (!CanAddLegacyScriptCommandNearSelected(scope, selected, beforeSelected, out var reason))
         {
             MessageBox.Show(this, reason, "无法添加指令", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
@@ -717,41 +949,43 @@ public sealed partial class MainForm
 
         var command = CreateLegacyScriptCommand(selected.SceneIndex, selected.SectionIndex, item);
         if (command == null) return;
-        var insertIndex = GetLegacyScriptOldInsertIndex(list, index);
+        var insertIndex = GetLegacyScriptAddInsertIndex(list, index, beforeSelected);
 
         ApplyLegacyScriptStructureEdit(
             scope,
             () => list.Insert(insertIndex, command),
             command,
-            $"已添加指令：{command.CommandIdHex} {command.CommandName}。",
+            $"已在{(beforeSelected ? "上方" : "下方")}添加指令：{command.CommandIdHex} {command.CommandName}。",
             new LegacyScriptStructureEditOptions(FindLegacyScriptSectionForCommand(document, selected)));
         SelectLegacyScriptCommandComboItem(item.Id);
     }
 
-    private void AddLegacyScriptSceneOrSectionBeforeSelected(
+    private void AddLegacyScriptSceneOrSectionNearSelected(
         LegacyScriptEditorScope scope,
         LegacyScenarioDocument document,
-        LegacyScenarioItemData itemData)
+        LegacyScenarioItemData itemData,
+        bool beforeSelected)
     {
         if (itemData.Scene != null)
         {
-            AddLegacyScriptSceneBeforeSelected(scope, document, itemData.Scene);
+            AddLegacyScriptSceneNearSelected(scope, document, itemData.Scene, beforeSelected);
             return;
         }
 
         if (itemData.Section != null)
         {
-            AddLegacyScriptSectionBeforeSelected(scope, document, itemData.Section);
+            AddLegacyScriptSectionNearSelected(scope, document, itemData.Section, beforeSelected);
             return;
         }
 
         MessageBox.Show(this, "旧版规则不允许在根节点处直接创建子节点。请先选择 Scene 或 Section。", "无法添加", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
-    private void AddLegacyScriptSceneBeforeSelected(
+    private void AddLegacyScriptSceneNearSelected(
         LegacyScriptEditorScope scope,
         LegacyScenarioDocument document,
-        LegacyScenarioScene selectedScene)
+        LegacyScenarioScene selectedScene,
+        bool beforeSelected)
     {
         var index = document.Scenes.IndexOf(selectedScene);
         if (index < 0)
@@ -760,19 +994,21 @@ public sealed partial class MainForm
             return;
         }
 
-        var scene = CreateLegacyScriptDefaultScene(index + 1);
+        var insertIndex = beforeSelected ? index : index + 1;
+        var scene = CreateLegacyScriptDefaultScene(insertIndex + 1);
         var preferredSelection = scene.Sections.FirstOrDefault()?.Commands.FirstOrDefault();
         ApplyLegacyScriptStructureEdit(
             scope,
-            () => document.Scenes.Insert(index, scene),
+            () => document.Scenes.Insert(insertIndex, scene),
             preferredSelection,
-            "已按旧版规则添加 Scene（含默认 Section）。");
+            $"已在 Scene {selectedScene.SceneIndex} {(beforeSelected ? "上方" : "下方")}添加 Scene（含默认 Section）。");
     }
 
-    private void AddLegacyScriptSectionBeforeSelected(
+    private void AddLegacyScriptSectionNearSelected(
         LegacyScriptEditorScope scope,
         LegacyScenarioDocument document,
-        LegacyScenarioSection selectedSection)
+        LegacyScenarioSection selectedSection,
+        bool beforeSelected)
     {
         var scene = document.Scenes.FirstOrDefault(candidate => candidate.Sections.Contains(selectedSection));
         if (scene == null)
@@ -788,19 +1024,23 @@ public sealed partial class MainForm
             return;
         }
 
-        var section = CreateLegacyScriptDefaultSection(scene.SceneIndex, index + 1);
+        var insertIndex = beforeSelected ? index : index + 1;
+        var section = CreateLegacyScriptDefaultSection(scene.SceneIndex, insertIndex + 1);
         var preferredSelection = section.Commands.FirstOrDefault();
         ApplyLegacyScriptStructureEdit(
             scope,
-            () => scene.Sections.Insert(index, section),
+            () => scene.Sections.Insert(insertIndex, section),
             preferredSelection,
-            $"已按旧版规则在 Scene {scene.SceneIndex} 添加 Section。");
+            $"已在 Scene {scene.SceneIndex} / Section {selectedSection.SectionIndex} {(beforeSelected ? "上方" : "下方")}添加 Section。");
     }
 
     private void AddLegacyScriptSubEventBeforeSelected()
-        => AddLegacyScriptSubEventBeforeSelected(LegacyScriptEditorScope.Script);
+        => AddLegacyScriptSubEventNearSelected(LegacyScriptEditorScope.Script, beforeSelected: false);
 
     private void AddLegacyScriptSubEventBeforeSelected(LegacyScriptEditorScope scope)
+        => AddLegacyScriptSubEventNearSelected(scope, beforeSelected: false);
+
+    private void AddLegacyScriptSubEventNearSelected(LegacyScriptEditorScope scope, bool beforeSelected)
     {
         var document = GetCurrentLegacyScriptDocument(scope);
         if (document == null || !TryGetSelectedLegacyScriptCommand(scope, out var selected))
@@ -809,7 +1049,7 @@ public sealed partial class MainForm
             return;
         }
 
-        if (!CanAddLegacySubEventBeforeSelected(scope, selected, out var reason))
+        if (!CanAddLegacySubEventNearSelected(scope, selected, beforeSelected, out var reason))
         {
             MessageBox.Show(this, reason, "无法添加子事件", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
@@ -840,7 +1080,7 @@ public sealed partial class MainForm
         command.ChildBlock.Commands.Add(CreateLegacyScriptStructuralCommand(0x00, selected.SceneIndex, selected.SectionIndex));
 
         var marker = CreateLegacyScriptStructuralCommand(0x01, selected.SceneIndex, selected.SectionIndex);
-        var insertIndex = GetLegacyScriptOldInsertIndex(list, index);
+        var insertIndex = GetLegacyScriptAddInsertIndex(list, index, beforeSelected);
         ApplyLegacyScriptStructureEdit(
             scope,
             () =>
@@ -849,15 +1089,22 @@ public sealed partial class MainForm
                 list.Insert(insertIndex + 1, command);
             },
             command,
-            $"已添加子事件：{command.CommandIdHex} {command.CommandName}。",
+            $"已在{(beforeSelected ? "上方" : "下方")}添加子事件：{command.CommandIdHex} {command.CommandName}。",
             new LegacyScriptStructureEditOptions(FindLegacyScriptSectionForCommand(document, selected)));
         SelectLegacyScriptCommandComboItem(item.Id);
     }
 
     private bool CanAddLegacyScriptCommandBeforeSelected(LegacyScenarioCommandNode? command, out string reason)
-        => CanAddLegacyScriptCommandBeforeSelected(LegacyScriptEditorScope.Script, command, out reason);
+        => CanAddLegacyScriptCommandNearSelected(LegacyScriptEditorScope.Script, command, beforeSelected: false, out reason);
 
     private bool CanAddLegacyScriptCommandBeforeSelected(LegacyScriptEditorScope scope, LegacyScenarioCommandNode? command, out string reason)
+        => CanAddLegacyScriptCommandNearSelected(scope, command, beforeSelected: false, out reason);
+
+    private bool CanAddLegacyScriptCommandNearSelected(
+        LegacyScriptEditorScope scope,
+        LegacyScenarioCommandNode? command,
+        bool beforeSelected,
+        out string reason)
     {
         var document = GetCurrentLegacyScriptDocument(scope);
         if (document == null)
@@ -884,7 +1131,14 @@ public sealed partial class MainForm
             return false;
         }
 
-        if (HasLegacyScriptSubEventMarkerBefore(list, index))
+        if (!beforeSelected && IsLegacyScriptTrailingBoundary(command))
+        {
+            reason = "不允许在事件/子事件结束边界下方添加指令；请选择上一条正文指令。";
+            return false;
+        }
+
+        var insertIndex = GetLegacyScriptAddInsertIndex(list, index, beforeSelected);
+        if (HasLegacyScriptSubEventMarkerBefore(list, insertIndex))
         {
             reason = "不允许在 0x01 子事件设定标志和其承载指令之间添加指令。";
             return false;
@@ -895,9 +1149,16 @@ public sealed partial class MainForm
     }
 
     private bool CanAddLegacySubEventBeforeSelected(LegacyScenarioCommandNode command, out string reason)
-        => CanAddLegacySubEventBeforeSelected(LegacyScriptEditorScope.Script, command, out reason);
+        => CanAddLegacySubEventNearSelected(LegacyScriptEditorScope.Script, command, beforeSelected: false, out reason);
 
     private bool CanAddLegacySubEventBeforeSelected(LegacyScriptEditorScope scope, LegacyScenarioCommandNode? command, out string reason)
+        => CanAddLegacySubEventNearSelected(scope, command, beforeSelected: false, out reason);
+
+    private bool CanAddLegacySubEventNearSelected(
+        LegacyScriptEditorScope scope,
+        LegacyScenarioCommandNode? command,
+        bool beforeSelected,
+        out string reason)
     {
         var document = GetCurrentLegacyScriptDocument(scope);
         if (document == null)
@@ -930,7 +1191,14 @@ public sealed partial class MainForm
             return false;
         }
 
-        if (HasLegacyScriptSubEventMarkerBefore(list, index))
+        if (!beforeSelected && IsLegacyScriptTrailingBoundary(command))
+        {
+            reason = "不允许在事件/子事件结束边界下方创建子事件；请选择上一条正文指令。";
+            return false;
+        }
+
+        var insertIndex = GetLegacyScriptAddInsertIndex(list, index, beforeSelected);
+        if (HasLegacyScriptSubEventMarkerBefore(list, insertIndex))
         {
             reason = "不允许在 0x01 子事件设定标志和其承载指令之间添加子事件。";
             return false;

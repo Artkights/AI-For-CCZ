@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 10000,
-    [int]$MinimumToolCount = 56
+    [int]$MinimumToolCount = 65
 )
 
 $ErrorActionPreference = "Stop"
@@ -210,8 +210,22 @@ try {
         "export_effect_package",
         "preview_effect_package",
         "apply_effect_package",
+        "analyze_mod_request",
+        "compile_mod_package",
         "analyze_standalone_scenario_request",
         "compile_standalone_scenario_package",
+        "list_available_slots",
+        "preview_mod_package",
+        "apply_mod_package",
+        "auto_make_mod",
+        "auto_validate_mod",
+        "promote_test_copy_mod",
+        "validate_mod_package",
+        "export_mod_report",
+        "compile_scenario_patch",
+        "preview_scenario_patch",
+        "apply_scenario_patch",
+        "apply_scenario_patch_aggressive",
         "list_effect_templates",
         "build_effect_package_from_template",
         "preview_effect_patch",

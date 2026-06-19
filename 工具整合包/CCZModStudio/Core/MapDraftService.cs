@@ -153,7 +153,7 @@ public sealed class MapDraftService
             });
         }
 
-        foreach (var cell in draft.MapCellOverrides)
+        foreach (var cell in draft.MapCellOverrides.Concat(draft.BuildingOverlayCells))
         {
             var path = ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath);
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -221,12 +221,13 @@ public sealed class MapDraftService
         }
 
         draft.MapCellOverrides ??= new List<MapCellOverride>();
-        draft.MapCellOverrides = draft.MapCellOverrides
-            .Where(cell => cell.Index >= 0 && cell.Index < cellCount && !string.IsNullOrWhiteSpace(cell.MaterialRelativePath))
-            .GroupBy(cell => cell.Index)
-            .Select(group => group.Last())
-            .OrderBy(cell => cell.Index)
-            .ToList();
+        draft.MapCellOverrides = NormalizeCells(draft.MapCellOverrides, cellCount, MapCellOverrideSources.ManualOverride);
+        draft.GeneratedMapCells ??= new List<MapCellOverride>();
+        draft.GeneratedMapCells = NormalizeCells(draft.GeneratedMapCells, cellCount, MapCellOverrideSources.Generated);
+        draft.BuildingOverlayCells ??= new List<MapCellOverride>();
+        draft.BuildingOverlayCells = NormalizeCells(draft.BuildingOverlayCells, cellCount, MapCellOverrideSources.BuildingOverlay);
+        draft.BeautifyStrength = Math.Clamp(draft.BeautifyStrength, 0, 3);
+        draft.FeatherRadius = Math.Clamp(draft.FeatherRadius, 0, MapResourceItem.MapTilePixelSize / 2);
         draft.BoundMapId = draft.BoundMapId?.Trim() ?? string.Empty;
         draft.BaseLayerPath = draft.BaseLayerPath?.Trim() ?? string.Empty;
         draft.MaterialRoot = draft.MaterialRoot?.Trim() ?? string.Empty;
@@ -234,6 +235,22 @@ public sealed class MapDraftService
         draft.UpdatedAtText = draft.UpdatedAtText?.Trim() ?? string.Empty;
         return draft;
     }
+
+    private static List<MapCellOverride> NormalizeCells(IEnumerable<MapCellOverride> cells, int cellCount, string defaultSource)
+        => cells
+            .Where(cell => cell.Index >= 0 && cell.Index < cellCount && !string.IsNullOrWhiteSpace(cell.MaterialRelativePath))
+            .Select(cell =>
+            {
+                cell.MaterialRelativePath = cell.MaterialRelativePath?.Trim() ?? string.Empty;
+                cell.MaterialCategory = cell.MaterialCategory?.Trim() ?? string.Empty;
+                cell.DisplayName = cell.DisplayName?.Trim() ?? string.Empty;
+                cell.Source = string.IsNullOrWhiteSpace(cell.Source) ? defaultSource : cell.Source.Trim();
+                return cell;
+            })
+            .GroupBy(cell => cell.Index)
+            .Select(group => group.Last())
+            .OrderBy(cell => cell.Index)
+            .ToList();
 
     private static string GetMapId(MapResourceItem item)
     {

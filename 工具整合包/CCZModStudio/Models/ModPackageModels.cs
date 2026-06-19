@@ -245,6 +245,7 @@ public sealed class ModAutoValidateResult
     public bool Passed { get; set; }
     public ModPackagePreviewResult? Preview { get; set; }
     public List<ModSmokeRunResult> SmokeRuns { get; set; } = [];
+    public List<ModPlayabilityEvidence> PlayabilityEvidence { get; set; } = [];
     public List<ModPackageValidationIssue> Issues { get; set; } = [];
     public string Summary { get; set; } = string.Empty;
     public string ReportPath { get; set; } = string.Empty;
@@ -285,6 +286,7 @@ public sealed class ModPackageMetadata
     public string Name { get; set; } = string.Empty;
     public string Theme { get; set; } = string.Empty;
     public string TargetVersion { get; set; } = "6.5";
+    public string PlayableTier { get; set; } = "draft";
     public string AuthorNote { get; set; } = string.Empty;
     public string SourcePrompt { get; set; } = string.Empty;
     public Dictionary<string, string> Tags { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -406,8 +408,10 @@ public sealed class ModPackagePreviewResult
     public string ProjectRoot { get; set; } = string.Empty;
     public string PackageId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string PlayableTier { get; set; } = "draft";
     public bool CanApply { get; set; }
     public string Summary { get; set; } = string.Empty;
+    public List<ModPlayabilityEvidence> PlayabilityEvidence { get; set; } = [];
     public List<ModPackageValidationIssue> Issues { get; set; } = [];
     public List<ModPackageChangePreview> Changes { get; set; } = [];
     public List<ScenarioPatchPreviewResult> ScenarioPatchPreviews { get; set; } = [];
@@ -422,6 +426,15 @@ public sealed class ModPackageValidationIssue
     public string Category { get; set; } = string.Empty;
     public string Target { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+}
+
+public sealed class ModPlayabilityEvidence
+{
+    public string Key { get; set; } = string.Empty;
+    public string Status { get; set; } = "missing";
+    public string TierImpact { get; set; } = "warning";
+    public string Message { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
 }
 
 public sealed class ModPackageChangePreview

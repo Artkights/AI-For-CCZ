@@ -263,9 +263,10 @@ internal static partial class LegacyMfcDialogResourceLoader
 
     private static string FindLegacyResourceScript()
     {
-        var candidates = new List<string>();
-        AddCandidateRoots(candidates, AppContext.BaseDirectory);
-        AddCandidateRoots(candidates, Environment.CurrentDirectory);
+        var candidates = new List<string>
+        {
+            PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23", "cczEditor2", "cczEditor2.rc")
+        };
 
         foreach (var path in candidates)
         {
@@ -277,9 +278,10 @@ internal static partial class LegacyMfcDialogResourceLoader
 
     private static string FindLegacyViewSource()
     {
-        var candidates = new List<string>();
-        AddCandidateRoots(candidates, AppContext.BaseDirectory, "cczEditor2View.cpp");
-        AddCandidateRoots(candidates, Environment.CurrentDirectory, "cczEditor2View.cpp");
+        var candidates = new List<string>
+        {
+            PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23", "cczEditor2", "cczEditor2View.cpp")
+        };
 
         foreach (var path in candidates)
         {
@@ -287,22 +289,6 @@ internal static partial class LegacyMfcDialogResourceLoader
         }
 
         return string.Empty;
-    }
-
-    private static void AddCandidateRoots(List<string> candidates, string start)
-        => AddCandidateRoots(candidates, start, "cczEditor2.rc");
-
-    private static void AddCandidateRoots(List<string> candidates, string start, string fileName)
-    {
-        var directory = new DirectoryInfo(start);
-        while (directory != null)
-        {
-            candidates.Add(Path.Combine(directory.FullName, "LegacyResources", "a新剧本编辑器v0.23", "cczEditor2", fileName));
-            candidates.Add(Path.Combine(directory.FullName, "工具整合包", "CCZModStudio", "Assets", "LegacyResources", "a新剧本编辑器v0.23", "cczEditor2", fileName));
-            candidates.Add(Path.Combine(directory.FullName, "老版游戏制作工具", "a新剧本编辑器v0.23", "ccz-SceneEditor-main", "cczEditor2", fileName));
-            candidates.Add(Path.Combine(directory.FullName, "..", "老版游戏制作工具", "a新剧本编辑器v0.23", "ccz-SceneEditor-main", "cczEditor2", fileName));
-            directory = directory.Parent;
-        }
     }
 
     private static string DecodeCString(string text)

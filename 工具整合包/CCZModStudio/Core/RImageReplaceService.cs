@@ -31,8 +31,8 @@ public sealed class RImageReplaceService
     public RImageReplacePreviewResult Preview(CczProject project, RImageReplaceRequest request)
     {
         var mapping = ResolveMapping(project, request);
-        var filePlans = BuildFilePlans(project, request, mapping);
         var warnings = new List<string>();
+        var filePlans = BuildFilePlans(project, request, mapping, warnings);
         var files = new List<RImageReplaceFilePreview>();
         var requests = new List<E5ImageBatchReplaceRequest>();
 
@@ -141,7 +141,7 @@ public sealed class RImageReplaceService
         };
     }
 
-    private static IReadOnlyList<RImageFilePlan> BuildFilePlans(CczProject project, RImageReplaceRequest request, RImageMappingSnapshot mapping)
+    private static IReadOnlyList<RImageFilePlan> BuildFilePlans(CczProject project, RImageReplaceRequest request, RImageMappingSnapshot mapping, List<string> warnings)
     {
         if (string.IsNullOrWhiteSpace(request.MaterialFolder))
         {
@@ -155,36 +155,76 @@ public sealed class RImageReplaceService
         }
 
         var targetPath = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
-        var plans = new[]
-        {
-            new RImageFilePlan("正面", "Pmapobj.e5", targetPath, ResolveMaterialFile(folder, ["front.bmp", "x.bmp", "1.bmp"], "front.bmp / x.bmp / 1.bmp"), mapping.FrontImageNumber),
-            new RImageFilePlan("反面", "Pmapobj.e5", targetPath, ResolveMaterialFile(folder, ["back.bmp", "y.bmp", "2.bmp"], "back.bmp / y.bmp / 2.bmp"), mapping.BackImageNumber)
-        };
+        var plans = new List<RImageFilePlan>();
+        AddFilePlanIfMatched(
+            plans,
+            warnings,
+            folder,
+            "正面",
+            "Pmapobj.e5",
+            targetPath,
+            ["front.bmp", "x.bmp", "1.bmp"],
+            mapping.FrontImageNumber);
+        AddFilePlanIfMatched(
+            plans,
+            warnings,
+            folder,
+            "反面",
+            "Pmapobj.e5",
+            targetPath,
+            ["back.bmp", "y.bmp", "2.bmp"],
+            mapping.BackImageNumber);
 
-        foreach (var plan in plans)
+        if (plans.Count == 0)
         {
-            if (!File.Exists(plan.SourcePath))
-            {
-                throw new FileNotFoundException($"素材目录缺少 {Path.GetFileName(plan.SourcePath)}。", plan.SourcePath);
-            }
+            throw new InvalidOperationException("没有找到可导入的 R 形象素材。");
         }
 
         return plans;
     }
 
-    private static string ResolveMaterialFile(string folder, IReadOnlyList<string> candidateNames, string displayNames)
+    private static void AddFilePlanIfMatched(
+        List<RImageFilePlan> plans,
+        List<string> warnings,
+        string folder,
+        string role,
+        string targetFileName,
+        string targetPath,
+        IReadOnlyList<string> candidateNames,
+        int imageNumber)
     {
-        var files = Directory.EnumerateFiles(folder).ToArray();
-        foreach (var candidateName in candidateNames)
+        var sourcePath = TryResolveMaterialFile(folder, candidateNames, role, warnings);
+        if (string.IsNullOrWhiteSpace(sourcePath))
         {
-            var path = files.FirstOrDefault(file => Path.GetFileName(file).Equals(candidateName, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                return path;
-            }
+            return;
         }
 
-        throw new FileNotFoundException($"素材目录缺少 {displayNames}。", Path.Combine(folder, candidateNames[0]));
+        plans.Add(new RImageFilePlan(role, targetFileName, targetPath, sourcePath, imageNumber));
+    }
+
+    private static string? TryResolveMaterialFile(string folder, IReadOnlyList<string> candidateNames, string role, List<string> warnings)
+    {
+        var files = Directory
+            .EnumerateFiles(folder)
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var matches = new List<string>();
+        foreach (var candidateName in candidateNames)
+        {
+            matches.AddRange(files.Where(file => Path.GetFileName(file).Equals(candidateName, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (matches.Count == 0)
+        {
+            return null;
+        }
+
+        if (matches.Count > 1)
+        {
+            warnings.Add($"{role}: 发现多个候选素材，已按文件名排序选用 {Path.GetFileName(matches[0])}。");
+        }
+
+        return matches[0];
     }
 
     private static string WriteAggregateReport(CczProject project, RImageReplaceResult result)

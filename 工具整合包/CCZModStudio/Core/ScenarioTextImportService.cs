@@ -72,13 +72,7 @@ public sealed class ScenarioTextImportService
     public static string LoadTemplateText(CczProject? project)
     {
         var candidates = new List<string>();
-        if (project != null)
-        {
-            candidates.Add(Path.Combine(project.WorkspaceRoot, "工具整合包", "本地知识库", "08-剧本与战场", "剧本文本导入AI说明模板.md"));
-            candidates.Add(Path.Combine(project.GameRoot, "工具整合包", "本地知识库", "08-剧本与战场", "剧本文本导入AI说明模板.md"));
-        }
-
-        candidates.Add(Path.Combine(AppContext.BaseDirectory, "剧本文本导入AI说明模板.md"));
+        candidates.Add(PortableInstallPaths.ScenarioTextImportTemplatePath);
 
         foreach (var path in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
         {

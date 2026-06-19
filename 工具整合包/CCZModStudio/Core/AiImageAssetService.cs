@@ -150,13 +150,14 @@ public sealed class AiImageAssetService
         int? width,
         int? height)
     {
-        var preset = FindPreset(presetKey);
-        var target = NormalizeTargetPath(preset, targetRelativePath);
-        var targetNumbers = ResolveTargetImageNumbers(preset, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot);
+        var basePreset = FindPreset(presetKey);
+        var target = NormalizeTargetPath(project, basePreset, targetRelativePath);
+        var preset = ResolveEffectivePreset(project, basePreset, target);
+        var targetNumbers = ResolveTargetImageNumbers(project, preset, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot);
         var dimensions = ResolveTargetDimensions(project, preset, target, targetNumbers, imageNumber.HasValue, width, height);
         var format = NormalizeOutputFormat(outputFormat, preset.OutputFormat);
-        var mapping = BuildMappingSummary(preset, targetNumbers, rImageId, sImageId, faceId, jobId, factionSlot);
-        var warnings = BuildPlanWarnings(preset, target, targetNumbers, dimensions.Width, dimensions.Height).ToArray();
+        var mapping = BuildMappingSummary(project, preset, targetNumbers, rImageId, sImageId, faceId, jobId, factionSlot);
+        var warnings = BuildPlanWarnings(project, preset, target, targetNumbers, dimensions.Width, dimensions.Height).ToArray();
         var prompt = BuildPrompt(preset, description, dimensions.Width, dimensions.Height, format, mapping);
         var negative = BuildNegativePrompt(preset);
 
@@ -199,6 +200,10 @@ public sealed class AiImageAssetService
         var sourceBytes = File.ReadAllBytes(resolvedSource);
         var outputBytes = File.ReadAllBytes(outputPath);
         var preview = primary.ReplacementPreview;
+        if (Is66ItemIconPairPlan(plan))
+        {
+            preview = preparedFiles.Select(file => file.ReplacementPreview).ToArray();
+        }
         var manifestPath = WriteManifest(project, plan, resolvedSource, outputPath, post, preparedFiles);
 
         return new AiImagePrepareResult
@@ -313,11 +318,52 @@ public sealed class AiImageAssetService
         => Presets.FirstOrDefault(x => x.Key.Equals(key.Trim(), StringComparison.OrdinalIgnoreCase))
            ?? throw new InvalidOperationException($"未知图片素材 preset：{key}。可用值：{string.Join(", ", Presets.Select(x => x.Key))}");
 
-    private static string NormalizeTargetPath(AiImageAssetPreset preset, string? targetRelativePath)
-        => (string.IsNullOrWhiteSpace(targetRelativePath) ? preset.DefaultTargetRelativePath : targetRelativePath.Trim())
+    private static string NormalizeTargetPath(CczProject project, AiImageAssetPreset preset, string? targetRelativePath)
+        => (string.IsNullOrWhiteSpace(targetRelativePath) ? ResolveDefaultTargetPath(project, preset) : targetRelativePath.Trim())
             .Replace('\\', '/');
 
+    private static string ResolveDefaultTargetPath(CczProject project, AiImageAssetPreset preset)
+        => preset.Key == "dll_icon" && Ccz66RevisedLayout.Is66(project)
+            ? "E5/Item.e5"
+            : preset.DefaultTargetRelativePath;
+
+    private static AiImageAssetPreset ResolveEffectivePreset(CczProject project, AiImageAssetPreset preset, string targetRelativePath)
+    {
+        if (preset.Key != "dll_icon" ||
+            !Ccz66RevisedLayout.Is66(project) ||
+            !Ccz66RevisedLayout.IsE5IconResource(targetRelativePath))
+        {
+            return preset;
+        }
+
+        var fileName = Path.GetFileName(targetRelativePath);
+        var isStrategy = fileName.Equals("Mtem.e5", StringComparison.OrdinalIgnoreCase);
+        return new AiImageAssetPreset
+        {
+            Key = preset.Key,
+            DisplayName = preset.DisplayName,
+            Category = preset.Category,
+            TargetKind = "e5",
+            DefaultTargetRelativePath = targetRelativePath,
+            DefaultWidth = preset.DefaultWidth,
+            DefaultHeight = preset.DefaultHeight,
+            OutputFormat = preset.OutputFormat,
+            GenerationSize = preset.GenerationSize,
+            Quality = preset.Quality,
+            Foreground = preset.Foreground,
+            NumberingRule = isStrategy
+                ? "6.6 revised strategy icons use E5/Mtem.e5; table field value maps to E5 image number +1, with four strategy families usually spaced by 6."
+                : "6.6 revised item icons use E5/Item.e5; table field value N maps to small image #2N+1 and large image #2N+2. #1/#2 are blank small/large icon slots.",
+            PostProcessRule = preset.PostProcessRule,
+            PreviewTool = "preview_e5_image_replace",
+            SafetyNote = isStrategy
+                ? "6.6 revised Mtem.e5 icon replacement uses the normal E5 backup, report, and reread validation path."
+                : "6.6 revised Item.e5 icon replacement uses the normal E5 backup, report, and reread validation path."
+        };
+    }
+
     private static IReadOnlyList<int> ResolveTargetImageNumbers(
+        CczProject project,
         AiImageAssetPreset preset,
         int? imageNumber,
         int? rImageId,
@@ -328,7 +374,15 @@ public sealed class AiImageAssetService
     {
         if (preset.Key == "dll_icon")
         {
-            return [imageNumber ?? 0];
+            var fieldValue = imageNumber ?? 0;
+            if (!Ccz66RevisedLayout.Is66(project)) return [fieldValue];
+            if (Ccz66RevisedLayout.IsItemIconResource(preset.DefaultTargetRelativePath))
+            {
+                var (small, large) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(fieldValue);
+                return [small, large];
+            }
+
+            return [Ccz66RevisedLayout.ResolveStrategyIconImageNumber(fieldValue)];
         }
 
         if (preset.Key == "r_actor")
@@ -398,6 +452,7 @@ public sealed class AiImageAssetService
     }
 
     private static string BuildMappingSummary(
+        CczProject project,
         AiImageAssetPreset preset,
         IReadOnlyList<int> numbers,
         int? rImageId,
@@ -412,17 +467,20 @@ public sealed class AiImageAssetService
             "r_actor" => $"R={rImageId ?? 0} -> Pmapobj.e5 {joined}",
             "s_unit" => CharacterImageResourceService.ResolveSUnitImageMapping(sImageId ?? 1, jobId, factionSlot).Detail + $"；目标 Unit 图 {joined}",
             "face" => new CharacterImageResourceService().MapFaceId(faceId ?? Math.Max(0, numbers.First() - 8)).Explanation + $"；目标 Face 图 {joined}",
+            "dll_icon" when Ccz66RevisedLayout.Is66(project) && numbers.Count >= 2 => $"6.6 Item.e5 icon field value {(numbers[0] - 1) / 2} -> small #{numbers[0]} / large #{numbers[1]}",
+            "dll_icon" when Ccz66RevisedLayout.Is66(project) => $"6.6 Mtem.e5 strategy icon field value {Math.Max(0, numbers.FirstOrDefault() - 1)} -> E5 image #{numbers.FirstOrDefault()}",
             "dll_icon" => $"DLL 图标字段编号 {numbers.FirstOrDefault()}，0-based。",
             _ => $"{preset.DefaultTargetRelativePath} 目标图 {joined}"
         };
     }
 
-    private static IEnumerable<string> BuildPlanWarnings(AiImageAssetPreset preset, string target, IReadOnlyList<int> numbers, int width, int height)
+    private static IEnumerable<string> BuildPlanWarnings(CczProject project, AiImageAssetPreset preset, string target, IReadOnlyList<int> numbers, int width, int height)
     {
         if (numbers.Any(x => x < 0)) yield return "目标编号小于 0。";
         if (preset.Foreground && (width < 16 || height < 16)) yield return "前景素材目标尺寸过小，模型生成后会强烈缩放。";
         if (preset.Key == "r_actor") yield return "v1 只生成静态条带草稿，不代表完整动作帧。";
         if (preset.Key == "s_unit") yield return "S 形象要求上游输出 4x6/24 格动作表；Unit_mov/atk/spc 的精确实机帧序仍需验证。";
+        if (preset.Key == "dll_icon" && Ccz66RevisedLayout.Is66(project) && Ccz66RevisedLayout.IsE5IconResource(target)) yield break;
         if (!target.Equals(preset.DefaultTargetRelativePath, StringComparison.OrdinalIgnoreCase)) yield return "目标资源路径已覆盖默认值，请确认仍属于 6.5 图片资源。";
     }
 
@@ -500,6 +558,11 @@ public sealed class AiImageAssetService
             return PrepareSUnitFiles(project, plan, sourcePath, previewFactory);
         }
 
+        if (Is66ItemIconPairPlan(plan))
+        {
+            return Prepare66ItemIconPairFiles(project, plan, sourcePath, previewFactory);
+        }
+
         var exportRoot = GetExportRoot(project);
         Directory.CreateDirectory(exportRoot);
         var stem = MakeSafeFileStem(plan.Preset.Key + "_" + plan.Description);
@@ -521,6 +584,50 @@ public sealed class AiImageAssetService
                 ReplacementPreview = previewFactory?.Invoke(plan, outputPath)
             }
         ];
+    }
+
+    private static bool Is66ItemIconPairPlan(AiImagePromptPlan plan)
+        => plan.Preset.Key == "dll_icon" &&
+           Ccz66RevisedLayout.IsItemIconResource(plan.TargetRelativePath) &&
+           plan.TargetImageNumbers.Count == 2;
+
+    private IReadOnlyList<AiImagePreparedFile> Prepare66ItemIconPairFiles(
+        CczProject project,
+        AiImagePromptPlan plan,
+        string sourcePath,
+        Func<AiImagePromptPlan, string, object?>? previewFactory)
+    {
+        var exportRoot = Path.Combine(GetExportRoot(project), "item66");
+        Directory.CreateDirectory(exportRoot);
+        var stem = MakeSafeFileStem(plan.Preset.Key + "_" + plan.Description);
+        var extension = ExtensionForFormat(plan.OutputFormat);
+        var roles = new[]
+        {
+            new { Role = "small", ImageNumber = plan.TargetImageNumbers[0], Width = 16, Height = 16 },
+            new { Role = "large", ImageNumber = plan.TargetImageNumbers[1], Width = 32, Height = 32 }
+        };
+
+        var files = new List<AiImagePreparedFile>();
+        foreach (var role in roles)
+        {
+            var outputPath = Path.Combine(exportRoot, $"{DateTime.Now:yyyyMMdd_HHmmss_fff}_{stem}_{role.Role}{extension}");
+            var rolePlan = ClonePlanForTarget(plan, plan.TargetRelativePath, role.Width, role.Height, [role.ImageNumber]);
+            var post = PostProcessImage(rolePlan, sourcePath, outputPath, role.Width, role.Height);
+            var outputBytes = File.ReadAllBytes(outputPath);
+            files.Add(new AiImagePreparedFile
+            {
+                Role = role.Role,
+                TargetRelativePath = plan.TargetRelativePath,
+                TargetImageNumbers = rolePlan.TargetImageNumbers,
+                OutputPath = outputPath,
+                OutputWidth = post.OutputWidth,
+                OutputHeight = post.OutputHeight,
+                OutputSha256 = ComputeSha256(outputBytes),
+                ReplacementPreview = previewFactory?.Invoke(rolePlan, outputPath)
+            });
+        }
+
+        return files;
     }
 
     private IReadOnlyList<AiImagePreparedFile> PrepareSUnitFiles(
@@ -562,7 +669,12 @@ public sealed class AiImageAssetService
         return files;
     }
 
-    private static AiImagePromptPlan ClonePlanForTarget(AiImagePromptPlan plan, string targetRelativePath, int width, int height)
+    private static AiImagePromptPlan ClonePlanForTarget(
+        AiImagePromptPlan plan,
+        string targetRelativePath,
+        int width,
+        int height,
+        IReadOnlyList<int>? targetImageNumbers = null)
         => new()
         {
             Preset = plan.Preset,
@@ -570,7 +682,7 @@ public sealed class AiImageAssetService
             Prompt = plan.Prompt,
             NegativePrompt = plan.NegativePrompt,
             TargetRelativePath = targetRelativePath,
-            TargetImageNumbers = plan.TargetImageNumbers,
+            TargetImageNumbers = targetImageNumbers ?? plan.TargetImageNumbers,
             TargetWidth = width,
             TargetHeight = height,
             OutputFormat = "png",

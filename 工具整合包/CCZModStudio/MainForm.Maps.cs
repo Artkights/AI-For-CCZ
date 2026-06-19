@@ -719,14 +719,14 @@ public sealed partial class MainForm
         try
         {
             _mapWorkbenchSettings = _mapDraftService.LoadSettings(_project);
-            if (!string.IsNullOrWhiteSpace(_mapWorkbenchSettings.LastMaterialRoot) &&
-                Directory.Exists(_mapWorkbenchSettings.LastMaterialRoot))
+            var materialRoot = ResolveDefaultMapWorkbenchMaterialRoot();
+            if (!string.IsNullOrWhiteSpace(materialRoot))
             {
-                IndexMapWorkbenchMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, showMessages: false);
+                IndexMapWorkbenchMaterialRoot(materialRoot, showMessages: false);
             }
             else if (!string.IsNullOrWhiteSpace(_mapWorkbenchSettings.LastMaterialRoot))
             {
-                _mapMakerMaterialInfoBox.Text = "上次选择的素材库目录不可达，请重新选择：\r\n" + _mapWorkbenchSettings.LastMaterialRoot;
+                _mapMakerMaterialInfoBox.Text = "自动素材目录不可达，地图生成将退化为地形色块。";
             }
         }
         catch (Exception ex)
@@ -734,6 +734,62 @@ public sealed partial class MainForm
             System.Diagnostics.Debug.WriteLine("读取地图工作台设置失败：" + ex.Message);
             _mapWorkbenchSettings = new MapWorkbenchSettings();
         }
+    }
+
+    private string ResolveDefaultMapWorkbenchMaterialRoot()
+    {
+        if (_project == null) return string.Empty;
+        var candidates = new List<string>();
+        AddMaterialRootCandidate(candidates, _mapWorkbenchSettings.LastMaterialRoot);
+        AddMaterialRootCandidate(candidates, MaterialLibraryIndexer.ResolveMaterialLibraryRoot(_project));
+        AddMaterialRootCandidate(candidates, MaterialLibraryIndexer.ResolveMaterialLibraryRoot(_project.WorkspaceRoot));
+        AddMaterialRootCandidate(candidates, Path.Combine(_project.GameRoot, "素材库"));
+        AddMaterialRootCandidate(candidates, Path.Combine(_project.WorkspaceRoot, "素材库"));
+        AddMaterialRootCandidate(candidates, Path.Combine(_project.WorkspaceRoot, "老版游戏制作工具", "素材库"));
+        AddMaterialRootCandidate(candidates, Path.Combine(_project.WorkspaceRoot, "老版游戏制作工具", "普罗-综合工具v0.3", "素材库"));
+
+        return candidates.FirstOrDefault(Directory.Exists) ?? string.Empty;
+    }
+
+    private static void AddMaterialRootCandidate(List<string> candidates, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (!candidates.Any(x => x.Equals(fullPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                candidates.Add(fullPath);
+            }
+        }
+        catch
+        {
+            // Ignore malformed persisted paths; fallback candidates below keep the workbench usable.
+        }
+    }
+
+    private bool EnsureMapWorkbenchMaterialLibraryIndexed(bool showMessages)
+    {
+        if (!string.IsNullOrWhiteSpace(_mapWorkbenchSettings.LastMaterialRoot) &&
+            Directory.Exists(_mapWorkbenchSettings.LastMaterialRoot) &&
+            _currentMaterialAssets.Count > 0)
+        {
+            return true;
+        }
+
+        var root = ResolveDefaultMapWorkbenchMaterialRoot();
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            if (showMessages)
+            {
+                MessageBox.Show(this, "未找到素材库目录，地图会暂时使用地形色块生成。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+
+            return false;
+        }
+
+        IndexMapWorkbenchMaterialRoot(root, showMessages);
+        return _currentMaterialAssets.Count > 0;
     }
 
     private void SaveMapWorkbenchSettings()
@@ -757,10 +813,13 @@ public sealed partial class MainForm
             return;
         }
 
+        EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
         var width = (int)_mapMakerGridWidthInput.Value;
         var height = (int)_mapMakerGridHeightInput.Value;
         _currentMapMakerItem = null;
         _currentMapWorkbenchDraft = _mapDraftService.CreateBlankDraft(width, height, _mapWorkbenchSettings.LastMaterialRoot);
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
         BindMapWorkbenchDraftToEditor(resetHistory: true);
         _mapViewerInfoBox.Text = BuildMapMakerInfo("已新建空白草稿。");
         SetStatus($"地图草稿：{width}x{height}");
@@ -886,7 +945,30 @@ public sealed partial class MainForm
                     Index = y * width + x,
                     MaterialRelativePath = cell.MaterialRelativePath,
                     MaterialCategory = cell.MaterialCategory,
-                    DisplayName = cell.DisplayName
+                    DisplayName = cell.DisplayName,
+                    Source = string.IsNullOrWhiteSpace(cell.Source) ? MapCellOverrideSources.ManualOverride : cell.Source
+                };
+            })
+            .OrderBy(cell => cell.Index)
+            .ToList();
+        _currentMapWorkbenchDraft.BuildingOverlayCells = _currentMapWorkbenchDraft.BuildingOverlayCells
+            .Where(cell =>
+            {
+                var x = cell.Index % oldWidth;
+                var y = cell.Index / oldWidth;
+                return x < width && y < height;
+            })
+            .Select(cell =>
+            {
+                var x = cell.Index % oldWidth;
+                var y = cell.Index / oldWidth;
+                return new MapCellOverride
+                {
+                    Index = y * width + x,
+                    MaterialRelativePath = cell.MaterialRelativePath,
+                    MaterialCategory = cell.MaterialCategory,
+                    DisplayName = cell.DisplayName,
+                    Source = MapCellOverrideSources.BuildingOverlay
                 };
             })
             .OrderBy(cell => cell.Index)
@@ -900,6 +982,7 @@ public sealed partial class MainForm
     {
         if (_currentMapWorkbenchDraft == null) return;
         _currentMapWorkbenchDraft.TileSize = MapResourceItem.MapTilePixelSize;
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
         var cellCount = _currentMapWorkbenchDraft.GridWidth * _currentMapWorkbenchDraft.GridHeight;
         if (_currentMapWorkbenchDraft.TerrainCells.Length != cellCount)
         {
@@ -911,6 +994,11 @@ public sealed partial class MainForm
         _terrainEditorCells = _currentMapWorkbenchDraft.TerrainCells.ToArray();
         _mapMakerOriginalTerrainCells = _terrainEditorCells.ToArray();
         _terrainEditorOriginalCells = _terrainEditorCells.ToArray();
+        _mapMakerAutoGenerateCheckBox.Checked = true;
+        _mapMakerBeautifyCheckBox.Checked = _currentMapWorkbenchDraft.BeautifyGeneratedMap;
+        SetNumericSilently(_mapMakerBeautifyStrengthInput, Math.Clamp(_currentMapWorkbenchDraft.BeautifyStrength, 0, 3));
+        SetNumericSilently(_mapMakerFeatherRadiusInput, Math.Clamp(_currentMapWorkbenchDraft.FeatherRadius, 0, 24));
+        SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.TerrainBrush);
         RebuildMapMakerOverrideLookup();
         RecalculateMapMakerTerrainChangedCellCount();
         SetNumericSilently(_mapMakerGridWidthInput, _currentMapWorkbenchDraft.GridWidth);
@@ -939,11 +1027,40 @@ public sealed partial class MainForm
         if (_currentMapWorkbenchDraft == null) return;
         _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
         _currentMapWorkbenchDraft.MaterialRoot = _mapWorkbenchSettings.LastMaterialRoot;
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.BeautifyGeneratedMap = _mapMakerBeautifyCheckBox.Checked;
+        _currentMapWorkbenchDraft.BeautifyStrength = (int)_mapMakerBeautifyStrengthInput.Value;
+        _currentMapWorkbenchDraft.FeatherRadius = (int)_mapMakerFeatherRadiusInput.Value;
+        if (!_mapMakerPainting)
+        {
+            RefreshGeneratedMapCells();
+        }
+
         SyncMapWorkbenchOverridesFromLookup();
         if (_currentMapMakerItem != null)
         {
             _currentMapWorkbenchDraft.BoundMapId = GetMapIdForMapResource(_currentMapMakerItem);
         }
+    }
+
+    private void MarkCurrentGeneratedMapNeedsBeautify()
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
+        if (_mapMakerBeautifyCheckBox.Checked)
+        {
+            _mapMakerBeautifyCheckBox.Checked = false;
+        }
+    }
+
+    private void ForceBeautifiedGeneratedMapForOutput()
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.BeautifyGeneratedMap = true;
+        _mapMakerAutoGenerateCheckBox.Checked = true;
+        _mapMakerBeautifyCheckBox.Checked = true;
+        RefreshGeneratedMapCells();
     }
 
     private static void SetNumericSilently(NumericUpDown input, int value)
@@ -972,6 +1089,7 @@ public sealed partial class MainForm
         {
             1 => MapWorkbenchBrushMode.MapBrush,
             2 => MapWorkbenchBrushMode.TerrainBrush,
+            3 => MapWorkbenchBrushMode.BuildingBrush,
             _ => MapWorkbenchBrushMode.Browse
         };
         SetMapWorkbenchBrushMode(mode);
@@ -984,6 +1102,7 @@ public sealed partial class MainForm
         {
             MapWorkbenchBrushMode.MapBrush => 1,
             MapWorkbenchBrushMode.TerrainBrush => 2,
+            MapWorkbenchBrushMode.BuildingBrush => 3,
             _ => 0
         };
         if (_mapMakerBrushModeCombo.SelectedIndex != index)
@@ -1023,6 +1142,7 @@ public sealed partial class MainForm
             if (_currentMapWorkbenchDraft != null)
             {
                 _currentMapWorkbenchDraft.MaterialRoot = _mapWorkbenchSettings.LastMaterialRoot;
+                RefreshGeneratedMapCells();
             }
 
             PopulateMapWorkbenchMaterialCategoryFilter();
@@ -1032,7 +1152,7 @@ public sealed partial class MainForm
             _mapMakerMaterialInfoBox.Text =
                 $"素材根目录：{_mapWorkbenchSettings.LastMaterialRoot}\r\n" +
                 $"素材数量：{_currentMaterialAssets.Count}\r\n" +
-                "地图画笔会把选中素材整张缩放到 48x48 覆盖当前格；地形画笔只使用 HexTag 构建中文地形候选。";
+                "地形分类会按 HexTag 自动生成地图；建筑分类作为上层覆盖；微调覆盖会把选中素材缩放到 48x48 修补当前格。";
             SaveMapWorkbenchSettings();
             RefreshMapMakerPresetCombo();
             if (showMessages) SetStatus("地图工作台素材库索引完成");
@@ -1118,9 +1238,21 @@ public sealed partial class MainForm
                 $"选中素材：{asset.Category}/{asset.FileName}\r\n" +
                 $"尺寸：{asset.Width}x{asset.Height}    HexTag：{asset.HexTag}    说明：{asset.Description}\r\n" +
                 $"路径：{asset.FilePath}";
-            if (_mapWorkbenchBrushMode != MapWorkbenchBrushMode.MapBrush)
+            var isTerrain = asset.Category.Contains("地形", StringComparison.CurrentCultureIgnoreCase);
+            var isBuilding = asset.Category.Contains("建筑", StringComparison.CurrentCultureIgnoreCase);
+            if (isTerrain && byte.TryParse(asset.HexTag.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var terrainId))
             {
-                SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.MapBrush);
+                _mapMakerTerrainBrushInput.Value = terrainId;
+            }
+
+            var targetMode = isTerrain
+                ? MapWorkbenchBrushMode.TerrainBrush
+                : isBuilding
+                ? MapWorkbenchBrushMode.BuildingBrush
+                : MapWorkbenchBrushMode.MapBrush;
+            if (_mapWorkbenchBrushMode != targetMode)
+            {
+                SetMapWorkbenchBrushMode(targetMode);
             }
         }
         catch (Exception ex)
@@ -1183,14 +1315,55 @@ public sealed partial class MainForm
 
         SyncMapWorkbenchDraftFromEditor();
         _mapViewerBox.Image = null;
-        _mapViewerRenderedImage = _mapCanvasPreviewRenderer.Rebuild(
-            _currentMapWorkbenchDraft,
-            _mapMakerShowTerrainCheckBox.Checked,
-            _mapMakerShowGridCheckBox.Checked,
-            _mapMakerTerrainOpacityTrackBar.Value);
+        _mapViewerRenderedImage = _mapMakerShowTerrainCheckBox.Checked
+            ? _mapCanvasPreviewRenderer.RebuildTerrainLayer(_currentMapWorkbenchDraft, _mapMakerShowGridCheckBox.Checked)
+            : _mapCanvasPreviewRenderer.Rebuild(
+                _currentMapWorkbenchDraft,
+                _currentMaterialAssets,
+                showTerrain: false,
+                showGrid: _mapMakerShowGridCheckBox.Checked,
+                terrainOpacityPercent: 0,
+                beautifyGeneratedMap: _currentMapWorkbenchDraft.BeautifyGeneratedMap);
         _mapViewerBox.Image = _mapViewerRenderedImage;
         _mapMakerExportPreviewButton.Enabled = true;
         UpdateMapMakerEditingButtons();
+    }
+
+    private void BeautifyCurrentGeneratedMap()
+    {
+        if (_currentMapWorkbenchDraft == null)
+        {
+            MessageBox.Show(this, "请先新建或载入地图草稿。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+            SyncMapWorkbenchDraftFromEditor();
+            ForceBeautifiedGeneratedMapForOutput();
+            if (_mapMakerShowTerrainCheckBox.Checked)
+            {
+                _mapMakerShowTerrainCheckBox.Checked = false;
+            }
+            else
+            {
+                RenderMapMakerPreview(force: true);
+            }
+
+            _mapViewerInfoBox.Text = BuildMapMakerInfo("已生成美化地图预览。");
+            SetStatus("美化生成完成");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("美化生成地图失败：" + ex);
+            MessageBox.Show(this, ex.Message, "美化生成失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
     }
 
     private void ClearMapMakerPreviewImages()
@@ -1208,6 +1381,11 @@ public sealed partial class MainForm
         {
             if (cell.Index < 0 || cell.Index >= _currentMapWorkbenchDraft.CellCount) continue;
             if (string.IsNullOrWhiteSpace(cell.MaterialRelativePath)) continue;
+            if (cell.Source.Equals(MapCellOverrideSources.Generated, StringComparison.OrdinalIgnoreCase) ||
+                cell.Source.Equals(MapCellOverrideSources.BuildingOverlay, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
             _mapMakerMapCellOverrideLookup[cell.Index] = CloneMapCellOverride(cell)!;
         }
 
@@ -1220,6 +1398,14 @@ public sealed partial class MainForm
         _currentMapWorkbenchDraft.MapCellOverrides = _mapMakerMapCellOverrideLookup
             .OrderBy(pair => pair.Key)
             .Select(pair => CloneMapCellOverride(pair.Value)!)
+            .ToList();
+    }
+
+    private void RefreshGeneratedMapCells()
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        _currentMapWorkbenchDraft.GeneratedMapCells = _terrainDrivenMapGenerationService
+            .GenerateMapCells(_currentMapWorkbenchDraft, _currentMaterialAssets)
             .ToList();
     }
 
@@ -1321,6 +1507,7 @@ public sealed partial class MainForm
         _mapMakerPendingTerrainPaintIndexes.Clear();
         if (hadChanges)
         {
+            RefreshGeneratedMapCells();
             SyncMapWorkbenchOverridesFromLookup();
         }
 
@@ -1330,7 +1517,7 @@ public sealed partial class MainForm
         }
         else if (hadChanges)
         {
-            _mapViewerInfoBox.Text = BuildMapMakerInfo("地图画笔绘制完成。");
+            _mapViewerInfoBox.Text = BuildMapMakerInfo("地形绘制完成。");
         }
         UpdateMapMakerEditingButtons();
     }
@@ -1341,20 +1528,8 @@ public sealed partial class MainForm
         if (!TryMapPictureBoxPointToTerrainCell(_mapViewerBox, location, _currentMapWorkbenchDraft.GridWidth, _currentMapWorkbenchDraft.GridHeight, out var x, out var y)) return;
         var index = y * _currentMapWorkbenchDraft.GridWidth + x;
         UpdateMapMakerCellPreview(x, y, _terrainEditorCells.Length > index ? FormatTerrainValue(_terrainEditorCells[index]) : "未知");
-
-        if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.MapBrush)
-        {
-            PaintMapWorkbenchMapCell(index, x, y, groupWithCurrentStroke);
-            return;
-        }
-
-        if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.TerrainBrush)
-        {
-            PaintMapWorkbenchTerrainCell(index, x, y, groupWithCurrentStroke);
-            return;
-        }
-
-        UpdateMapMakerCellInfo(location);
+        _mapWorkbenchBrushMode = MapWorkbenchBrushMode.TerrainBrush;
+        PaintMapWorkbenchTerrainCell(index, x, y, groupWithCurrentStroke);
     }
 
     private void PaintMapWorkbenchMapCell(int index, int x, int y, bool groupWithCurrentStroke)
@@ -1374,7 +1549,8 @@ public sealed partial class MainForm
             Index = index,
             MaterialRelativePath = relative,
             MaterialCategory = _mapMakerSelectedMaterial.Category,
-            DisplayName = _mapMakerSelectedMaterial.FileName
+            DisplayName = _mapMakerSelectedMaterial.FileName,
+            Source = MapCellOverrideSources.ManualOverride
         };
         if (oldValue != null &&
             oldValue.MaterialRelativePath.Equals(newValue.MaterialRelativePath, StringComparison.OrdinalIgnoreCase))
@@ -1398,8 +1574,55 @@ public sealed partial class MainForm
         var dirtyRect = _mapCanvasPreviewRenderer.UpdateMapCell(_currentMapWorkbenchDraft, index, newValue);
         RefreshMapMakerPreviewTile(dirtyRect);
         UpdateMapMakerCellPreview(x, y, _terrainEditorCells.Length > index ? FormatTerrainValue(_terrainEditorCells[index]) : "未知");
-        _mapViewerInfoBox.Text = BuildMapMakerInfo($"地图画笔：格子 ({x},{y}) <- {_mapMakerSelectedMaterial.Category}/{_mapMakerSelectedMaterial.FileName}", x, y);
-        SetStatus($"地图画笔：({x},{y})");
+        _mapViewerInfoBox.Text = BuildMapMakerInfo($"微调覆盖：格子 ({x},{y}) <- {_mapMakerSelectedMaterial.Category}/{_mapMakerSelectedMaterial.FileName}", x, y);
+        SetStatus($"微调覆盖：({x},{y})");
+    }
+
+    private void PaintMapWorkbenchBuildingCell(int index, int x, int y, bool groupWithCurrentStroke)
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        if (_mapMakerSelectedMaterial == null)
+        {
+            _mapViewerInfoBox.Text = BuildMapMakerInfo("请先选择一个建筑素材。", x, y);
+            return;
+        }
+
+        var oldValue = _currentMapWorkbenchDraft.BuildingOverlayCells.FirstOrDefault(cell => cell.Index == index);
+        if (groupWithCurrentStroke && !_mapMakerPendingMapPaintIndexes.Add(index)) return;
+        var relative = MapDraftService.GetMaterialRelativePath(_currentMapWorkbenchDraft.MaterialRoot, _mapMakerSelectedMaterial.FilePath);
+        var newValue = new MapCellOverride
+        {
+            Index = index,
+            MaterialRelativePath = relative,
+            MaterialCategory = _mapMakerSelectedMaterial.Category,
+            DisplayName = _mapMakerSelectedMaterial.FileName,
+            Source = MapCellOverrideSources.BuildingOverlay
+        };
+
+        if (oldValue != null &&
+            oldValue.MaterialRelativePath.Equals(newValue.MaterialRelativePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _mapViewerInfoBox.Text = BuildMapMakerInfo($"格子 ({x},{y}) 已经使用该建筑素材。", x, y);
+            return;
+        }
+
+        _currentMapWorkbenchDraft.BuildingOverlayCells.RemoveAll(cell => cell.Index == index);
+        _currentMapWorkbenchDraft.BuildingOverlayCells.Add(newValue);
+        _currentMapWorkbenchDraft.BuildingOverlayCells = _currentMapWorkbenchDraft.BuildingOverlayCells.OrderBy(cell => cell.Index).ToList();
+        var change = new MapWorkbenchCellChange(index, CloneMapCellOverride(oldValue), CloneMapCellOverride(newValue));
+        if (groupWithCurrentStroke)
+        {
+            _mapMakerPendingMapPaintChanges.Add(change);
+        }
+        else
+        {
+            _mapMakerMapUndoStack.Push(new List<MapWorkbenchCellChange> { change });
+            _mapMakerMapRedoStack.Clear();
+        }
+
+        RenderMapMakerPreview(force: true);
+        _mapViewerInfoBox.Text = BuildMapMakerInfo($"建筑覆盖：格子 ({x},{y}) <- {_mapMakerSelectedMaterial.Category}/{_mapMakerSelectedMaterial.FileName}", x, y);
+        SetStatus($"建筑覆盖：({x},{y})");
     }
 
     private void PaintMapWorkbenchTerrainCell(int index, int x, int y, bool groupWithCurrentStroke)
@@ -1417,6 +1640,8 @@ public sealed partial class MainForm
 
         _terrainEditorCells[index] = newValue;
         _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        MarkCurrentGeneratedMapNeedsBeautify();
         UpdateMapMakerTerrainChangedCount(oldValue, newValue, index);
         var change = new TerrainEditorCellChange(index, oldValue, newValue);
         if (groupWithCurrentStroke)
@@ -1429,7 +1654,11 @@ public sealed partial class MainForm
             _mapMakerTerrainRedoStack.Clear();
         }
 
-        if (_mapMakerShowTerrainCheckBox.Checked)
+        if (_mapMakerPainting && !_mapMakerShowTerrainCheckBox.Checked)
+        {
+            _mapMakerRenderDeferred = true;
+        }
+        else
         {
             var dirtyRect = _mapCanvasPreviewRenderer.UpdateTerrainCell(_currentMapWorkbenchDraft, index);
             RefreshMapMakerPreviewTile(dirtyRect);
@@ -1457,6 +1686,8 @@ public sealed partial class MainForm
             }
             _mapMakerTerrainRedoStack.Push(changes);
             _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
+            MarkCurrentGeneratedMapNeedsBeautify();
+            RefreshGeneratedMapCells();
             RenderMapMakerPreview();
             _mapViewerInfoBox.Text = BuildMapMakerInfo($"已撤销一笔地形绘制：{changes.Count} 格。");
             SetStatus("地图工作台已撤销地形绘制");
@@ -1469,12 +1700,12 @@ public sealed partial class MainForm
             for (var i = changes.Count - 1; i >= 0; i--)
             {
                 var change = changes[i];
-                SetMapCellOverride(change.Index, CloneMapCellOverride(change.OldValue));
+                ApplyMapWorkbenchCellChangeValue(change.Index, change.OldValue ?? change.NewValue, change.OldValue);
             }
             _mapMakerMapRedoStack.Push(changes);
             RenderMapMakerPreview();
-            _mapViewerInfoBox.Text = BuildMapMakerInfo($"已撤销一笔地图绘制：{changes.Count} 格。");
-            SetStatus("地图工作台已撤销地图绘制");
+            _mapViewerInfoBox.Text = BuildMapMakerInfo($"已撤销一笔覆盖绘制：{changes.Count} 格。");
+            SetStatus("地图工作台已撤销覆盖绘制");
         }
     }
 
@@ -1495,6 +1726,8 @@ public sealed partial class MainForm
             }
             _mapMakerTerrainUndoStack.Push(changes);
             _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells;
+            MarkCurrentGeneratedMapNeedsBeautify();
+            RefreshGeneratedMapCells();
             RenderMapMakerPreview();
             _mapViewerInfoBox.Text = BuildMapMakerInfo($"已重做一笔地形绘制：{changes.Count} 格。");
             SetStatus("地图工作台已重做地形绘制");
@@ -1506,12 +1739,12 @@ public sealed partial class MainForm
             var changes = _mapMakerMapRedoStack.Pop();
             foreach (var change in changes)
             {
-                SetMapCellOverride(change.Index, CloneMapCellOverride(change.NewValue));
+                ApplyMapWorkbenchCellChangeValue(change.Index, change.NewValue ?? change.OldValue, change.NewValue);
             }
             _mapMakerMapUndoStack.Push(changes);
             RenderMapMakerPreview();
-            _mapViewerInfoBox.Text = BuildMapMakerInfo($"已重做一笔地图绘制：{changes.Count} 格。");
-            SetStatus("地图工作台已重做地图绘制");
+            _mapViewerInfoBox.Text = BuildMapMakerInfo($"已重做一笔覆盖绘制：{changes.Count} 格。");
+            SetStatus("地图工作台已重做覆盖绘制");
         }
     }
 
@@ -1529,6 +1762,31 @@ public sealed partial class MainForm
         }
     }
 
+    private void SetBuildingOverlayCell(int index, MapCellOverride? value)
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        _currentMapWorkbenchDraft.BuildingOverlayCells.RemoveAll(cell => cell.Index == index);
+        if (value != null)
+        {
+            value.Index = index;
+            value.Source = MapCellOverrideSources.BuildingOverlay;
+            _currentMapWorkbenchDraft.BuildingOverlayCells.Add(CloneMapCellOverride(value)!);
+            _currentMapWorkbenchDraft.BuildingOverlayCells = _currentMapWorkbenchDraft.BuildingOverlayCells.OrderBy(cell => cell.Index).ToList();
+        }
+    }
+
+    private void ApplyMapWorkbenchCellChangeValue(int index, MapCellOverride? sourceHint, MapCellOverride? value)
+    {
+        var source = sourceHint?.Source ?? value?.Source ?? MapCellOverrideSources.ManualOverride;
+        if (source.Equals(MapCellOverrideSources.BuildingOverlay, StringComparison.OrdinalIgnoreCase))
+        {
+            SetBuildingOverlayCell(index, CloneMapCellOverride(value));
+            return;
+        }
+
+        SetMapCellOverride(index, CloneMapCellOverride(value));
+    }
+
     private MapCellOverride? GetMapCellOverride(int index)
         => _mapMakerMapCellOverrideLookup.TryGetValue(index, out var value) ? value : null;
 
@@ -1540,7 +1798,8 @@ public sealed partial class MainForm
                 Index = value.Index,
                 MaterialRelativePath = value.MaterialRelativePath,
                 MaterialCategory = value.MaterialCategory,
-                DisplayName = value.DisplayName
+                DisplayName = value.DisplayName,
+                Source = string.IsNullOrWhiteSpace(value.Source) ? MapCellOverrideSources.ManualOverride : value.Source
             };
 
     private void ClearMapMakerCellPreview()
@@ -1568,10 +1827,8 @@ public sealed partial class MainForm
         }
         var index = y * _currentMapWorkbenchDraft.GridWidth + x;
         var terrain = _terrainEditorCells.Length > index ? FormatTerrainValue(_terrainEditorCells[index]) : "未知";
-        var mapCell = GetMapCellOverride(index);
         UpdateMapMakerCellPreview(x, y, terrain);
-        var mapText = mapCell == null ? "底稿/空白" : $"{mapCell.MaterialCategory}/{mapCell.DisplayName}";
-        _mapViewerInfoBox.Text = BuildMapMakerInfo($"当前格子 ({x},{y})：地图={mapText}，地形={terrain}。", x, y);
+        _mapViewerInfoBox.Text = BuildMapMakerInfo($"当前格子 ({x},{y})：地形={terrain}。", x, y);
     }
 
     private void UpdateMapMakerEditingButtons()
@@ -1579,23 +1836,28 @@ public sealed partial class MainForm
         var hasDraft = _currentMapWorkbenchDraft != null;
         var hasBoundMap = hasDraft && _currentMapMakerItem != null;
         var canPublishMap = CanPublishCurrentMapWorkbenchMap(out _);
-        var canPublishTerrain = CanPublishCurrentMapWorkbenchTerrain(out _);
         if (!hasDraft && _mapMakerEditTerrainCheckBox.Checked)
         {
             _mapMakerEditTerrainCheckBox.Checked = false;
         }
+        if (hasDraft && _mapWorkbenchBrushMode != MapWorkbenchBrushMode.TerrainBrush)
+        {
+            _mapWorkbenchBrushMode = MapWorkbenchBrushMode.TerrainBrush;
+        }
 
         _mapMakerSaveDraftButton.Enabled = hasDraft;
         _mapMakerEditTerrainCheckBox.Enabled = hasDraft;
+        _mapMakerBeautifyCheckBox.Enabled = hasDraft;
         _mapMakerSaveTerrainButton.Enabled = hasDraft;
         _mapMakerUndoTerrainButton.Enabled = hasDraft && (_mapMakerMapUndoStack.Count > 0 || _mapMakerTerrainUndoStack.Count > 0);
         _mapMakerRedoTerrainButton.Enabled = hasDraft && (_mapMakerMapRedoStack.Count > 0 || _mapMakerTerrainRedoStack.Count > 0);
         _mapMakerReplaceMapImageButton.Enabled = hasBoundMap;
         _mapMakerExportPreviewButton.Enabled = _mapViewerBox.Image != null;
         _mapMakerExportJpgButton.Enabled = hasDraft;
+        _mapMakerPublishAllButton.Enabled = canPublishMap;
         _mapMakerPublishMapButton.Enabled = canPublishMap;
-        _mapMakerPublishTerrainButton.Enabled = canPublishTerrain;
-        _mapViewerBox.Cursor = hasDraft && _mapWorkbenchBrushMode != MapWorkbenchBrushMode.Browse ? Cursors.Cross : Cursors.Default;
+        _mapMakerPublishTerrainButton.Enabled = hasBoundMap;
+        _mapViewerBox.Cursor = hasDraft ? Cursors.Cross : Cursors.Default;
     }
 
     private void RefreshMapMakerPresetCombo()
@@ -1666,16 +1928,10 @@ public sealed partial class MainForm
 
         if (_mapMakerPainting)
         {
-            var paintingModeText = _mapWorkbenchBrushMode switch
-            {
-                MapWorkbenchBrushMode.MapBrush => "map brush",
-                MapWorkbenchBrushMode.TerrainBrush => "terrain brush",
-                _ => "browse"
-            };
             var paintingCellText = cellX.HasValue && cellY.HasValue
                 ? $"    cell=({cellX},{cellY})"
                 : string.Empty;
-            return $"{actionText}\r\nmode={paintingModeText}    map cells={_mapMakerMapCellOverrideLookup.Count}    terrain changes={CountMapWorkbenchTerrainChangedCells()}{paintingCellText}";
+            return $"{actionText}\r\n地形绘制中    草稿地形改动={CountMapWorkbenchTerrainChangedCells()}{paintingCellText}";
         }
 
         var mapId = _currentMapWorkbenchDraft.BoundMapId;
@@ -1685,12 +1941,13 @@ public sealed partial class MainForm
         var imageSize = $"{_currentMapWorkbenchDraft.PixelWidth}x{_currentMapWorkbenchDraft.PixelHeight}";
         var gridSizeText = $"{_currentMapWorkbenchDraft.GridWidth}x{_currentMapWorkbenchDraft.GridHeight}（48x48/格）";
         var terrainText = BuildMapWorkbenchPublishReasonText();
-        var modeText = _mapWorkbenchBrushMode switch
-        {
-            MapWorkbenchBrushMode.MapBrush => "地图画笔",
-            MapWorkbenchBrushMode.TerrainBrush => "地形画笔",
-            _ => "浏览"
-        };
+        var viewText = _mapMakerShowTerrainCheckBox.Checked
+            ? "地形层"
+            : _currentMapWorkbenchDraft.BeautifyGeneratedMap ? "美化地图" : "基础生成地图";
+        var legacyOverlayCount = _currentMapWorkbenchDraft.MapCellOverrides.Count + _currentMapWorkbenchDraft.BuildingOverlayCells.Count;
+        var legacyOverlayText = legacyOverlayCount > 0
+            ? $"\r\n提示：草稿含旧覆盖层 {legacyOverlayCount} 格，简化模式保留合成但不提供编辑入口。"
+            : string.Empty;
 
         var cellText = string.Empty;
         if (cellX.HasValue && cellY.HasValue)
@@ -1706,17 +1963,22 @@ public sealed partial class MainForm
         return
             $"{actionText}\r\n" +
             $"草稿：{_currentMapWorkbenchDraft.DraftId}    绑定={boundText}    地图ID={mapId}    图片={imageSize}    格数={gridSizeText}    缩放={_mapZoomTrackBar.Value}%\r\n" +
-            $"模式：{modeText}    地图覆盖格={_currentMapWorkbenchDraft.MapCellOverrides.Count}    地形画笔={FormatTerrainValue((byte)_mapMakerTerrainBrushInput.Value)}    草稿地形改动={CountMapWorkbenchTerrainChangedCells()}    撤销={_mapMakerMapUndoStack.Count + _mapMakerTerrainUndoStack.Count}    重做={_mapMakerMapRedoStack.Count + _mapMakerTerrainRedoStack.Count}{cellText}\r\n" +
-            $"发布状态：{terrainText}\r\n" +
-            $"素材库：{(string.IsNullOrWhiteSpace(_currentMapWorkbenchDraft.MaterialRoot) ? "未选择" : _currentMapWorkbenchDraft.MaterialRoot)}\r\n" +
-            $"底稿：{(string.IsNullOrWhiteSpace(_currentMapWorkbenchDraft.BaseLayerPath) ? "无底稿；导出未填充格为纯黑" : _currentMapWorkbenchDraft.BaseLayerPath)}";
+            $"视图：{viewText}    地形画笔={FormatTerrainValue((byte)_mapMakerTerrainBrushInput.Value)}    草稿地形改动={CountMapWorkbenchTerrainChangedCells()}    撤销={_mapMakerMapUndoStack.Count + _mapMakerTerrainUndoStack.Count}    重做={_mapMakerMapRedoStack.Count + _mapMakerTerrainRedoStack.Count}{cellText}\r\n" +
+            $"发布状态：{terrainText}{legacyOverlayText}\r\n" +
+            $"素材：后台自动解析；未找到时使用地形色生成。";
     }
 
     private string BuildMapWorkbenchPublishReasonText()
     {
         var mapOk = CanPublishCurrentMapWorkbenchMap(out var mapReason);
-        var terrainOk = CanPublishCurrentMapWorkbenchTerrain(out var terrainReason);
-        return $"底图发布={(mapOk ? "可用" : "禁用：" + mapReason)}；地形发布={(terrainOk ? "可用" : "禁用：" + terrainReason)}";
+        var terrainText = _currentMapMakerItem == null
+            ? "禁用：未绑定已有 Mxxx 槽位"
+            : _currentHexzmapProbe == null
+                ? "发布时自动校验 Hexzmap.e5"
+                : CanPublishCurrentMapWorkbenchTerrain(out var terrainReason)
+                    ? "可用"
+                    : "禁用：" + terrainReason;
+        return $"一键发布={(mapOk ? "可用" : "禁用：" + mapReason)}；地形层={terrainText}";
     }
 
     private bool CanPublishCurrentMapWorkbenchMap(out string reason)
@@ -1767,7 +2029,7 @@ public sealed partial class MainForm
         if (block.Width != _currentMapWorkbenchDraft.GridWidth ||
             block.Height != _currentMapWorkbenchDraft.GridHeight ||
             block.BytesRead != cellCount ||
-            block.SegmentLength != cellCount + HexzmapProbeReader.TerrainHeaderSize)
+            !block.CanEdit)
         {
             reason = $"Hexzmap 块 {block.Width}x{block.Height} / segmentLength={block.SegmentLength} 与草稿格数不匹配";
             return false;
@@ -1851,9 +2113,9 @@ public sealed partial class MainForm
 
     private void ExportCurrentMapMakerPreviewPng()
     {
-        if (_mapViewerBox.Image == null || _currentMapMakerItem == null)
+        if (_mapViewerBox.Image == null || _currentMapWorkbenchDraft == null)
         {
-            MessageBox.Show(this, "请先选择地图并生成预览。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先新建或载入地图草稿并生成预览。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -1865,7 +2127,7 @@ public sealed partial class MainForm
         {
             Title = "导出地图制作预览 PNG",
             Filter = "PNG 图片 (*.png)|*.png|所有文件 (*.*)|*.*",
-            FileName = MakeSafeFileName($"{Path.GetFileNameWithoutExtension(_currentMapMakerItem.Name)}_地图制作预览.png"),
+            FileName = MakeSafeFileName($"{(_currentMapMakerItem == null ? _currentMapWorkbenchDraft.DraftId : Path.GetFileNameWithoutExtension(_currentMapMakerItem.Name))}_地图制作预览.png"),
             InitialDirectory = exportRoot
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -1891,7 +2153,9 @@ public sealed partial class MainForm
             return;
         }
 
+        EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
         SyncMapWorkbenchDraftFromEditor();
+        ForceBeautifiedGeneratedMapForOutput();
         var exportRoot = _project != null
             ? Path.Combine(_project.WorkspaceRoot, "CCZModStudio_Exports", "MapWorkbench")
             : Directory.GetCurrentDirectory();
@@ -1907,7 +2171,7 @@ public sealed partial class MainForm
 
         try
         {
-            _mapCanvasPublishService.ExportJpeg(_currentMapWorkbenchDraft, dialog.FileName);
+            _mapCanvasPublishService.ExportJpeg(_currentMapWorkbenchDraft, _currentMaterialAssets, dialog.FileName);
             using var verify = Image.FromFile(dialog.FileName);
             var expectedWidth = _currentMapWorkbenchDraft.GridWidth * MapResourceItem.MapTilePixelSize;
             var expectedHeight = _currentMapWorkbenchDraft.GridHeight * MapResourceItem.MapTilePixelSize;
@@ -1917,6 +2181,7 @@ public sealed partial class MainForm
             }
 
             System.Diagnostics.Debug.WriteLine("已导出地图工作台 JPG：" + dialog.FileName);
+            RenderMapMakerPreview(force: true);
             SetStatus("地图工作台 JPG 导出完成");
         }
         catch (Exception ex)
@@ -1939,7 +2204,9 @@ public sealed partial class MainForm
             return;
         }
 
+        EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
         SyncMapWorkbenchDraftFromEditor();
+        ForceBeautifiedGeneratedMapForOutput();
         if (MessageBox.Show(this,
                 $"即将把草稿发布到 Map\\{_currentMapMakerItem.Name}。\r\n草稿尺寸：{_currentMapWorkbenchDraft.GridWidth}x{_currentMapWorkbenchDraft.GridHeight}，输出 JPG：{_currentMapWorkbenchDraft.PixelWidth}x{_currentMapWorkbenchDraft.PixelHeight}\r\n保存前会自动备份，保存后复读校验。是否继续？",
                 "确认发布到底图",
@@ -1953,7 +2220,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var selectedName = _currentMapMakerItem.Name;
-            var result = _mapCanvasPublishService.PublishToMapImage(_project, _currentMapWorkbenchDraft, _currentMapMakerItem);
+            var result = _mapCanvasPublishService.PublishToMapImage(_project, _currentMapWorkbenchDraft, _currentMapMakerItem, _currentMaterialAssets);
             _mapDraftService.SaveDraft(_project, _currentMapWorkbenchDraft);
             _mapWorkbenchSettings.LastDraftId = _currentMapWorkbenchDraft.DraftId;
             SaveMapWorkbenchSettings();
@@ -2057,6 +2324,104 @@ public sealed partial class MainForm
         }
     }
 
+    private void PublishCurrentMapWorkbenchMapAndTerrain()
+    {
+        if (_project == null || _currentMapWorkbenchDraft == null || _currentMapMakerItem == null)
+        {
+            MessageBox.Show(this, "请先绑定已有 Mxxx 地图槽位。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanPublishCurrentMapWorkbenchMap(out var mapReason))
+        {
+            MessageBox.Show(this, mapReason, "禁止一键发布", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!CanPublishCurrentMapWorkbenchTerrain(out var terrainReason))
+        {
+            MessageBox.Show(this, terrainReason, "禁止一键发布", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentHexzmapProbe == null)
+        {
+            MessageBox.Show(this, "Hexzmap.e5 尚未读取。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var block = FindHexzmapBlockForMap(_currentMapMakerItem);
+        if (block == null)
+        {
+            MessageBox.Show(this, "没有找到同编号 Hexzmap 地形块。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+        SyncMapWorkbenchDraftFromEditor();
+        ForceBeautifiedGeneratedMapForOutput();
+        var currentCells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
+        var changedTerrain = CountChangedBytes(currentCells, _currentMapWorkbenchDraft.TerrainCells);
+        if (MessageBox.Show(this,
+                $"即将一键发布 Map\\{_currentMapMakerItem.Name} 和 Hexzmap.e5 {block.MapId}。\r\n地形改动格：{changedTerrain}\r\n会分别生成底图备份、地形备份和结构化报告。是否继续？",
+                "确认一键发布地图与地形",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var selectedName = _currentMapMakerItem.Name;
+            var mapResult = _mapCanvasPublishService.PublishToMapImage(_project, _currentMapWorkbenchDraft, _currentMapMakerItem, _currentMaterialAssets);
+            HexzmapSaveResult? terrainResult = null;
+            if (changedTerrain > 0)
+            {
+                terrainResult = _hexzmapEditorService.SaveBlock(_project, _currentHexzmapProbe, block, _currentMapWorkbenchDraft.TerrainCells, _terrainEditorTerrainLookup);
+                _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, _terrainEditorTerrainLookup);
+                var refreshedBlock = _currentHexzmapProbe.Blocks.First(x => x.Index == block.Index);
+                var reread = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, refreshedBlock);
+                if (!reread.SequenceEqual(_currentMapWorkbenchDraft.TerrainCells))
+                {
+                    throw new InvalidOperationException("一键发布后 Hexzmap 复读校验失败。");
+                }
+
+                _terrainEditorBlock = refreshedBlock;
+                _terrainEditorOriginalCells = reread.ToArray();
+                _terrainEditorCells = reread.ToArray();
+                _mapMakerOriginalTerrainCells = reread.ToArray();
+                _currentMapWorkbenchDraft.TerrainCells = reread.ToArray();
+            }
+
+            _mapDraftService.SaveDraft(_project, _currentMapWorkbenchDraft);
+            _mapWorkbenchSettings.LastDraftId = _currentMapWorkbenchDraft.DraftId;
+            SaveMapWorkbenchSettings();
+            LoadMapImages();
+            SelectMapImageByName(selectedName);
+            RenderMapMakerPreview(force: true);
+
+            var terrainText = terrainResult == null
+                ? "地形层与 Hexzmap 已一致，未写入。"
+                : $"地形报告：{terrainResult.ReportJsonPath}\r\n地形备份：{terrainResult.BackupPath}";
+            MessageBox.Show(this,
+                $"一键发布完成。\r\n底图报告：{mapResult.ReportJsonPath}\r\n底图备份：{mapResult.BackupPath}\r\n{terrainText}",
+                "一键发布完成",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键发布地图与地形失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键发布失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
     private static int CountChangedBytes(byte[] left, byte[] right)
     {
         var length = Math.Min(left.Length, right.Length);
@@ -2108,7 +2473,7 @@ public sealed partial class MainForm
                 .ToList();
             _mapImageList.DisplayMember = nameof(MapResourceItem.Name);
             _mapImageList.DataSource = new BindingList<MapResourceItem>(maps);
-            _mapViewerInfoBox.Text = $"Map 目录地图图片：{maps.Count} 张。选择左侧条目后，可叠加 Hexzmap.e5 地形层、查看格坐标、直接绘制地形或替换底图。";
+            _mapViewerInfoBox.Text = $"Map 目录地图图片：{maps.Count} 张。选择左侧条目后读取对应地形层；选择地形后直接绘制，点击“美化生成”查看最终地图效果。";
             System.Diagnostics.Debug.WriteLine($"已读取 Map 图片：{maps.Count} 张。");
             SetStatus("Map 图片读取完成");
             if (maps.Count > 0) _mapImageList.SelectedIndex = 0;
@@ -2133,11 +2498,15 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
             _currentMapMakerItem = item;
             ClearMapMakerPreviewImages();
-            using var source = Image.FromFile(item.Path);
-            var targetKey = $"{item.Category}/{item.Name}";
-            _currentMapWorkbenchDraft = _mapDraftService.CreateDraftFromMap(_project, item, _mapWorkbenchSettings.LastMaterialRoot);
+            var gridWidth = item.GridWidth > 0 ? item.GridWidth : 30;
+            var gridHeight = item.GridHeight > 0 ? item.GridHeight : 30;
+            _currentMapWorkbenchDraft = _mapDraftService.CreateBlankDraft(gridWidth, gridHeight, _mapWorkbenchSettings.LastMaterialRoot);
+            _currentMapWorkbenchDraft.BoundMapId = GetMapIdForMapResource(item);
+            _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+            _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
             var block = TryGetMatchingHexzmapBlockForMap(item);
             if (block != null && _currentHexzmapProbe != null)
             {
@@ -2150,7 +2519,7 @@ public sealed partial class MainForm
             }
 
             BindMapWorkbenchDraftToEditor(resetHistory: true);
-            _mapViewerInfoBox.Text = BuildMapMakerInfo("已载入地图底图。");
+            _mapViewerInfoBox.Text = BuildMapMakerInfo("已载入地图槽位和地形层。");
             FitMapToView();
             SetStatus($"地图制作：{item.Name}");
         }

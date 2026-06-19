@@ -28,26 +28,32 @@ public sealed class HexzmapProbeReader
 
         var mapInfos = ReadMapInfos(project);
         var directoryEntries = ReadDirectoryEntries(bytes, BuildMapCellLookup(mapInfos));
-        var entriesByMapId = directoryEntries
-            .Where(x => !string.IsNullOrWhiteSpace(x.MapId))
-            .GroupBy(x => x.MapId, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Index).First(), StringComparer.OrdinalIgnoreCase);
         var blocks = new List<HexzmapBlockInfo>();
 
         foreach (var map in mapInfos.OrderBy(x => x.MapNumber).ThenBy(x => x.FileName, StringComparer.CurrentCultureIgnoreCase))
         {
-            if (!entriesByMapId.TryGetValue(map.MapId, out var entry))
+            var entry = directoryEntries.FirstOrDefault(x => x.Index == map.MapNumber);
+            if (entry == null)
             {
                 continue;
             }
 
             var dataOffset = entry.FileOffset + TerrainHeaderSize;
-            if (dataOffset < 0 || dataOffset + map.CellCount > bytes.Length)
+            if (dataOffset < 0 ||
+                entry.FileOffset + entry.SegmentLength > bytes.Length ||
+                entry.DecodedLength < TerrainHeaderSize ||
+                entry.DecodedLength - TerrainHeaderSize < map.CellCount)
             {
                 continue;
             }
 
-            var cells = bytes.AsSpan(dataOffset, map.CellCount).ToArray();
+            var decoded = ReadEntryBytes(bytes, entry);
+            if (decoded.Length < TerrainHeaderSize || decoded.Length - TerrainHeaderSize < map.CellCount)
+            {
+                continue;
+            }
+
+            var cells = decoded.AsSpan(TerrainHeaderSize, map.CellCount).ToArray();
             var groups = cells
                 .GroupBy(x => x)
                 .OrderByDescending(g => g.Count())
@@ -64,15 +70,17 @@ public sealed class HexzmapProbeReader
 
             blocks.Add(new HexzmapBlockInfo
             {
-                Index = blocks.Count,
+                Index = entry.Index,
                 MapId = map.MapId,
                 OffsetHex = HexDisplayFormatter.FormatOffset(dataOffset),
                 DataOffset = dataOffset,
                 SegmentOffset = entry.FileOffset,
                 SegmentLength = entry.SegmentLength,
+                DecodedLength = entry.DecodedLength,
+                DataPrefixLength = TerrainHeaderSize,
                 MapPixelWidth = map.PixelWidth,
                 MapPixelHeight = map.PixelHeight,
-                CanEdit = entry.SegmentLength == map.CellCount + TerrainHeaderSize,
+                CanEdit = entry.SegmentLength == entry.DecodedLength && entry.DecodedLength == map.CellCount + TerrainHeaderSize,
                 Width = map.GridWidth,
                 Height = map.GridHeight,
                 BytesRead = map.CellCount,
@@ -110,13 +118,19 @@ public sealed class HexzmapProbeReader
     public byte[] GetBlockCells(HexzmapProbeResult result, HexzmapBlockInfo block)
     {
         var expected = block.Width * block.Height;
-        var payloadRelativeOffset = block.DataOffset - result.PayloadOffset;
-        if (expected <= 0 || payloadRelativeOffset < 0 || payloadRelativeOffset + expected > result.Payload.Length)
+        var entry = result.DirectoryEntries.FirstOrDefault(x => x.Index == block.Index);
+        if (entry == null || expected <= 0)
         {
             return Array.Empty<byte>();
         }
 
-        return result.Payload.AsSpan(payloadRelativeOffset, expected).ToArray();
+        var decoded = ReadEntryBytes(result.Payload, result.PayloadOffset, entry);
+        if (decoded.Length < block.DataPrefixLength + expected)
+        {
+            return Array.Empty<byte>();
+        }
+
+        return decoded.AsSpan(block.DataPrefixLength, expected).ToArray();
     }
 
     public static IReadOnlyDictionary<byte, string> BuildTerrainNameLookup(IEnumerable<MaterialAsset> materials)
@@ -194,14 +208,16 @@ public sealed class HexzmapProbeReader
         var lookup = new Dictionary<int, List<string>>();
         foreach (var map in maps)
         {
-            var key = map.CellCount + TerrainHeaderSize;
-            if (!lookup.TryGetValue(key, out var list))
+            foreach (var key in new[] { map.CellCount, map.CellCount + TerrainHeaderSize })
             {
-                list = new List<string>();
-                lookup[key] = list;
-            }
+                if (!lookup.TryGetValue(key, out var list))
+                {
+                    list = new List<string>();
+                    lookup[key] = list;
+                }
 
-            list.Add(map.MapId);
+                list.Add(map.MapId);
+            }
         }
 
         return lookup;
@@ -210,41 +226,52 @@ public sealed class HexzmapProbeReader
     private static IReadOnlyList<HexzmapDirectoryEntry> ReadDirectoryEntries(byte[] fileBytes, IReadOnlyDictionary<int, List<string>> mapCellLookup)
     {
         var entries = new List<HexzmapDirectoryEntry>();
+        var firstDataOffset = 0;
         for (var offset = DirectoryOffset; offset + DirectoryStride <= fileBytes.Length; offset += DirectoryStride)
         {
-            var segmentLength = ReadUInt32BigEndian(fileBytes, offset);
-            var lengthCopy = ReadUInt32BigEndian(fileBytes, offset + 4);
-            var fileOffset = ReadUInt32BigEndian(fileBytes, offset + 8);
-            if (segmentLength == 0 && lengthCopy == 0 && fileOffset == 0)
+            if (firstDataOffset > 0 && offset >= firstDataOffset)
             {
                 break;
             }
 
-            var isValidSegment = segmentLength > TerrainHeaderSize &&
-                                 segmentLength == lengthCopy &&
-                                 fileOffset >= 0 &&
+            var segmentLength = ReadUInt32BigEndian(fileBytes, offset);
+            var decodedLength = ReadUInt32BigEndian(fileBytes, offset + 4);
+            var fileOffset = ReadUInt32BigEndian(fileBytes, offset + 8);
+            if (segmentLength == 0 && decodedLength == 0 && fileOffset == 0)
+            {
+                break;
+            }
+
+            var isValidSegment = segmentLength > 0 &&
+                                 decodedLength >= segmentLength &&
                                  fileOffset < fileBytes.Length &&
                                  fileOffset + segmentLength <= fileBytes.Length;
             if (!isValidSegment)
             {
-                continue;
+                break;
             }
 
-            var candidateMapIds = ResolveCandidateMaps(mapCellLookup, segmentLength);
+            if (firstDataOffset == 0)
+            {
+                firstDataOffset = fileOffset;
+            }
+
+            var candidateMapIds = ResolveCandidateMaps(mapCellLookup, decodedLength);
             var mapId = PickMapIdForEntry(candidateMapIds, entries.Count);
             entries.Add(new HexzmapDirectoryEntry
             {
                 Index = entries.Count,
                 EntryOffset = offset,
                 SegmentLength = segmentLength,
+                DecodedLength = decodedLength,
                 FileOffset = fileOffset,
-                NextSegmentLength = lengthCopy,
+                NextSegmentLength = decodedLength,
                 CandidateMapIdA = candidateMapIds,
                 CandidateMapIdB = candidateMapIds,
                 CandidateMapIdC = mapId,
                 MapId = mapId,
                 IsValidSegment = true,
-                Annotation = BuildDirectoryAnnotation(segmentLength, lengthCopy, fileOffset, candidateMapIds, mapId)
+                Annotation = BuildDirectoryAnnotation(segmentLength, decodedLength, fileOffset, candidateMapIds, mapId)
             });
         }
 
@@ -278,6 +305,29 @@ public sealed class HexzmapProbeReader
         }
 
         return max;
+    }
+
+    private static byte[] ReadEntryBytes(byte[] fileBytes, HexzmapDirectoryEntry entry)
+        => ReadEntryBytes(fileBytes, payloadOffset: 0, entry);
+
+    private static byte[] ReadEntryBytes(byte[] payload, int payloadOffset, HexzmapDirectoryEntry entry)
+    {
+        var relativeOffset = entry.FileOffset - payloadOffset;
+        if (relativeOffset < 0 || relativeOffset + entry.SegmentLength > payload.Length)
+        {
+            return Array.Empty<byte>();
+        }
+
+        var stored = payload.AsSpan(relativeOffset, entry.SegmentLength).ToArray();
+        if (entry.SegmentLength == entry.DecodedLength)
+        {
+            return stored;
+        }
+
+        // Hexzmap.e5 currently uses uncompressed entries in the 6.5 base. If a future
+        // project stores compressed terrain blocks, keep the block visible but not writable
+        // until an LS decoder is wired in for this format.
+        return Array.Empty<byte>();
     }
 
     private static bool IsJpegFile(string path)

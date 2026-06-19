@@ -1,3 +1,5 @@
+using System.Drawing;
+
 namespace CCZModStudio.Models;
 
 public class IconResourceReplacePreviewResult
@@ -35,6 +37,14 @@ public sealed class IconResourceBatchReplaceRequest
     public string SourcePath { get; init; } = string.Empty;
     public string SourceLabel { get; init; } = string.Empty;
     public string OperationKind { get; init; } = string.Empty;
+}
+
+public sealed class IconResourceBitmapReplaceRequest
+{
+    public int IconIndex { get; init; }
+    public Bitmap Bitmap { get; init; } = new(1, 1);
+    public string SourceLabel { get; init; } = string.Empty;
+    public string OperationKind { get; init; } = "像素编辑";
 }
 
 public sealed class IconResourceBatchReplacePreviewItem

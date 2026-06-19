@@ -27,8 +27,8 @@ internal partial class Program
         }
 
         var compiled = service.CompilePackage(project, tables, analysis.Design, 8);
-        if (compiled.Package.SlotPlan.PersonIds.Count == 0 ||
-            compiled.Package.ValidationPlan.SmokeCommands.All(command => !command.Equals("--mod-package-smoke", StringComparison.OrdinalIgnoreCase)))
+        if (compiled.Slots.Groups.Count == 0 ||
+            compiled.Package.ValidationPlan.SmokeCommands.Count == 0)
         {
             throw new InvalidOperationException("ModPackage automation compile did not select slots or validation smokes.");
         }
@@ -109,6 +109,11 @@ internal partial class Program
         {
             var issues = string.Join(" | ", compiledPreview.Issues.Take(5).Select(issue => $"[{issue.Severity}] {issue.Category}:{issue.Message}"));
             throw new InvalidOperationException("Compiled ModPackage did not pass aggressive preview: " + issues);
+        }
+
+        if (compiledPreview.RequiredSmokeCommands.All(command => !command.Equals("--mod-package-smoke", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Compiled ModPackage preview did not require --mod-package-smoke.");
         }
 
         var structuralPreview = service.PreviewScenarioPatch(project, new ModScenarioPatch

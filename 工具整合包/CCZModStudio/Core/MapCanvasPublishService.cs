@@ -11,6 +11,9 @@ public sealed class MapCanvasPublishService
     private readonly MapCanvasComposeService _composeService = new();
 
     public MapImageSaveResult PublishToMapImage(CczProject project, MapWorkbenchDraft draft, MapResourceItem target)
+        => PublishToMapImage(project, draft, target, Array.Empty<MaterialAsset>());
+
+    public MapImageSaveResult PublishToMapImage(CczProject project, MapWorkbenchDraft draft, MapResourceItem target, IReadOnlyList<MaterialAsset> materials)
     {
         if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
         {
@@ -32,7 +35,7 @@ public sealed class MapCanvasPublishService
             oldHeight = oldImage.Height;
         }
 
-        using var bitmap = _composeService.ComposeFinal(draft);
+        using var bitmap = _composeService.ComposeFinal(draft, materials);
         var newBytes = EncodeJpeg(bitmap, quality: 92L);
         var oldBytes = File.ReadAllBytes(target.Path);
         var oldHash = WriteOperationReportService.ComputeSha256(oldBytes);
@@ -108,8 +111,11 @@ public sealed class MapCanvasPublishService
     }
 
     public void ExportJpeg(MapWorkbenchDraft draft, string outputPath)
+        => ExportJpeg(draft, Array.Empty<MaterialAsset>(), outputPath);
+
+    public void ExportJpeg(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, string outputPath)
     {
-        using var bitmap = _composeService.ComposeFinal(draft);
+        using var bitmap = _composeService.ComposeFinal(draft, materials);
         var bytes = EncodeJpeg(bitmap, quality: 92L);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         File.WriteAllBytes(outputPath, bytes);
@@ -163,7 +169,9 @@ public sealed class MapCanvasPublishService
                     ByteLength = newBytes.Length,
                     OldValue = $"旧大小 {oldBytes.LongLength:N0} 字节；尺寸 {oldWidth}x{oldHeight}；SHA256={oldHash}",
                     NewValue = $"新大小 {newBytes.LongLength:N0} 字节；尺寸 {newWidth}x{newHeight}；SHA256={newHash}；草稿={draft.DraftId}",
-                    Annotation = $"地图工作台将底稿与 {draft.MapCellOverrides.Count} 个地图画笔覆盖格合成为 JPEG。Hexzmap.e5 地形层不会被本操作修改。"
+                    Annotation = draft.AutoGenerateMapFromTerrain
+                        ? $"地图工作台根据 {draft.TerrainCells.Length} 个地形格自动生成底图，并叠加 {draft.BuildingOverlayCells.Count} 个建筑覆盖格、{draft.MapCellOverrides.Count} 个微调覆盖格。Hexzmap.e5 地形层不会被本底图发布操作修改。"
+                        : $"地图工作台将底稿、{draft.GeneratedMapCells.Count} 个生成格、{draft.BuildingOverlayCells.Count} 个建筑覆盖格和 {draft.MapCellOverrides.Count} 个微调覆盖格合成为 JPEG。Hexzmap.e5 地形层不会被本底图发布操作修改。"
                 }
             ],
             Metadata =
@@ -176,7 +184,13 @@ public sealed class MapCanvasPublishService
                 ["MaterialRoot"] = draft.MaterialRoot,
                 ["BaseLayerPath"] = draft.BaseLayerPath,
                 ["MapCellOverrideCount"] = draft.MapCellOverrides.Count.ToString(CultureInfo.InvariantCulture),
+                ["GeneratedMapCellCount"] = draft.GeneratedMapCells.Count.ToString(CultureInfo.InvariantCulture),
+                ["BuildingOverlayCellCount"] = draft.BuildingOverlayCells.Count.ToString(CultureInfo.InvariantCulture),
                 ["TerrainCellCount"] = draft.TerrainCells.Length.ToString(CultureInfo.InvariantCulture),
+                ["AutoGenerateMapFromTerrain"] = draft.AutoGenerateMapFromTerrain.ToString(CultureInfo.InvariantCulture),
+                ["BeautifyGeneratedMap"] = draft.BeautifyGeneratedMap.ToString(CultureInfo.InvariantCulture),
+                ["BeautifyStrength"] = draft.BeautifyStrength.ToString(CultureInfo.InvariantCulture),
+                ["FeatherRadius"] = draft.FeatherRadius.ToString(CultureInfo.InvariantCulture),
                 ["Warning"] = warning
             }
         };

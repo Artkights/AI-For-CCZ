@@ -48,6 +48,30 @@ public sealed class E5ImageBatchUpdate
     public string OperationKind { get; init; } = "replace";
 }
 
+public sealed class BatchSImageUsageUpdate
+{
+    [JsonPropertyName("s_image_id")]
+    public int SImageId { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public int? JobId { get; init; }
+
+    [JsonPropertyName("faction_slot")]
+    public int FactionSlot { get; init; } = 1;
+}
+
+public sealed class BatchItemIconTargetRowUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("display_name")]
+    public string DisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("icon_index")]
+    public int IconIndex { get; init; }
+}
+
 public sealed class BattlefieldUnitStatusUpdate
 {
     [JsonPropertyName("target_key")]

@@ -139,6 +139,96 @@ public sealed class IconResourceReplaceService
         return ApplyBatchBitmapUpdates(project, preview, updates);
     }
 
+    public IconResourceBatchReplacePreviewResult PreviewReplaceBitmapIconsFromBitmaps(
+        CczProject project,
+        string targetPath,
+        IReadOnlyList<IconResourceBitmapReplaceRequest> requests)
+    {
+        var fileRequests = MaterializeBitmapRequests(requests);
+        try
+        {
+            return PreviewReplaceBitmapIcons(project, targetPath, fileRequests);
+        }
+        finally
+        {
+            DeleteTempRequestFiles(fileRequests);
+        }
+    }
+
+    public IconResourceBatchReplaceResult ReplaceBitmapIconsFromBitmaps(
+        CczProject project,
+        string targetPath,
+        IReadOnlyList<IconResourceBitmapReplaceRequest> requests)
+    {
+        if (requests.Count == 0)
+        {
+            throw new InvalidOperationException("没有可导入的 DLL 图标。");
+        }
+
+        var target = Path.GetFullPath(targetPath);
+        EnsureTargetInsideProject(project, target);
+        if (!File.Exists(target)) throw new FileNotFoundException("目标 DLL 文件不存在。", target);
+
+        var duplicateIcon = requests
+            .GroupBy(request => request.IconIndex)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateIcon != null)
+        {
+            throw new InvalidOperationException($"批量导入包含重复图标编号：{duplicateIcon.Key}。");
+        }
+
+        var resources = ParseBitmapResources(target);
+        var oldBytes = File.ReadAllBytes(target);
+        var items = new List<IconResourceBatchReplacePreviewItem>();
+        var warnings = new List<string>();
+        var updates = new List<BitmapResourceUpdate>();
+        foreach (var request in requests.OrderBy(request => request.IconIndex))
+        {
+            var pair = ResolveBitmapResourcePair(resources, request.IconIndex);
+            var sourceInfo = new SourceImageInfo(request.Bitmap.Width, request.Bitmap.Height);
+            var itemWarnings = BuildReplaceWarnings(pair, sourceInfo);
+            warnings.AddRange(itemWarnings.Select(warning => $"图标#{request.IconIndex}：{warning}"));
+            var sourceLabel = string.IsNullOrWhiteSpace(request.SourceLabel) ? "<像素编辑>" : request.SourceLabel;
+            var sourceBytes = EncodeBitmapToPngBytes(request.Bitmap);
+            items.Add(new IconResourceBatchReplacePreviewItem
+            {
+                IconIndex = request.IconIndex,
+                ResourceIds = pair.Select(x => x.Id).ToArray(),
+                SourcePath = sourceLabel,
+                SourceLabel = sourceLabel,
+                SourceSizeBytes = sourceBytes.LongLength,
+                SourceSha256 = WriteOperationReportService.ComputeSha256(sourceBytes),
+                SourceWidth = sourceInfo.Width,
+                SourceHeight = sourceInfo.Height,
+                FormatWarnings = itemWarnings
+            });
+
+            updates.AddRange(pair.Select(resource => new BitmapResourceUpdate(resource.Id, BuildDibForTargetSize(request.Bitmap, resource.Width, resource.Height))));
+        }
+
+        var preview = new IconResourceBatchReplacePreviewResult
+        {
+            TargetPath = target,
+            TargetRelativePath = WriteOperationReportService.ToProjectRelativePath(project, target),
+            Requests = requests.Select(request => new IconResourceBatchReplaceRequest
+            {
+                IconIndex = request.IconIndex,
+                SourcePath = string.IsNullOrWhiteSpace(request.SourceLabel) ? "<像素编辑>" : request.SourceLabel,
+                SourceLabel = request.SourceLabel,
+                OperationKind = request.OperationKind
+            }).ToArray(),
+            Items = items,
+            OperationKind = requests.Select(request => request.OperationKind).FirstOrDefault(kind => !string.IsNullOrWhiteSpace(kind)) ?? "批量替换RT_BITMAP图标",
+            OldFileSizeBytes = oldBytes.LongLength,
+            OldFileSha256 = WriteOperationReportService.ComputeSha256(oldBytes),
+            ResourceFormat = "DLL RT_BITMAP",
+            FormatWarnings = warnings,
+            RiskSummary = BuildBatchReplaceRiskSummary(items, warnings)
+        };
+
+        return ApplyBatchBitmapUpdates(project, preview, updates);
+    }
+
     public IconResourceReplacePreviewResult PreviewClearBitmapIcon(CczProject project, string targetPath, int iconIndex)
     {
         var target = Path.GetFullPath(targetPath);
@@ -327,6 +417,41 @@ public sealed class IconResourceReplaceService
             .Select(target => new BitmapResourceUpdate(target.Id, BuildDibForTargetSize(sourcePath, target.Width, target.Height)))
             .ToArray();
 
+    private static IReadOnlyList<IconResourceBatchReplaceRequest> MaterializeBitmapRequests(IReadOnlyList<IconResourceBitmapReplaceRequest> requests)
+    {
+        var result = new List<IconResourceBatchReplaceRequest>();
+        foreach (var request in requests)
+        {
+            var tempPath = Path.Combine(Path.GetTempPath(), $"CCZModStudio_pixel_{Guid.NewGuid():N}.png");
+            request.Bitmap.Save(tempPath, ImageFormat.Png);
+            result.Add(new IconResourceBatchReplaceRequest
+            {
+                IconIndex = request.IconIndex,
+                SourcePath = tempPath,
+                SourceLabel = string.IsNullOrWhiteSpace(request.SourceLabel) ? "<像素编辑>" : request.SourceLabel,
+                OperationKind = string.IsNullOrWhiteSpace(request.OperationKind) ? "像素编辑" : request.OperationKind
+            });
+        }
+
+        return result;
+    }
+
+    private static void DeleteTempRequestFiles(IReadOnlyList<IconResourceBatchReplaceRequest> requests)
+    {
+        foreach (var request in requests)
+        {
+            if (!Path.GetFileName(request.SourcePath).StartsWith("CCZModStudio_pixel_", StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                if (File.Exists(request.SourcePath)) File.Delete(request.SourcePath);
+            }
+            catch
+            {
+                // Best-effort cleanup only.
+            }
+        }
+    }
+
     private static SourceImageInfo ReadSourceImageInfo(string sourcePath)
     {
         try
@@ -343,6 +468,11 @@ public sealed class IconResourceReplaceService
     private static byte[] BuildDibForTargetSize(string sourcePath, int targetWidth, int targetHeight)
     {
         using var source = Image.FromFile(sourcePath);
+        return BuildDibForTargetSize(source, targetWidth, targetHeight);
+    }
+
+    private static byte[] BuildDibForTargetSize(Image source, int targetWidth, int targetHeight)
+    {
         using var bitmap = new Bitmap(targetWidth, targetHeight, PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
@@ -360,6 +490,13 @@ public sealed class IconResourceReplaceService
         }
 
         return BitmapToDib(bitmap);
+    }
+
+    private static byte[] EncodeBitmapToPngBytes(Bitmap bitmap)
+    {
+        using var memory = new MemoryStream();
+        bitmap.Save(memory, ImageFormat.Png);
+        return memory.ToArray();
     }
 
     private static byte[] BuildTransparentDib(int width, int height)

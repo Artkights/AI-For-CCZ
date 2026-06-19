@@ -31,4 +31,4 @@ From `工具整合包`:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\verify.ps1
 ```
 
-Use `-RunWriteSmoke` only when a test-copy write smoke is intended. Current Hexzmap evidence is unresolved: the local sample is `44840` bytes while the write guard baseline is `45254`, so Hexzmap direct writes remain blocked until that mismatch is verified.
+Use `-RunWriteSmoke` only when a test-copy write smoke is intended. Hexzmap sync now follows the current `Ls12` index table at `0x110`: terrain entries are matched by map slot, decoded length must equal map cell count plus the 2-byte terrain prefix, and extra map images such as `M100.jpg` are not treated as Hexzmap-backed terrain blocks.

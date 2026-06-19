@@ -500,6 +500,30 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceRImageRaw(game_root, r_image_id, material_folder, write_mode);
 
     [McpServerTool]
+    [Description("Preview batch raw R actor image replacement from a material root without writing. Subfolders use R12, R_12, or 12 and contain front.bmp/back.bmp.")]
+    public object preview_r_image_raw_batch_replace(
+        [Description("Material root containing numbered R image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Optional R image ids to include. When omitted or empty, all valid numbered subfolders are considered.")]
+        List<int>? allowed_r_image_ids = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewRImageRawBatchReplace(game_root, material_root, allowed_r_image_ids);
+
+    [McpServerTool]
+    [Description("Replace batch raw R actor image assets from a material root. Creates backup and structured aggregate report.")]
+    public object replace_r_image_raw_batch(
+        [Description("Material root containing numbered R image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Optional R image ids to include. When omitted or empty, all valid numbered subfolders are considered.")]
+        List<int>? allowed_r_image_ids = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceRImageRawBatch(game_root, material_root, allowed_r_image_ids, write_mode);
+
+    [McpServerTool]
     [Description("Preview raw S unit image replacement from a material folder without writing.")]
     public object preview_s_image_raw_replace(
         [Description("S image id. s_unit maps compact S ids to Unit image numbers.")]
@@ -530,6 +554,62 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
         string? write_mode = "direct")
         => runtime.ReplaceSImageRaw(game_root, s_image_id, material_folder, job_id, faction_slot, write_mode);
+
+    [McpServerTool]
+    [Description("Preview batch raw S unit image replacement from a material root without writing. Subfolders use S12, S_12, or 12 and contain mov.bmp/atk.bmp/spc.bmp.")]
+    public object preview_s_image_raw_batch_replace(
+        [Description("Material root containing numbered S image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Optional S usages to include. Use job_id for S=0 default unit mapping.")]
+        List<BatchSImageUsageUpdate>? allowed_usages = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default faction slot for S=0 when allowed_usages is omitted: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1)
+        => runtime.PreviewSImageRawBatchReplace(game_root, material_root, allowed_usages, faction_slot);
+
+    [McpServerTool]
+    [Description("Replace batch raw S unit image assets from a material root. Creates backups and structured aggregate report.")]
+    public object replace_s_image_raw_batch(
+        [Description("Material root containing numbered S image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Optional S usages to include. Use job_id for S=0 default unit mapping.")]
+        List<BatchSImageUsageUpdate>? allowed_usages = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default faction slot for S=0 when allowed_usages is omitted: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceSImageRawBatch(game_root, material_root, allowed_usages, faction_slot, write_mode);
+
+    [McpServerTool]
+    [Description("Preview batch item icon import without writing. 6.5 writes Itemicon.dll; 6.6 writes E5/Item.e5. Item table icon fields are not changed.")]
+    public object preview_item_icon_batch_import(
+        [Description("Source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string> source_files,
+        [Description("Optional item rows with icon indexes. If supplied, source_files count must match target_rows count and order is used.")]
+        List<BatchItemIconTargetRowUpdate>? target_rows = null,
+        [Description("Optional match mode label, defaults to auto.")]
+        string? match_mode = "auto",
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewItemIconBatchImport(game_root, source_files, target_rows, match_mode);
+
+    [McpServerTool]
+    [Description("Batch import item icons. Creates backup and structured aggregate report. Item table icon fields are not changed.")]
+    public object replace_item_icon_batch_import(
+        [Description("Source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string> source_files,
+        [Description("Optional item rows with icon indexes. If supplied, source_files count must match target_rows count and order is used.")]
+        List<BatchItemIconTargetRowUpdate>? target_rows = null,
+        [Description("Optional match mode label, defaults to auto.")]
+        string? match_mode = "auto",
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ReplaceItemIconBatchImport(game_root, source_files, target_rows, match_mode, write_mode);
 
     [McpServerTool]
     [Description("Preview E5 role raw-image normalization without writing.")]
@@ -697,6 +777,30 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ApplyEffectPackage(game_root, package, mode, write_mode);
 
     [McpServerTool]
+    [Description("Analyze a natural-language request into a ModDesign draft for table/resource/effect/R-S package automation.")]
+    public object analyze_mod_request(
+        [Description("Natural-language MOD request.")]
+        string prompt,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional mod name.")]
+        string? name = null,
+        [Description("Optional package id.")]
+        string? package_id = null)
+        => runtime.AnalyzeModRequest(game_root, prompt, name, package_id);
+
+    [McpServerTool]
+    [Description("Compile a ModDesign into a ModPackage draft with slot planning.")]
+    public object compile_mod_package(
+        [Description("ModDesign object from analyze_mod_request or manual input.")]
+        ModDesign design,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Maximum available slots to inspect. Defaults to 64; capped at 200.")]
+        int slot_limit = 64)
+        => runtime.CompileModPackage(game_root, design, slot_limit);
+
+    [McpServerTool]
     [Description("Analyze a natural-language request into a standalone R+S scenario design draft.")]
     public object analyze_standalone_scenario_request(
         [Description("Natural-language standalone scenario request.")]
@@ -719,6 +823,136 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Maximum available slots to inspect. Defaults to 64; capped at 200.")]
         int slot_limit = 64)
         => runtime.CompileStandaloneScenarioPackage(game_root, design, slot_limit);
+
+    [McpServerTool]
+    [Description("List likely available person/job/item/effect/scenario/image slots for ModPackage planning.")]
+    public object list_available_slots(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Maximum slots per group. Defaults to 64; capped at 200.")]
+        int limit = 64)
+        => runtime.ListAvailableSlots(game_root, limit);
+
+    [McpServerTool]
+    [Description("Preview a ModPackage without writing.")]
+    public object preview_mod_package(
+        [Description("ModPackage JSON object.")]
+        ModPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Automation mode: safe, aggressive_test_copy, force_preview_report, or force_open.")]
+        string? automation_mode = "safe")
+        => runtime.PreviewModPackage(game_root, package, automation_mode);
+
+    [McpServerTool]
+    [Description("Apply a ModPackage through dedicated writers. aggressive_test_copy creates a test copy automatically.")]
+    public object apply_mod_package(
+        [Description("ModPackage JSON object.")]
+        ModPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct",
+        [Description("Automation mode: safe, aggressive_test_copy, force_preview_report, or force_open.")]
+        string? automation_mode = "safe")
+        => runtime.ApplyModPackage(game_root, package, write_mode, automation_mode);
+
+    [McpServerTool]
+    [Description("Analyze, compile, preview, write a test copy, and emit reports for a natural-language MOD request.")]
+    public object auto_make_mod(
+        [Description("Natural-language MOD request.")]
+        string prompt,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Automation mode: aggressive_test_copy or force_open.")]
+        string? automation_mode = "aggressive_test_copy",
+        [Description("Maximum automatic repair attempts. Defaults to 3; capped at 10.")]
+        int max_repair_attempts = 3)
+        => runtime.AutoMakeMod(game_root, prompt, automation_mode, max_repair_attempts);
+
+    [McpServerTool]
+    [Description("Validate a ModPackage preview and optionally run required SmokeTests. Any required smoke failure blocks pass.")]
+    public object auto_validate_mod(
+        [Description("ModPackage JSON object.")]
+        ModPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("When true, run required SmokeTests commands.")]
+        bool run_smokes = false)
+        => runtime.AutoValidateMod(game_root, package, run_smokes);
+
+    [McpServerTool]
+    [Description("Promote a validated ModPackage from a test-copy workflow into the formal base after explicit confirmation.")]
+    public object promote_test_copy_mod(
+        [Description("ModPackage JSON object.")]
+        ModPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Must be true to write the formal base.")]
+        bool confirm_promote = false)
+        => runtime.PromoteTestCopyMod(game_root, package, confirm_promote);
+
+    [McpServerTool]
+    [Description("Validate a ModPackage and report required smoke/manual checks.")]
+    public object validate_mod_package(
+        [Description("ModPackage JSON object.")]
+        ModPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("When true, run required SmokeTests commands.")]
+        bool run_smokes = false)
+        => runtime.ValidateModPackage(game_root, package, run_smokes);
+
+    [McpServerTool]
+    [Description("Export a ModPackage preview/report under CCZModStudio_Reports/ModPackages.")]
+    public object export_mod_report(
+        [Description("ModPackage JSON object.")]
+        ModPackage package,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Report kind label.")]
+        string? report_kind = "preview")
+        => runtime.ExportModReport(game_root, package, report_kind);
+
+    [McpServerTool]
+    [Description("Compile a small scenario patch request into a ModScenarioPatch draft.")]
+    public object compile_scenario_patch(
+        [Description("Scenario patch compile request.")]
+        ScenarioPatchCompileRequest request,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.CompileScenarioPatch(game_root, request);
+
+    [McpServerTool]
+    [Description("Preview a ModScenarioPatch without writing.")]
+    public object preview_scenario_patch(
+        [Description("ModScenarioPatch JSON object.")]
+        ModScenarioPatch patch,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewScenarioPatch(game_root, patch);
+
+    [McpServerTool]
+    [Description("Apply a conservative ModScenarioPatch through LegacyScenarioWriter.")]
+    public object apply_scenario_patch(
+        [Description("ModScenarioPatch JSON object.")]
+        ModScenarioPatch patch,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "direct")
+        => runtime.ApplyScenarioPatch(game_root, patch, write_mode);
+
+    [McpServerTool]
+    [Description("Apply a structural ModScenarioPatch in aggressive mode, intended for test copies.")]
+    public object apply_scenario_patch_aggressive(
+        [Description("ModScenarioPatch JSON object.")]
+        ModScenarioPatch patch,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        string? write_mode = "test_copy")
+        => runtime.ApplyScenarioPatchAggressive(game_root, patch, write_mode);
 
     [McpServerTool]
     [Description("List declarative effect templates for AI-assisted EffectPackage creation.")]

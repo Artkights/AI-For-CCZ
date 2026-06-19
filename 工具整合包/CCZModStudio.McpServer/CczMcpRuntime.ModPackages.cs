@@ -74,13 +74,16 @@ public sealed partial class CczMcpRuntime
         var tables = LoadTables(project);
         var dictionary = TryLoadScenarioDictionaryForModPackage(project, package);
         var normalizedAutomation = NormalizeAutomationMode(automationMode);
-        var allowStructuralScenarioWrites = normalizedAutomation is "aggressive_test_copy" or "force_preview_report" or "force_open";
+        var allowStructuralScenarioWrites = normalizedAutomation is "aggressive_test_copy" or "force_preview_report" or "force_open" or "strict_playable_preview";
+        var strictPlayablePreview = normalizedAutomation == "strict_playable_preview";
         return new
         {
             project.GameRoot,
-            Preview = _modPackageService.Preview(project, tables, package, dictionary, allowStructuralScenarioWrites),
+            Preview = _modPackageService.Preview(project, tables, package, dictionary, allowStructuralScenarioWrites, strictPlayablePreview),
             AutomationMode = normalizedAutomation,
-            SafetyNote = allowStructuralScenarioWrites
+            SafetyNote = strictPlayablePreview
+                ? "preview_mod_package is read-only. strict_playable_preview reports blocking evidence that prevents playable/runtime tier claims."
+                : allowStructuralScenarioWrites
                 ? "preview_mod_package is read-only. force/aggressive automation allows structural scenario append/insert in preview."
                 : "preview_mod_package is read-only. apply_mod_package refuses to write unless this preview has no blocking issues."
         };
@@ -176,6 +179,7 @@ public sealed partial class CczMcpRuntime
                     if (!scenarioApply.Applied)
                     {
                         result.Issues.AddRange(scenarioApply.Issues);
+                        result.Applied = false;
                         continue;
                     }
 
@@ -199,6 +203,17 @@ public sealed partial class CczMcpRuntime
                 result.ApplyResults.Add(resourceApply.Payload);
                 if (!string.IsNullOrWhiteSpace(resourceApply.BackupPath)) result.BackupPaths.Add(resourceApply.BackupPath);
                 if (!string.IsNullOrWhiteSpace(resourceApply.ReportPath)) result.ReportPaths.Add(resourceApply.ReportPath);
+                if (resourceUpdate.Operation.Equals("generate_task", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Applied = false;
+                    result.Issues.Add(new ModPackageValidationIssue
+                    {
+                        Severity = "warning",
+                        Category = "resource",
+                        Target = resourceUpdate.TargetRelativePath,
+                        Message = "Resource generation task was recorded, but no game resource was imported."
+                    });
+                }
             }
         }
         catch (Exception ex)
@@ -335,7 +350,7 @@ public sealed partial class CczMcpRuntime
                     Issues = autoValidation.Issues.ToList(),
                     PlannedSmokeCommands = autoValidation.SmokeRuns.Select(run => run.Command).ToList(),
                     ManualChecks = autoValidation.Preview.ManualChecks.ToList(),
-                    Summary = autoValidation.Summary + " Use auto_validate_mod with run_smokes=true for process-level smoke execution."
+                    Summary = autoValidation.Summary + " Package is static-only until auto_validate_mod run_smokes=true passes every required smoke."
                 };
                 result.ReportPaths.Add(autoValidation.ReportPath);
             }
@@ -397,30 +412,47 @@ public sealed partial class CczMcpRuntime
         var project = LoadProject(gameRoot);
         var tables = LoadTables(project);
         var dictionary = TryLoadScenarioDictionaryForModPackage(project, package);
+        if (runSmokes)
+        {
+            var autoValidation = _modPackageService.AutoValidate(project, tables, package, dictionary, runSmokes: true);
+            return new
+            {
+                project.GameRoot,
+                Validation = new ModPackageValidationResult
+                {
+                    ProjectRoot = project.GameRoot,
+                    PackageId = ModPackageService.NormalizePackageId(package),
+                    Preview = autoValidation.Preview,
+                    Passed = autoValidation.Passed,
+                    Issues = autoValidation.Issues.ToList(),
+                    PlannedSmokeCommands = autoValidation.SmokeRuns.Select(run => run.Command).ToList(),
+                    ManualChecks = autoValidation.Preview?.ManualChecks.ToList() ?? [],
+                    Summary = autoValidation.Summary
+                },
+                AutoValidation = autoValidation
+            };
+        }
+
         var preview = _modPackageService.Preview(project, tables, package, dictionary, allowStructuralScenarioWrites: ModPackageService.IsForceOpenPackage(package));
         var validation = new ModPackageValidationResult
         {
             ProjectRoot = project.GameRoot,
             PackageId = ModPackageService.NormalizePackageId(package),
             Preview = preview,
-            Passed = preview.CanApply,
+            Passed = false,
             Issues = preview.Issues.ToList(),
             PlannedSmokeCommands = preview.RequiredSmokeCommands.ToList(),
             ManualChecks = preview.ManualChecks.ToList()
         };
-
-        if (runSmokes)
+        validation.Issues.Add(new ModPackageValidationIssue
         {
-            validation.Issues.Add(new ModPackageValidationIssue
-            {
-                Severity = "warning",
-                Category = "validation",
-                Target = "run_smokes",
-                Message = "MCP V1 reports the required smoke commands but does not spawn dotnet smoke tests inside the tool process. Run them from the SmokeTests executable."
-            });
-        }
+            Severity = "warning",
+            Category = "validation",
+            Target = "run_smokes",
+            Message = "Required smoke commands were not run; validation status is static-only."
+        });
 
-        validation.Summary = $"ModPackage validation: staticPassed={preview.CanApply}, smokeCommands={validation.PlannedSmokeCommands.Count}, manualChecks={validation.ManualChecks.Count}, issues={validation.Issues.Count}.";
+        validation.Summary = $"ModPackage validation: staticPassed={preview.CanApply}, passed=False, smokeCommands={validation.PlannedSmokeCommands.Count}, manualChecks={validation.ManualChecks.Count}, issues={validation.Issues.Count}.";
         return new
         {
             project.GameRoot,
@@ -506,7 +538,7 @@ public sealed partial class CczMcpRuntime
     private static string NormalizeAutomationMode(string? automationMode)
     {
         var normalized = string.IsNullOrWhiteSpace(automationMode) ? "safe" : automationMode.Trim().ToLowerInvariant();
-        return normalized is "safe" or "aggressive_test_copy" or "force_preview_report" or "promote_confirmed" or "force_open"
+        return normalized is "safe" or "aggressive_test_copy" or "force_preview_report" or "promote_confirmed" or "force_open" or "strict_playable_preview"
             ? normalized
             : "safe";
     }

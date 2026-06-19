@@ -511,14 +511,14 @@ public sealed partial class MainForm
         };
         if (dialog.ShowDialog(this) != DialogResult.OK || dialog.FileNames.Length == 0) return;
 
+        var entries = _currentImageResourceEntries.Count > 0 ? _currentImageResourceEntries : _imageResourceCatalogService.ReadEntries(file);
+        var selectedEntries = GetSelectedImageResourceEntries();
         if (file.ResourceFormat.Equals("DLL图标", StringComparison.OrdinalIgnoreCase))
         {
-            MessageBox.Show(this, "DLL 图标当前先开放单个编号替换和批量删除。批量导入请逐个导入，以便确认 RT_BITMAP 尺寸缩放结果。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            BatchImportSelectedDllIconEntries(file, entries, selectedEntries, dialog.FileNames);
             return;
         }
 
-        var entries = _currentImageResourceEntries.Count > 0 ? _currentImageResourceEntries : _imageResourceCatalogService.ReadEntries(file);
-        var selectedEntries = GetSelectedImageResourceEntries();
         var requests = BuildBatchImportRequests(entries, selectedEntries, dialog.FileNames);
         if (requests.Count == 0)
         {
@@ -768,6 +768,20 @@ public sealed partial class MainForm
            $"备份：{result.BackupPath}\r\n" +
            $"报告：{result.ReportJsonPath}";
 
+    private static string BuildDllIconBatchReplacePreviewText(IconResourceBatchReplacePreviewResult preview)
+        => $"DLL 图标批量写入预览：{preview.TargetRelativePath}\r\n" +
+           $"操作条目：{preview.Items.Count}\r\n" +
+           $"目标大小：{preview.OldFileSizeBytes:N0} 字节\r\n" +
+           $"条目：{string.Join(", ", preview.Items.Take(30).Select(x => $"#{x.IconIndex} RT_BITMAP {string.Join("/", x.ResourceIds)}"))}{(preview.Items.Count > 30 ? " ..." : string.Empty)}\r\n" +
+           $"提示：{(preview.FormatWarnings.Count == 0 ? "无" : string.Join("；", preview.FormatWarnings.Take(12)))}\r\n" +
+           $"风险：{preview.RiskSummary}";
+
+    private static string BuildDllIconBatchReplaceResultText(IconResourceBatchReplaceResult result)
+        => BuildDllIconBatchReplacePreviewText(result) + "\r\n" +
+           $"新大小：{result.NewFileSizeBytes:N0} 字节    变化字节：{result.ChangedBytesEstimate:N0}\r\n" +
+           $"备份：{result.BackupPath}\r\n" +
+           $"报告：{result.ReportJsonPath}";
+
     private void NormalizeRoleRawImages()
     {
         if (_project == null)
@@ -871,6 +885,8 @@ public sealed partial class MainForm
             var canEdit = true;
             _imageAssignmentGrid.ReadOnly = !canEdit;
             _saveImageAssignmentsButton.Enabled = canEdit;
+            _importImageAssignmentFaceButton.Enabled = true;
+            _batchImportImageAssignmentFaceButton.Enabled = true;
             foreach (DataGridViewColumn column in _imageAssignmentGrid.Columns)
             {
                 column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "头像编号" or "职业" or "职业名称" or "R资源状态" or "S资源状态";
@@ -1539,6 +1555,362 @@ public sealed partial class MainForm
            string.Join("\r\n", result.Files.Select(file =>
                $"{file.TargetFileName}: {file.WriteResult.OperationCount} 条，备份 {file.WriteResult.BackupPath}")) +
            $"\r\n汇总报告：{result.AggregateReportPath}";
+
+    private void BatchReplaceRImageSets()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentImageAssignments == null)
+        {
+            MessageBox.Show(this, "请先读取人物 R/S。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        using var folderDialog = new FolderBrowserDialog
+        {
+            Description = "选择 R 形象批量素材根目录；子目录使用 R12 / R_12 / 12，且包含 front.bmp 与 back.bmp。",
+            UseDescriptionForTitle = true
+        };
+        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var request = new BatchRImageReplaceRequest
+        {
+            MaterialRoot = folderDialog.SelectedPath,
+            AllowedRImageIds = CollectVisibleImageAssignmentIds(ImageAssignmentResourceKind.R).ToHashSet(),
+            IncludeOnlySelectedOrFiltered = true,
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        BatchRImageReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchRImageReplaceService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch R image import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "批量导入 R 形象预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchRImageReplacePreviewText(preview);
+        _imageAssignmentInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "批量导入 R 形象存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会把这些 R 形象一次写入 Pmapobj.e5，并自动备份。是否继续？",
+                "确认批量导入 R 形象",
+                MessageBoxButtons.YesNo,
+                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchRImageReplaceService.Replace(_project, request);
+            _imageAssignmentPreviewService.ClearCache();
+            ShowSelectedImageAssignmentDetail();
+            _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildBatchRImageReplaceResultText(result));
+            SetStatus($"批量导入 R 形象完成：写入 {result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch R image import failed: " + ex);
+            MessageBox.Show(this, ex.Message, "批量导入 R 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void BatchImportSelectedDllIconEntries(
+        ImageResourceFileInfo file,
+        IReadOnlyList<ImageResourceEntryInfo> entries,
+        IReadOnlyList<ImageResourceEntryInfo> selectedEntries,
+        IReadOnlyList<string> fileNames)
+    {
+        if (_project == null) return;
+        var requests = BuildDllBatchImportRequests(entries, selectedEntries, fileNames);
+        if (requests.Count == 0)
+        {
+            MessageBox.Show(this, "没有从文件名或选中行中匹配到可导入的 DLL 图标编号。文件名建议包含目标编号，例如 12.png 或 #12.png。", "批量导入 DLL 图标", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        IconResourceBatchReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _iconResourceReplaceService.PreviewReplaceBitmapIcons(_project, file.Path, requests);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("DLL icon batch import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "DLL 图标批量导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildDllIconBatchReplacePreviewText(preview);
+        _imageResourceEntryInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会先备份目标 DLL，再一次写入这些 RT_BITMAP 图标资源。是否继续？",
+                "确认批量导入 DLL 图标",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _iconResourceReplaceService.ReplaceBitmapIcons(_project, file.Path, requests);
+            _imageResourceCatalogService.ClearCache();
+            _itemIconPreviewService.ClearCache();
+            LoadImageResources();
+            _imageResourceEntryInfoBox.Text = BuildDllIconBatchReplaceResultText(result);
+            SetStatus($"DLL 图标批量导入完成：{result.Items.Count} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("DLL icon batch import failed: " + ex);
+            MessageBox.Show(this, ex.Message, "DLL 图标批量导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static IReadOnlyList<IconResourceBatchReplaceRequest> BuildDllBatchImportRequests(
+        IReadOnlyList<ImageResourceEntryInfo> entries,
+        IReadOnlyList<ImageResourceEntryInfo> selectedEntries,
+        IReadOnlyList<string> fileNames)
+    {
+        var entryByNumber = entries.ToDictionary(x => x.ImageNumber);
+        if (selectedEntries.Count == fileNames.Count)
+        {
+            return selectedEntries
+                .OrderBy(x => x.ImageNumber)
+                .Zip(fileNames.OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase), (entry, fileName) => new IconResourceBatchReplaceRequest
+                {
+                    IconIndex = entry.ImageNumber,
+                    SourcePath = fileName,
+                    SourceLabel = fileName,
+                    OperationKind = "批量导入 DLL 图标"
+                })
+                .ToList();
+        }
+
+        var requests = new List<IconResourceBatchReplaceRequest>();
+        foreach (var fileName in fileNames.OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var number = ExtractImageNumberFromFileName(Path.GetFileNameWithoutExtension(fileName));
+            if (!number.HasValue || !entryByNumber.ContainsKey(number.Value)) continue;
+            requests.Add(new IconResourceBatchReplaceRequest
+            {
+                IconIndex = number.Value,
+                SourcePath = fileName,
+                SourceLabel = fileName,
+                OperationKind = "批量导入 DLL 图标"
+            });
+        }
+
+        return requests
+            .GroupBy(x => x.IconIndex)
+            .Select(group => group.First())
+            .OrderBy(x => x.IconIndex)
+            .ToList();
+    }
+
+    private void BatchReplaceSImageSets()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentImageAssignments == null)
+        {
+            MessageBox.Show(this, "请先读取人物 R/S。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        using var folderDialog = new FolderBrowserDialog
+        {
+            Description = "选择 S 形象批量素材根目录；子目录使用 S12 / S_12 / 12，且包含 mov.bmp、atk.bmp、spc.bmp。",
+            UseDescriptionForTitle = true
+        };
+        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var request = new BatchSImageReplaceRequest
+        {
+            MaterialRoot = folderDialog.SelectedPath,
+            AllowedSImageUsages = CollectVisibleSImageUsages(),
+            IncludeOnlySelectedOrFiltered = true,
+            FactionSlot = GetImageAssignmentSPreviewFactionSlot(),
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        BatchSImageReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchSImageReplaceService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch S image import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "批量导入 S 形象预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchSImageReplacePreviewText(preview);
+        _imageAssignmentInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "批量导入 S 形象存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会按 Unit_mov.e5 / Unit_atk.e5 / Unit_spc.e5 分组批量写入，并自动备份。是否继续？",
+                "确认批量导入 S 形象",
+                MessageBoxButtons.YesNo,
+                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchSImageReplaceService.Replace(_project, request);
+            _imageAssignmentPreviewService.ClearCache();
+            ShowSelectedImageAssignmentDetail();
+            _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildBatchSImageReplaceResultText(result));
+            SetStatus($"批量导入 S 形象完成：写入 {result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch S image import failed: " + ex);
+            MessageBox.Show(this, ex.Message, "批量导入 S 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<int> CollectVisibleImageAssignmentIds(ImageAssignmentResourceKind kind)
+    {
+        if (_currentImageAssignments == null) return Array.Empty<int>();
+        return _currentImageAssignments.DefaultView.Cast<DataRowView>()
+            .Select(view => TryGetImageResourceId(view.Row, kind, out var id) ? id : (int?)null)
+            .Where(id => id.HasValue && id.Value >= 0)
+            .Select(id => id!.Value)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+    }
+
+    private IReadOnlyList<BatchSImageUsage> CollectVisibleSImageUsages()
+    {
+        if (_currentImageAssignments == null) return Array.Empty<BatchSImageUsage>();
+        var factionSlot = GetImageAssignmentSPreviewFactionSlot();
+        return _currentImageAssignments.DefaultView.Cast<DataRowView>()
+            .Select(view =>
+            {
+                if (!TryGetImageResourceId(view.Row, ImageAssignmentResourceKind.S, out var sId)) return null;
+                var jobId = TryGetImageAssignmentJobId(view.Row);
+                return new BatchSImageUsage(sId, jobId, factionSlot);
+            })
+            .OfType<BatchSImageUsage>()
+            .Distinct()
+            .OrderBy(usage => usage.SImageId)
+            .ThenBy(usage => usage.JobId ?? -1)
+            .ThenBy(usage => usage.FactionSlot)
+            .ToArray();
+    }
+
+    private static int? TryGetImageAssignmentJobId(DataRow row)
+    {
+        var column = row.Table.Columns.Cast<DataColumn>().FirstOrDefault(c => c.ColumnName == "职业" || c.ColumnName == "鑱屼笟");
+        if (column == null) return null;
+        return int.TryParse(Convert.ToString(row[column], CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var jobId)
+            ? jobId
+            : null;
+    }
+
+    private static string BuildBatchRImageReplacePreviewText(BatchRImageReplacePreviewResult preview)
+        => "批量导入 R 形象预览\r\n" +
+           $"素材根目录：{preview.Request.MaterialRoot}\r\n" +
+           $"匹配成功：{preview.Items.Count} 个 R 编号，写入条目：{preview.TotalOperationCount}\r\n" +
+           $"跳过/问题：{preview.SkippedItems.Count}\r\n" +
+           string.Join("\r\n", preview.Items.Take(30).Select(item =>
+               $"- R{item.RImageId}: #{item.FrontImageNumber}/#{item.BackImageNumber} <- {Path.GetFileName(item.MaterialFolder)}")) +
+           BuildSkippedItemsText(preview.SkippedItems) +
+           BuildWarningsText(preview.Warnings);
+
+    private static string BuildBatchRImageReplaceResultText(BatchRImageReplaceResult result)
+        => "批量导入 R 形象完成\r\n" +
+           $"写入条目：{result.TotalOperationCount}\r\n" +
+           $"备份：{result.WriteResult?.BackupPath}\r\n" +
+           $"报告：{result.AggregateReportPath}";
+
+    private static string BuildBatchSImageReplacePreviewText(BatchSImageReplacePreviewResult preview)
+        => "批量导入 S 形象预览\r\n" +
+           $"素材根目录：{preview.Request.MaterialRoot}\r\n" +
+           $"匹配成功：{preview.Items.Count} 个 S 映射，写入条目：{preview.TotalOperationCount}\r\n" +
+           $"目标文件：{string.Join(", ", preview.FilePreviews.Keys)}\r\n" +
+           $"跳过/问题：{preview.SkippedItems.Count}\r\n" +
+           string.Join("\r\n", preview.Items.Take(30).Select(item =>
+               $"- S{item.SImageId}: {string.Join("/", item.ImageNumbers.Select(x => "#" + x.ToString(CultureInfo.InvariantCulture)))} <- {Path.GetFileName(item.MaterialFolder)}")) +
+           BuildSkippedItemsText(preview.SkippedItems) +
+           BuildWarningsText(preview.Warnings);
+
+    private static string BuildBatchSImageReplaceResultText(BatchSImageReplaceResult result)
+        => "批量导入 S 形象完成\r\n" +
+           $"写入条目：{result.TotalOperationCount}\r\n" +
+           string.Join("\r\n", result.WriteResults.Select(pair => $"{pair.Key}: {pair.Value.OperationCount} 条，备份 {pair.Value.BackupPath}")) +
+           $"\r\n报告：{result.AggregateReportPath}";
+
+    private static string BuildSkippedItemsText(IReadOnlyList<BatchImageImportSkippedItem> skipped)
+        => skipped.Count == 0
+            ? string.Empty
+            : "\r\n跳过/问题：\r\n" + string.Join("\r\n", skipped.Take(30).Select(item => $"- {item.Key}: {item.Reason} {item.SourcePath}")) +
+              (skipped.Count > 30 ? $"\r\n- ... 还有 {skipped.Count - 30} 项" : string.Empty);
+
+    private static string BuildWarningsText(IReadOnlyList<string> warnings)
+        => warnings.Count == 0
+            ? "\r\n提示：无"
+            : "\r\n提示：\r\n" + string.Join("\r\n", warnings.Take(20).Select(warning => "- " + warning)) +
+              (warnings.Count > 20 ? $"\r\n- ... 还有 {warnings.Count - 20} 条" : string.Empty);
 
     private IReadOnlyList<E5ImageReplacementTarget> BuildE5ImageReplacementTargets(DataRow row, ImageAssignmentResourceKind targetKind, int id)
     {

@@ -1,0 +1,27 @@
+{
+  "packageKind": "CCZModStudio.GUI.Portable",
+  "runtimeRoot": "net",
+  "requiredFiles": [
+    "ConfigTable\\HexTable.xml",
+    "LegacyResources\\a新剧本编辑器v0.23\\CczString.ini",
+    "LegacyResources\\a新剧本编辑器v0.23\\CczSceneEditor2.ini",
+    "LegacyResources\\a新剧本编辑器v0.23\\cczEditor2\\cczEditor2.rc",
+    "LegacyResources\\a新剧本编辑器v0.23\\cczEditor2\\cczEditor2View.cpp",
+    "LegacyResources\\B形象指定器\\形象指定器6.5\\System.ini",
+    "Assets\\About\\Doro-white.ico",
+    "Assets\\About\\Doro-white.png",
+    "Assets\\About\\doro.jpg",
+    "Assets\\About\\Doro.webp",
+    "Assets\\Palettes\\tsb",
+    "Templates\\剧本文本导入AI说明模板.md",
+    "Package\\GUI-PACKAGE-MANIFEST.txt",
+    "Package\\self-check.json"
+  ],
+  "excludedDeveloperFeatures": [
+    "MCP配置",
+    "CCZModStudio.McpServer",
+    "CCZModStudio.GameDebugMcpServer",
+    "CCZModStudio.SmokeTests",
+    "x32dbg"
+  ]
+}

@@ -8,11 +8,13 @@ namespace CCZModStudio.Core;
 public sealed class ItemIconPreviewService
 {
     private readonly Dictionary<string, IReadOnlyList<BitmapResource>> _bitmapResourceCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly E5ImageReplaceService _e5ImageService = new();
+    private readonly E5ImageRenderService _e5ImageRenderService = new();
 
     public void ClearCache() => _bitmapResourceCache.Clear();
 
     public ItemIconPreviewResult BuildPreview(CczProject project, int iconIndex, int canvasSize = 96)
-        => BuildPreview(project, iconIndex, "Itemicon.dll", "物品图标", canvasSize);
+        => BuildPreview(project, iconIndex, Ccz66RevisedLayout.ResolveItemIconResourceFile(project), "物品图标", canvasSize);
 
     public ItemIconPreviewResult BuildPreview(
         CczProject project,
@@ -21,6 +23,11 @@ public sealed class ItemIconPreviewService
         string displayName,
         int canvasSize = 96)
     {
+        if (Ccz66RevisedLayout.IsE5IconResource(resourceFileName))
+        {
+            return BuildE5Preview(project, iconIndex, resourceFileName, displayName, canvasSize);
+        }
+
         var sourcePath = ResolveIconDll(project, resourceFileName);
         if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
         {
@@ -94,10 +101,114 @@ public sealed class ItemIconPreviewService
 
     public int GetIconCount(CczProject project)
     {
-        var sourcePath = ResolveItemIconDll(project);
+        var sourcePath = Ccz66RevisedLayout.Is66(project)
+            ? Ccz66RevisedLayout.ResolveResourcePath(project, Ccz66RevisedLayout.ResolveItemIconResourceFile(project))
+            : ResolveItemIconDll(project);
         return string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)
             ? 0
-            : GetIconCount(sourcePath);
+            : Ccz66RevisedLayout.Is66(project)
+                ? _e5ImageService.ReadIndex(sourcePath).Count
+                : GetIconCount(sourcePath);
+    }
+
+    private ItemIconPreviewResult BuildE5Preview(
+        CczProject project,
+        int iconIndex,
+        string resourceFileName,
+        string displayName,
+        int canvasSize)
+    {
+        var sourcePath = Ccz66RevisedLayout.ResolveResourcePath(project, resourceFileName);
+        if (!File.Exists(sourcePath))
+        {
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                0,
+                null,
+                $"未找到 {resourceFileName}，暂无法显示{displayName}。");
+        }
+
+        var entries = _e5ImageService.ReadIndex(sourcePath);
+        if (entries.Count == 0)
+        {
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                0,
+                null,
+                $"{resourceFileName} 未识别到 E5 0x110 图片索引。");
+        }
+
+        var isItemE5 = Ccz66RevisedLayout.IsItemIconResource(sourcePath);
+        var imageNumber = isItemE5
+            ? Ccz66RevisedLayout.ResolveItemIconPreviewImageNumber(iconIndex)
+            : Ccz66RevisedLayout.ResolveStrategyIconImageNumber(iconIndex);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+        {
+            var maxFieldValue = isItemE5
+                ? Math.Max(0, (entries.Count - 2) / 2)
+                : Math.Max(0, entries.Count - 1);
+            var rangeMessage = $"{displayName} field value {iconIndex} is outside {resourceFileName} range 0-{maxFieldValue}; calculated E5 image #{imageNumber}.";
+            if (rangeMessage.Length > 0)
+            {
+                return new ItemIconPreviewResult(
+                    sourcePath,
+                    iconIndex,
+                    entries.Count,
+                    null,
+                    rangeMessage);
+            }
+
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                entries.Count,
+                null,
+                $"{displayName}字段编号 {iconIndex} 超出 {resourceFileName} E5 图号范围 0-{entries.Count - 1}。");
+        }
+
+        Bitmap? bitmap = null;
+        try
+        {
+            var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
+            bitmap = _e5ImageRenderService.RenderEntry(project, Path.GetFileName(sourcePath), bytes, canvasSize, canvasSize, out _);
+        }
+        catch
+        {
+            bitmap = null;
+        }
+
+        var note = Path.GetFileName(sourcePath).Equals("Item.e5", StringComparison.OrdinalIgnoreCase)
+            ? "6.6 修正版道具图标资源；字段编号按 E5 1-based 图号减 1 预览，#1/#2 常作为空白小/大图标。"
+            : "6.6 修正版策略图标资源；字段编号按 E5 1-based 图号减 1 预览，策略四系图标通常间隔 6。";
+        if (isItemE5)
+        {
+            var (small, large) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(iconIndex);
+            note = $"6.6 revised Item.e5 item icon: field={iconIndex}, small=#{small}, large=#{large}; treasure/item preview uses the large image by default.";
+        }
+        else
+        {
+            note = "6.6 revised Mtem.e5 strategy icon: field value N maps to E5 image #(N+1); strategy families are usually spaced by 6.";
+        }
+
+        var previewMessage = $"Source {Path.GetFileName(sourcePath)}; field={iconIndex}; E5 image #{imageNumber}; available={entries.Count}. {note}";
+        if (previewMessage.Length > 0)
+        {
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                entries.Count,
+                bitmap,
+                previewMessage);
+        }
+
+        return new ItemIconPreviewResult(
+            sourcePath,
+            iconIndex,
+            entries.Count,
+            bitmap,
+            $"来源 {Path.GetFileName(sourcePath)}；字段图标={iconIndex}；E5图号=#{imageNumber}；候选图标数={entries.Count}。{note}");
     }
 
     private static string ResolveItemIconDll(CczProject project)
@@ -198,10 +309,13 @@ public sealed class ItemIconPreviewService
         return iconIndex < resources.Count ? resources[iconIndex] : null;
     }
 
+    internal static Bitmap? RenderDibForSmoke(byte[] dibBytes, int canvasSize)
+        => RenderDib(dibBytes, canvasSize);
+
     private static Bitmap? RenderDib(byte[] dibBytes, int canvasSize)
     {
         if (dibBytes.Length < 40) return null;
-        var gameBitmap = DecodeGameBitmapDib(dibBytes);
+        var gameBitmap = DecodeBitmapDib(dibBytes, CczBitmapDibRowOrder.Auto);
         if (gameBitmap != null)
         {
             using (gameBitmap)
@@ -239,7 +353,7 @@ public sealed class ItemIconPreviewService
         }
     }
 
-    private static Bitmap? DecodeGameBitmapDib(byte[] dibBytes)
+    private static Bitmap? DecodeBitmapDib(byte[] dibBytes, CczBitmapDibRowOrder rowOrder)
     {
         var headerSize = BitConverter.ToInt32(dibBytes, 0);
         if (headerSize != 40 || dibBytes.Length < headerSize) return null;
@@ -271,10 +385,14 @@ public sealed class ItemIconPreviewService
             palette[i] = Color.FromArgb(255, dibBytes[offset + 2], dibBytes[offset + 1], dibBytes[offset]);
         }
 
+        var effectiveRowOrder = ResolveDibRowOrder(signedHeight, bitCount, rowOrder);
         var bitmap = new Bitmap(width, height);
         for (var y = 0; y < height; y++)
         {
-            var rowOffset = pixelOffset + y * stride;
+            var sourceY = effectiveRowOrder == CczBitmapDibRowOrder.StandardBottomUp && signedHeight > 0
+                ? height - 1 - y
+                : y;
+            var rowOffset = pixelOffset + sourceY * stride;
             for (var x = 0; x < width; x++)
             {
                 bitmap.SetPixel(x, y, ReadGameDibPixel(dibBytes, rowOffset, x, bitCount, palette));
@@ -282,6 +400,19 @@ public sealed class ItemIconPreviewService
         }
 
         return bitmap;
+    }
+
+    private static CczBitmapDibRowOrder ResolveDibRowOrder(int signedHeight, int bitCount, CczBitmapDibRowOrder requested)
+    {
+        if (requested != CczBitmapDibRowOrder.Auto) return requested;
+        if (signedHeight < 0) return CczBitmapDibRowOrder.CczTopFirst;
+
+        // Legacy 6.5 DLL icon resources are positive-height 8bpp DIBs in normal BMP
+        // bottom-up order. CCZModStudio writes replacement icons as positive-height
+        // 32bpp top-first DIBs because the game reads those RT_BITMAP rows top-first.
+        return bitCount == 32
+            ? CczBitmapDibRowOrder.CczTopFirst
+            : CczBitmapDibRowOrder.StandardBottomUp;
     }
 
     private static Color ReadGameDibPixel(byte[] bytes, int rowOffset, int x, int bitCount, IReadOnlyList<Color> palette)
@@ -439,6 +570,13 @@ public sealed class ItemIconPreviewService
 internal sealed record PeSection(int VirtualAddress, int Size, int RawPointer);
 
 internal sealed record BitmapResource(int Id, byte[] DibBytes);
+
+internal enum CczBitmapDibRowOrder
+{
+    Auto,
+    StandardBottomUp,
+    CczTopFirst
+}
 
 public sealed record ItemIconPreviewResult(
     string SourcePath,

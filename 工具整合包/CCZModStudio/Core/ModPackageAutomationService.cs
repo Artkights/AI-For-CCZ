@@ -13,12 +13,17 @@ public sealed partial class ModPackageService
     private static readonly string[] DefaultSmokeCommands =
     [
         "--standalone-scenario-smoke",
+        "--standalone-golden-samples-smoke",
         "--mod-package-smoke",
         "--effect-package-smoke",
         "--battlefield-unit-status-write-smoke",
         "--e5-image-replace-smoke",
+        "--rs-text-write-smoke",
+        "--rs-deployment-write-smoke",
         "--rs-write-smoke",
-        "--map-preview-smoke"
+        "--map-preview-smoke",
+        "--hexzmap-sync-smoke",
+        "--map-terrain-consistency-smoke"
     ];
 
     public ModDesignAnalysisResult AnalyzeRequest(CczProject project, string prompt, string? name = null, string? packageId = null)
@@ -283,6 +288,7 @@ public sealed partial class ModPackageService
             ProjectRoot = project.GameRoot,
             PackageId = NormalizePackageId(package),
             Preview = preview,
+            PlayabilityEvidence = preview.PlayabilityEvidence.ToList(),
             Issues = preview.Issues.ToList()
         };
 
@@ -292,13 +298,28 @@ public sealed partial class ModPackageService
             {
                 Command = smoke,
                 Ran = false,
-                Passed = IsForceOpenPackage(package),
+                Passed = false,
                 Error = runSmokes ? string.Empty : "Smoke execution was not requested."
             });
         }
 
-        result.Passed = preview.CanApply && (IsForceOpenPackage(package) || result.SmokeRuns.All(run => run.Passed));
-        result.Summary = $"auto_validate_mod: staticPassed={preview.CanApply}, smokeRuns={result.SmokeRuns.Count}, issues={result.Issues.Count}.";
+        foreach (var smoke in result.SmokeRuns.Where(run => !run.Passed))
+        {
+            result.Issues.Add(new ModPackageValidationIssue
+            {
+                Severity = smoke.Ran ? "error" : "warning",
+                Category = "smoke",
+                Target = smoke.Command,
+                Message = smoke.Ran
+                    ? FirstNonEmpty(smoke.Error, "Required smoke command failed or timed out.")
+                    : "Required smoke command was not run; package remains static-only."
+            });
+        }
+
+        result.Passed = preview.CanApply &&
+                        result.SmokeRuns.Count > 0 &&
+                        result.SmokeRuns.All(run => run.Ran && run.Passed);
+        result.Summary = $"auto_validate_mod: staticPassed={preview.CanApply}, smokeRuns={result.SmokeRuns.Count}, passed={result.Passed}, issues={result.Issues.Count}.";
         result.ReportPath = WriteAutoValidationReport(project, package, result);
         return result;
     }
@@ -716,7 +737,23 @@ public sealed partial class ModPackageService
             process.Start();
             var output = process.StandardOutput.ReadToEnd();
             var error = process.StandardError.ReadToEnd();
-            process.WaitForExit(120_000);
+            if (!process.WaitForExit(120_000))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Best-effort cleanup for timed-out smoke runs.
+                }
+
+                result.Passed = false;
+                result.Error = "Smoke command timed out.";
+                result.OutputTail = Tail(output, 4000);
+                return result;
+            }
+
             result.ExitCode = process.ExitCode;
             result.Passed = process.ExitCode == 0;
             result.OutputTail = Tail(output, 4000);
@@ -755,6 +792,12 @@ public sealed partial class ModPackageService
         builder.AppendLine("- Package: " + NormalizePackageId(package));
         builder.AppendLine("- Passed: " + result.Passed);
         builder.AppendLine("- Summary: " + result.Summary);
+        builder.AppendLine("- PlayabilityEvidence: " + result.PlayabilityEvidence.Count);
+        foreach (var evidence in result.PlayabilityEvidence.Take(80))
+        {
+            builder.AppendLine($"  - [{evidence.Status}/{evidence.TierImpact}] {evidence.Key}: {evidence.Message}");
+        }
+
         builder.AppendLine("- Issues: " + result.Issues.Count);
         foreach (var issue in result.Issues.Take(80))
         {

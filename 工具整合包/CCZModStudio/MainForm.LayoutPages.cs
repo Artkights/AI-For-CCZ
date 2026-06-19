@@ -151,12 +151,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerGridHeightInput.Maximum = 256;
         _mapMakerGridHeightInput.Value = 30;
         _mapMakerGridHeightInput.Width = 58;
-        _mapMakerBrushModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _mapMakerBrushModeCombo.Width = 105;
-        _mapMakerBrushModeCombo.Items.AddRange(new object[] { "浏览", "地图画笔", "地形画笔" });
-        _mapMakerBrushModeCombo.SelectedIndex = 0;
-        _mapMakerSelectMaterialRootButton.Text = "选择素材库";
-        _mapMakerSelectMaterialRootButton.AutoSize = true;
+        _mapMakerBrushModeCombo.Visible = false;
+        _mapMakerSelectMaterialRootButton.Visible = false;
         _mapFitButton.Text = "适应窗口";
         _mapFitButton.AutoSize = true;
         _mapActualButton.Text = "100%";
@@ -166,34 +162,56 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapZoomTrackBar.Value = 100;
         _mapZoomTrackBar.TickFrequency = 50;
         _mapZoomTrackBar.Width = 140;
-        _mapMakerShowTerrainCheckBox.Text = "叠加地形";
+        _mapMakerShowTerrainCheckBox.Text = "查看地形层";
         _mapMakerShowTerrainCheckBox.AutoSize = true;
         _mapMakerShowTerrainCheckBox.Checked = true;
         _mapMakerShowGridCheckBox.Text = "显示网格";
         _mapMakerShowGridCheckBox.AutoSize = true;
         _mapMakerShowGridCheckBox.Checked = true;
+        _mapMakerAutoGenerateCheckBox.Text = "地形驱动";
+        _mapMakerAutoGenerateCheckBox.AutoSize = true;
+        _mapMakerAutoGenerateCheckBox.Checked = true;
+        _mapMakerAutoGenerateCheckBox.Visible = false;
+        _mapMakerBeautifyCheckBox.Text = "美化生成";
+        _mapMakerBeautifyCheckBox.AutoSize = true;
+        _mapMakerBeautifyCheckBox.Checked = false;
+        _mapMakerBeautifyStrengthInput.Minimum = 0;
+        _mapMakerBeautifyStrengthInput.Maximum = 3;
+        _mapMakerBeautifyStrengthInput.Value = 2;
+        _mapMakerBeautifyStrengthInput.Width = 48;
+        _mapMakerBeautifyStrengthInput.Visible = false;
+        _mapMakerFeatherRadiusInput.Minimum = 0;
+        _mapMakerFeatherRadiusInput.Maximum = 24;
+        _mapMakerFeatherRadiusInput.Value = 8;
+        _mapMakerFeatherRadiusInput.Width = 52;
+        _mapMakerFeatherRadiusInput.Visible = false;
         _mapMakerEditTerrainCheckBox.Text = "地形画笔";
         _mapMakerEditTerrainCheckBox.AutoSize = true;
         _mapMakerEditTerrainCheckBox.Enabled = false;
+        _mapMakerEditTerrainCheckBox.Visible = false;
         _mapMakerTerrainOpacityTrackBar.Minimum = 0;
         _mapMakerTerrainOpacityTrackBar.Maximum = 100;
         _mapMakerTerrainOpacityTrackBar.Value = 45;
         _mapMakerTerrainOpacityTrackBar.TickFrequency = 25;
         _mapMakerTerrainOpacityTrackBar.Width = 110;
+        _mapMakerTerrainOpacityTrackBar.Visible = false;
         _mapMakerTerrainOpacityLabel.Text = "地形透明度 45%";
         _mapMakerTerrainOpacityLabel.AutoSize = true;
         _mapMakerTerrainOpacityLabel.Padding = new Padding(0, 7, 0, 0);
+        _mapMakerTerrainOpacityLabel.Visible = false;
         _mapMakerTerrainPresetCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _mapMakerTerrainPresetCombo.Width = 170;
         _mapMakerTerrainBrushInput.Minimum = 0;
         _mapMakerTerrainBrushInput.Maximum = 255;
         _mapMakerTerrainBrushInput.Width = 62;
+        _mapMakerTerrainBrushInput.Visible = false;
         _mapMakerBrushNameLabel.Text = "地形：0x00";
         _mapMakerBrushNameLabel.AutoSize = true;
         _mapMakerBrushNameLabel.Padding = new Padding(0, 7, 0, 0);
-        _mapMakerSaveTerrainButton.Text = "保存草稿地形";
+        _mapMakerSaveTerrainButton.Text = "保存草稿";
         _mapMakerSaveTerrainButton.AutoSize = true;
         _mapMakerSaveTerrainButton.Enabled = false;
+        _mapMakerSaveTerrainButton.Visible = false;
         _mapMakerUndoTerrainButton.Text = "撤销";
         _mapMakerUndoTerrainButton.AutoSize = true;
         _mapMakerUndoTerrainButton.Enabled = false;
@@ -203,18 +221,22 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerReplaceMapImageButton.Text = "旧版替换底图";
         _mapMakerReplaceMapImageButton.AutoSize = true;
         _mapMakerReplaceMapImageButton.Enabled = false;
-        _mapMakerExportPreviewButton.Text = "导出预览";
+        _mapMakerReplaceMapImageButton.Visible = false;
+        _mapMakerExportPreviewButton.Text = "导出PNG";
         _mapMakerExportPreviewButton.AutoSize = true;
         _mapMakerExportPreviewButton.Enabled = false;
-        _mapMakerExportJpgButton.Text = "导出JPG";
+        _mapMakerExportJpgButton.Text = "导出美化JPG";
         _mapMakerExportJpgButton.AutoSize = true;
         _mapMakerExportJpgButton.Enabled = false;
-        _mapMakerPublishMapButton.Text = "发布到底图";
+        _mapMakerPublishMapButton.Text = "高级：仅底图";
         _mapMakerPublishMapButton.AutoSize = true;
         _mapMakerPublishMapButton.Enabled = false;
-        _mapMakerPublishTerrainButton.Text = "发布到地形层";
+        _mapMakerPublishTerrainButton.Text = "高级：仅地形";
         _mapMakerPublishTerrainButton.AutoSize = true;
         _mapMakerPublishTerrainButton.Enabled = false;
+        _mapMakerPublishAllButton.Text = "一键发布";
+        _mapMakerPublishAllButton.AutoSize = true;
+        _mapMakerPublishAllButton.Enabled = false;
         mapToolbar.Controls.AddRange(new Control[]
         {
             _loadMapImagesButton,
@@ -225,31 +247,21 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             new Label { Text = "x", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
             _mapMakerGridHeightInput,
             _mapMakerSaveDraftButton,
-            _mapMakerSelectMaterialRootButton,
-            new Label { Text = "模式：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerBrushModeCombo,
             _mapFitButton,
             _mapActualButton,
             new Label { Text = "缩放：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _mapZoomTrackBar,
             _mapMakerShowTerrainCheckBox,
             _mapMakerShowGridCheckBox,
-            _mapMakerTerrainOpacityLabel,
-            _mapMakerTerrainOpacityTrackBar,
-            _mapMakerEditTerrainCheckBox,
-            new Label { Text = "常用地形：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _mapMakerBeautifyCheckBox,
+            new Label { Text = "地形：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _mapMakerTerrainPresetCombo,
-            new Label { Text = "画笔ID：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerTerrainBrushInput,
             _mapMakerBrushNameLabel,
-            _mapMakerSaveTerrainButton,
             _mapMakerUndoTerrainButton,
             _mapMakerRedoTerrainButton,
-            _mapMakerReplaceMapImageButton,
             _mapMakerExportPreviewButton,
             _mapMakerExportJpgButton,
-            _mapMakerPublishMapButton,
-            _mapMakerPublishTerrainButton
+            _mapMakerPublishAllButton
         });
         mapLayout.Controls.Add(mapToolbar, 0, 0);
         var mapSplit = new SplitContainer
@@ -303,66 +315,11 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapViewerInfoBox.ReadOnly = true;
         _mapViewerInfoBox.ScrollBars = ScrollBars.Vertical;
         _mapViewerInfoBox.WordWrap = true;
-        _mapViewerInfoBox.Text = "地图编辑：统一地图绘制工作台。新建草稿默认 30x30，每格 48x48；地图画笔覆盖格图片，地形画笔编辑草稿地形层；绑定现有 Mxxx 槽位且尺寸一致时才允许发布到游戏。";
+        _mapViewerInfoBox.Text = "地图编辑：选择地形后直接绘制；勾选“查看地形层”只显示地形，取消后显示由地形生成的地图；点击“美化生成”后得到最终地图效果。";
         mapRightLayout.Controls.Add(_mapViewerCellPreviewLabel, 0, 0);
         mapRightLayout.Controls.Add(mapScroll, 0, 1);
-        var mapMakerMaterialGridLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            RowCount = 2,
-            ColumnCount = 1
-        };
-        mapMakerMaterialGridLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        mapMakerMaterialGridLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var mapMakerMaterialToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _mapMakerMaterialCategoryCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _mapMakerMaterialCategoryCombo.Width = 120;
-        _mapMakerMaterialSearchBox.Width = 140;
-        _mapMakerMaterialSearchBox.PlaceholderText = "素材关键字";
-        _mapMakerFilterMaterialsButton.Text = "筛选";
-        _mapMakerFilterMaterialsButton.AutoSize = true;
-        _mapMakerClearMaterialFilterButton.Text = "清除";
-        _mapMakerClearMaterialFilterButton.AutoSize = true;
-        mapMakerMaterialToolbar.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "分类：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
-            _mapMakerMaterialCategoryCombo,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(8, 7, 0, 0) },
-            _mapMakerMaterialSearchBox,
-            _mapMakerFilterMaterialsButton,
-            _mapMakerClearMaterialFilterButton
-        });
-        _mapMakerMaterialGrid.Dock = DockStyle.Fill;
-        _mapMakerMaterialGrid.ReadOnly = true;
-        _mapMakerMaterialGrid.AllowUserToAddRows = false;
-        _mapMakerMaterialGrid.AllowUserToDeleteRows = false;
-        _mapMakerMaterialGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
-        _mapMakerMaterialGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _mapMakerMaterialGrid.DataBindingComplete += (_, _) => HideMapMakerMaterialTechnicalColumns();
-        _mapMakerMaterialPreview.Dock = DockStyle.Fill;
-        _mapMakerMaterialPreview.BackColor = Color.Black;
-        _mapMakerMaterialPreview.SizeMode = PictureBoxSizeMode.Zoom;
-        _mapMakerMaterialInfoBox.Dock = DockStyle.Fill;
-        _mapMakerMaterialInfoBox.Multiline = true;
-        _mapMakerMaterialInfoBox.ReadOnly = true;
-        _mapMakerMaterialInfoBox.ScrollBars = ScrollBars.Vertical;
-        _mapMakerMaterialInfoBox.WordWrap = true;
-        _mapMakerMaterialInfoBox.Text = "素材库：点击“选择素材库”后从本地目录读取图片。地图画笔会把选中素材整张缩放到 48x48 并覆盖当前格。";
-        mapMakerMaterialGridLayout.Controls.Add(mapMakerMaterialToolbar, 0, 0);
-        mapMakerMaterialGridLayout.Controls.Add(_mapMakerMaterialGrid, 0, 1);
-        var mapMaterialSplit = CreateResizableSplit("BuildLayout.MapMaterialGridPreview", Orientation.Horizontal, 320);
-        AddCollapsibleSplitPanel(mapMaterialSplit, 1, "素材表", mapMakerMaterialGridLayout, "BuildLayout.MapMaterialGridPreview.MaterialGrid");
-        AddCollapsibleSplitPanel(mapMaterialSplit, 2, "素材预览", _mapMakerMaterialPreview, "BuildLayout.MapMaterialGridPreview.MaterialPreview");
         AddCollapsibleSplitPanel(mapSplit, 1, "地图列表", _mapImageList, "BuildMapEditorPage.MapListEditor.MapList");
-        AddCollapsibleSplitPanel(mapEditorSplit, 1, "地图预览", mapRightLayout, "BuildMapEditorPage.CanvasMaterials.MapPreview");
-        mapEditorSplit.Panel2.Controls.Add(mapMaterialSplit);
-        mapSplit.Panel2.Controls.Add(mapEditorSplit);
+        AddCollapsibleSplitPanel(mapSplit, 2, "地图预览", mapRightLayout, "BuildMapEditorPage.MapListEditor.MapPreview");
         mapLayout.Controls.Add(mapSplit, 0, 1);
         return mapViewerPage;
     }
@@ -499,13 +456,29 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         detail.Controls.Add(top, 0, 0);
 
         ConfigureRoleTextBox(_roleBiographyBox);
-        ConfigureRoleTextBox(_roleCriticalQuoteBox);
+        var criticalQuotePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = _roleCriticalQuoteBoxes.Length,
+            ColumnCount = 2
+        };
+        criticalQuotePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+        criticalQuotePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < _roleCriticalQuoteBoxes.Length; i++)
+        {
+            criticalQuotePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / _roleCriticalQuoteBoxes.Length));
+            _roleCriticalQuoteLabels[i].Dock = DockStyle.Fill;
+            _roleCriticalQuoteLabels[i].TextAlign = ContentAlignment.MiddleLeft;
+            ConfigureRoleTextBox(_roleCriticalQuoteBoxes[i]);
+            criticalQuotePanel.Controls.Add(_roleCriticalQuoteLabels[i], 0, i);
+            criticalQuotePanel.Controls.Add(_roleCriticalQuoteBoxes[i], 1, i);
+        }
         ConfigureRoleTextBox(_roleRetreatQuoteBox);
         ConfigureRoleTextBox(_roleTextDetailInfoBox, readOnly: true);
 
         detail.Controls.Add(_roleBiographyBox, 0, 1);
         detail.Controls.Add(MakeHeader("暴击台词"), 0, 2);
-        detail.Controls.Add(_roleCriticalQuoteBox, 0, 3);
+        detail.Controls.Add(criticalQuotePanel, 0, 3);
         detail.Controls.Add(MakeHeader("撤退台词"), 0, 4);
         detail.Controls.Add(_roleRetreatQuoteBox, 0, 5);
         return detail;

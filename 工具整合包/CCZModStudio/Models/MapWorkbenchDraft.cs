@@ -10,7 +10,13 @@ public sealed class MapWorkbenchDraft
     public string BaseLayerPath { get; set; } = string.Empty;
     public string MaterialRoot { get; set; } = string.Empty;
     public List<MapCellOverride> MapCellOverrides { get; set; } = new();
+    public List<MapCellOverride> GeneratedMapCells { get; set; } = new();
+    public List<MapCellOverride> BuildingOverlayCells { get; set; } = new();
     public byte[] TerrainCells { get; set; } = Array.Empty<byte>();
+    public bool AutoGenerateMapFromTerrain { get; set; } = true;
+    public bool BeautifyGeneratedMap { get; set; }
+    public int BeautifyStrength { get; set; } = 2;
+    public int FeatherRadius { get; set; } = 8;
     public string CreatedAtText { get; set; } = string.Empty;
     public string UpdatedAtText { get; set; } = string.Empty;
 

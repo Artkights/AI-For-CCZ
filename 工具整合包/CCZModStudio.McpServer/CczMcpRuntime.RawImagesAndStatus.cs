@@ -123,6 +123,32 @@ public sealed partial class CczMcpRuntime
         return BuildRImageRawReplaceResultPayload(_rImageReplaceService.Replace(project, request));
     }
 
+    public object PreviewRImageRawBatchReplace(string? gameRoot, string materialRoot, List<int>? allowedRImageIds)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new BatchRImageReplaceRequest
+        {
+            MaterialRoot = ResolveExternalDirectory(project, materialRoot),
+            AllowedRImageIds = (allowedRImageIds ?? []).Where(id => id >= 0).ToHashSet(),
+            IncludeOnlySelectedOrFiltered = allowedRImageIds is { Count: > 0 }
+        };
+        return BuildBatchRImageRawReplacePreviewPayload(_batchRImageReplaceService.Preview(project, request));
+    }
+
+    public object ReplaceRImageRawBatch(string? gameRoot, string materialRoot, List<int>? allowedRImageIds, string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new BatchRImageReplaceRequest
+        {
+            MaterialRoot = ResolveExternalDirectory(project, materialRoot),
+            AllowedRImageIds = (allowedRImageIds ?? []).Where(id => id >= 0).ToHashSet(),
+            IncludeOnlySelectedOrFiltered = allowedRImageIds is { Count: > 0 },
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildBatchRImageRawReplaceResultPayload(_batchRImageReplaceService.Replace(project, request));
+    }
+
     public object PreviewSImageRawReplace(
         string? gameRoot,
         int sImageId,
@@ -160,6 +186,78 @@ public sealed partial class CczMcpRuntime
             WriteMode = writeMode ?? "direct"
         };
         return BuildSImageRawReplaceResultPayload(_sImageReplaceService.Replace(project, request));
+    }
+
+    public object PreviewSImageRawBatchReplace(
+        string? gameRoot,
+        string materialRoot,
+        List<BatchSImageUsageUpdate>? allowedUsages,
+        int factionSlot)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new BatchSImageReplaceRequest
+        {
+            MaterialRoot = ResolveExternalDirectory(project, materialRoot),
+            AllowedSImageUsages = BuildBatchSImageUsages(allowedUsages),
+            IncludeOnlySelectedOrFiltered = allowedUsages is { Count: > 0 },
+            FactionSlot = factionSlot
+        };
+        return BuildBatchSImageRawReplacePreviewPayload(_batchSImageReplaceService.Preview(project, request));
+    }
+
+    public object ReplaceSImageRawBatch(
+        string? gameRoot,
+        string materialRoot,
+        List<BatchSImageUsageUpdate>? allowedUsages,
+        int factionSlot,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new BatchSImageReplaceRequest
+        {
+            MaterialRoot = ResolveExternalDirectory(project, materialRoot),
+            AllowedSImageUsages = BuildBatchSImageUsages(allowedUsages),
+            IncludeOnlySelectedOrFiltered = allowedUsages is { Count: > 0 },
+            FactionSlot = factionSlot,
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildBatchSImageRawReplaceResultPayload(_batchSImageReplaceService.Replace(project, request));
+    }
+
+    public object PreviewItemIconBatchImport(
+        string? gameRoot,
+        List<string> sourceFiles,
+        List<BatchItemIconTargetRowUpdate>? targetRows,
+        string? matchMode)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new BatchItemIconImportRequest
+        {
+            SourceFiles = ResolveExternalFiles(project, sourceFiles),
+            TargetRows = BuildBatchItemIconTargetRows(targetRows),
+            MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode
+        };
+        return BuildBatchItemIconImportPreviewPayload(_batchItemIconImportService.Preview(project, request));
+    }
+
+    public object ReplaceItemIconBatchImport(
+        string? gameRoot,
+        List<string> sourceFiles,
+        List<BatchItemIconTargetRowUpdate>? targetRows,
+        string? matchMode,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new BatchItemIconImportRequest
+        {
+            SourceFiles = ResolveExternalFiles(project, sourceFiles),
+            TargetRows = BuildBatchItemIconTargetRows(targetRows),
+            MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode,
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildBatchItemIconImportResultPayload(_batchItemIconImportService.Replace(project, request));
     }
 
     public object PreviewE5RoleRawNormalize(string? gameRoot)
@@ -416,6 +514,153 @@ public sealed partial class CczMcpRuntime
                 file.WriteResult.ReportPath,
                 file.WriteResult.ReportJsonPath
             })
+        };
+
+    private static IReadOnlyList<BatchSImageUsage> BuildBatchSImageUsages(IReadOnlyList<BatchSImageUsageUpdate>? updates)
+        => updates == null
+            ? Array.Empty<BatchSImageUsage>()
+            : updates.Select(update => new BatchSImageUsage(update.SImageId, update.JobId, update.FactionSlot)).ToArray();
+
+    private static IReadOnlyList<BatchItemIconTargetRow> BuildBatchItemIconTargetRows(IReadOnlyList<BatchItemIconTargetRowUpdate>? updates)
+        => updates == null
+            ? Array.Empty<BatchItemIconTargetRow>()
+            : updates.Select(update => new BatchItemIconTargetRow(update.RowId, update.DisplayName, update.IconIndex)).ToArray();
+
+    private static object BuildBatchRImageRawReplacePreviewPayload(BatchRImageReplacePreviewResult preview)
+        => new
+        {
+            preview.Request.MaterialRoot,
+            AllowedRImageIds = preview.Request.AllowedRImageIds,
+            preview.Request.IncludeOnlySelectedOrFiltered,
+            preview.TotalOperationCount,
+            preview.CanWrite,
+            preview.Warnings,
+            preview.SkippedItems,
+            Items = preview.Items.Select(item => new
+            {
+                item.RImageId,
+                item.MaterialFolder,
+                item.FrontImageNumber,
+                item.BackImageNumber,
+                item.FrontSourcePath,
+                item.BackSourcePath,
+                FrontEncode = BuildE5RawEncodePayload(item.FrontEncode),
+                BackEncode = BuildE5RawEncodePayload(item.BackEncode)
+            }),
+            BatchPreview = preview.BatchPreview == null ? null : BuildE5ImageBatchReplacePayload(preview.BatchPreview),
+            SafetyNote = "Preview only. Batch R image RAW replacement writes Pmapobj.e5 once with backup and reread verification."
+        };
+
+    private static object BuildBatchRImageRawReplaceResultPayload(BatchRImageReplaceResult result)
+        => new
+        {
+            Preview = BuildBatchRImageRawReplacePreviewPayload(result),
+            result.AggregateReportPath,
+            WriteResult = result.WriteResult == null ? null : BuildE5ImageBatchReplacePayload(result.WriteResult),
+            result.WriteResult?.BackupPath,
+            result.WriteResult?.ReportPath,
+            result.WriteResult?.ReportJsonPath
+        };
+
+    private static object BuildBatchSImageRawReplacePreviewPayload(BatchSImageReplacePreviewResult preview)
+        => new
+        {
+            preview.Request.MaterialRoot,
+            preview.Request.IncludeOnlySelectedOrFiltered,
+            preview.Request.FactionSlot,
+            preview.TotalOperationCount,
+            preview.CanWrite,
+            preview.Warnings,
+            preview.SkippedItems,
+            Items = preview.Items.Select(item => new
+            {
+                item.SImageId,
+                item.JobId,
+                item.FactionSlot,
+                item.MaterialFolder,
+                item.ImageNumbers,
+                item.MappingDetail,
+                item.MovSourcePath,
+                item.AtkSourcePath,
+                item.SpcSourcePath,
+                MovEncode = BuildE5RawEncodePayload(item.MovEncode),
+                AtkEncode = BuildE5RawEncodePayload(item.AtkEncode),
+                SpcEncode = BuildE5RawEncodePayload(item.SpcEncode)
+            }),
+            FilePreviews = preview.FilePreviews.ToDictionary(pair => pair.Key, pair => BuildE5ImageBatchReplacePayload(pair.Value)),
+            SafetyNote = "Preview only. Batch S image RAW replacement writes Unit_mov.e5, Unit_atk.e5, and Unit_spc.e5 in grouped batches."
+        };
+
+    private static object BuildBatchSImageRawReplaceResultPayload(BatchSImageReplaceResult result)
+        => new
+        {
+            Preview = BuildBatchSImageRawReplacePreviewPayload(result),
+            result.AggregateReportPath,
+            WriteResults = result.WriteResults.ToDictionary(pair => pair.Key, pair => new
+            {
+                Preview = BuildE5ImageBatchReplacePayload(pair.Value),
+                pair.Value.BackupPath,
+                pair.Value.ReportPath,
+                pair.Value.ReportJsonPath
+            })
+        };
+
+    private static object BuildBatchItemIconImportPreviewPayload(BatchItemIconImportPreviewResult preview)
+        => new
+        {
+            preview.TargetPath,
+            preview.TargetRelativePath,
+            preview.ResourceKind,
+            preview.TotalOperationCount,
+            preview.CanWrite,
+            preview.Warnings,
+            preview.SkippedItems,
+            Items = preview.Items.Select(item => new
+            {
+                item.RowId,
+                item.DisplayName,
+                item.IconIndex,
+                item.SourcePath,
+                item.TargetImageNumbers,
+                item.ResourceIds
+            }),
+            DllPreview = preview.DllPreview == null ? null : new
+            {
+                preview.DllPreview.TargetPath,
+                preview.DllPreview.TargetRelativePath,
+                preview.DllPreview.OperationKind,
+                preview.DllPreview.OldFileSizeBytes,
+                preview.DllPreview.OldFileSha256,
+                preview.DllPreview.ResourceFormat,
+                preview.DllPreview.FormatWarnings,
+                preview.DllPreview.RiskSummary,
+                Items = preview.DllPreview.Items
+            },
+            E5Preview = preview.E5Preview == null ? null : BuildE5ImageBatchReplacePayload(preview.E5Preview),
+            SafetyNote = "Preview only. Batch item icon import writes Itemicon.dll on 6.5 or E5/Item.e5 on 6.6; item table icon fields are not changed."
+        };
+
+    private static object BuildBatchItemIconImportResultPayload(BatchItemIconImportResult result)
+        => new
+        {
+            Preview = BuildBatchItemIconImportPreviewPayload(result),
+            result.AggregateReportPath,
+            DllResult = result.DllResult == null ? null : new
+            {
+                result.DllResult.BackupPath,
+                result.DllResult.ReportPath,
+                result.DllResult.ReportJsonPath,
+                result.DllResult.NewFileSizeBytes,
+                result.DllResult.ChangedBytesEstimate,
+                result.DllResult.NewFileSha256
+            },
+            E5Result = result.E5Result == null ? null : new
+            {
+                Preview = BuildE5ImageBatchReplacePayload(result.E5Result),
+                result.E5Result.BackupPath,
+                result.E5Result.ReportPath,
+                result.E5Result.ReportJsonPath
+            }
         };
 
     private static object BuildE5RoleRawNormalizePreviewPayload(E5RoleRawNormalizePreviewResult preview)

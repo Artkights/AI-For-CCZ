@@ -38,10 +38,13 @@ public sealed class E5RawImageCodec
         return EncodeBitmap(project, image, sourcePath, spec, strictHeight);
     }
 
+    public E5RawEncodeResult EncodeBitmap(CczProject project, Bitmap bitmap, string sourceLabel, E5RawImageSpec spec, bool strictHeight = true)
+        => EncodeBitmapCore(project, bitmap, sourceLabel, spec, strictHeight);
+
     public E5RawEncodeResult EncodeEntryBytes(CczProject project, byte[] sourceBytes, string sourceLabel, E5RawImageSpec spec, bool strictHeight)
     {
         using var image = LoadBitmap(sourceBytes, sourceLabel);
-        return EncodeBitmap(project, image, sourceLabel, spec, strictHeight);
+        return EncodeBitmapCore(project, image, sourceLabel, spec, strictHeight);
     }
 
     public bool TryDecodeStandardImage(byte[] bytes, out int width, out int height)
@@ -61,7 +64,7 @@ public sealed class E5RawImageCodec
         }
     }
 
-    private E5RawEncodeResult EncodeBitmap(CczProject project, Bitmap bitmap, string sourceLabel, E5RawImageSpec spec, bool strictHeight)
+    private E5RawEncodeResult EncodeBitmapCore(CczProject project, Bitmap bitmap, string sourceLabel, E5RawImageSpec spec, bool strictHeight)
     {
         ValidateDimensions(bitmap, spec, strictHeight);
         var palette = LoadRawPalette(project);
@@ -193,8 +196,7 @@ public sealed class E5RawImageCodec
     {
         var candidates = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "Palettes", "tsb"),
+            PortableInstallPaths.PaletteTsbPath,
             Path.Combine(project.GameRoot, "tsb")
         };
 

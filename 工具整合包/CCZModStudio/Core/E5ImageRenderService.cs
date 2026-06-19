@@ -192,9 +192,8 @@ public sealed class E5ImageRenderService
     {
         var candidates = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "老版游戏制作工具", "普罗-综合工具v0.3", "tsb")
+            PortableInstallPaths.PaletteTsbPath,
+            Path.Combine(project.GameRoot, "tsb")
         };
 
         var path = candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4);

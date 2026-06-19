@@ -21,6 +21,7 @@ public sealed partial class MainForm
         _battlefieldUnitAnimationTimer.Tick += (_, _) => AdvanceBattlefieldUnitAnimation();
         _battlefieldUnitAnimationTimer.Start();
         _rScenePlaybackTimer.Tick += (_, _) => AdvanceRScenePlayback();
+        _jobStrategyAnimationTimer.Tick += (_, _) => AdvanceJobStrategyAnimationPreview();
         _openProjectButton.Click += (_, _) => OpenProjectDialog();
         _reloadButton.Click += (_, _) => ReloadCurrentProject();
         _saveTableButton.Click += (_, _) => SaveCurrentTable();
@@ -32,6 +33,8 @@ public sealed partial class MainForm
         _openPlanButton.Click += (_, _) => OpenPlan();
         _loadRoleEditorButton.Click += (_, _) => LoadRoleEditor();
         _saveRoleEditorButton.Click += (_, _) => SaveRoleEditor();
+        _importRoleFaceButton.Click += (_, _) => ImportSelectedRoleFace();
+        _batchImportRoleFaceButton.Click += (_, _) => BatchImportSelectedRoleFaces();
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
         _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
@@ -103,6 +106,8 @@ public sealed partial class MainForm
         _copyItemEditorSelectionButton.Click += (_, _) => CopyGridSelection(_itemEditorGrid);
         _pasteItemEditorSelectionButton.Click += (_, _) => PasteItemEditorSelection();
         _batchFillItemEditorColumnButton.Click += (_, _) => FillItemEditorSelectionWithCurrentValue();
+        _batchImportItemIconButton.Click += (_, _) => BatchImportSelectedItemIcons();
+        _editItemIconButton.Click += (_, _) => EditSelectedItemIcon();
         _undoItemEditorButton.Click += (_, _) => UndoItemEditorChange();
         _redoItemEditorButton.Click += (_, _) => RedoItemEditorChange();
         _filterItemEditorButton.Click += (_, _) => ApplyItemEditorFilter();
@@ -186,6 +191,7 @@ public sealed partial class MainForm
         _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
         _importJobStrategyIconButton.Click += (_, _) => ImportSelectedJobStrategyIcons();
+        _editJobStrategyIconButton.Click += (_, _) => EditSelectedJobStrategyIcon();
         _openJobStrategyTableButton.Click += (_, _) => OpenCoreTable("6.5-5 策略");
         _filterJobStrategyEditorButton.Click += (_, _) => ApplyJobStrategyFilter();
         _clearJobStrategyEditorFilterButton.Click += (_, _) => ClearJobStrategyFilter();
@@ -284,6 +290,7 @@ public sealed partial class MainForm
         _loadImageResourcesButton.Click += (_, _) => LoadImageResources();
         _openImageResourceButton.Click += (_, _) => OpenSelectedImageResourceLocation();
         _replaceImageResourceEntryButton.Click += (_, _) => ImportOrReplaceSelectedImageResourceEntry(restoreMode: false);
+        _editImageResourceEntryButton.Click += (_, _) => EditSelectedImageResourceEntry();
         _restoreImageResourceEntryButton.Click += (_, _) => ImportOrReplaceSelectedImageResourceEntry(restoreMode: true);
         _batchImportImageResourceEntriesButton.Click += (_, _) => BatchImportSelectedImageResourceEntries();
         _batchClearImageResourceEntriesButton.Click += (_, _) => BatchClearSelectedImageResourceEntries();
@@ -314,8 +321,14 @@ public sealed partial class MainForm
         };
         _locateImageResourceButton.Click += (_, _) => LocateSelectedImageResource();
         _replaceImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: false);
+        _editRImageResourceButton.Click += (_, _) => EditSelectedImageAssignmentResource(ImageAssignmentResourceKind.R);
+        _editSImageResourceButton.Click += (_, _) => EditSelectedImageAssignmentResource(ImageAssignmentResourceKind.S);
         _replaceRImageSetButton.Click += (_, _) => ReplaceSelectedRImageSet();
         _replaceSImageSetButton.Click += (_, _) => ReplaceSelectedSImageSet();
+        _batchReplaceRImageSetButton.Click += (_, _) => BatchReplaceRImageSets();
+        _batchReplaceSImageSetButton.Click += (_, _) => BatchReplaceSImageSets();
+        _importImageAssignmentFaceButton.Click += (_, _) => ImportSelectedImageAssignmentFace();
+        _batchImportImageAssignmentFaceButton.Click += (_, _) => BatchImportSelectedImageAssignmentFaces();
         _restoreImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: true);
         _exportMissingImageResourcesButton.Click += (_, _) => ExportMissingImageResourceReport();
         _imageAssignmentGrid.CellValidating += (_, e) => ValidateImageAssignmentCell(e);
@@ -517,18 +530,7 @@ public sealed partial class MainForm
         _mapMakerSaveDraftButton.Click += (_, _) => SaveCurrentMapWorkbenchDraft();
         _mapMakerGridWidthInput.ValueChanged += (_, _) => ResizeCurrentMapWorkbenchDraftFromInputs();
         _mapMakerGridHeightInput.ValueChanged += (_, _) => ResizeCurrentMapWorkbenchDraftFromInputs();
-        _mapMakerBrushModeCombo.SelectedIndexChanged += (_, _) => SelectMapWorkbenchBrushMode();
         _mapMakerSelectMaterialRootButton.Click += (_, _) => SelectMapWorkbenchMaterialRoot();
-        _mapMakerMaterialCategoryCombo.SelectedIndexChanged += (_, _) => ApplyMapWorkbenchMaterialFilter();
-        _mapMakerFilterMaterialsButton.Click += (_, _) => ApplyMapWorkbenchMaterialFilter();
-        _mapMakerClearMaterialFilterButton.Click += (_, _) => ClearMapWorkbenchMaterialFilter();
-        _mapMakerMaterialSearchBox.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Enter) return;
-            ApplyMapWorkbenchMaterialFilter();
-            e.SuppressKeyPress = true;
-        };
-        _mapMakerMaterialGrid.SelectionChanged += (_, _) => SelectMapWorkbenchMaterial();
         _mapZoomTrackBar.ValueChanged += (_, _) => ApplyMapZoom();
         _mapFitButton.Click += (_, _) => FitMapToView();
         _mapActualButton.Click += (_, _) =>
@@ -545,23 +547,45 @@ public sealed partial class MainForm
             RenderMapMakerPreview();
         };
         _mapMakerShowGridCheckBox.CheckedChanged += (_, _) => RenderMapMakerPreview();
+        _mapMakerAutoGenerateCheckBox.CheckedChanged += (_, _) =>
+        {
+            if (_currentMapWorkbenchDraft != null)
+            {
+                _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+            }
+            if (!_mapMakerAutoGenerateCheckBox.Visible)
+            {
+                if (!_mapMakerAutoGenerateCheckBox.Checked)
+                {
+                    _mapMakerAutoGenerateCheckBox.Checked = true;
+                }
+
+                return;
+            }
+
+            RenderMapMakerPreview(force: true);
+        };
+        _mapMakerBeautifyCheckBox.Click += (_, _) => BeautifyCurrentGeneratedMap();
+        _mapMakerBeautifyStrengthInput.ValueChanged += (_, _) =>
+        {
+            if (_currentMapWorkbenchDraft != null)
+            {
+                _currentMapWorkbenchDraft.BeautifyStrength = (int)_mapMakerBeautifyStrengthInput.Value;
+            }
+            RenderMapMakerPreview(force: true);
+        };
+        _mapMakerFeatherRadiusInput.ValueChanged += (_, _) =>
+        {
+            if (_currentMapWorkbenchDraft != null)
+            {
+                _currentMapWorkbenchDraft.FeatherRadius = (int)_mapMakerFeatherRadiusInput.Value;
+            }
+            RenderMapMakerPreview(force: true);
+        };
         _mapMakerTerrainOpacityTrackBar.ValueChanged += (_, _) =>
         {
             _mapMakerTerrainOpacityLabel.Text = $"地形透明度 {_mapMakerTerrainOpacityTrackBar.Value}%";
             RenderMapMakerPreview();
-        };
-        _mapMakerEditTerrainCheckBox.CheckedChanged += (_, _) =>
-        {
-            if (_mapMakerEditTerrainCheckBox.Checked)
-            {
-                SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.TerrainBrush);
-            }
-            else if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.TerrainBrush)
-            {
-                SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.Browse);
-            }
-
-            UpdateMapMakerEditingButtons();
         };
         _mapMakerTerrainPresetCombo.SelectedIndexChanged += (_, _) => SelectMapMakerTerrainPreset();
         _mapMakerTerrainBrushInput.ValueChanged += (_, _) => UpdateMapMakerBrushLabel();
@@ -571,6 +595,7 @@ public sealed partial class MainForm
         _mapMakerReplaceMapImageButton.Click += (_, _) => ReplaceCurrentMapImage();
         _mapMakerExportPreviewButton.Click += (_, _) => ExportCurrentMapMakerPreviewPng();
         _mapMakerExportJpgButton.Click += (_, _) => ExportCurrentMapWorkbenchJpg();
+        _mapMakerPublishAllButton.Click += (_, _) => PublishCurrentMapWorkbenchMapAndTerrain();
         _mapMakerPublishMapButton.Click += (_, _) => PublishCurrentMapWorkbenchMapImage();
         _mapMakerPublishTerrainButton.Click += (_, _) => PublishCurrentMapWorkbenchTerrain();
         _mapViewerBox.MouseDown += (_, e) => BeginMapMakerTerrainPaint(e);

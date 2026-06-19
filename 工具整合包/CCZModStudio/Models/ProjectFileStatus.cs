@@ -5,5 +5,7 @@ public sealed record ProjectFileStatus(
     string Path,
     bool Exists,
     long? SizeBytes,
-    string Kind
+    string Kind,
+    bool CountsAsMissing = true,
+    string Note = ""
 );

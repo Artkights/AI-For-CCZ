@@ -15,8 +15,8 @@ public sealed partial class ModPackageService
         string? packageId = null)
     {
         prompt = string.IsNullOrWhiteSpace(prompt) ? "Create a standalone CCZ 6.5 single-stage scenario." : prompt.Trim();
-        var inferredTitle = TrimGbk(FirstNonEmpty(title, ExtractQuoted(prompt), ExtractAfterAny(prompt, "title", "name"), "Standalone Stage"), 16);
-        var theme = InferTheme(prompt);
+        var inferredTitle = TrimGbk(FirstNonEmpty(title, ExtractStandaloneTitle(prompt), ExtractQuoted(prompt), ExtractAfterAny(prompt, "title", "name"), "Standalone Stage"), 16);
+        var theme = InferStandaloneTheme(prompt);
         var design = new StandaloneScenarioDesign
         {
             DesignId = MakeSafeFileStem(FirstNonEmpty(packageId, inferredTitle, "standalone-stage")),
@@ -32,6 +32,7 @@ public sealed partial class ModPackageService
             {
                 ["scope"] = "standalone_single_stage",
                 ["constraint_mode"] = "force_open",
+                ["rs_event_dsl"] = "typed_event_graph",
                 ["write_policy"] = "Structure commands are generated for preview/report; direct writes still require preview."
             }
         };
@@ -94,8 +95,15 @@ public sealed partial class ModPackageService
                 SmokeCommands =
                 {
                     "--standalone-scenario-smoke",
+                    "--standalone-semantic-smoke",
+                    "--standalone-golden-samples-smoke",
                     "--mod-package-smoke",
-                    "--rs-write-smoke"
+                    "--rs-text-write-smoke",
+                    "--rs-deployment-write-smoke",
+                    "--rs-write-smoke",
+                    "--hexzmap-sync-smoke",
+                    "--map-terrain-consistency-smoke",
+                    "--strict-playable-preview-smoke"
                 },
                 ManualChecks =
                 {
@@ -149,10 +157,11 @@ public sealed partial class ModPackageService
     private static void AddStandaloneRoles(StandaloneScenarioDesign design)
     {
         if (design.Roles.Count > 0) return;
-        var names = ExtractNames(design.SourcePrompt);
+        var names = ExtractStandaloneRoleNames(design.SourcePrompt);
         var defaults = new[] { "Hero", "Strategist", "Archer", "Medic", "Guest", "Boss", "Enemy1", "Enemy2", "Enemy3", "Enemy4", "Enemy5", "Enemy6", "Enemy7", "Enemy8" };
         while (names.Count < defaults.Length) names.Add(defaults[names.Count]);
         var jobs = new[] { "Commander", "Strategist", "Archer", "Medic", "Guest", "Boss", "Guard", "Archer", "Tactician", "Cavalry", "Infantry", "Mage", "Captain", "Guard" };
+        var factions = InferStandaloneFactions(design.SourcePrompt, names.Count);
         for (var i = 0; i < 14; i++)
         {
             design.Roles.Add(new StandaloneScenarioRole
@@ -168,7 +177,7 @@ public sealed partial class ModPackageService
                     _ => "enemy" + (i - 5).ToString(CultureInfo.InvariantCulture)
                 },
                 Name = TrimGbk(names[i], 16),
-                Faction = i < 4 ? "ally" : i == 4 ? "friendly" : "enemy",
+                Faction = i < factions.Count ? factions[i] : i < 4 ? "ally" : i == 4 ? "friendly" : "enemy",
                 Job = jobs[i],
                 Personality = i switch
                 {
@@ -197,13 +206,13 @@ public sealed partial class ModPackageService
 
     private static void AddStandaloneBattlePlan(StandaloneScenarioDesign design, string prompt)
     {
-        design.Battle.MapTheme = InferMapTheme(prompt);
-        design.Battle.MapId = "M000";
-        design.Battle.Objective = FirstNonEmpty(ExtractAfterAny(prompt, "objective", "win"), "Defeat the enemy commander.");
+        design.Battle.MapTheme = InferStandaloneMapTheme(prompt);
+        design.Battle.MapId = InferStandaloneMapId(prompt);
+        design.Battle.Objective = FirstNonEmpty(ExtractAfterAny(prompt, "objective", "win", "目标", "胜利"), InferStandaloneObjective(prompt));
         design.Battle.Tempo = prompt.Contains("fast", StringComparison.OrdinalIgnoreCase) ? "fast pressure" : "steady advance";
         design.Battle.TurnLimit = prompt.Contains("fast", StringComparison.OrdinalIgnoreCase) ? 18 : 24;
-        design.Battle.WinConditions.AddRange(new[] { "Defeat the enemy commander.", "At least one allied unit survives." });
-        design.Battle.LoseConditions.AddRange(new[] { "Hero retreats.", "Turn limit expires." });
+        design.Battle.WinConditions.AddRange(new[] { design.Battle.Objective, "At least one allied unit survives." });
+        design.Battle.LoseConditions.AddRange(InferStandaloneLoseConditions(prompt));
 
         var coordinates = new (int X, int Y, int Direction)[]
         {
@@ -344,8 +353,13 @@ public sealed partial class ModPackageService
             design.Resources.Needs.Add(new ScenarioResourceNeed { Kind = "s_unit", Target = role.Name, Description = role.Name + " S unit" });
         }
 
-        design.Resources.Needs.Add(new ScenarioResourceNeed { Kind = "map", Target = design.Battle.MapId, Description = design.Battle.MapTheme + " map" });
-        design.Resources.Needs.Add(new ScenarioResourceNeed { Kind = "icon", Target = design.Title, Description = design.Title + " icon" });
+        foreach (var need in design.Resources.Needs)
+        {
+            need.PlaceholderAllowed = false;
+        }
+
+        design.Resources.Needs.Add(new ScenarioResourceNeed { Kind = "map", Target = design.Battle.MapId, Description = design.Battle.MapTheme + " map", PlaceholderAllowed = false });
+        design.Resources.Needs.Add(new ScenarioResourceNeed { Kind = "icon", Target = design.Title, Description = design.Title + " icon", PlaceholderAllowed = false });
     }
 
     private static ScenarioEventAction Dialog(string actorKey, string text)
@@ -438,6 +452,8 @@ public sealed partial class ModPackageService
         }
 
         commands.Add(TextCommand(0x19, "Objective: " + design.Battle.Objective));
+        commands.Add(Command(0x11, Word(ParseScenarioNumber(design.SScenarioId)), Word(0)));
+        commands[^1].Note = "typed_event:jump_to_battle target=" + design.SScenarioId;
         return new ModScenarioPatch
         {
             PatchId = package.Metadata.PackageId + "-standalone-r",
@@ -471,10 +487,12 @@ public sealed partial class ModPackageService
 
         foreach (var node in design.EventGraph.Nodes.Where(node => node.Kind is not "intro" and not "epilogue"))
         {
-            commands.Add(TextCommand(0x14, "[" + node.Title + "] " + node.Trigger));
+            commands.Add(BuildScenarioEventTriggerCommand(node, design));
+            commands[^1].Note = "typed_event:" + node.Kind + " id=" + node.Id + " trigger=" + node.Trigger;
             commands.AddRange(node.Actions.Select(BuildScenarioActionCommand));
         }
 
+        commands.Add(BuildRewardCommand(design));
         commands.Add(TextCommand(0x14, "Rewards: " + string.Join("; ", design.Rewards)));
         return new ModScenarioPatch
         {
@@ -530,6 +548,29 @@ public sealed partial class ModPackageService
         return TextCommand(0x14, action.Text);
     }
 
+    private static ModScenarioCommandDraft BuildScenarioEventTriggerCommand(ScenarioEventNode node, StandaloneScenarioDesign design)
+    {
+        var draft = node.Kind.ToLowerInvariant() switch
+        {
+            "deploy" => Command(0x5A),
+            "turn_start" => Command(0x77, Word(ParseFirstInteger(node.Trigger, 1)), Word(0)),
+            "area_entered" => Command(0x12, Word(ParseFirstInteger(node.Trigger, 0)), Word(ParseLastInteger(node.Trigger, 0))),
+            "unit_defeated" => Command(0x13, Word(RoleByKey(design, "boss").PersonId)),
+            "victory" => Command(0x11, Word(ParseScenarioNumber(design.RScenarioId)), Word(1)),
+            "defeat" => Command(0x11, Word(ParseScenarioNumber(design.RScenarioId)), Word(2)),
+            _ => Command(0x76, Word(0))
+        };
+        draft.Note = "typed_event:" + node.Kind + ":" + node.Id + ":" + node.Trigger;
+        return draft;
+    }
+
+    private static ModScenarioCommandDraft BuildRewardCommand(StandaloneScenarioDesign design)
+    {
+        var draft = Command(0x72, Word(10), Word(design.Rewards.Count));
+        draft.Note = "typed_event:reward:" + string.Join("/", design.Rewards);
+        return draft;
+    }
+
     private static StandaloneScenarioRole RoleByKey(StandaloneScenarioDesign design, string key)
         => design.Roles.FirstOrDefault(role => role.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
            ?? design.Roles.First();
@@ -570,6 +611,199 @@ public sealed partial class ModPackageService
         if (!checklist.HasBattleEvents) checklist.Risks.Add("Too few battle events.");
         if (!checklist.HasEpilogue) checklist.Risks.Add("Missing epilogue.");
         return checklist;
+    }
+
+    private static string ExtractStandaloneTitle(string prompt)
+    {
+        foreach (var marker in new[] { "MOD：", "MOD:", "独立单关：", "独立单关:", "标题：", "标题:" })
+        {
+            var index = prompt.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) continue;
+            var tail = prompt[(index + marker.Length)..].Trim();
+            var stop = tail.IndexOfAny(['。', '；', ';', '\r', '\n']);
+            var title = stop > 0 ? tail[..stop].Trim() : tail.Trim();
+            if (!string.IsNullOrWhiteSpace(title)) return title;
+        }
+
+        return string.Empty;
+    }
+
+    private static string InferStandaloneTheme(string prompt)
+    {
+        if (ContainsAny(prompt, "北邙", "祭坛", "血祭", "魔阵")) return "北邙山祭坛决战";
+        if (ContainsAny(prompt, "山", "山道", "山林", "隘口")) return "山地决战";
+        if (ContainsAny(prompt, "水战", "江", "河", "海", "船")) return "水战奇袭";
+        if (ContainsAny(prompt, "城", "关隘", "城门")) return "城池攻防";
+        return InferTheme(prompt);
+    }
+
+    private static string InferStandaloneMapTheme(string prompt)
+    {
+        if (ContainsAny(prompt, "北邙", "祭坛", "血祭")) return "北邙山祭坛";
+        if (ContainsAny(prompt, "水战", "江", "河", "海", "船")) return "river crossing";
+        if (ContainsAny(prompt, "山", "山道", "山林", "隘口")) return "mountain pass";
+        if (ContainsAny(prompt, "城", "城门")) return "city gate";
+        return InferMapTheme(prompt);
+    }
+
+    private static string InferStandaloneMapId(string prompt)
+    {
+        var mapIndex = prompt.IndexOf("Map/M", StringComparison.OrdinalIgnoreCase);
+        if (mapIndex >= 0 && prompt.Length >= mapIndex + 8)
+        {
+            var id = new string(prompt[(mapIndex + 4)..].TakeWhile(ch => char.IsLetterOrDigit(ch)).ToArray());
+            if (!string.IsNullOrWhiteSpace(id)) return id.ToUpperInvariant();
+        }
+
+        var mIndex = prompt.IndexOf("M003", StringComparison.OrdinalIgnoreCase);
+        if (mIndex >= 0) return "M003";
+        return "M000";
+    }
+
+    private static string InferStandaloneObjective(string prompt)
+    {
+        if (ContainsAny(prompt, "龙帝")) return "击破龙帝并阻止血祭";
+        return "Defeat the enemy commander.";
+    }
+
+    private static IReadOnlyList<string> InferStandaloneLoseConditions(string prompt)
+    {
+        var result = new List<string>();
+        var loseText = ExtractAfterAny(prompt, "失败条件", "lose");
+        if (!string.IsNullOrWhiteSpace(loseText))
+        {
+            result.AddRange(loseText.Split(['；', ';', '，', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        if (result.Count == 0 && ContainsAny(prompt, "岳夜", "襄慎", "刘生"))
+        {
+            result.Add("岳夜、襄慎、刘生任一阵亡");
+        }
+
+        if (result.Count == 0) result.Add("Hero retreats.");
+        result.Add("Turn limit expires.");
+        return result;
+    }
+
+    private static List<string> ExtractStandaloneRoleNames(string prompt)
+    {
+        var result = new List<string>();
+        var roleBlock = ExtractSection(prompt, ["角色：", "角色:", "characters:", "roles:"], ["要求：", "要求:", "地图：", "地图:", "目标：", "胜利条件", "\n\n"]);
+        if (!string.IsNullOrWhiteSpace(roleBlock))
+        {
+            foreach (var part in roleBlock.Split(['；', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var namePart = part.Split(['，', ',', '：', ':'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? string.Empty;
+                var cleaned = CleanStandaloneName(namePart);
+                if (IsStandaloneName(cleaned) && !result.Contains(cleaned, StringComparer.OrdinalIgnoreCase))
+                {
+                    result.Add(cleaned);
+                }
+            }
+        }
+
+        if (result.Count == 0)
+        {
+            result.AddRange(ExtractNames(prompt).Where(name => !LooksLikeRoleDescription(name)));
+        }
+
+        if (ContainsAny(prompt, "三英战", "龙帝"))
+        {
+            foreach (var name in new[] { "岳夜", "襄慎", "刘生", "新岳亲卫", "北邙义民", "龙帝" })
+            {
+                if (prompt.Contains(name, StringComparison.Ordinal) && !result.Contains(name, StringComparer.OrdinalIgnoreCase))
+                {
+                    result.Add(name);
+                }
+            }
+        }
+
+        return result.Take(14).ToList();
+    }
+
+    private static List<string> InferStandaloneFactions(string prompt, int roleCount)
+    {
+        var result = Enumerable.Repeat("enemy", Math.Max(roleCount, 14)).ToList();
+        var allyCount = ParseCountBefore(prompt, "名我方", 4);
+        var friendlyCount = ParseCountBefore(prompt, "名友军", 1);
+        for (var i = 0; i < Math.Min(allyCount, result.Count); i++) result[i] = "ally";
+        for (var i = allyCount; i < Math.Min(allyCount + friendlyCount, result.Count); i++) result[i] = "friendly";
+        return result;
+    }
+
+    private static string ExtractSection(string text, string[] starts, string[] stops)
+    {
+        var start = starts
+            .Select(marker => new { Marker = marker, Index = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase) })
+            .Where(item => item.Index >= 0)
+            .OrderBy(item => item.Index)
+            .FirstOrDefault();
+        if (start == null) return string.Empty;
+
+        var sectionStart = start.Index + start.Marker.Length;
+        var tail = text[sectionStart..];
+        var stop = stops
+            .Select(marker => tail.IndexOf(marker, StringComparison.OrdinalIgnoreCase))
+            .Where(index => index >= 0)
+            .DefaultIfEmpty(tail.Length)
+            .Min();
+        return tail[..stop].Trim();
+    }
+
+    private static string CleanStandaloneName(string value)
+    {
+        var cleaned = new string(value.Trim().Where(ch => char.IsLetterOrDigit(ch) || ch >= 0x4E00 && ch <= 0x9FFF).ToArray());
+        return cleaned.Trim();
+    }
+
+    private static bool IsStandaloneName(string value)
+        => value.Length is >= 2 and <= 16 && !LooksLikeRoleDescription(value);
+
+    private static bool LooksLikeRoleDescription(string value)
+        => ContainsAny(value, "山贼王者", "虎啸山林", "智勇双全", "海上锦帆", "剽掠四方", "少林扫地僧", "手持", "残暴", "嗜血");
+
+    private static bool ContainsAny(string value, params string[] terms)
+        => terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+    private static int ParseCountBefore(string text, string marker, int fallback)
+    {
+        var index = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (index <= 0) return fallback;
+        var digits = new string(text[..index].Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : fallback;
+    }
+
+    private static int ParseScenarioNumber(string scenarioId)
+    {
+        var digits = new string((scenarioId ?? string.Empty).Where(char.IsDigit).ToArray());
+        return int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
+    }
+
+    private static int ParseFirstInteger(string text, int fallback)
+    {
+        var digits = new string((text ?? string.Empty).SkipWhile(ch => !char.IsDigit(ch)).TakeWhile(char.IsDigit).ToArray());
+        return int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : fallback;
+    }
+
+    private static int ParseLastInteger(string text, int fallback)
+    {
+        var groups = new List<string>();
+        var current = new List<char>();
+        foreach (var ch in text ?? string.Empty)
+        {
+            if (char.IsDigit(ch))
+            {
+                current.Add(ch);
+            }
+            else if (current.Count > 0)
+            {
+                groups.Add(new string(current.ToArray()));
+                current.Clear();
+            }
+        }
+
+        if (current.Count > 0) groups.Add(new string(current.ToArray()));
+        return groups.Count > 0 && int.TryParse(groups[^1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : fallback;
     }
 
     private static ModScenarioCommandDraft Command(int commandId, params ModScenarioParameterDraft[] parameters)

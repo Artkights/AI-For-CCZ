@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using CCZModStudio.Formats;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
@@ -17,7 +18,10 @@ public sealed class ImageResourceCatalogService
     public IReadOnlyList<ImageResourceFileInfo> BuildCatalog(CczProject project)
     {
         var result = new List<ImageResourceFileInfo>();
-        foreach (var resource in KnownResources)
+        var knownResources = Ccz66RevisedLayout.Is66(project)
+            ? KnownResources.Concat(Known66Resources).Where(resource => !Is66ObsoleteCatalogResource(resource)).ToArray()
+            : KnownResources;
+        foreach (var resource in knownResources)
         {
             var path = ResolveResourcePath(project, resource);
             var exists = File.Exists(path);
@@ -27,26 +31,14 @@ public sealed class ImageResourceCatalogService
             var externalIconCount = exists && resource.Kind == ImageResourceKind.ExternalIcon
                 ? GetExternalIconCount(project, resource)
                 : 0;
+            var lsInfo = exists && resource.Kind == ImageResourceKind.LsStatusOnly
+                ? TryReadLsResource(path, resource.Category)
+                : null;
             var entryCount = resource.Kind == ImageResourceKind.ExternalIcon ? externalIconCount : entries.Count;
             var canReplace = entryCount > 0 && resource.CanReplace &&
                              (resource.Kind == ImageResourceKind.ExternalIcon || entries.Count > 0);
-            var kindSummary = resource.Kind == ImageResourceKind.ExternalIcon
-                ? externalIconCount > 0 ? $"DLL图标:{externalIconCount}" : string.Empty
-                : entries.Count > 0
-                ? string.Join(" / ", entries
-                    .GroupBy(x => x.Kind, StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(x => x.Key, StringComparer.CurrentCultureIgnoreCase)
-                    .Select(x => $"{x.Key}:{x.Count()}"))
-                : string.Empty;
-            var status = exists
-                ? resource.Kind == ImageResourceKind.E5Indexed
-                    ? entries.Count > 0
-                        ? $"可读取 {entries.Count} 个 0x110 图片条目"
-                        : "文件存在，但未识别为 0x110 图片索引封包"
-                    : externalIconCount > 0
-                        ? $"可读取 {externalIconCount} 个 DLL 图标候选"
-                        : "文件存在，但未解析到可预览图标候选"
-                : "未找到";
+            var kindSummary = BuildKindSummary(resource, entries, externalIconCount, lsInfo);
+            var status = BuildResourceStatus(resource, exists, entries.Count, externalIconCount, lsInfo);
 
             result.Add(new ImageResourceFileInfo
             {
@@ -62,9 +54,14 @@ public sealed class ImageResourceCatalogService
                 SizeBytes = exists ? new FileInfo(path).Length : 0,
                 EntryCount = entryCount,
                 SupportsE5Index = entries.Count > 0,
-                SupportsPreview = entryCount > 0,
+                SupportsPreview = resource.Kind != ImageResourceKind.LsStatusOnly && entryCount > 0,
                 CanReplace = canReplace,
-                ResourceFormat = resource.Kind == ImageResourceKind.ExternalIcon ? "DLL图标" : "E5索引",
+                ResourceFormat = resource.Kind switch
+                {
+                    ImageResourceKind.ExternalIcon => "DLL图标",
+                    ImageResourceKind.LsStatusOnly => "LS状态",
+                    _ => "E5索引"
+                },
                 KindSummary = kindSummary,
                 Status = status,
                 SafetyNote = BuildSafetyNote(resource, entryCount, entries.Count, canReplace)
@@ -206,10 +203,41 @@ public sealed class ImageResourceCatalogService
         if (name.Equals("Effarea.e5", StringComparison.OrdinalIgnoreCase)) return $"攻击/策略穿透字段值 {imageNumber - 1}";
         if (name.Equals("Meff.e5", StringComparison.OrdinalIgnoreCase)) return $"策略动画字段值 {imageNumber - 1}";
         if (name.Equals("Tr.e5", StringComparison.OrdinalIgnoreCase)) return $"R 插图候选；脚本图号需结合信息传送28验证";
+        if (name.Equals("Item.e5", StringComparison.OrdinalIgnoreCase)) return Build66ItemE5Usage(imageNumber);
+        if (name.Equals("Mtem.e5", StringComparison.OrdinalIgnoreCase)) return $"6.6 Mtem.e5 strategy icon field value {imageNumber - 1}";
+        if (name.Equals("DT.e5", StringComparison.OrdinalIgnoreCase)) return $"6.6 DT.e5 dynamic image candidate #{imageNumber} for 72-12/72-32";
+        if (name.Equals("Fb.e5", StringComparison.OrdinalIgnoreCase)) return $"6.6 Fb.e5 half-body dialogue candidate #{imageNumber}";
+        if (name.Equals("Pmap.e5", StringComparison.OrdinalIgnoreCase)) return $"6.6 Pmap.e5 scene terrain image candidate #{imageNumber}";
+        if (name.Equals("U_select.e5", StringComparison.OrdinalIgnoreCase))
+        {
+            return imageNumber switch
+            {
+                22 => "6.6 U_select #22 custom R numeric image",
+                23 => "6.6 U_select #23 half-body white frame",
+                25 => "6.6 U_select #25 buff arrow",
+                >= 26 and <= 30 => $"6.6 U_select #{imageNumber} custom R numeric image",
+                31 => "6.6 U_select #31 command icons",
+                32 => "6.6 U_select #32 terrain image",
+                _ => resource.Usage
+            };
+        }
+
         if (name.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase)) return $"物品/道具图标字段值 {imageNumber}";
         if (name.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase)) return $"策略图标字段值 {imageNumber}";
         if (name.Equals("Cmdicon.dll", StringComparison.OrdinalIgnoreCase)) return $"命令图标候选编号 {imageNumber}";
         return resource.Usage;
+    }
+
+    private static string Build66ItemE5Usage(int imageNumber)
+    {
+        return imageNumber switch
+        {
+            1 => "6.6 Item.e5 blank small icon; field 0 small slot",
+            2 => "6.6 Item.e5 blank large icon; field 0 large preview slot",
+            > 2 when imageNumber % 2 == 1 => $"6.6 Item.e5 item icon field value {(imageNumber - 1) / 2}; small slot #{imageNumber}",
+            > 2 => $"6.6 Item.e5 item icon field value {(imageNumber - 2) / 2}; large preview slot #{imageNumber}",
+            _ => "6.6 Item.e5 invalid icon slot"
+        };
     }
 
     public string ResolveResourcePath(CczProject project, string fileName)
@@ -230,6 +258,66 @@ public sealed class ImageResourceCatalogService
         var entries = _e5ImageService.ReadIndex(path);
         _indexCache[path] = entries;
         return entries;
+    }
+
+    private static string BuildKindSummary(
+        ImageResourceDefinition resource,
+        IReadOnlyList<E5ImageEntryInfo> entries,
+        int externalIconCount,
+        LsResourceInfo? lsInfo)
+    {
+        if (resource.Kind == ImageResourceKind.ExternalIcon)
+        {
+            return externalIconCount > 0 ? $"DLL图标:{externalIconCount}" : string.Empty;
+        }
+
+        if (resource.Kind == ImageResourceKind.LsStatusOnly)
+        {
+            return lsInfo == null ? string.Empty : $"LS:{lsInfo.Magic}";
+        }
+
+        return entries.Count > 0
+            ? string.Join(" / ", entries
+                .GroupBy(x => x.Kind, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x.Key, StringComparer.CurrentCultureIgnoreCase)
+                .Select(x => $"{x.Key}:{x.Count()}"))
+            : string.Empty;
+    }
+
+    private static string BuildResourceStatus(
+        ImageResourceDefinition resource,
+        bool exists,
+        int e5EntryCount,
+        int externalIconCount,
+        LsResourceInfo? lsInfo)
+    {
+        if (!exists) return "未找到";
+
+        return resource.Kind switch
+        {
+            ImageResourceKind.E5Indexed => e5EntryCount > 0
+                ? $"可读取 {e5EntryCount} 个 0x110 图片条目"
+                : "文件存在，但未识别为 0x110 图片索引封包",
+            ImageResourceKind.ExternalIcon => externalIconCount > 0
+                ? $"可读取 {externalIconCount} 个 DLL 图标候选"
+                : "文件存在，但未解析到可预览图标候选",
+            ImageResourceKind.LsStatusOnly => lsInfo == null
+                ? "文件存在，但 LS 探针读取失败"
+                : $"LS 状态：magic={lsInfo.Magic}，payload={lsInfo.PayloadLength:N0} 字节，unique={lsInfo.UniqueByteCount}，00占比={lsInfo.ZeroPercent:N1}%",
+            _ => "文件存在"
+        };
+    }
+
+    private static LsResourceInfo? TryReadLsResource(string path, string category)
+    {
+        try
+        {
+            return new LsResourceReader().Read(path, category);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static void AddDiscoveredE5Resources(CczProject project, List<ImageResourceFileInfo> result)
@@ -370,9 +458,8 @@ public sealed class ImageResourceCatalogService
     {
         var candidates = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "工具整合包", "CCZModStudio", "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "老版游戏制作工具", "普罗-综合工具v0.3", "tsb")
+            PortableInstallPaths.PaletteTsbPath,
+            Path.Combine(project.GameRoot, "tsb")
         };
 
         var path = candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4);
@@ -520,6 +607,11 @@ public sealed class ImageResourceCatalogService
                 : "DLL 文件存在但未解析到候选图标；当前只做定位说明。";
         }
 
+        if (resource.Kind == ImageResourceKind.LsStatusOnly)
+        {
+            return "LS 封装资源当前只做文件定位和状态探针；未确认帧格式、调用参数和重封包规则前，不开放预览猜帧或替换。";
+        }
+
         if (e5EntryCount <= 0)
         {
             return "未识别 0x110 图片索引表，当前只做定位说明，不开放替换。";
@@ -530,6 +622,19 @@ public sealed class ImageResourceCatalogService
             : "已能读取 0x110 图片索引表，但当前资源写回语义仍需实机确认，默认不开放替换。";
     }
 
+    private static bool Is66ObsoleteCatalogResource(ImageResourceDefinition resource)
+        => resource.FileName.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase) ||
+           resource.FileName.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase) ||
+           resource.FileName.Equals("ts.e5", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly ImageResourceDefinition[] Known66Resources =
+    [
+        new("ItemE5", "Icon", "Item.e5", "Item.e5", ["6.6 item icon", "item icon"], "6.6 revised item icons; field value N maps to small image #2N+1 and large image #2N+2; item/treasure preview defaults to the large image. Field 0 uses blank #1/#2.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Item.e5")),
+        new("MtemE5", "Icon", "Mtem.e5", "Mtem.e5", ["6.6 strategy icon", "strategy icon"], "6.6 revised strategy icons; strategy families are independent and usually spaced by 6; table field value N maps to E5 image #(N+1).", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Mtem.e5")),
+        new("DT", "Icon", "DT.e5", "DT.e5", ["6.6 dynamic image", "72-12", "72-32"], "6.6 revised dynamic image resource for 72-12/72-32.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "DT.e5")),
+        new("Fb", "Icon", "Fb.e5", "Fb.e5", ["6.6 half-body", "7A"], "6.6 revised half-body dialogue resource for 7A.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Fb.e5")),
+        new("Pmap", "Icon", "Pmap.e5", "Pmap.e5", ["6.6 Pmap", "scene terrain"], "6.6 revised scene terrain image resource; distinct from Pmapobj.e5 R actor frames.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Pmap.e5"))
+    ];
     private static readonly ImageResourceDefinition[] KnownResources =
     [
         new("Face", "角色图片", "角色头像 Face.e5", "Face.e5", ["face.e5", "头像"], "人物小头像；Data 头像号映射后读取。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Face.e5")),
@@ -539,7 +644,8 @@ public sealed class ImageResourceCatalogService
         new("UnitSpc", "角色图片", "S 特技 Unit_spc.e5", "Unit_spc.e5", ["S特技", "S形象"], "人物 S 特技帧资源。", ImageResourceKind.E5Indexed, true),
         new("Hitarea", "范围图片", "攻击范围 Hitarea.e5", "Hitarea.e5", ["hitarea.e5", "攻击范围图"], "攻击/施法范围图，字段值 + 1 映射图号。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Hitarea.e5")),
         new("Effarea", "范围图片", "穿透范围 Effarea.e5", "Effarea.e5", ["efffare.e5", "effarea.e5", "穿透范围图"], "攻击/策略穿透范围图，字段值 + 1 映射图号。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Effarea.e5")),
-        new("Meff", "策略图片", "策略动画 Meff.e5", "Meff.e5", ["策略动画", "小动画", "大动画"], "策略动画候选图，字段值 + 1 映射图号。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Meff.e5")),
+        new("Meff", "策略图片", "策略小动画 Meff.e5", "Meff.e5", ["策略小动画", "小动画", "Meff"], "策略小动画候选；MgMeff 字段值 N 映射 Meff.e5 图号 N+1。非标准帧格式仍需旧工具或实机确认。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Meff.e5")),
+        new("Mcall", "策略图片", "策略大动画 Mcall*.e5", "Mcall00.e5", ["策略大动画", "大动画", "Mcall"], "策略大动画/召唤动画候选；MgMcall 字段值 >=100 时映射 Mcall{值-100}.e5。当前只做 LS 状态探针，不猜测帧格式。", ImageResourceKind.LsStatusOnly, false, Path.Combine("E5", "Mcall00.e5")),
         new("Logo", "背景图片", "封面/背景 Logo.e5", "Logo.e5", ["logo.e5", "封面", "单挑背景", "游戏结束背景"], "封面、单挑背景、游戏结束背景等大图候选。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Logo.e5")),
         new("Mmap", "背景图片", "R 背景 Mmap.e5", "Mmap.e5", ["mmap.e5", "R背景图"], "R 场景背景/大图候选；不等同于战场地图底图。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Mmap.e5")),
         new("Tr", "背景图片", "R 插图 Tr.e5", "Tr.e5", ["tr.e5", "R插图"], "信息传送28 使用的 R 插图候选；脚本图号仍需实机确认。", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Tr.e5")),
@@ -569,6 +675,7 @@ public sealed class ImageResourceCatalogService
     private enum ImageResourceKind
     {
         E5Indexed,
-        ExternalIcon
+        ExternalIcon,
+        LsStatusOnly
     }
 }

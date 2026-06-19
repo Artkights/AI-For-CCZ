@@ -29,6 +29,7 @@ internal partial class Program
                 TileSize = MapResourceItem.MapTilePixelSize,
                 BaseLayerPath = basePath,
                 MaterialRoot = materialRoot,
+                AutoGenerateMapFromTerrain = false,
                 TerrainCells = [0, 1, 2, 3],
                 MapCellOverrides =
                 [

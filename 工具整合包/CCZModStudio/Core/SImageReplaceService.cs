@@ -140,18 +140,20 @@ public sealed class SImageReplaceService
             new SImageFilePlan("移动", "Unit_mov.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5"), ResolveMaterialFile(folder, "mov.bmp"), E5RawImageCodec.UnitMovSpec),
             new SImageFilePlan("攻击", "Unit_atk.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), ResolveMaterialFile(folder, "atk.bmp"), E5RawImageCodec.UnitAtkSpec),
             new SImageFilePlan("特技", "Unit_spc.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), ResolveMaterialFile(folder, "spc.bmp"), E5RawImageCodec.UnitSpcSpec)
-        };
+        }
+            .Where(plan => !string.IsNullOrWhiteSpace(plan.SourcePath))
+            .ToArray();
+
+        if (plans.Length == 0)
+        {
+            throw new InvalidOperationException("没有找到可导入的 S 形象素材。");
+        }
 
         foreach (var plan in plans)
         {
             if (!File.Exists(plan.TargetPath))
             {
                 throw new FileNotFoundException($"找不到目标 E5：{plan.TargetFileName}", plan.TargetPath);
-            }
-
-            if (!File.Exists(plan.SourcePath))
-            {
-                throw new FileNotFoundException($"素材目录缺少 {Path.GetFileName(plan.SourcePath)}。", plan.SourcePath);
             }
         }
 
@@ -168,7 +170,7 @@ public sealed class SImageReplaceService
             return path;
         }
 
-        throw new FileNotFoundException($"素材目录缺少 {fileName}。", Path.Combine(folder, fileName));
+        return string.Empty;
     }
 
     private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(IReadOnlyList<int> imageNumbers, E5RawEncodeResult encode, string actionName)

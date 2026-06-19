@@ -16,7 +16,7 @@ public sealed partial class ModPackageService
         0x14, 0x15, 0x16, 0x17, 0x19, 0x1A,
         0x30, 0x38,
         0x42, 0x44, 0x45, 0x46, 0x47, 0x48,
-        0x52, 0x76
+        0x52, 0x5A, 0x72, 0x76, 0x77
     };
 
     private static readonly HashSet<string> SafeScenarioOperations = new(StringComparer.OrdinalIgnoreCase)
@@ -73,6 +73,15 @@ public sealed partial class ModPackageService
         ModPackage package,
         SceneStringDocument? scenarioDictionary = null,
         bool allowStructuralScenarioWrites = false)
+        => Preview(project, tables, package, scenarioDictionary, allowStructuralScenarioWrites, strictPlayablePreview: false);
+
+    public ModPackagePreviewResult Preview(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        ModPackage package,
+        SceneStringDocument? scenarioDictionary,
+        bool allowStructuralScenarioWrites,
+        bool strictPlayablePreview)
     {
         ArgumentNullException.ThrowIfNull(package);
 
@@ -80,7 +89,8 @@ public sealed partial class ModPackageService
         {
             ProjectRoot = project.GameRoot,
             PackageId = NormalizePackageId(package),
-            Name = package.Metadata.Name
+            Name = package.Metadata.Name,
+            PlayableTier = string.IsNullOrWhiteSpace(package.Metadata.PlayableTier) ? "draft" : package.Metadata.PlayableTier
         };
 
         ValidatePackageHeader(project, package, result);
@@ -91,10 +101,17 @@ public sealed partial class ModPackageService
         PreviewEffectPackages(project, tables, package, result);
         PreviewResourceUpdates(project, package, result);
         AddValidationPlan(package, result);
+        AddPlayabilityEvidence(project, package, result);
+        if (strictPlayablePreview)
+        {
+            AddStrictPlayableIssues(package, result);
+        }
+
+        result.PlayableTier = DeterminePreviewPlayableTier(package, result);
 
         var errorCount = result.Issues.Count(issue => IsBlocking(issue.Severity));
         result.CanApply = errorCount == 0;
-        result.Summary = $"ModPackage preview: tables={package.TableUpdates.Count}, scenarios={package.ScenarioPatches.Count}, effects={package.EffectPackages.Count}, resources={package.ResourceUpdates.Count}, issues={result.Issues.Count}, canApply={result.CanApply}.";
+        result.Summary = $"ModPackage preview: tables={package.TableUpdates.Count}, scenarios={package.ScenarioPatches.Count}, effects={package.EffectPackages.Count}, resources={package.ResourceUpdates.Count}, tier={result.PlayableTier}, issues={result.Issues.Count}, canApply={result.CanApply}.";
         return result;
     }
 
@@ -674,6 +691,14 @@ public sealed partial class ModPackageService
                     Changed = true,
                     Note = "AI/placeholder resource generation task; no game resource is written during preview."
                 });
+                var finalAssetRequired = update.Note.Contains("final asset required", StringComparison.OrdinalIgnoreCase);
+                result.Issues.Add(Issue(
+                    finalAssetRequired ? "error" : "warning",
+                    "resource",
+                    FirstNonEmpty(update.TargetRelativePath, update.Kind),
+                    finalAssetRequired
+                        ? "Required final asset is missing; playable-test-copy validation is blocked."
+                        : "Resource is a generation task only; package remains static-only until a real asset is prepared and imported."));
                 continue;
             }
 
@@ -729,6 +754,15 @@ public sealed partial class ModPackageService
         }
     }
 
+    private static string DeterminePreviewPlayableTier(ModPackage package, ModPackagePreviewResult result)
+    {
+        if (result.Issues.Any(issue => IsBlocking(issue.Severity))) return "draft";
+        if (package.ResourceUpdates.Any(update => update.Operation.Equals("generate_task", StringComparison.OrdinalIgnoreCase))) return "static-only";
+        if (package.ScenarioPatches.Any(patch => patch.Operations.Any(operation => operation.Operation is "append_command" or "insert_command"))) return "static-only";
+        if (package.ValidationPlan.RequireRuntimeSmoke) return "static-only";
+        return string.IsNullOrWhiteSpace(package.Metadata.PlayableTier) ? "static-preview" : package.Metadata.PlayableTier;
+    }
+
     private static void AddValidationPlan(ModPackage package, ModPackagePreviewResult result)
     {
         var smokes = new[]
@@ -737,8 +771,12 @@ public sealed partial class ModPackageService
             "--battlefield-unit-status-write-smoke",
             "--e5-image-replace-smoke",
             "--legacy-mfc-dialog-smoke",
+            "--rs-text-write-smoke",
+            "--rs-deployment-write-smoke",
             "--rs-write-smoke",
-            "--map-preview-smoke"
+            "--map-preview-smoke",
+            "--hexzmap-sync-smoke",
+            "--map-terrain-consistency-smoke"
         };
 
         foreach (var smoke in smokes)
@@ -763,6 +801,91 @@ public sealed partial class ModPackageService
             result.ManualChecks.Add("Runtime: launch game, enter target R/S, confirm battle_loaded and inspect unit state.");
         }
     }
+
+    private static void AddPlayabilityEvidence(CczProject project, ModPackage package, ModPackagePreviewResult result)
+    {
+        AddEvidence(result, "preview.static", result.CanApply ? "pass" : "blocked", result.CanApply ? "none" : "blocking", result.CanApply ? "Static preview has no blocking issues." : "Static preview has blocking issues.", "preview");
+        AddEvidence(result, "scenario.r_to_s", HasScenarioCommand(package, 0x11) ? "present" : "missing", "blocking", HasScenarioCommand(package, 0x11) ? "R/S jump command draft is present." : "No R/S jump command draft was found.", "scenario");
+        AddEvidence(result, "scenario.deployment", HasScenarioCommand(package, 0x44, 0x46, 0x47, 0x4B) ? "present" : "missing", "blocking", HasScenarioCommand(package, 0x44, 0x46, 0x47, 0x4B) ? "Deployment command draft is present." : "No deployment command draft was found.", "scenario");
+        AddEvidence(result, "scenario.ai", HasDeploymentWithAi(package) ? "present" : "missing", "blocking", HasDeploymentWithAi(package) ? "Deployment drafts include AI policy parameter slots." : "Deployment drafts do not expose AI policy slots.", "scenario");
+        AddEvidence(result, "scenario.victory", HasTypedEvent(package, "victory") ? "present" : "missing", "blocking", HasTypedEvent(package, "victory") ? "Victory typed event is present." : "Victory typed event is missing.", "scenario");
+        AddEvidence(result, "scenario.defeat", HasTypedEvent(package, "defeat") ? "present" : "missing", "blocking", HasTypedEvent(package, "defeat") ? "Defeat typed event is present." : "Defeat typed event is missing.", "scenario");
+        AddEvidence(result, "scenario.reward", HasTypedEvent(package, "reward") || HasScenarioCommand(package, 0x72) ? "present" : "missing", "warning", HasTypedEvent(package, "reward") || HasScenarioCommand(package, 0x72) ? "Reward command/evidence is present." : "Reward evidence is missing.", "scenario");
+        AddEvidence(result, "scenario.structural_draft", package.ScenarioPatches.Any(patch => patch.Operations.Any(operation => operation.Operation is "append_command" or "insert_command")) ? "draft" : "none", "blocking", package.ScenarioPatches.Any(patch => patch.Operations.Any(operation => operation.Operation is "append_command" or "insert_command")) ? "Structural append/insert commands remain drafts until strict command fixtures and runtime checks pass." : "No structural draft operations are present.", "scenario");
+        AddEvidence(result, "resource.final_assets", package.ResourceUpdates.Any(update => update.Operation.Equals("generate_task", StringComparison.OrdinalIgnoreCase)) ? "missing" : "present", "blocking", package.ResourceUpdates.Any(update => update.Operation.Equals("generate_task", StringComparison.OrdinalIgnoreCase)) ? "One or more resources are generation tasks only." : "No generation-only resource tasks remain.", "resource");
+        AddEvidence(result, "smoke.required", result.RequiredSmokeCommands.Count > 0 ? "planned" : "missing", "blocking", result.RequiredSmokeCommands.Count > 0 ? "Required smoke commands are listed in the validation plan." : "No required smoke commands were planned.", "smoke");
+        AddEvidence(result, "runtime.battle_loaded", package.ValidationPlan.RequireRuntimeSmoke ? "required" : "not_required", package.ValidationPlan.RequireRuntimeSmoke ? "blocking" : "none", package.ValidationPlan.RequireRuntimeSmoke ? "Runtime battle_loaded evidence is required before runtime-playable." : "Package does not request runtime smoke.", "runtime");
+
+        foreach (var mapId in package.SlotPlan.MapIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var mapPath = Path.Combine(project.GameRoot, "Map", mapId + ".jpg");
+            AddEvidence(result, "map.jpg." + mapId, File.Exists(mapPath) ? "present" : "missing", "blocking", File.Exists(mapPath) ? $"Map image {mapId}.jpg exists." : $"Map image {mapId}.jpg is missing.", "map");
+        }
+    }
+
+    private static void AddStrictPlayableIssues(ModPackage package, ModPackagePreviewResult result)
+    {
+        foreach (var evidence in result.PlayabilityEvidence.Where(item => item.TierImpact.Equals("blocking", StringComparison.OrdinalIgnoreCase) && !item.Status.Equals("pass", StringComparison.OrdinalIgnoreCase) && !item.Status.Equals("present", StringComparison.OrdinalIgnoreCase) && !item.Status.Equals("none", StringComparison.OrdinalIgnoreCase)))
+        {
+            result.Issues.Add(Issue("error", "playability", evidence.Key, evidence.Message));
+        }
+
+        foreach (var draft in package.ScenarioPatches.SelectMany(patch => patch.Operations).SelectMany(operation => operation.Commands))
+        {
+            var commandId = ResolveCommandId(draft.CommandId, draft.CommandIdHex);
+            if (commandId == 0x76 && string.IsNullOrWhiteSpace(draft.Note))
+            {
+                result.Issues.Add(Issue("error", "playability", "scenario.fallback", "Bare 0x76 fallback command cannot be used for strict playable preview."));
+            }
+
+            if (draft.Parameters.Any(parameter => string.IsNullOrWhiteSpace(parameter.Kind) || !parameter.LayoutCode.HasValue))
+            {
+                result.Issues.Add(Issue("error", "playability", "scenario.parameters", $"Draft command {HexDisplayFormatter.FormatByte((byte)Math.Clamp(commandId, 0, 255))} has an unexplained parameter."));
+            }
+        }
+
+        if (package.ValidationPlan.RequireRuntimeSmoke)
+        {
+            result.Issues.Add(Issue("error", "runtime", "battle_loaded", "Runtime smoke is required but no runtime evidence is attached to this preview."));
+        }
+    }
+
+    private static void AddEvidence(ModPackagePreviewResult result, string key, string status, string tierImpact, string message, string source)
+    {
+        result.PlayabilityEvidence.Add(new ModPlayabilityEvidence
+        {
+            Key = key,
+            Status = status,
+            TierImpact = tierImpact,
+            Message = message,
+            Source = source
+        });
+    }
+
+    private static bool HasScenarioCommand(ModPackage package, params int[] commandIds)
+    {
+        var set = commandIds.ToHashSet();
+        return package.ScenarioPatches
+            .SelectMany(patch => patch.Operations)
+            .SelectMany(operation => operation.Commands)
+            .Any(command => set.Contains(ResolveCommandId(command.CommandId, command.CommandIdHex)));
+    }
+
+    private static bool HasTypedEvent(ModPackage package, string eventKind)
+        => package.ScenarioPatches
+            .SelectMany(patch => patch.Operations)
+            .SelectMany(operation => operation.Commands)
+            .Any(command => command.Note.Contains("typed_event:" + eventKind, StringComparison.OrdinalIgnoreCase));
+
+    private static bool HasDeploymentWithAi(ModPackage package)
+        => package.ScenarioPatches
+            .SelectMany(patch => patch.Operations)
+            .SelectMany(operation => operation.Commands)
+            .Any(command =>
+            {
+                var commandId = ResolveCommandId(command.CommandId, command.CommandIdHex);
+                return commandId is 0x44 or 0x46 or 0x47 or 0x4B && command.Parameters.Count >= 8;
+            });
 
     private void PreviewScenarioOperation(
         LegacyScenarioDocument document,
@@ -914,6 +1037,11 @@ public sealed partial class ModPackageService
             if (!SafeScenarioCommandIds.Contains(commandId))
             {
                 preview.Issues.Add(Issue("error", "scenario", preview.RelativePath, $"Draft command {CCZModStudio.Core.HexDisplayFormatter.FormatByte((byte)commandId)} is not in the V1 safe whitelist."));
+            }
+
+            if (draft.Parameters.Any(parameter => string.IsNullOrWhiteSpace(parameter.Kind) || !parameter.LayoutCode.HasValue))
+            {
+                preview.Issues.Add(Issue("error", "scenario", preview.RelativePath, $"Draft command {CCZModStudio.Core.HexDisplayFormatter.FormatByte((byte)Math.Clamp(commandId, 0, 255))} has a parameter without kind/layout evidence."));
             }
         }
     }
@@ -1165,6 +1293,12 @@ public sealed partial class ModPackageService
             builder.AppendLine();
             builder.AppendLine("- CanApply: " + preview.CanApply);
             builder.AppendLine("- Summary: " + preview.Summary);
+            builder.AppendLine("- PlayabilityEvidence: " + preview.PlayabilityEvidence.Count);
+            foreach (var evidence in preview.PlayabilityEvidence.Take(80))
+            {
+                builder.AppendLine($"  - [{evidence.Status}/{evidence.TierImpact}] {evidence.Key}: {evidence.Message}");
+            }
+
             builder.AppendLine("- Issues: " + preview.Issues.Count);
             foreach (var issue in preview.Issues.Take(80))
             {

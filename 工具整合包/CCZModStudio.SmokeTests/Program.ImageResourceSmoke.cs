@@ -41,6 +41,17 @@ internal partial class Program
                 File.Copy(source, Path.Combine(smokeE5Dir, e5File), overwrite: false);
             }
         }
+
+        var mcallSource = CharacterImageResourceService.ResolveGameFile(project, "Mcall00.e5");
+        var mcallTarget = Path.Combine(smokeE5Dir, "Mcall00.e5");
+        if (File.Exists(mcallSource))
+        {
+            File.Copy(mcallSource, mcallTarget, overwrite: false);
+        }
+        else
+        {
+            File.WriteAllBytes(mcallTarget, BuildSmokeLsBytes());
+        }
     
         foreach (var rootE5File in new[] { "Pmapobj.e5", "Unit_atk.e5", "Unit_spc.e5" })
         {
@@ -64,6 +75,7 @@ internal partial class Program
             $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=E5 image replace smoke\r\n");
     
         var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+        AssertDibPreviewRowDirection();
         var service = new E5ImageReplaceService();
         var catalogService = new ImageResourceCatalogService();
         var catalog = catalogService.BuildCatalog(testProject);
@@ -80,6 +92,18 @@ internal partial class Program
         if (mark == null || !mark.Exists || mark.SupportsE5Index || mark.CanReplace)
         {
             throw new InvalidOperationException("图片资源目录烟测应将 Mark.e5 标记为非 110 索引资源且不可替换。");
+        }
+
+        var mcall = catalog.FirstOrDefault(x => x.Key.Equals("Mcall", StringComparison.OrdinalIgnoreCase));
+        if (mcall == null ||
+            !mcall.Exists ||
+            mcall.SupportsE5Index ||
+            mcall.SupportsPreview ||
+            mcall.CanReplace ||
+            !mcall.ResourceFormat.Equals("LS状态", StringComparison.OrdinalIgnoreCase) ||
+            !mcall.Status.Contains("LS 状态", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("图片资源目录烟测应将 Mcall*.e5 标记为只读 LS 状态资源，不能作为 110 图片索引预览或替换。");
         }
     
         var face = catalog.Single(x => x.FileName.Equals("Face.e5", StringComparison.OrdinalIgnoreCase));
@@ -228,11 +252,77 @@ internal partial class Program
             throw new InvalidOperationException("E5 图片批量清空断言失败。");
         }
     
-        var strategyPreview = new StrategyAnimationPreviewService().BuildPreview(testProject, 0);
-        if (strategyPreview.Bitmap == null || !strategyPreview.Message.Contains("预览模式", StringComparison.Ordinal))
+        var strategyAnimationService = new StrategyAnimationPreviewService();
+        var smallMeffPreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.SmallMeff, 0);
+        if (smallMeffPreview.ImageNumber != 1 ||
+            smallMeffPreview.Frames.Count <= 1 ||
+            smallMeffPreview.FrameIntervalMs <= 0 ||
+            !smallMeffPreview.RenderMode.Equals("Meff 8bpp 动画", StringComparison.Ordinal) ||
+            !smallMeffPreview.Message.Contains("64x64", StringComparison.Ordinal) ||
+            !smallMeffPreview.Message.Contains("Meff.e5 图号 #1", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException("策略动画 LS/字节图候选预览未生成。");
+            throw new InvalidOperationException("策略小动画 Meff 映射断言失败：字段值 0 应定位到 Meff.e5 #1 并生成结构化多帧预览。");
         }
+
+        var extraPlaneMeffPreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.SmallMeff, 11);
+        if (extraPlaneMeffPreview.ImageNumber != 12 ||
+            extraPlaneMeffPreview.Frames.Count <= 20 ||
+            !extraPlaneMeffPreview.Message.Contains("全部平面", StringComparison.Ordinal) ||
+            !extraPlaneMeffPreview.RenderMode.Equals("Meff 8bpp 动画", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("策略小动画 Meff #12 应识别额外完整帧平面并按全部平面预览。");
+        }
+
+        var noSmallAnimationPreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.SmallMeff, 255);
+        if (noSmallAnimationPreview.Frames.Count != 0 ||
+            !noSmallAnimationPreview.Message.Contains("255", StringComparison.Ordinal) ||
+            !noSmallAnimationPreview.RenderMode.Contains("无动画", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("策略小动画 255 无动画预览断言失败。");
+        }
+
+        var noBigAnimationPreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.BigMcall, 0);
+        if (noBigAnimationPreview.Frames.Count != 0 ||
+            Path.GetFileName(noBigAnimationPreview.SourcePath).Equals("Meff.e5", StringComparison.OrdinalIgnoreCase) ||
+            !noBigAnimationPreview.RenderMode.Contains("无 Mcall 大动画", StringComparison.Ordinal) ||
+            !noBigAnimationPreview.Message.Contains("字段值 0", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("策略大动画字段值 0 应按无 Mcall 大动画处理，不能回退到 Meff.e5 预览。");
+        }
+
+        var bigMcallPreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.BigMcall, 100);
+        if (bigMcallPreview.Frames.Count <= 1 ||
+            !Path.GetFileName(bigMcallPreview.SourcePath).Equals("Mcall00.e5", StringComparison.OrdinalIgnoreCase) ||
+            !bigMcallPreview.RenderMode.Equals("Mcall 8bpp 动画", StringComparison.Ordinal) ||
+            !bigMcallPreview.Message.Contains("Mcall 编号 0", StringComparison.Ordinal) ||
+            !bigMcallPreview.Message.Contains("240x240", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("策略大动画字段值 100 应定位到 Mcall00.e5 并生成结构化多帧预览。");
+        }
+
+        var missingMcallPreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.BigMcall, 199);
+        if (missingMcallPreview.Frames.Count != 0 ||
+            !missingMcallPreview.RenderMode.Contains("Mcall 缺失", StringComparison.Ordinal) ||
+            !missingMcallPreview.Message.Contains("未找到", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("策略大动画缺失 Mcall 文件时应返回清晰缺失状态，不能抛异常。");
+        }
+
+        var outOfRangeValue = Math.Max(250, smallMeffPreview.EntryCount);
+        var outOfRangePreview = strategyAnimationService.BuildAnimatedPreview(testProject, StrategyAnimationPreviewKind.SmallMeff, outOfRangeValue);
+        if (outOfRangePreview.Frames.Count != 0 ||
+            !outOfRangePreview.Message.Contains("没有匹配", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("策略动画越界预览断言失败。");
+        }
+
+        DisposeFrames(smallMeffPreview);
+        DisposeFrames(extraPlaneMeffPreview);
+        DisposeFrames(noSmallAnimationPreview);
+        DisposeFrames(noBigAnimationPreview);
+        DisposeFrames(bigMcallPreview);
+        DisposeFrames(missingMcallPreview);
+        DisposeFrames(outOfRangePreview);
     
         var iconReplaceService = new IconResourceReplaceService();
         var iconReplacement = Path.Combine(smokeRoot, "Smoke_Icon_Replacement.png");
@@ -319,8 +409,161 @@ internal partial class Program
         }
 
         AssertDllBitmapTopFirstRows(mgcIconTarget, mgcBatchResult.Items[0].ResourceIds, Color.FromArgb(255, 230, 70, 80), Color.FromArgb(255, 40, 190, 80));
+        var mgcPreviewAfterWrite = new ItemIconPreviewService().BuildPreview(testProject, 0, "Mgcicon.dll", "策略图标", 96);
+        if (mgcPreviewAfterWrite.Bitmap == null)
+        {
+            throw new InvalidOperationException("DLL 策略图标写入后预览未生成。");
+        }
+
+        using (mgcPreviewAfterWrite.Bitmap)
+        {
+            AssertBitmapPreviewTopBottom(
+                mgcPreviewAfterWrite.Bitmap,
+                Color.FromArgb(255, 230, 70, 80),
+                Color.FromArgb(255, 40, 190, 80),
+                "DLL 策略图标写入后 BuildPreview");
+        }
     
-        Console.WriteLine($"E5_IMAGE_BATCH_AND_DLL_ICON_SMOKE OK batch={batchResult.OperationCount} clear={clearResult.OperationCount} strategyPreview={strategyPreview.Bitmap.Width}x{strategyPreview.Bitmap.Height} iconIds={string.Join(',', iconReplaceResult.ResourceIds)} mgcBatch={mgcBatchResult.Items.Count} mgcBackup={Path.GetFileName(mgcBatchResult.BackupPath)} iconBackup={Path.GetFileName(iconReplaceResult.BackupPath)}");
+        Console.WriteLine($"E5_IMAGE_BATCH_AND_DLL_ICON_SMOKE OK batch={batchResult.OperationCount} clear={clearResult.OperationCount} strategyPreview=Meff#{smallMeffPreview.ImageNumber}/{smallMeffPreview.RenderMode},Mcall={bigMcallPreview.RenderMode} iconIds={string.Join(',', iconReplaceResult.ResourceIds)} mgcBatch={mgcBatchResult.Items.Count} mgcBackup={Path.GetFileName(mgcBatchResult.BackupPath)} iconBackup={Path.GetFileName(iconReplaceResult.BackupPath)}");
+    }
+
+    static void AssertDibPreviewRowDirection()
+    {
+        var top = Color.FromArgb(255, 230, 70, 80);
+        var bottom = Color.FromArgb(255, 40, 190, 80);
+        using var standard8Bpp = ItemIconPreviewService.RenderDibForSmoke(BuildSmoke8BppStandardBottomUpDib(top, bottom), 96)
+            ?? throw new InvalidOperationException("8bpp 标准 bottom-up DIB 预览未生成。");
+        AssertBitmapPreviewTopBottom(standard8Bpp, top, bottom, "8bpp 标准 bottom-up DIB");
+
+        using var ccz32Bpp = ItemIconPreviewService.RenderDibForSmoke(BuildSmoke32BppCczTopFirstDib(top, bottom), 96)
+            ?? throw new InvalidOperationException("32bpp CCZ top-first DIB 预览未生成。");
+        AssertBitmapPreviewTopBottom(ccz32Bpp, top, bottom, "32bpp CCZ top-first DIB");
+    }
+
+    static byte[] BuildSmoke8BppStandardBottomUpDib(Color top, Color bottom)
+    {
+        const int width = 4;
+        const int height = 4;
+        const int headerSize = 40;
+        const int paletteEntries = 256;
+        const int stride = 4;
+        var dib = new byte[headerSize + paletteEntries * 4 + stride * height];
+        BitConverter.GetBytes(headerSize).CopyTo(dib, 0);
+        BitConverter.GetBytes(width).CopyTo(dib, 4);
+        BitConverter.GetBytes(height).CopyTo(dib, 8);
+        BitConverter.GetBytes((ushort)1).CopyTo(dib, 12);
+        BitConverter.GetBytes((ushort)8).CopyTo(dib, 14);
+        BitConverter.GetBytes(paletteEntries).CopyTo(dib, 32);
+        WritePaletteColor(dib, 1, top);
+        WritePaletteColor(dib, 2, bottom);
+
+        var pixelOffset = headerSize + paletteEntries * 4;
+        for (var storedY = 0; storedY < height; storedY++)
+        {
+            var visualY = height - 1 - storedY;
+            var colorIndex = visualY < height / 2 ? (byte)1 : (byte)2;
+            for (var x = 0; x < width; x++)
+            {
+                dib[pixelOffset + storedY * stride + x] = colorIndex;
+            }
+        }
+
+        return dib;
+    }
+
+    static byte[] BuildSmoke32BppCczTopFirstDib(Color top, Color bottom)
+    {
+        const int width = 4;
+        const int height = 4;
+        const int headerSize = 40;
+        const int stride = width * 4;
+        var dib = new byte[headerSize + stride * height];
+        BitConverter.GetBytes(headerSize).CopyTo(dib, 0);
+        BitConverter.GetBytes(width).CopyTo(dib, 4);
+        BitConverter.GetBytes(height).CopyTo(dib, 8);
+        BitConverter.GetBytes((ushort)1).CopyTo(dib, 12);
+        BitConverter.GetBytes((ushort)32).CopyTo(dib, 14);
+
+        for (var y = 0; y < height; y++)
+        {
+            var color = y < height / 2 ? top : bottom;
+            for (var x = 0; x < width; x++)
+            {
+                WriteBgraPixel(dib, headerSize + y * stride + x * 4, color);
+            }
+        }
+
+        return dib;
+    }
+
+    static void WritePaletteColor(byte[] dib, int index, Color color)
+    {
+        var offset = 40 + index * 4;
+        dib[offset] = color.B;
+        dib[offset + 1] = color.G;
+        dib[offset + 2] = color.R;
+        dib[offset + 3] = 0;
+    }
+
+    static void WriteBgraPixel(byte[] bytes, int offset, Color color)
+    {
+        bytes[offset] = color.B;
+        bytes[offset + 1] = color.G;
+        bytes[offset + 2] = color.R;
+        bytes[offset + 3] = color.A;
+    }
+
+    static void AssertBitmapPreviewTopBottom(Bitmap bitmap, Color expectedTop, Color expectedBottom, string label)
+    {
+        var actualTop = DominantOpaqueColor(bitmap, 0, bitmap.Height / 2);
+        var actualBottom = DominantOpaqueColor(bitmap, bitmap.Height / 2, bitmap.Height);
+        if (!CloseColor(actualTop, expectedTop) || !CloseColor(actualBottom, expectedBottom))
+        {
+            throw new InvalidOperationException($"{label} 行方向断言失败：top={actualTop} bottom={actualBottom}。");
+        }
+    }
+
+    static Color DominantOpaqueColor(Bitmap bitmap, int yStart, int yEnd)
+    {
+        var counts = new Dictionary<int, int>();
+        for (var y = Math.Max(0, yStart); y < Math.Min(bitmap.Height, yEnd); y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                if (pixel.A < 128) continue;
+                var key = pixel.ToArgb();
+                counts[key] = counts.TryGetValue(key, out var count) ? count + 1 : 1;
+            }
+        }
+
+        if (counts.Count == 0)
+        {
+            throw new InvalidOperationException("预览图没有可用于行方向断言的不透明像素。");
+        }
+
+        return Color.FromArgb(counts.OrderByDescending(x => x.Value).First().Key);
+    }
+
+    static byte[] BuildSmokeLsBytes()
+    {
+        var bytes = new byte[16 + 64];
+        Encoding.ASCII.GetBytes("Ls12").CopyTo(bytes, 0);
+        Encoding.ASCII.GetBytes("CCZSMOKE").CopyTo(bytes, 4);
+        for (var i = 16; i < bytes.Length; i++)
+        {
+            bytes[i] = (byte)(i - 16);
+        }
+
+        return bytes;
+    }
+
+    static void DisposeFrames(StrategyAnimationAnimatedPreviewResult result)
+    {
+        foreach (var frame in result.Frames)
+        {
+            frame.Dispose();
+        }
     }
 
     static void AssertDllBitmapTopFirstRows(string dllPath, IReadOnlyList<int> resourceIds, Color expectedTop, Color expectedBottom)

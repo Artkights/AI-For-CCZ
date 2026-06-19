@@ -717,6 +717,9 @@ public sealed partial class MainForm
         _battlefieldUnitAnimationTimer.Dispose();
         _rScenePlaybackTimer.Stop();
         _rScenePlaybackTimer.Dispose();
+        ClearJobStrategyAnimationPreview();
+        _jobStrategyAnimationTimer.Stop();
+        _jobStrategyAnimationTimer.Dispose();
         ClearBattlefieldUnitFrameCache();
         ClearBattlefieldMapPreviewImages();
         SaveCurrentUiLayoutSettings();

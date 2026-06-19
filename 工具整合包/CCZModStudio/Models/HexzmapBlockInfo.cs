@@ -14,6 +14,8 @@ public sealed class HexzmapBlockInfo
     public int DataOffset { get; init; }
     public int SegmentOffset { get; init; }
     public int SegmentLength { get; init; }
+    public int DecodedLength { get; init; }
+    public int DataPrefixLength { get; init; }
     public int MapPixelWidth { get; init; }
     public int MapPixelHeight { get; init; }
     public bool CanEdit { get; init; }

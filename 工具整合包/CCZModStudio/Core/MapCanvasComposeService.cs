@@ -7,19 +7,68 @@ namespace CCZModStudio.Core;
 public sealed class MapCanvasComposeService
 {
     private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TerrainDrivenMapGenerationService _terrainGenerator = new();
+    private readonly TerrainMapBeautifyService _beautifyService = new();
 
     public Bitmap ComposeFinal(MapWorkbenchDraft draft)
-        => Compose(draft, showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false);
+        => Compose(draft, Array.Empty<MaterialAsset>(), showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: true);
+
+    public Bitmap ComposeFinal(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
+        => Compose(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: true);
 
     public Bitmap ComposePreview(MapWorkbenchDraft draft, bool showTerrain, bool showGrid, int terrainOpacityPercent)
-        => Compose(draft, showTerrain, showGrid, terrainOpacityPercent, checkerboardBlank: true);
+        => Compose(draft, Array.Empty<MaterialAsset>(), showTerrain, showGrid, terrainOpacityPercent, checkerboardBlank: true, beautifyGeneratedMap: draft.BeautifyGeneratedMap);
 
-    private Bitmap Compose(
+    public Bitmap ComposePreview(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, bool showTerrain, bool showGrid, int terrainOpacityPercent)
+        => Compose(draft, materials, showTerrain, showGrid, terrainOpacityPercent, checkerboardBlank: true, beautifyGeneratedMap: draft.BeautifyGeneratedMap);
+
+    public Bitmap ComposePreview(
         MapWorkbenchDraft draft,
+        IReadOnlyList<MaterialAsset> materials,
         bool showTerrain,
         bool showGrid,
         int terrainOpacityPercent,
-        bool checkerboardBlank)
+        bool beautifyGeneratedMap)
+        => Compose(draft, materials, showTerrain, showGrid, terrainOpacityPercent, checkerboardBlank: true, beautifyGeneratedMap);
+
+    public Bitmap ComposeTerrainLayerPreview(MapWorkbenchDraft draft, bool showGrid)
+    {
+        if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
+        {
+            throw new InvalidOperationException("地图草稿格数无效。");
+        }
+
+        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
+        var pixelWidth = checked(draft.GridWidth * tileSize);
+        var pixelHeight = checked(draft.GridHeight * tileSize);
+        var bitmap = new Bitmap(pixelWidth, pixelHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bitmap);
+        g.SmoothingMode = SmoothingMode.None;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        g.Clear(Color.Black);
+
+        if (draft.TerrainCells.Length == draft.GridWidth * draft.GridHeight)
+        {
+            DrawTerrain(g, draft, pixelWidth, pixelHeight, opacityPercent: 100);
+        }
+
+        if (showGrid)
+        {
+            DrawGrid(g, draft.GridWidth, draft.GridHeight, pixelWidth, pixelHeight);
+        }
+
+        return bitmap;
+    }
+
+    private Bitmap Compose(
+        MapWorkbenchDraft draft,
+        IReadOnlyList<MaterialAsset> materials,
+        bool showTerrain,
+        bool showGrid,
+        int terrainOpacityPercent,
+        bool checkerboardBlank,
+        bool beautifyGeneratedMap)
     {
         if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
         {
@@ -50,17 +99,26 @@ public sealed class MapCanvasComposeService
             g.Clear(Color.Black);
         }
 
-        foreach (var cell in draft.MapCellOverrides.OrderBy(x => x.Index))
+        if (draft.AutoGenerateMapFromTerrain)
         {
-            if (cell.Index < 0 || cell.Index >= draft.GridWidth * draft.GridHeight) continue;
-            var materialPath = MapDraftService.ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath);
-            var material = GetCachedImage(materialPath);
-            if (material == null) continue;
-
-            var x = cell.Index % draft.GridWidth;
-            var y = cell.Index / draft.GridWidth;
-            g.DrawImage(material, new Rectangle(x * tileSize, y * tileSize, tileSize, tileSize));
+            using var generated = _terrainGenerator.RenderBaseTerrain(draft, materials);
+            if (beautifyGeneratedMap)
+            {
+                using var beautified = _beautifyService.Beautify(draft, generated);
+                g.DrawImage(beautified, new Rectangle(0, 0, pixelWidth, pixelHeight));
+            }
+            else
+            {
+                g.DrawImage(generated, new Rectangle(0, 0, pixelWidth, pixelHeight));
+            }
         }
+        else
+        {
+            DrawCells(g, draft, draft.GeneratedMapCells);
+        }
+
+        DrawCells(g, draft, draft.BuildingOverlayCells);
+        DrawCells(g, draft, draft.MapCellOverrides);
 
         if (showTerrain && draft.TerrainCells.Length == draft.GridWidth * draft.GridHeight)
         {
@@ -73,6 +131,22 @@ public sealed class MapCanvasComposeService
         }
 
         return bitmap;
+    }
+
+    private void DrawCells(Graphics g, MapWorkbenchDraft draft, IEnumerable<MapCellOverride> cells)
+    {
+        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
+        foreach (var cell in cells.OrderBy(x => x.Index))
+        {
+            if (cell.Index < 0 || cell.Index >= draft.GridWidth * draft.GridHeight) continue;
+            var materialPath = MapDraftService.ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath);
+            var material = GetCachedImage(materialPath);
+            if (material == null) continue;
+
+            var x = cell.Index % draft.GridWidth;
+            var y = cell.Index / draft.GridWidth;
+            g.DrawImage(material, new Rectangle(x * tileSize, y * tileSize, tileSize, tileSize));
+        }
     }
 
     private Bitmap? GetCachedImage(string path)

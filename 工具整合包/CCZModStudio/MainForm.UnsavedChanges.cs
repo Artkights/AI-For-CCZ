@@ -536,11 +536,7 @@ public sealed partial class MainForm
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         bioRow["浠嬬粛"] = _roleBiographyBox.Text;
-        var criticalParts = SplitCriticalQuoteEditorText(_roleCriticalQuoteBox.Text, Math.Max(1, criticalMapping.QuoteRows.Count));
-        for (var i = 0; i < criticalMapping.QuoteRows.Count; i++)
-        {
-            criticalMapping.QuoteRows[i]["浠嬬粛"] = criticalParts[i];
-        }
+        ApplyCriticalQuoteEditorToRows(criticalMapping);
 
         if (retreatMapping.QuoteRow != null)
         {

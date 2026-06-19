@@ -57,6 +57,9 @@ public sealed partial class CczMcpRuntime
     private readonly AiImageAssetService _aiImageAssetService = new();
     private readonly RImageReplaceService _rImageReplaceService = new();
     private readonly SImageReplaceService _sImageReplaceService = new();
+    private readonly BatchRImageReplaceService _batchRImageReplaceService = new();
+    private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
+    private readonly BatchItemIconImportService _batchItemIconImportService = new();
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly ResourceReplaceService _resourceReplace = new();
     private readonly BackupManager _backupManager = new();
@@ -68,18 +71,29 @@ public sealed partial class CczMcpRuntime
 
     private CczProject LoadProject(string? gameRoot)
     {
-        if (!string.IsNullOrWhiteSpace(gameRoot))
+        var explicitGameRoot = !string.IsNullOrWhiteSpace(gameRoot);
+        CczProject project;
+        if (explicitGameRoot)
         {
-            return _projectDetector.CreateProjectFromGameRoot(gameRoot);
+            project = _projectDetector.CreateProjectFromGameRoot(gameRoot!);
+        }
+        else
+        {
+            var envGameRoot = Environment.GetEnvironmentVariable("CCZMODSTUDIO_GAME_ROOT");
+            if (!string.IsNullOrWhiteSpace(envGameRoot))
+            {
+                project = _projectDetector.CreateProjectFromGameRoot(envGameRoot);
+                explicitGameRoot = true;
+            }
+            else
+            {
+                project = _projectDetector.DetectDefaultProject();
+            }
+
         }
 
-        var envGameRoot = Environment.GetEnvironmentVariable("CCZMODSTUDIO_GAME_ROOT");
-        if (!string.IsNullOrWhiteSpace(envGameRoot))
-        {
-            return _projectDetector.CreateProjectFromGameRoot(envGameRoot);
-        }
-
-        return _projectDetector.DetectDefaultProject();
+        if (explicitGameRoot) EnsureUsableGameRoot(project);
+        return project;
     }
 
     public object DetectProject(string? gameRoot)
@@ -105,7 +119,9 @@ public sealed partial class CczMcpRuntime
                 x.Path,
                 x.Exists,
                 x.SizeBytes,
-                x.Kind
+                x.Kind,
+                x.CountsAsMissing,
+                x.Note
             }),
             project.PathDiagnostics
         };
@@ -269,6 +285,26 @@ public sealed partial class CczMcpRuntime
         var found = candidates.FirstOrDefault(File.Exists);
         if (found == null) throw new FileNotFoundException("Replacement file was not found.", candidates.First());
         return found;
+    }
+
+    private static void EnsureUsableGameRoot(CczProject project)
+    {
+        var missing = project.GetFileStatuses()
+            .Where(status => (status.Kind is "core" or "resource-directory") && status.CountsAsMissing && !status.Exists)
+            .Select(status => status.Name)
+            .ToList();
+        if (missing.Count == 0) return;
+
+        throw new InvalidOperationException(
+            "The selected game_root is incomplete and cannot be used for automation. Missing: " +
+            string.Join(", ", missing) +
+            ". Pass the real base directory that contains Ekd5.exe, Data.e5, Imsg.e5, Star.e5, and RS.");
+    }
+
+    private static IReadOnlyList<string> ResolveExternalFiles(CczProject project, IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) throw new InvalidOperationException("source_files must contain at least one file.");
+        return paths.Select(path => ResolveExternalFile(project, path)).ToArray();
     }
 
     private static string ResolveExternalDirectory(CczProject project, string path)
@@ -500,7 +536,7 @@ public sealed partial class CczMcpRuntime
     }
 
     private static object BuildHexzmapBlockPayload(HexzmapBlockInfo block)
-        => new { block.Index, block.MapId, block.MapImageName, block.MapImageExists, block.MapPixelWidth, block.MapPixelHeight, block.Width, block.Height, block.BytesRead, block.CanEdit, OffsetHex = HexDisplayFormatter.NormalizeText(block.OffsetHex), block.DataOffset, block.SegmentOffset, SegmentOffsetHex = HexDisplayFormatter.FormatOffset(block.SegmentOffset), block.SegmentLength, block.UniqueTerrainCount, block.DominantTerrainId, DominantTerrainHex = HexDisplayFormatter.Format(block.DominantTerrainId, 2), block.DominantTerrainName, block.DominantTerrainCount, TopTerrainIds = HexDisplayFormatter.NormalizeText(block.TopTerrainIds), block.TopTerrainNames, block.KnownTerrainCount, UnknownTerrainIds = HexDisplayFormatter.NormalizeText(block.UnknownTerrainIds), Annotation = HexDisplayFormatter.NormalizeText(block.Annotation) };
+        => new { block.Index, block.MapId, block.MapImageName, block.MapImageExists, block.MapPixelWidth, block.MapPixelHeight, block.Width, block.Height, block.BytesRead, block.CanEdit, OffsetHex = HexDisplayFormatter.NormalizeText(block.OffsetHex), block.DataOffset, block.SegmentOffset, SegmentOffsetHex = HexDisplayFormatter.FormatOffset(block.SegmentOffset), block.SegmentLength, block.DecodedLength, block.DataPrefixLength, block.UniqueTerrainCount, block.DominantTerrainId, DominantTerrainHex = HexDisplayFormatter.Format(block.DominantTerrainId, 2), block.DominantTerrainName, block.DominantTerrainCount, TopTerrainIds = HexDisplayFormatter.NormalizeText(block.TopTerrainIds), block.TopTerrainNames, block.KnownTerrainCount, UnknownTerrainIds = HexDisplayFormatter.NormalizeText(block.UnknownTerrainIds), Annotation = HexDisplayFormatter.NormalizeText(block.Annotation) };
 
     private static IReadOnlyList<object> BuildHexzmapTerrainCounts(byte[] cells, IReadOnlyDictionary<byte, string> terrainLookup)
     {
@@ -628,6 +664,15 @@ public sealed partial class CczMcpRuntime
     {
         id = 0;
         text = text.Trim();
+        var dash = text.IndexOf('-', StringComparison.Ordinal);
+        if (dash > 0 &&
+            int.TryParse(text[..dash], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var commandId) &&
+            int.TryParse(text[(dash + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var subId))
+        {
+            id = checked(commandId * 0x100 + subId);
+            return true;
+        }
+
         if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return int.TryParse(text[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id);
         if (text.Length <= 2 && text.All(IsHexDigit)) return int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id);
         return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out id);
@@ -680,7 +725,11 @@ public sealed partial class CczMcpRuntime
 
     private object BuildAiImageReplacementPreview(CczProject project, AiImagePromptPlan plan, string outputPath)
     {
-        if (plan.Preset.TargetKind == "dll_icon") return BuildDllIconReplacePayload(_iconResourceReplace.PreviewReplaceBitmapIcon(project, ResolveDllIconTarget(project, plan.TargetRelativePath), plan.TargetImageNumbers.FirstOrDefault(), outputPath));
+        if (plan.Preset.TargetKind == "dll_icon" && !Path.GetExtension(plan.TargetRelativePath).Equals(".e5", StringComparison.OrdinalIgnoreCase))
+        {
+            return BuildDllIconReplacePayload(_iconResourceReplace.PreviewReplaceBitmapIcon(project, ResolveDllIconTarget(project, plan.TargetRelativePath), plan.TargetImageNumbers.FirstOrDefault(), outputPath));
+        }
+
         if (plan.TargetImageNumbers.Count > 1 || plan.Preset.TargetKind == "e5_batch")
         {
             var targetPath = ResolveProjectFile(project, plan.TargetRelativePath, mustExist: true);

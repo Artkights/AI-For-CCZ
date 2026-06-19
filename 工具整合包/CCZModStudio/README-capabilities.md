@@ -22,4 +22,4 @@
 - Default target is Cao Cao Zhuan enhanced 6.5 unencrypted project data.
 - Writes must use validated target paths, backups, reread verification, structured reports, and version guards.
 - 6.6/6.6x material is reference-only until separately verified.
-- Current `Hexzmap.e5=44840` sample differs from the existing write guard baseline `45254`; direct Hexzmap writes remain blocked until that evidence is resolved.
+- Hexzmap writes are guarded by the current `Ls12` index table and map-slot geometry: decoded terrain length must match the map cell count plus the 2-byte terrain prefix, and writes still require backup plus reread verification.

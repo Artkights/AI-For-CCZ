@@ -5,6 +5,7 @@ public sealed class HexzmapDirectoryEntry
     public int Index { get; init; }
     public int EntryOffset { get; init; }
     public int SegmentLength { get; init; }
+    public int DecodedLength { get; init; }
     public int FileOffset { get; init; }
     public int NextSegmentLength { get; init; }
     public string MapId { get; init; } = string.Empty;

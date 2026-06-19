@@ -56,6 +56,12 @@ public static partial class HexTableNameResolver
             .FirstOrDefault()!;
         if (table != null) return true;
 
+        if (profile.TableVersionPrefix.Equals("6.6", StringComparison.OrdinalIgnoreCase) &&
+            TryResolveCrossVersion(tables, tableName, out table))
+        {
+            return true;
+        }
+
         return TryResolve(tables, tableName, out table);
     }
 
@@ -89,6 +95,31 @@ public static partial class HexTableNameResolver
                            tableName.Contains(item.TableName, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(item => item.Enabled)
             .ThenByDescending(item => Is6XTable(item))
+            .ThenByDescending(item => ParseVersionRank(item.Version))
+            .ThenBy(item => item.Id)
+            .FirstOrDefault()!;
+        return table != null;
+    }
+
+    private static bool TryResolveCrossVersion(IReadOnlyList<HexTableDefinition> tables, string tableName, out HexTableDefinition table)
+    {
+        var semanticKey = BuildSemanticKey(tableName);
+        table = tables
+            .Where(Is6XTable)
+            .Where(item => !item.Version.Equals("6.6", StringComparison.OrdinalIgnoreCase))
+            .Where(item => BuildSemanticKey(item.TableName).Equals(semanticKey, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => item.Enabled)
+            .ThenByDescending(item => ParseVersionRank(item.Version))
+            .ThenBy(item => item.Id)
+            .FirstOrDefault()!;
+        if (table != null) return true;
+
+        var rangeAgnosticKey = BuildRangeAgnosticSemanticKey(tableName);
+        table = tables
+            .Where(Is6XTable)
+            .Where(item => !item.Version.Equals("6.6", StringComparison.OrdinalIgnoreCase))
+            .Where(item => BuildRangeAgnosticSemanticKey(item.TableName).Equals(rangeAgnosticKey, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(item => item.Enabled)
             .ThenByDescending(item => ParseVersionRank(item.Version))
             .ThenBy(item => item.Id)
             .FirstOrDefault()!;

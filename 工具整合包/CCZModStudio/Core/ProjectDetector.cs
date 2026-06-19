@@ -8,7 +8,7 @@ public sealed class ProjectDetector
 
     public static string FindSceneDictionaryPath(string workspaceRoot)
     {
-        var roots = BuildSearchRoots(workspaceRoot);
+        var roots = BuildDefaultProjectSearchRoots(workspaceRoot);
         return FindSceneDictionaryPathInRoots(roots) ??
                FindBuiltInLegacyFile(Path.Combine("a新剧本编辑器v0.23", "CczString.ini")) ??
                BuildSceneDictionaryCandidates(NormalizeDirectory(workspaceRoot)).First();
@@ -31,12 +31,12 @@ public sealed class ProjectDetector
     {
         var lines = new List<string>
         {
-            "找不到项目内 HexTable.xml，且工具内置备份也不可用。跨设备迁移后，请把 HexTable.xml 放到当前项目的以下任一结构，或确认工具内置备份未被删除：",
-            "- <工作区>\\老版游戏制作工具\\CczRSX 6.X\\ConfigTable\\HexTable.xml（例如 CczRSX 6.6 / 6.5 / 6.4）",
-            "- <工作区>\\CczRSX 6.X\\ConfigTable\\HexTable.xml（例如 CczRSX 6.6 / 6.5 / 6.4）",
-            "- <游戏目录或工作区>\\ConfigTable\\HexTable.xml",
-            "- <游戏目录或工作区>\\HexTable.xml",
-            "- <工具目录>\\ConfigTable\\HexTable.xml（内置备份）",
+            "找不到项目内 HexTable.xml，且 net 内置备份也不可用。跨设备迁移后，请确认 net 文件夹完整，或把项目专用 HexTable.xml 放到当前游戏项目目录的以下任一位置：",
+            "- <游戏项目目录>\\ConfigTable\\HexTable.xml",
+            "- <游戏项目目录>\\HexTable.xml",
+            "- <游戏项目目录>\\CczRSX 6.X\\ConfigTable\\HexTable.xml（例如 CczRSX 6.6 / 6.5 / 6.4）",
+            "- <游戏项目目录>\\老版游戏制作工具\\CczRSX 6.X\\ConfigTable\\HexTable.xml",
+            "- <net>\\ConfigTable\\HexTable.xml（内置备份）",
             "",
             "当前解析结果：",
             "WorkspaceRoot=" + project.WorkspaceRoot,
@@ -56,7 +56,7 @@ public sealed class ProjectDetector
 
     public static string? FindPortableDirectory(string workspaceRoot, string directoryName, params string[] relativeCandidates)
     {
-        var roots = BuildSearchRoots(workspaceRoot);
+        var roots = BuildDefaultProjectSearchRoots(workspaceRoot);
         return FindPortableDirectoryInRoots(roots, directoryName, relativeCandidates) ??
                FindBuiltInLegacyDirectory(directoryName, relativeCandidates);
     }
@@ -91,11 +91,12 @@ public sealed class ProjectDetector
     public CczProject DetectDefaultProject()
     {
         var diagnostics = new List<string>();
-        var roots = BuildSearchRoots(Environment.CurrentDirectory, AppContext.BaseDirectory);
+        var roots = BuildDefaultProjectSearchRoots(Environment.CurrentDirectory);
         diagnostics.Add("SearchRoots=" + string.Join(" | ", roots.Take(10)));
 
         var gameRoot = FindGameRootInRoots(roots);
-        var workspace = ResolveWorkspaceRoot(gameRoot, roots.FirstOrDefault() ?? Environment.CurrentDirectory);
+        var fallbackRoot = roots.FirstOrDefault() ?? PortableInstallPaths.RuntimeRoot;
+        var workspace = ResolveWorkspaceRoot(gameRoot, fallbackRoot);
         gameRoot ??= ResolveDefaultGameRoot(workspace);
         var hexTable = ResolveHexTablePath(workspace, gameRoot, diagnostics);
 
@@ -110,10 +111,10 @@ public sealed class ProjectDetector
     {
         gameRoot = Path.GetFullPath(gameRoot);
         var diagnostics = new List<string>();
-        var roots = BuildSearchRoots(gameRoot, Environment.CurrentDirectory, AppContext.BaseDirectory);
+        var roots = BuildSearchRoots(gameRoot);
         diagnostics.Add("SearchRoots=" + string.Join(" | ", roots.Take(10)));
 
-        var workspace = ResolveWorkspaceRoot(gameRoot, roots.FirstOrDefault() ?? Environment.CurrentDirectory);
+        var workspace = ResolveWorkspaceRoot(gameRoot, roots.FirstOrDefault() ?? gameRoot);
         var hexTable = ResolveHexTablePath(workspace, gameRoot, diagnostics);
 
         diagnostics.Add("ResolvedWorkspace=" + workspace);
@@ -125,7 +126,7 @@ public sealed class ProjectDetector
 
     private static CczProject CreateProject(string workspace, string gameRoot, string hexTable, IReadOnlyList<string> roots, List<string> diagnostics)
     {
-        var projectResourceRoots = BuildCurrentProjectRoots(workspace, gameRoot);
+        var projectResourceRoots = BuildCurrentGameRoots(gameRoot);
         var sceneDictionary = FindSceneDictionaryPathInRoots(projectResourceRoots) ??
                               FindBuiltInLegacyFile(Path.Combine("a新剧本编辑器v0.23", "CczString.ini")) ??
                               BuildSceneDictionaryCandidates(workspace).First();
@@ -135,7 +136,7 @@ public sealed class ProjectDetector
             new[] { Path.Combine("老版游戏制作工具", "a新剧本编辑器v0.23"), "a新剧本编辑器v0.23" }) ??
             FindBuiltInLegacyDirectory(
                 "a新剧本编辑器v0.23",
-                new[] { Path.Combine("老版游戏制作工具", "a新剧本编辑器v0.23"), "a新剧本编辑器v0.23" });
+                new[] { "a新剧本编辑器v0.23" });
         var imageAssignerCandidates = BuildImageAssignerCandidates(workspace, gameRoot);
         var imageAssignerDirectory = FindPortableDirectoryInRoots(
             projectResourceRoots,
@@ -143,7 +144,7 @@ public sealed class ProjectDetector
             imageAssignerCandidates.RelativeCandidates) ??
             FindBuiltInLegacyDirectory(
                 "形象指定器6.5",
-                BuildImageAssignerCandidates("6.5").RelativeCandidates);
+                new[] { Path.Combine("B形象指定器", "形象指定器6.5"), "形象指定器6.5" });
         var imageAssignerSystemIni = imageAssignerDirectory == null ? null : Path.Combine(imageAssignerDirectory, "System.ini");
         if (imageAssignerSystemIni == null || !File.Exists(imageAssignerSystemIni))
         {
@@ -152,8 +153,8 @@ public sealed class ProjectDetector
                 "System.ini",
                 imageAssignerCandidates.SystemIniRelativeCandidates) ??
                 FindBuiltInLegacyFile(
-                    Path.Combine("老版游戏制作工具", "B形象指定器", "形象指定器6.5", "System.ini"),
-                    Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"));
+                    Path.Combine("B形象指定器", "形象指定器6.5", "System.ini"),
+                    Path.Combine("形象指定器6.5", "System.ini"));
         }
 
         var materialLibraryRoot = FindPortableDirectoryInRoots(
@@ -171,8 +172,6 @@ public sealed class ProjectDetector
                 new[]
                 {
                     Path.Combine("普罗-综合工具v0.3", "素材库"),
-                    Path.Combine("老版游戏制作工具", "普罗-综合工具v0.3", "素材库"),
-                    Path.Combine("老版游戏制作工具", "素材库"),
                     "素材库"
                 });
         var patchConfigRoot = FindPortableDirectoryInRoots(projectResourceRoots, "普罗-搬运 注入", new[] { "普罗-搬运 注入" }) ??
@@ -331,7 +330,7 @@ public sealed class ProjectDetector
 
     private static string ResolveHexTablePath(string workspace, string gameRoot, List<string> diagnostics)
     {
-        var projectRoots = BuildCurrentProjectRoots(workspace, gameRoot);
+        var projectRoots = BuildCurrentGameRoots(gameRoot);
         var versionHint = Build6xVersionHint(workspace, gameRoot);
         diagnostics.Add("HexTableProjectRoots=" + string.Join(" | ", projectRoots));
         diagnostics.Add("HexTableVersionHint=" + (versionHint ?? "未知"));
@@ -339,19 +338,62 @@ public sealed class ProjectDetector
         var projectHexTable = FindHexTableInProjectRoots(projectRoots, versionHint);
         if (projectHexTable != null)
         {
-            diagnostics.Add("ResolvedHexTableSource=Project");
+            AddHexTableSourceDiagnostics(diagnostics, projectHexTable, versionHint, "Project");
             return projectHexTable;
         }
 
         var builtInHexTable = FindBuiltInHexTableBackup();
         if (builtInHexTable != null)
         {
-            diagnostics.Add("ResolvedHexTableSource=BuiltInBackup");
+            AddHexTableSourceDiagnostics(diagnostics, builtInHexTable, versionHint, "BuiltInBackup");
             return builtInHexTable;
         }
 
         diagnostics.Add("ResolvedHexTableSource=Missing");
         return BuildHexTableCandidates(gameRoot, versionHint).Concat(BuildHexTableCandidates(workspace, versionHint)).First();
+    }
+
+    private static void AddHexTableSourceDiagnostics(List<string> diagnostics, string hexTablePath, string? requestedPrefix, string source)
+    {
+        var actualPrefixes = ReadHexTableVersionPrefixes(hexTablePath);
+        var fallback = !string.IsNullOrWhiteSpace(requestedPrefix) &&
+                       requestedPrefix.Equals("6.6", StringComparison.OrdinalIgnoreCase) &&
+                       !actualPrefixes.Contains("6.6", StringComparer.OrdinalIgnoreCase);
+
+        diagnostics.Add("ResolvedHexTableSource=" + (fallback ? "CrossVersionFallback" : source));
+        if (fallback)
+        {
+            diagnostics.Add("ResolvedHexTableOriginalSource=" + source);
+            diagnostics.Add("requestedPrefix=6.6");
+            diagnostics.Add("actualPrefixes=" + (actualPrefixes.Count == 0 ? "<none>" : string.Join(",", actualPrefixes)));
+            diagnostics.Add("tableFallback=true");
+            diagnostics.Add("CrossVersionFallback=6.6 engine is using a non-6.6 HexTable.xml; writes are not blocked, but offsets must be reviewed.");
+        }
+        else
+        {
+            diagnostics.Add("requestedPrefix=" + (requestedPrefix ?? "<none>"));
+            diagnostics.Add("actualPrefixes=" + (actualPrefixes.Count == 0 ? "<none>" : string.Join(",", actualPrefixes)));
+            diagnostics.Add("tableFallback=false");
+        }
+    }
+
+    private static IReadOnlyList<string> ReadHexTableVersionPrefixes(string hexTablePath)
+    {
+        try
+        {
+            var document = System.Xml.Linq.XDocument.Load(hexTablePath);
+            return document
+                .Descendants("TableName")
+                .Select(element => Extract6xVersionHint(element.Value) ?? string.Empty)
+                .Where(value => value.StartsWith("6.", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     private static IReadOnlyList<string> BuildCurrentProjectRoots(string workspace, string gameRoot)
@@ -364,7 +406,16 @@ public sealed class ProjectDetector
     }
 
     private static IReadOnlyList<string> BuildProjectResourceRoots(CczProject project) =>
-        BuildCurrentProjectRoots(project.WorkspaceRoot, project.GameRoot);
+        BuildCurrentGameRoots(project.GameRoot);
+
+    private static IReadOnlyList<string> BuildCurrentGameRoots(string gameRoot)
+    {
+        return new[] { gameRoot }
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(NormalizeDirectory)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     private static string? FindHexTableInProjectRoots(IReadOnlyList<string> roots, string? versionHint)
     {
@@ -518,14 +569,9 @@ public sealed class ProjectDetector
 
     private static string? FindBuiltInHexTableBackup()
     {
-        var candidates = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "ConfigTable", "HexTable.xml"),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "ConfigTable", "HexTable.xml"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "ConfigTable", "HexTable.xml"))
-        };
-
-        return candidates.FirstOrDefault(File.Exists);
+        return File.Exists(PortableInstallPaths.HexTablePath)
+            ? PortableInstallPaths.HexTablePath
+            : null;
     }
 
     private static string? FindBuiltInLegacyFile(params string[] relativeCandidates)
@@ -568,12 +614,7 @@ public sealed class ProjectDetector
 
     private static IReadOnlyList<string> BuildBuiltInLegacyResourceRoots()
     {
-        return new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "LegacyResources"),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "LegacyResources"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Assets", "LegacyResources"))
-        }
+        return new[] { PortableInstallPaths.LegacyResourcesRoot }
         .Where(path => !string.IsNullOrWhiteSpace(path))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToList();
@@ -756,6 +797,14 @@ public sealed class ProjectDetector
             fullPath = NormalizeSearchRoot(fullPath);
             if (seen.Add(fullPath)) result.Add(fullPath);
         }
+    }
+
+    private static IReadOnlyList<string> BuildDefaultProjectSearchRoots(string? start)
+    {
+        var root = NormalizeDirectory(start);
+        return string.IsNullOrWhiteSpace(root)
+            ? Array.Empty<string>()
+            : new[] { root };
     }
 
     private static string NormalizeDirectory(string? path)

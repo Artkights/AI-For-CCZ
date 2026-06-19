@@ -11,11 +11,23 @@ public sealed partial class MainForm
     {
         try
         {
-            LoadProject(_projectDetector.DetectDefaultProject());
+            var project = _projectDetector.DetectDefaultProject();
+            if (!IsProjectGameRootUsable(project))
+            {
+                ClearProjectLoadState(
+                    "项目：未加载",
+                    "未自动找到 MOD 项目目录，请点击“打开项目目录”选择包含 Ekd5.exe / Data.e5 / Imsg.e5 / Star.e5 的目录。");
+                return;
+            }
+
+            LoadProject(project);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine("默认项目加载失败：" + ex.Message);
+            ClearProjectLoadState(
+                "项目：未加载",
+                "默认项目加载失败，请点击“打开项目目录”手动选择 MOD 项目。");
         }
     }
 
@@ -34,7 +46,19 @@ public sealed partial class MainForm
 
         if (dialog.ShowDialog(this) == DialogResult.OK)
         {
-            LoadProject(_projectDetector.CreateProjectFromGameRoot(dialog.SelectedPath));
+            var project = _projectDetector.CreateProjectFromGameRoot(dialog.SelectedPath);
+            if (!IsProjectGameRootUsable(project))
+            {
+                MessageBox.Show(
+                    this,
+                    BuildInvalidProjectMessage(project),
+                    "项目目录不完整",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            LoadProject(project);
         }
     }
 
@@ -87,6 +111,53 @@ public sealed partial class MainForm
         SetStatus($"已加载 {_tables.Count} 个表定义");
     }
 
+    private void RunPackageSelfCheck()
+    {
+        var result = PackageSelfCheckService.Check();
+        if (result.Passed)
+        {
+            return;
+        }
+
+        MessageBox.Show(
+            this,
+            PackageSelfCheckService.BuildUserMessage(result),
+            "GUI 依赖自检失败",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+        SetStatus("GUI 依赖自检失败");
+    }
+
+    private void ClearProjectLoadState(string projectText, string statusText)
+    {
+        _project = null;
+        _tables = Array.Empty<HexTableDefinition>();
+        _projectLabel.Text = projectText;
+        ResetProjectBoundState();
+        _tableList.DataSource = null;
+        SetStatus(statusText);
+    }
+
+    private static bool IsProjectGameRootUsable(CczProject project)
+    {
+        var required = new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5" };
+        return Directory.Exists(project.GameRoot) &&
+               required.Count(file => File.Exists(Path.Combine(project.GameRoot, file))) >= 3;
+    }
+
+    private static string BuildInvalidProjectMessage(CczProject project)
+    {
+        var required = new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5" };
+        var missing = required
+            .Where(file => !File.Exists(Path.Combine(project.GameRoot, file)))
+            .ToList();
+
+        return "请选择曹操传 MOD 的游戏项目目录，而不是工具目录或空目录。\r\n\r\n" +
+               "当前目录：\r\n" + project.GameRoot + "\r\n\r\n" +
+               "缺少核心文件：\r\n" +
+               (missing.Count == 0 ? "未缺少核心文件，但目录结构仍未通过校验。" : string.Join("\r\n", missing));
+    }
+
     private void ResetProjectBoundState()
     {
         _saveTableButton.Enabled = false;
@@ -105,11 +176,20 @@ public sealed partial class MainForm
         _currentRoleEditorData = null;
         _roleEditorGrid.DataSource = null;
         _saveRoleEditorButton.Enabled = false;
+        _importRoleFaceButton.Enabled = false;
+        _batchImportRoleFaceButton.Enabled = false;
         _saveRoleTextDetailButton.Enabled = false;
 
         _currentJobEditorData = null;
         _jobEditorGrid.DataSource = null;
         _saveJobEditorButton.Enabled = false;
+
+        _currentJobStrategyData = null;
+        _jobStrategyEditorGrid.DataSource = null;
+        _saveJobStrategyEditorButton.Enabled = false;
+        _importJobStrategyIconButton.Enabled = false;
+        _editJobStrategyIconButton.Enabled = false;
+        ClearJobStrategyPreview("读取兵种策略后显示预览。");
 
         _currentItemEditorData = null;
         _itemEditorGrid.DataSource = null;
@@ -124,6 +204,8 @@ public sealed partial class MainForm
         _currentImageAssignments = null;
         _imageAssignmentGrid.DataSource = null;
         _saveImageAssignmentsButton.Enabled = false;
+        _importImageAssignmentFaceButton.Enabled = false;
+        _batchImportImageAssignmentFaceButton.Enabled = false;
         ClearImageAssignmentPreview();
         _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
         _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();

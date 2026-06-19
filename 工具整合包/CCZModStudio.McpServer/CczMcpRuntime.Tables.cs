@@ -21,6 +21,7 @@ public sealed partial class CczMcpRuntime
             project.GameRoot,
             project.HexTableXmlPath,
             Engine = engine,
+            TableDiagnostics = BuildTableDiagnostics(engine, tables),
             Count = tables.Count,
             Tables = tables.Select(table => new
             {
@@ -40,6 +41,29 @@ public sealed partial class CczMcpRuntime
                     field.ConsumesBytes
                 })
             })
+        };
+    }
+
+    private static object BuildTableDiagnostics(CczEngineProfile engine, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var actualPrefixes = tables
+            .Where(table => HexTableNameResolver.Is6XTable(table))
+            .Select(table => table.Version)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(version => version, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var fallback = Ccz66RevisedLayout.Is66(engine) &&
+                       !actualPrefixes.Contains("6.6", StringComparer.OrdinalIgnoreCase);
+
+        return new
+        {
+            requestedPrefix = engine.TableVersionPrefix,
+            actualPrefixes,
+            tableFallback = fallback,
+            source = fallback ? "CrossVersionFallback" : "ExactOrCompatible",
+            warning = fallback
+                ? "6.6 engine is using a non-6.6 HexTable.xml. Writes are not blocked; verify offsets and row definitions before saving."
+                : string.Empty
         };
     }
 

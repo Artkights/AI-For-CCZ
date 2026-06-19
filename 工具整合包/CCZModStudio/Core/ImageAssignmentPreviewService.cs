@@ -853,9 +853,8 @@ public sealed class ImageAssignmentPreviewService
     {
         var candidates = new[]
         {
-            Path.Combine(AppContext.BaseDirectory, "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "\u5de5\u5177\u6574\u5408\u5305", "CCZModStudio", "Assets", "Palettes", "tsb"),
-            Path.Combine(project.WorkspaceRoot, "\u8001\u7248\u6e38\u620f\u5236\u4f5c\u5de5\u5177", "\u666e\u7f57-\u7efc\u5408\u5de5\u5177v0.3", "tsb")
+            PortableInstallPaths.PaletteTsbPath,
+            Path.Combine(project.GameRoot, "tsb")
         };
 
         return candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4);

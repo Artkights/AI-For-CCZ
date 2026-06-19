@@ -42,8 +42,50 @@ internal partial class Program
             $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=Battlefield title/condition write smoke\r\n");
 
         var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
-        RunBattlefieldTextWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
+        RunBattlefieldTextWriteSmokeLayered(project, testProject, tables, battlefieldScenarioFileName);
         Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_ONLY_SMOKE_OK root={smokeRoot}");
+    }
+
+    static void RunBattlefieldDeploymentWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "BattlefieldDeploymentWriteSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+        Directory.CreateDirectory(smokeRoot);
+        foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Star.e5", "Imsg.e5", "Hexzmap.e5" })
+        {
+            var source = Path.Combine(project.GameRoot, coreFile);
+            if (!File.Exists(source))
+            {
+                throw new FileNotFoundException("Battlefield deployment write smoke requires core project files.", source);
+            }
+
+            File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+        }
+
+        var rsRoot = Path.Combine(smokeRoot, "RS");
+        Directory.CreateDirectory(rsRoot);
+        var sourceBattlefieldScenarioPath = Path.Combine(project.GameRoot, "RS", "S_00.eex");
+        if (!File.Exists(sourceBattlefieldScenarioPath))
+        {
+            sourceBattlefieldScenarioPath = Directory.GetFiles(Path.Combine(project.GameRoot, "RS"), "S_*.eex", SearchOption.TopDirectoryOnly)
+                .OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase)
+                .FirstOrDefault()
+                ?? throw new FileNotFoundException("Battlefield deployment write smoke could not find S_*.eex.", Path.Combine(project.GameRoot, "RS", "S_*.eex"));
+        }
+
+        var battlefieldScenarioFileName = Path.GetFileName(sourceBattlefieldScenarioPath);
+        File.Copy(sourceBattlefieldScenarioPath, Path.Combine(rsRoot, battlefieldScenarioFileName), overwrite: false);
+        var sourceS01 = Path.Combine(project.GameRoot, "RS", "S_01.eex");
+        if (File.Exists(sourceS01) && !battlefieldScenarioFileName.Equals("S_01.eex", StringComparison.OrdinalIgnoreCase))
+        {
+            File.Copy(sourceS01, Path.Combine(rsRoot, "S_01.eex"), overwrite: false);
+        }
+
+        File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+            $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=Battlefield deployment write smoke\r\n");
+
+        var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+        RunBattlefieldDeploymentWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
+        Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_WRITE_ONLY_SMOKE_OK root={smokeRoot}");
     }
 
     static void RunRsWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -194,7 +236,7 @@ internal partial class Program
         RunItemWriteSmoke(testProject, tables);
         RunItemEffectCatalogSmoke(testProject, smokeRoot);
         RunJobWriteSmoke(testProject, tables);
-        RunBattlefieldTextWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
+        RunBattlefieldTextWriteSmokeLayered(project, testProject, tables, battlefieldScenarioFileName);
         RunBattlefieldDeploymentWriteSmoke(project, testProject, tables, battlefieldScenarioFileName);
         RunMapImageWriteSmoke(testProject);
         RunHexzmapWriteSmoke(project, testProject);
@@ -722,6 +764,101 @@ internal partial class Program
         Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_OK id={strategyId} 学会等级[{jobLevelColumn}]={strategyLevelOriginal}->{strategyLevelActual} 效果索引={strategyLearnOriginal}->{strategyLearnActual} AI战场={strategyBattleAiOriginal}->{strategyBattleAiActual} saves={strategySaves.Length}");
     }
     
+    static void RunBattlefieldTextWriteSmokeLayered(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)
+    {
+        var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(sourceProject);
+        var dictionary = File.Exists(dictionaryPath) ? new SceneStringParser().Parse(dictionaryPath) : null;
+        var scenario = new ScenarioFileReader()
+            .ReadAllIndex(testProject)
+            .FirstOrDefault(x => x.FileName.Equals(scenarioFileName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Battlefield text write smoke could not find copied scenario: {scenarioFileName}");
+        var battlefieldService = new BattlefieldEditorService();
+        var document = battlefieldService.Load(testProject, scenario, dictionary, tables);
+        var canWriteTitle = document.CanWriteCampaignTitle &&
+                            document.CampaignTitleCapacityBytes > 0 &&
+                            document.CampaignId >= 0;
+        if (!canWriteTitle && document.ConditionEntry == null)
+        {
+            Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_SMOKE_SKIPPED file={scenarioFileName} reason=no_title_capacity_or_condition titleCapacity={document.CampaignTitleCapacityBytes}");
+            return;
+        }
+
+        var originalTitle = BattlefieldEditorService.NormalizeText(document.CampaignTitle);
+        var titleReplacement = string.Equals(originalTitle, "SmokeA", StringComparison.Ordinal) ? "SmokeB" : "SmokeA";
+        if (canWriteTitle && EncodingService.GetGbkByteCount(titleReplacement) > document.CampaignTitleCapacityBytes)
+        {
+            Console.WriteLine($"BATTLEFIELD_TITLE_WRITE_SMOKE_SKIPPED file={scenarioFileName} reason=capacity titleCapacity={document.CampaignTitleCapacityBytes}");
+            canWriteTitle = false;
+        }
+
+        var originalConditions = document.ConditionEntry == null
+            ? string.Empty
+            : BattlefieldEditorService.NormalizeText(document.ConditionEntry.Text);
+        var conditions = originalConditions;
+        if (dictionary != null && document.ConditionEntry != null)
+        {
+            conditions = originalConditions + " smoke";
+            if (EncodingService.GetGbkByteCount(conditions) <= document.ConditionEntry.ByteLength)
+            {
+                conditions += " overflow-probe";
+            }
+        }
+
+        var save = battlefieldService.SaveTitleAndConditions(testProject, document, canWriteTitle ? titleReplacement : originalTitle, conditions, dictionary);
+        if (save.BackupPaths.Count == 0 ||
+            save.BackupPaths.Any(path => string.IsNullOrWhiteSpace(path) || !File.Exists(path)) ||
+            save.ReportJsonPaths.Count == 0 ||
+            save.ReportJsonPaths.Any(path => string.IsNullOrWhiteSpace(path) || !File.Exists(path)) ||
+            (canWriteTitle && save.TitleSave == null))
+        {
+            throw new InvalidOperationException("Battlefield text write smoke did not produce backup/report evidence.");
+        }
+
+        var actualTitle = originalTitle;
+        if (canWriteTitle)
+        {
+            var titleTable = HexTableNameResolver.ResolveForProject(
+                testProject,
+                tables,
+                new CczEngineProfileService().Detect(testProject).TableHints.CampaignNameTable);
+            var titleRead = new HexTableReader().Read(testProject, titleTable, tables);
+            actualTitle = BattlefieldEditorService.NormalizeText(
+                Convert.ToString(FindSmokeRowById(titleRead.Data, document.CampaignId)["鍚嶇О"], CultureInfo.InvariantCulture));
+            if (!string.Equals(actualTitle, titleReplacement, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Battlefield title reread failed: expected={titleReplacement}, actual={actualTitle}");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"BATTLEFIELD_TITLE_WRITE_SMOKE_SKIPPED file={scenarioFileName} reason=no_writable_title titleCapacity={document.CampaignTitleCapacityBytes}");
+        }
+
+        if (dictionary != null && document.ConditionEntry != null)
+        {
+            if (save.ConditionSave == null)
+            {
+                throw new InvalidOperationException("Battlefield condition write smoke did not report a condition save.");
+            }
+
+            var verifyPath = Path.Combine(testProject.GameRoot, "RS", scenarioFileName);
+            var legacyVerify = new LegacyScenarioReader().Read(verifyPath, dictionary);
+            var conditionFound = legacyVerify
+                .EnumerateCommands()
+                .SelectMany(command => command.TextParameters)
+                .Any(parameter => string.Equals(
+                    BattlefieldEditorService.NormalizeText(parameter.Text),
+                    conditions,
+                    StringComparison.Ordinal));
+            if (!conditionFound)
+            {
+                throw new InvalidOperationException("Battlefield condition reread failed.");
+            }
+        }
+
+        Console.WriteLine($"BATTLEFIELD_TEXT_WRITE_SMOKE_OK file={scenarioFileName} title={(canWriteTitle ? $"'{originalTitle}'->'{actualTitle}'" : "skipped")} condition={(document.ConditionEntry == null ? "none" : "expanded")} backups={save.BackupPaths.Count}");
+    }
+
     static void RunBattlefieldTextWriteSmoke(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)
     {
         var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(sourceProject);
@@ -1706,7 +1843,8 @@ internal partial class Program
             x.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase) &&
             x.Width == mapItem.GridWidth &&
             x.Height == mapItem.GridHeight &&
-            x.SegmentLength == mapItem.GridCellCount + HexzmapProbeReader.TerrainHeaderSize)
+            x.BytesRead == mapItem.GridCellCount &&
+            x.CanEdit)
             ?? throw new InvalidOperationException($"Map workbench smoke could not find a matching Hexzmap block for {mapItem.Name}.");
     
         var draftService = new MapDraftService();

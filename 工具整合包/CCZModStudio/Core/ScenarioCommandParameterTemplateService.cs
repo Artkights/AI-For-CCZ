@@ -14,6 +14,7 @@ namespace CCZModStudio.Core;
 public sealed class ScenarioCommandParameterTemplateService
 {
     private static readonly IReadOnlyDictionary<int, CommandTemplate> Templates = BuildTemplates();
+    private static readonly IReadOnlyDictionary<int, CommandTemplate> Subcommand72Templates = BuildSubcommand72Templates();
 
     public string BuildTemplateDetail(
         ScenarioStructureRow row,
@@ -38,7 +39,7 @@ public sealed class ScenarioCommandParameterTemplateService
         var words = ScenarioStructureParameterExtractor.ExtractLogicalWords(row).Take(16).ToList();
         var lookups = BuildNameLookups(project, tables);
 
-        if (!Templates.TryGetValue(commandId, out var template))
+        if (!TryResolveTemplate(commandId, words, out var template))
         {
             builder.AppendLine($"命令参数模板（只读候选）：暂未为 {row.CommandIdHex} {row.CommandName} 建立专用模板。");
             builder.AppendLine("- 当前处理方式：请优先参考上方“参数分组解释”、同文件文本线索、原工具显示结果。");
@@ -108,7 +109,7 @@ public sealed class ScenarioCommandParameterTemplateService
 
         var lookups = BuildNameLookups(project, tables);
         var result = new List<ScenarioCommandParameterRow>();
-        if (Templates.TryGetValue(commandId, out var template))
+        if (TryResolveTemplate(commandId, words, out var template))
         {
             foreach (var slot in template.Slots)
             {
@@ -264,6 +265,7 @@ public sealed class ScenarioCommandParameterTemplateService
             items.AddRange(Templates.Values.OrderBy(template => template.Id).Select(template => BuildCatalogItem(template.Id, string.Empty, template)));
         }
 
+        items.AddRange(BuildVirtual66SubcommandCatalogItems());
         return items;
     }
 
@@ -294,7 +296,7 @@ public sealed class ScenarioCommandParameterTemplateService
         return builder.ToString();
     }
 
-    private static ScenarioCommandTemplateCatalogItem BuildCatalogItem(int id, string dictionaryName, CommandTemplate template)
+    private static ScenarioCommandTemplateCatalogItem BuildCatalogItem(int id, string dictionaryName, CommandTemplate template, string? idHex = null)
     {
         var slotSummary = string.Join("，", template.Slots.Select(slot => $"P{slot.Index + 1}{slot.Name}"));
         var slotDetails = string.Join(Environment.NewLine, template.Slots.Select(slot =>
@@ -302,7 +304,7 @@ public sealed class ScenarioCommandParameterTemplateService
         return new ScenarioCommandTemplateCatalogItem
         {
             Id = id,
-            IdHex = HexDisplayFormatter.Format(id, 2),
+            IdHex = idHex ?? HexDisplayFormatter.Format(id, 2),
             DictionaryName = dictionaryName,
             TemplateName = template.Name,
             Status = "已覆盖",
@@ -1327,6 +1329,128 @@ public sealed class ScenarioCommandParameterTemplateService
         };
 
         return templates.ToDictionary(template => template.Id);
+    }
+
+    private static bool TryResolveTemplate(int commandId, IReadOnlyList<int> words, out CommandTemplate template)
+    {
+        if (commandId == 0x72 && words.Count > 0 && Subcommand72Templates.TryGetValue(words[0], out template!))
+        {
+            return true;
+        }
+
+        return Templates.TryGetValue(commandId, out template!);
+    }
+
+    private static IEnumerable<ScenarioCommandTemplateCatalogItem> BuildVirtual66SubcommandCatalogItems()
+        => Subcommand72Templates
+            .OrderBy(pair => pair.Key)
+            .Select(pair => BuildCatalogItem(0x7200 + pair.Key, string.Empty, pair.Value, $"72-{pair.Key}"));
+
+    private static IReadOnlyDictionary<int, CommandTemplate> BuildSubcommand72Templates()
+    {
+        var templates = new[]
+        {
+            T(0x72, "72-2 人物/部队传送扩展", "6.6 修正版 0x72 子类型 2；补充阵营参数后用于定位人物、部队或战场对象。",
+                "0x72 子类型模板只解释第一参数后的候选槽，不证明完整命令长度；阵营枚举需结合实机和旧工具核对。",
+                S(0, "子类型=2", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "人物/部队", SlotKind.Person, "目标人物或战场部队候选。"),
+                S(2, "阵营", SlotKind.ForceSide, "6.6 补充的阵营/行动方参数。"),
+                S(3, "参数A", SlotKind.Value, "子功能参数候选。"),
+                S(4, "参数B", SlotKind.Value, "子功能参数候选。")),
+
+            T(0x72, "72-3 人物/部队测试扩展", "6.6 修正版 0x72 子类型 3；补充阵营参数后用于人物/部队条件测试。",
+                "阵营、比较方式和跳转目标需结合上下文确认，不能只按单行推断。",
+                S(0, "子类型=3", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "人物/部队", SlotKind.Person, "目标人物或战场部队候选。"),
+                S(2, "阵营", SlotKind.ForceSide, "6.6 补充的阵营/行动方参数。"),
+                S(3, "比较方式", SlotKind.CompareOperator, "条件比较方式候选。"),
+                S(4, "成立后跳转", SlotKind.BranchTarget, "条件成立后的流程候选。")),
+
+            T(0x72, "72-5 复合人物/兵种/特效", "6.6 修正版 0x72 子类型 5；按 4 人物位、2 兵种位和独立特效值解释。",
+                "该模板来自 6.6 适配记录，字段仍需用基准作品、旧工具和实机验证。",
+                S(0, "子类型=5", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "人物位1", SlotKind.Person, "人物/部队槽 1。"),
+                S(2, "人物位2", SlotKind.Person, "人物/部队槽 2。"),
+                S(3, "人物位3", SlotKind.Person, "人物/部队槽 3。"),
+                S(4, "人物位4", SlotKind.Person, "人物/部队槽 4。"),
+                S(5, "兵种位1", SlotKind.Value, "兵种/职业编号候选；请跳到兵种表核对名称。"),
+                S(6, "兵种位2", SlotKind.Value, "兵种/职业编号候选；请跳到兵种表核对名称。"),
+                S(7, "独立特效值", SlotKind.Value, "独立特效值候选，不与人物/兵种槽合并解释。")),
+
+            T(0x72, "72-12 DT动态图", "6.6 修正版 0x72 子类型 12；关联 E5\\DT.e5 动态图资源。",
+                "DT.e5 图号、坐标和等待方式需结合演出画面核对。",
+                S(0, "子类型=12", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "DT图号", SlotKind.Value, "E5\\DT.e5 图号或字段值候选。"),
+                S(2, "X坐标", SlotKind.CoordinateX, "显示 X 坐标候选。"),
+                S(3, "Y坐标", SlotKind.CoordinateY, "显示 Y 坐标候选。"),
+                S(4, "显示方式", SlotKind.Value, "层级、透明或播放方式候选。")),
+
+            T(0x72, "72-14 6.6演出扩展", "6.6 修正版 0x72 子类型 14；用于扩展剧情/战场演出参数候选。",
+                "子类型 14 的实参含义仍需结合基准作品样例核对。",
+                S(0, "子类型=14", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "资源/对象编号", SlotKind.Value, "资源、对象或局部枚举候选。"),
+                S(2, "X坐标/目标", SlotKind.CoordinateX, "位置或目标候选。"),
+                S(3, "Y坐标/参数", SlotKind.CoordinateY, "位置或参数候选。"),
+                S(4, "显示/等待标志", SlotKind.BooleanFlag, "是否等待、是否显示或是否刷新候选。")),
+
+            T(0x72, "72-28 6.6演出扩展", "6.6 修正版 0x72 子类型 28；用于新版资源或演出控制候选。",
+                "需结合发布贴变化、本地基准作品和实机画面核对。",
+                S(0, "子类型=28", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "资源/对象编号", SlotKind.Value, "资源、对象或局部枚举候选。"),
+                S(2, "参数A", SlotKind.Value, "子功能参数候选。"),
+                S(3, "参数B", SlotKind.Value, "子功能参数候选。"),
+                S(4, "显示/等待标志", SlotKind.BooleanFlag, "是否等待、是否显示或是否刷新候选。")),
+
+            T(0x72, "72-30 6.6演出扩展", "6.6 修正版 0x72 子类型 30；用于新版资源或演出控制候选。",
+                "需结合发布贴变化、本地基准作品和实机画面核对。",
+                S(0, "子类型=30", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "资源/对象编号", SlotKind.Value, "资源、对象或局部枚举候选。"),
+                S(2, "参数A", SlotKind.Value, "子功能参数候选。"),
+                S(3, "参数B", SlotKind.Value, "子功能参数候选。"),
+                S(4, "显示/等待标志", SlotKind.BooleanFlag, "是否等待、是否显示或是否刷新候选。")),
+
+            T(0x72, "72-31 U_select命令图标", "6.6 修正版 0x72 子类型 31；关联 E5\\U_select.e5 #31 命令图标槽。",
+                "U_select.e5 #31 是命令图标资源，具体切片和脚本字段仍需实机核对。",
+                S(0, "子类型=31", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "命令图标编号", SlotKind.Value, "U_select.e5 #31 内的命令图标编号或切片候选。"),
+                S(2, "X坐标", SlotKind.CoordinateX, "显示 X 坐标候选。"),
+                S(3, "Y坐标", SlotKind.CoordinateY, "显示 Y 坐标候选。"),
+                S(4, "显示方式", SlotKind.Value, "显示、隐藏、层级或等待候选。")),
+
+            T(0x72, "72-32 DT动态图扩展", "6.6 修正版 0x72 子类型 32；关联 E5\\DT.e5 动态图资源。",
+                "DT.e5 图号、坐标和等待方式需结合演出画面核对。",
+                S(0, "子类型=32", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "DT图号", SlotKind.Value, "E5\\DT.e5 图号或字段值候选。"),
+                S(2, "X坐标", SlotKind.CoordinateX, "显示 X 坐标候选。"),
+                S(3, "Y坐标", SlotKind.CoordinateY, "显示 Y 坐标候选。"),
+                S(4, "显示方式", SlotKind.Value, "层级、透明或播放方式候选。")),
+
+            T(0x72, "72-34 6.6演出扩展", "6.6 修正版 0x72 子类型 34；新版脚本扩展功能候选。",
+                "发布贴未提供完整参数表，当前只作只读槽位提示。",
+                S(0, "子类型=34", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "参数A", SlotKind.Value, "子功能参数候选。"),
+                S(2, "参数B", SlotKind.Value, "子功能参数候选。"),
+                S(3, "参数C", SlotKind.Value, "子功能参数候选。"),
+                S(4, "显示/等待标志", SlotKind.BooleanFlag, "是否等待、是否显示或是否刷新候选。")),
+
+            T(0x72, "72-35 6.6演出扩展", "6.6 修正版 0x72 子类型 35；新版脚本扩展功能候选。",
+                "发布贴未提供完整参数表，当前只作只读槽位提示。",
+                S(0, "子类型=35", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "参数A", SlotKind.Value, "子功能参数候选。"),
+                S(2, "参数B", SlotKind.Value, "子功能参数候选。"),
+                S(3, "参数C", SlotKind.Value, "子功能参数候选。"),
+                S(4, "显示/等待标志", SlotKind.BooleanFlag, "是否等待、是否显示或是否刷新候选。")),
+
+            T(0x72, "72-36 6.6演出扩展", "6.6 修正版 0x72 子类型 36；新版脚本扩展功能候选。",
+                "发布贴未提供完整参数表，当前只作只读槽位提示。",
+                S(0, "子类型=36", SlotKind.Value, "0x72 的二级功能号。"),
+                S(1, "参数A", SlotKind.Value, "子功能参数候选。"),
+                S(2, "参数B", SlotKind.Value, "子功能参数候选。"),
+                S(3, "参数C", SlotKind.Value, "子功能参数候选。"),
+                S(4, "显示/等待标志", SlotKind.BooleanFlag, "是否等待、是否显示或是否刷新候选。"))
+        };
+
+        return templates.ToDictionary(template => int.Parse(template.Name.Split(' ', 2)[0].Split('-', 2)[1], CultureInfo.InvariantCulture));
     }
 
     private static CommandTemplate T(int id, string name, string purpose, string risk, params TemplateSlot[] slots)

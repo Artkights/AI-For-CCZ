@@ -21,7 +21,7 @@ public sealed class HexzmapEditorService
             throw new InvalidOperationException($"地形块长度必须是 {block.Width}x{block.Height} = {expectedLength} 字节。");
         }
 
-        if (!block.CanEdit || block.SegmentLength != expectedLength + HexzmapProbeReader.TerrainHeaderSize)
+        if (!block.CanEdit || block.DecodedLength != expectedLength + block.DataPrefixLength)
         {
             throw new InvalidOperationException(
                 $"当前 Hexzmap 地形块 {block.MapId} 的段长度与地图格数不一致，已拒绝写回。段长度={block.SegmentLength}，格数={expectedLength}。");
@@ -113,6 +113,8 @@ public sealed class HexzmapEditorService
                 ["BlockOffset"] = block.OffsetHex,
                 ["SegmentOffset"] = HexDisplayFormatter.FormatOffset(block.SegmentOffset),
                 ["SegmentLength"] = block.SegmentLength.ToString(CultureInfo.InvariantCulture),
+                ["DecodedLength"] = block.DecodedLength.ToString(CultureInfo.InvariantCulture),
+                ["DataPrefixLength"] = block.DataPrefixLength.ToString(CultureInfo.InvariantCulture),
                 ["Width"] = block.Width.ToString(CultureInfo.InvariantCulture),
                 ["Height"] = block.Height.ToString(CultureInfo.InvariantCulture),
                 ["MapPixelWidth"] = block.MapPixelWidth.ToString(CultureInfo.InvariantCulture),

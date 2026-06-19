@@ -35,6 +35,12 @@ public sealed class HexTableReader
             warnings.Add($"文件长度 {info.Length} 小于表结束偏移 {table.EndOffsetExclusive}。");
         }
 
+        var profile = new CczEngineProfileService().Detect(project);
+        if (Ccz66RevisedLayout.Is66(profile) && !table.Version.Equals("6.6", StringComparison.OrdinalIgnoreCase))
+        {
+            warnings.Add($"CrossVersionFallback: requestedPrefix=6.6; actualTableVersion={table.Version}; tableFallback=true; writes are not blocked, but 6.6 offsets must be reviewed before saving.");
+        }
+
         return new HexTableValidationResult
         {
             Table = table,
