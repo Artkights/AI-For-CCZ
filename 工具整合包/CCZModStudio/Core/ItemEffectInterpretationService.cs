@@ -6,7 +6,7 @@ public static class ItemEffectInterpretationService
 {
     public static int ResolveEffectiveEffectId(string majorCategory, int typeId, int effectId)
     {
-        if (majorCategory == "辅助/道具")
+        if (IsAccessoryOrConsumable(majorCategory))
         {
             return effectId is 2 or 3 ? typeId : effectId;
         }
@@ -16,7 +16,7 @@ public static class ItemEffectInterpretationService
 
     public static string BuildEffectiveEffectIdText(string majorCategory, int typeId, int effectId)
     {
-        if (majorCategory == "辅助/道具" && effectId is 2 or 3)
+        if (IsAccessoryOrConsumable(majorCategory) && effectId is 2 or 3)
         {
             return $"类型={typeId}（原始装备特效号={effectId} 为类别标记候选）";
         }
@@ -31,7 +31,7 @@ public static class ItemEffectInterpretationService
         int effectiveEffectId,
         Func<int, string> effectNameResolver)
     {
-        if (majorCategory == "辅助/道具")
+        if (IsAccessoryOrConsumable(majorCategory))
         {
             if (effectId == 2)
             {
@@ -53,12 +53,12 @@ public static class ItemEffectInterpretationService
     {
         if (effectId == 255) return "普通商店装备常见值；一般不启用扩展装备特效。";
         if (effectId == 0) return "无特效/空位候选；若是装备请结合旧工具确认。";
-        if (majorCategory == "辅助/道具" && effectId == 2)
+        if (IsAccessoryOrConsumable(majorCategory) && effectId == 2)
         {
             return $"辅助装备段常见值 2；当前按“类别标记候选”处理，创作时优先核对类型字段={typeId}。效果值={effectValue}，成长={growth}。";
         }
 
-        if (majorCategory == "辅助/道具" && effectId == 3)
+        if (IsAccessoryOrConsumable(majorCategory) && effectId == 3)
         {
             return $"道具段常见值 3；当前按“类别标记候选”处理，创作时优先核对类型字段={typeId}。效果值={effectValue}，成长={growth}。";
         }
@@ -67,4 +67,7 @@ public static class ItemEffectInterpretationService
             CultureInfo.InvariantCulture,
             $"{effectName}；效果值={effectValue}，成长={growth}。效果值含义随特效变化，写后需实机验证。");
     }
+
+    private static bool IsAccessoryOrConsumable(string majorCategory)
+        => majorCategory is "辅助装备" or "道具/消耗品" or "辅助段" or "辅助/道具";
 }

@@ -373,6 +373,7 @@ public sealed class BattlefieldUnitStatusWriteService
         string unequipText)
     {
         var itemNames = BuildItemNameMap(project, tables);
+        var classifications = new ItemClassificationService().BuildLookup(project, tables);
         var result = new List<BattlefieldUnitStatusLookupItem>
         {
             new() { Value = 0, Text = $"0：{defaultText}" },
@@ -385,14 +386,48 @@ public sealed class BattlefieldUnitStatusWriteService
             var name = itemNames.TryGetValue(itemId, out var itemName) && !string.IsNullOrWhiteSpace(itemName)
                 ? itemName
                 : $"物品{itemId}";
+            var displayCategory = BuildBattlefieldItemCategoryLabel(categoryName, itemId, classifications);
             result.Add(new BattlefieldUnitStatusLookupItem
             {
                 Value = relative + 2,
-                Text = $"{relative + 2} -> ID{itemId} {name} [{categoryName}]"
+                Text = $"{relative + 2} -> ID{itemId} {name} [{displayCategory}]"
             });
         }
 
         return result;
+    }
+
+    private static string BuildBattlefieldItemCategoryLabel(
+        string fallbackCategoryName,
+        int itemId,
+        IReadOnlyDictionary<int, ItemClassification> classifications)
+    {
+        if (!classifications.TryGetValue(itemId, out var classification))
+        {
+            return fallbackCategoryName;
+        }
+
+        if (classification.Kind == ItemKind.Consumable)
+        {
+            return "道具/消耗品-不可装备";
+        }
+
+        if (classification.Kind == ItemKind.AccessoryEquipment)
+        {
+            return "辅助装备";
+        }
+
+        if (classification.Kind == ItemKind.Reserved)
+        {
+            return "预留/空位";
+        }
+
+        if (classification.Kind == ItemKind.Unknown)
+        {
+            return fallbackCategoryName + "-未知";
+        }
+
+        return classification.DisplayName;
     }
 
     public static void ValidateDraftRanges(BattlefieldUnitStatusDraft draft, ItemCategoryBoundary itemBoundary)

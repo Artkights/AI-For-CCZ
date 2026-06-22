@@ -815,6 +815,34 @@ public sealed partial class MainForm
         }
     }
 
+    private void OpenRolePersonalEffectTableEditor()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (_tables.Count == 0)
+        {
+            ReloadCurrentProject();
+            if (_tables.Count == 0) return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var data = BuildRolePersonalEffectEditorData(_project, _tables);
+            Cursor = Cursors.Default;
+            ShowRolePersonalEffectEditorDialog(data);
+        }
+        catch (Exception ex)
+        {
+            Cursor = Cursors.Default;
+            System.Diagnostics.Debug.WriteLine("读取个人特效 EXE 表失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取个人特效 EXE 表失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private DataTable BuildExclusiveSetScenarioEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe();
@@ -1977,6 +2005,9 @@ public sealed partial class MainForm
             throw new InvalidOperationException("兵种名称/说明/成长/穿透表有不可读取项，请先查看数据表诊断。");
         }
 
+        _currentEquipmentTypeProfile = _equipmentTypeProfileService.Build(project, tables, ResolveJobEquipmentStorageColumns());
+        _jobEquipmentPermissionSlots = _currentEquipmentTypeProfile.JobPermissionSlots;
+
         var output = new DataTable("兵种设定");
         output.Columns.Add("ID", typeof(int));
         output.Columns.Add("名称", typeof(string));
@@ -1986,6 +2017,7 @@ public sealed partial class MainForm
             output.Columns.Add(column.ColumnName, column.DataType);
         }
         output.Columns.Add("穿透", typeof(int));
+        output.Columns.Add(JobEquipmentSummaryColumn, typeof(string));
         output.Columns.Add("介绍", typeof(string));
 
         var count = Math.Min(_jobNameRead.Data.Rows.Count, Math.Min(_jobDescriptionRead.Data.Rows.Count, Math.Min(_jobGrowthRead.Data.Rows.Count, _jobPierceRead.Data.Rows.Count)));
@@ -2000,6 +2032,7 @@ public sealed partial class MainForm
                 row[column.ColumnName] = _jobGrowthRead.Data.Rows[i][column.ColumnName];
             }
             row["穿透"] = _jobPierceRead.Data.Rows[i]["穿透"];
+            row[JobEquipmentSummaryColumn] = BuildJobEquipmentSummary(row);
             row["介绍"] = Convert.ToString(_jobDescriptionRead.Data.Rows[i]["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
             output.Rows.Add(row);
         }
@@ -2015,15 +2048,19 @@ public sealed partial class MainForm
         _jobEditorGrid.ReadOnly = false;
         foreach (DataGridViewColumn column in _jobEditorGrid.Columns)
         {
-            column.ReadOnly = column.DataPropertyName == "ID";
+            column.ReadOnly = column.DataPropertyName == "ID" || column.DataPropertyName == JobEquipmentSummaryColumn;
             column.ToolTipText = BuildJobColumnAnnotation(column.DataPropertyName);
             column.HeaderText = column.DataPropertyName switch
             {
                 "ID" => "ID\n兵种编号",
+                JobEquipmentSummaryColumn => "可装备类别\n双击兵种行编辑",
                 "介绍" => "介绍\n兵种说明",
                 _ => BuildJobColumnHeader(column.DataPropertyName)
             };
             if (column.DataPropertyName == "介绍") column.Width = 240;
+            if (column.DataPropertyName == JobEquipmentSummaryColumn) column.Width = 260;
+            if (IsJobEquipmentCategoryColumn(column.DataPropertyName)) column.Visible = false;
+            if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
         }
 
         RefreshJobEditorRowStyles();
@@ -2050,8 +2087,17 @@ public sealed partial class MainForm
     {
         if (columnName == "ID") return "详细兵种编号，用于人物职业、兵种说明、成长、穿透等表按 ID 对齐。";
         if (columnName == "介绍") return "兵种说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。";
+        if (columnName == JobEquipmentSummaryColumn) return "当前详细兵种可装备的装备类别摘要。双击该兵种行可打开复选框窗口编辑；底层写入 6.5-4-2 兵种成长行内的 26 个装备类别字节。";
         if (columnName == "攻击范围") return "兵种普通攻击距离/目标选择范围，写入 6.5-4-2 兵种成长；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。建议修改后进战场验证可选格。";
         if (columnName == "穿透") return "兵种普通攻击穿透模板，写入 6.5-4-3 兵种穿透；选择该字段会按字段值+1 从 E5\\Effarea.e5 预览穿透图。0 通常是不穿透，扩展值需实机验证。";
+        if (FindJobEquipmentSlot(columnName) is { } slot)
+        {
+            var sample = string.IsNullOrWhiteSpace(slot.SampleText) ? "暂无当前项目样例" : $"样例：{slot.SampleText}";
+            return
+                $"装备许可槽 {slot.SlotIndex:D2}：{slot.SummaryName}。\r\n" +
+                $"原始存储列：{slot.StorageColumnName}；对应类型码：{slot.TypeId}；{sample}。\r\n" +
+                $"名称来源：{slot.SourceDisplayName}。0 表示该详细兵种不能装备，非 0 表示允许装备。建议通过双击兵种行打开复选框窗口编辑。";
+        }
         if (_jobGrowthRead?.Table.Fields.FirstOrDefault(f => f.ColumnName == columnName) is { } growthField)
         {
             return _fieldAnnotationService.BuildFieldAnnotation(_jobGrowthRead.Table, growthField);
@@ -2067,12 +2113,111 @@ public sealed partial class MainForm
         return columnName;
     }
 
-    private static string BuildJobEditorSummary(DataTable data)
+    private bool IsJobEquipmentCategoryColumn(string columnName)
+        => GetJobEquipmentPermissionSlots().Any(slot => string.Equals(slot.StorageColumnName, columnName, StringComparison.Ordinal)) ||
+           JobEquipmentCategoryColumns.Contains(columnName, StringComparer.Ordinal);
+
+    private IReadOnlyList<string> ResolveJobEquipmentStorageColumns()
+    {
+        if (_jobGrowthRead?.Data != null)
+        {
+            var direct = JobEquipmentCategoryColumns
+                .Where(column => _jobGrowthRead.Data.Columns.Contains(column))
+                .ToArray();
+            if (direct.Length == JobEquipmentCategoryColumns.Length) return direct;
+
+            var growthColumns = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "移动力",
+                "攻击范围",
+                "攻击",
+                "防御",
+                "精神",
+                "爆发",
+                "士气",
+                "HP",
+                "MP"
+            };
+            var candidates = _jobGrowthRead.Data.Columns
+                .Cast<DataColumn>()
+                .Select(column => column.ColumnName)
+                .Where(column => column is not "ID" and not "名称" && !growthColumns.Contains(column))
+                .ToArray();
+            if (candidates.Length >= ProjectEquipmentTypeProfileService.JobPermissionSlotCount)
+            {
+                return candidates.TakeLast(ProjectEquipmentTypeProfileService.JobPermissionSlotCount).ToArray();
+            }
+        }
+
+        return JobEquipmentCategoryColumns;
+    }
+
+    private IReadOnlyList<JobEquipmentPermissionSlotDefinition> GetJobEquipmentPermissionSlots()
+    {
+        if (_jobEquipmentPermissionSlots.Count > 0) return _jobEquipmentPermissionSlots;
+        return BuildFallbackJobEquipmentPermissionSlots();
+    }
+
+    private static IReadOnlyList<JobEquipmentPermissionSlotDefinition> BuildFallbackJobEquipmentPermissionSlots()
+    {
+        return JobEquipmentCategoryColumns
+            .Select((column, index) =>
+            {
+                var displayName = ItemTypeCatalogService.TryGetEntry(index, out var entry)
+                    ? entry.Name
+                    : column;
+                return new JobEquipmentPermissionSlotDefinition(
+                    index,
+                    column,
+                    index,
+                    displayName,
+                    Array.Empty<string>(),
+                    ItemTypeCatalogService.TryGetEntry(index, out _) ? EquipmentTypeSourceConfidence.LegacyFallback : EquipmentTypeSourceConfidence.Unknown,
+                    "未读取当前项目 profile，使用旧列名兜底");
+            })
+            .ToArray();
+    }
+
+    private JobEquipmentPermissionSlotDefinition? FindJobEquipmentSlot(string columnName)
+        => GetJobEquipmentPermissionSlots()
+            .FirstOrDefault(slot => string.Equals(slot.StorageColumnName, columnName, StringComparison.Ordinal));
+
+    private string BuildJobEquipmentSummary(DataRow row)
+    {
+        var enabled = GetJobEquipmentPermissionSlots()
+            .Where(slot => row.Table.Columns.Contains(slot.StorageColumnName) &&
+                           Convert.ToInt32(row[slot.StorageColumnName], CultureInfo.InvariantCulture) != 0)
+            .Select(slot => slot.SummaryName)
+            .ToList();
+        return enabled.Count == 0
+            ? "无"
+            : string.Join("、", enabled);
+    }
+
+    private void RefreshJobEquipmentSummary(DataRow row)
+    {
+        if (row.Table.Columns.Contains(JobEquipmentSummaryColumn))
+        {
+            var summary = BuildJobEquipmentSummary(row);
+            var current = Convert.ToString(row[JobEquipmentSummaryColumn], CultureInfo.InvariantCulture) ?? string.Empty;
+            if (!string.Equals(current, summary, StringComparison.Ordinal))
+            {
+                row[JobEquipmentSummaryColumn] = summary;
+            }
+        }
+    }
+
+    private string BuildJobEditorSummary(DataTable data)
     {
         var named = data.Rows.Cast<DataRow>().Count(row => !string.IsNullOrWhiteSpace(Convert.ToString(row["名称"], CultureInfo.InvariantCulture)));
+        var profileLine = _currentEquipmentTypeProfile == null
+            ? "装备类别显示：未读取项目化 profile，使用旧内置列名兜底。"
+            : $"装备类别显示：按当前项目物品类型 profile 解析，人工校正文件：{_currentEquipmentTypeProfile.NotesPath}";
         return
             $"兵种设定已读取：总行 {data.Rows.Count}，已命名 {named}。\r\n" +
             "来源表：6.5-4 详细兵种、6.5-4-1 兵种说明、6.5-4-2 兵种成长、6.5-4-3 兵种穿透。\r\n" +
+            "可装备类别来自 6.5-4-2 兵种成长每行后 26 个字节；双击兵种行可用复选框编辑。\r\n" +
+            profileLine + "\r\n" +
             "保存会写回 Ekd5.exe、Data.e5、Imsg.e5，保存前自动备份，保存后重新读取校验。";
     }
 
@@ -2090,7 +2235,8 @@ public sealed partial class MainForm
         var escaped = EscapeDataViewLikeValue(keyword);
         var filters = _currentJobEditorData.Columns
             .Cast<DataColumn>()
-            .Where(column => column.ColumnName is "ID" or "名称" or "介绍" or "移动力" or "攻击范围" or "攻击" or "防御" or "精神" or "爆发" or "士气" or "HP" or "MP" or "穿透")
+            .Where(column => column.ColumnName is "ID" or "名称" or "介绍" or "移动力" or "攻击范围" or "攻击" or "防御" or "精神" or "爆发" or "士气" or "HP" or "MP" or "穿透" or JobEquipmentSummaryColumn ||
+                             IsJobEquipmentCategoryColumn(column.ColumnName))
             .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '*{escaped}*'");
         _currentJobEditorData.DefaultView.RowFilter = string.Join(" OR ", filters);
         SetStatus($"兵种筛选：{_currentJobEditorData.DefaultView.Count}/{_currentJobEditorData.Rows.Count}");
@@ -2115,9 +2261,62 @@ public sealed partial class MainForm
 
     private void RefreshJobEditorAfterBulkEdit()
     {
+        if (_currentJobEditorData != null)
+        {
+            foreach (DataRow row in _currentJobEditorData.Rows)
+            {
+                RefreshJobEquipmentSummary(row);
+            }
+        }
+
         RefreshJobEditorRowStyles();
         ShowSelectedJobEditorCell();
         UpdateJobEditorHistoryButtons();
+    }
+
+    private void OpenJobEquipmentAttributeEditor(int rowIndex)
+    {
+        if (_currentJobEditorData == null || rowIndex < 0 || rowIndex >= _jobEditorGrid.Rows.Count) return;
+        _jobEditorGrid.EndEdit();
+        var row = TryGetDataRow(_jobEditorGrid.Rows[rowIndex]);
+        if (row == null) return;
+
+        var jobId = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+        var jobName = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+        using var dialog = new JobEquipmentAttributeDialog(jobId, jobName, row, GetJobEquipmentPermissionSlots());
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        ApplyJobEquipmentAttributeDialogChanges(row, dialog.EquipmentValues);
+    }
+
+    private void ApplyJobEquipmentAttributeDialogChanges(DataRow row, IReadOnlyDictionary<string, int> values)
+    {
+        if (_currentJobEditorData == null || row.RowState == DataRowState.Detached) return;
+
+        var edits = new List<JobEditorCellEdit>();
+        foreach (var slot in GetJobEquipmentPermissionSlots())
+        {
+            var columnName = slot.StorageColumnName;
+            if (!row.Table.Columns.Contains(columnName) || !values.TryGetValue(columnName, out var newValue)) continue;
+            var oldValue = NormalizeGridCellValue(row[columnName]);
+            if (Equals(oldValue, newValue)) continue;
+
+            row[columnName] = newValue;
+            edits.Add(new JobEditorCellEdit(row, columnName, oldValue, NormalizeGridCellValue(row[columnName])));
+        }
+
+        RefreshJobEquipmentSummary(row);
+        if (edits.Count > 0)
+        {
+            PushJobEditorHistory(edits);
+            RefreshJobEditorAfterBulkEdit();
+            SetStatus($"详细兵种 {Convert.ToString(row["ID"], CultureInfo.InvariantCulture)} 可装备类别已更新：{edits.Count} 项。");
+        }
+        else
+        {
+            ShowSelectedJobEditorCell();
+            SetStatus("可装备类别没有产生改动。");
+        }
     }
 
     private void SnapshotJobEditorSelectionForEdit()
@@ -2733,7 +2932,7 @@ public sealed partial class MainForm
 
         if (columnName is not ("攻击范围" or "穿透"))
         {
-            ClearJobAreaPreview("选择“攻击范围”或“穿透”单元格可显示右侧范围图。");
+            ClearJobAreaPreview(BuildJobEquipmentPreviewText(row));
             return;
         }
 
@@ -2753,7 +2952,34 @@ public sealed partial class MainForm
             $"兵种 ID={id}  名称={name}\r\n" +
             $"字段={columnName}  值={fieldValue}\r\n" +
             result.Message + "\r\n" +
-            $"资源路径：{result.SourcePath}";
+            $"资源路径：{result.SourcePath}\r\n\r\n" +
+            BuildJobEquipmentPreviewText(row);
+    }
+
+    private string BuildJobEquipmentPreviewText(DataGridViewRow row)
+    {
+        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var enabled = GetJobEquipmentPermissionSlots()
+            .Where(slot => row.DataGridView?.Columns.Contains(slot.StorageColumnName) == true &&
+                           Convert.ToInt32(row.Cells[slot.StorageColumnName].Value, CultureInfo.InvariantCulture) != 0)
+            .ToList();
+        var enabledText = enabled.Count == 0
+            ? "无"
+            : string.Join("\r\n", enabled.Select(slot => "  " + slot.PreviewText));
+        var diagnostics = _currentEquipmentTypeProfile?.Diagnostics.Count > 0
+            ? "\r\n\r\n解析诊断：\r\n" + string.Join("\r\n", _currentEquipmentTypeProfile.Diagnostics.Take(4).Select(item => "  " + item))
+            : string.Empty;
+        var probe = _currentEquipmentTypeProfile?.NameTableProbe == null
+            ? "名称表：未采用，使用物品样例/兜底。"
+            : $"名称表：{_currentEquipmentTypeProfile.NameTableProbe.SummaryText}。";
+        return
+            $"兵种 ID={id}  名称={name}\r\n" +
+            probe + "\r\n" +
+            "可装备类别：\r\n" +
+            enabledText +
+            diagnostics +
+            "\r\n\r\n单击兵种行预览；双击该兵种行可打开复选框窗口编辑。";
     }
 
     private void ClearJobAreaPreview(string message)
@@ -2930,16 +3156,22 @@ public sealed partial class MainForm
         }
 
         _itemEffectNames = BuildItemEffectNameLookup(project, tables);
+        _currentEquipmentTypeProfile = _equipmentTypeProfileService.Build(project, tables, ResolveJobEquipmentStorageColumns());
+        _jobEquipmentPermissionSlots = _currentEquipmentTypeProfile.JobPermissionSlots;
 
         var output = new DataTable("宝物设定");
         output.Columns.Add("ID", typeof(int));
         output.Columns.Add("分段", typeof(string));
         output.Columns.Add("大类", typeof(string));
+        output.Columns.Add("物品大类", typeof(string));
         foreach (DataColumn column in _itemBaseLowRead.Data.Columns)
         {
             if (column.ColumnName == "ID") continue;
             output.Columns.Add(column.ColumnName, column.DataType);
         }
+        output.Columns.Add("项目类型", typeof(string));
+        output.Columns.Add("类型样例", typeof(string));
+        output.Columns.Add("类型来源", typeof(string));
         output.Columns.Add("类型说明", typeof(string));
         output.Columns.Add("价格显示", typeof(string));
         output.Columns.Add("装备特效名", typeof(string));
@@ -2957,6 +3189,9 @@ public sealed partial class MainForm
         output.Columns["ID"]!.ReadOnly = true;
         output.Columns["分段"]!.ReadOnly = true;
         output.Columns["大类"]!.ReadOnly = true;
+        output.Columns["项目类型"]!.ReadOnly = true;
+        output.Columns["类型样例"]!.ReadOnly = true;
+        output.Columns["类型来源"]!.ReadOnly = true;
         output.Columns["来源文件"]!.ReadOnly = true;
         return output;
     }
@@ -3010,9 +3245,11 @@ public sealed partial class MainForm
             var growth = output.Columns.Contains("升级能力成长")
                 ? Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture)
                 : 0;
-            var majorCategory = Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
+            var classification = ItemClassificationService.Classify(row, boundary);
+            row["物品大类"] = classification.DisplayName;
+            var majorCategory = classification.DisplayName;
             var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
-            row["类型说明"] = BuildItemTypeDescription(typeId, majorCategory, catalog);
+            RefreshItemEditorTypeProfileCells(row, typeId, majorCategory);
             row["价格显示"] = BuildItemPriceText(priceUnit);
             row["装备特效名"] = BuildItemEffectNameDisplay(majorCategory, typeId, effectId);
             row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, effectId);
@@ -3221,9 +3458,34 @@ public sealed partial class MainForm
         dialog.ShowDialog(this);
     }
 
-    private static string BuildItemTypeDescription(int typeId, string majorCategory, int catalog)
+    private string BuildItemTypeDescription(int typeId, string majorCategory, int catalog)
     {
-        return ItemTypeCatalogService.BuildShortName(typeId, majorCategory);
+        return GetEquipmentTypeDefinition(typeId, majorCategory).ShortDisplayName;
+    }
+
+    private ProjectEquipmentTypeDefinition GetEquipmentTypeDefinition(int typeId, string majorCategory)
+    {
+        if (_currentEquipmentTypeProfile != null)
+        {
+            return _currentEquipmentTypeProfile.GetTypeOrFallback(typeId, majorCategory);
+        }
+
+        var name = ItemTypeCatalogService.BuildShortName(typeId, majorCategory);
+        return new ProjectEquipmentTypeDefinition(
+            typeId,
+            name,
+            Array.Empty<string>(),
+            ItemTypeCatalogService.TryGetEntry(typeId, out _) ? EquipmentTypeSourceConfidence.LegacyFallback : EquipmentTypeSourceConfidence.Unknown,
+            "未读取当前项目 profile");
+    }
+
+    private void RefreshItemEditorTypeProfileCells(DataRow row, int typeId, string majorCategory)
+    {
+        var definition = GetEquipmentTypeDefinition(typeId, majorCategory);
+        if (row.Table.Columns.Contains("项目类型")) row["项目类型"] = definition.ShortDisplayName;
+        if (row.Table.Columns.Contains("类型样例")) row["类型样例"] = definition.SampleText;
+        if (row.Table.Columns.Contains("类型来源")) row["类型来源"] = definition.SourceDisplayName;
+        if (row.Table.Columns.Contains("类型说明")) row["类型说明"] = definition.ShortDisplayName;
     }
 
     private static string BuildItemPriceText(int priceUnit)
@@ -3255,7 +3517,6 @@ public sealed partial class MainForm
     private static bool IsHiddenItemEditorColumn(string columnName)
         => columnName is "分段"
             or "大类"
-            or "宝物图鉴"
             or "类型说明"
             or "价格显示"
             or "实际效果号"
@@ -3267,6 +3528,7 @@ public sealed partial class MainForm
         => columnName is "ID"
             or "图标"
             or "名称"
+            or "物品大类"
             or "类型"
             or "初始能力"
             or "升级能力成长"
@@ -3274,16 +3536,21 @@ public sealed partial class MainForm
             or "装备特效号"
             or "装备特效名"
             or "装备特效号-效果值"
+            or "宝物图鉴"
             or "介绍";
 
     private static string BuildItemEditorColumnHeader(string columnName)
         => columnName switch
         {
-            "类型" => "类别",
+            "类型" => "类型码",
+            "项目类型" => "项目类型",
+            "类型样例" => "类型样例",
+            "类型来源" => "来源",
             "升级能力成长" => "能力成长",
             "装备特效号" => "特效号",
             "装备特效名" => "特效名",
             "装备特效号-效果值" => "特效值",
+            "宝物图鉴" => "图鉴",
             _ => columnName
         };
 
@@ -3294,6 +3561,7 @@ public sealed partial class MainForm
             "ID",
             "名称",
             "图标",
+            "物品大类",
             "类型",
             "初始能力",
             "升级能力成长",
@@ -3301,6 +3569,7 @@ public sealed partial class MainForm
             "装备特效号",
             "装备特效名",
             "装备特效号-效果值",
+            "宝物图鉴",
             "介绍"
         };
 
@@ -3339,25 +3608,24 @@ public sealed partial class MainForm
         _itemEditorGrid.Columns.Insert(index, combo);
     }
 
-    private static DataTable BuildItemTypeLookup(DataTable itemData)
+    private DataTable BuildItemTypeLookup(DataTable itemData)
     {
-        var catalogEntries = ItemTypeCatalogService.GetEntries();
         var names = Enumerable.Range(0, byte.MaxValue + 1)
             .ToDictionary(
                 id => id,
-                id => ItemTypeCatalogService.BuildShortName(id, string.Empty));
+                id => GetEquipmentTypeDefinition(id, string.Empty).BuildComboText());
 
         if (itemData.Columns.Contains("类型"))
         {
             foreach (DataRow row in itemData.Rows)
             {
                 var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
-                if (catalogEntries.ContainsKey(typeId)) continue;
-
-                var majorCategory = itemData.Columns.Contains("大类")
-                    ? Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty
+                var majorCategory = row.Table.Columns.Contains("物品大类")
+                    ? Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+                    : row.Table.Columns.Contains("大类")
+                        ? Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty
                     : string.Empty;
-                names[typeId] = ItemTypeCatalogService.BuildShortName(typeId, majorCategory);
+                names[typeId] = GetEquipmentTypeDefinition(typeId, majorCategory).BuildComboText();
             }
         }
 
@@ -3380,13 +3648,15 @@ public sealed partial class MainForm
         foreach (DataGridViewColumn column in _itemEditorGrid.Columns)
         {
             column.Visible = IsVisibleItemEditorColumn(column.DataPropertyName) && !IsHiddenItemEditorColumn(column.DataPropertyName);
-            column.ReadOnly = column.DataPropertyName is "ID" or "分段" or "大类" or "类型说明" or "价格显示" or "装备特效名" or "实际效果号" or "实际效果说明" or "特效提示" or "来源文件";
+            column.ReadOnly = column.DataPropertyName is "ID" or "分段" or "大类" or "物品大类" or "项目类型" or "类型样例" or "类型来源" or "类型说明" or "价格显示" or "装备特效名" or "实际效果号" or "实际效果说明" or "特效提示" or "来源文件";
             column.ToolTipText = BuildItemColumnAnnotation(column.DataPropertyName);
             column.HeaderText = BuildItemEditorColumnHeader(column.DataPropertyName);
             if (column.DataPropertyName == "ID") column.Width = 48;
             if (column.DataPropertyName == "图标") column.Width = 56;
             if (column.DataPropertyName == "名称") column.Width = 130;
-            if (column.DataPropertyName == "类型") column.Width = 150;
+            if (column.DataPropertyName == "物品大类") column.Width = 92;
+            if (column.DataPropertyName == "类型") column.Width = 220;
+            if (column.DataPropertyName == "宝物图鉴") column.Width = 60;
             if (column.DataPropertyName == "装备特效名")
             {
                 column.MinimumWidth = 120;
@@ -3403,14 +3673,19 @@ public sealed partial class MainForm
     {
         if (columnName == "ID") return "物品/宝物编号；0-103 来源 Data.e5，104 以后来源 Star.e5。";
         if (columnName == "分段") return "物品表分段，只读显示，用于确认写回 Data.e5 或 Star.e5。";
-        if (columnName == "大类") return "按 B形象指定器 System.ini 的 DefID/AssID 分段推断：DefID=防具起始，AssID=辅助起始。";
-        if (columnName == "类型") return "旧版“类别”显示：界面显示映射名称，保存仍写回原始类型码。";
-        if (columnName == "类型说明") return "隐藏筛选列：只保留类型映射短名。";
+        if (columnName == "大类") return "按 B形象指定器 System.ini 的 DefID/AssID 分段推断：AssID..255 只是辅助段编码范围，仍需按物品内容区分辅助装备/道具。";
+        if (columnName == "物品大类") return "内容感知分类：武器、防具、辅助装备、道具/消耗品、预留/空位。辅助段内按装备特效号 2/3 区分。";
+        if (columnName == "类型") return "物品表的类型码字段，旧工具常显示为“类别”；它不是兵种设定里的可装备类别。保存仍写回原始单字节类型码。";
+        if (columnName == "项目类型") return "按当前 MOD 的 Data.e5/Star.e5 物品样例、Ekd5.exe 装备类型名称表和可选人工 JSON 解析出的项目化类型名，只读显示。";
+        if (columnName == "类型样例") return "当前项目中同一类型码的物品样例，用来判断作者自定义分类，例如弩、戟、长柄、炮车等。";
+        if (columnName == "类型来源") return "项目类型名来源：人工确认 JSON > EXE 名称表 > Data/Star 样例推断 > 旧内置目录兜底 > 待确认。";
+        if (columnName == "宝物图鉴") return "物品 25 字节行最后一字节；按旧资料作为宝物图鉴/宝物标记处理，不作为辅助装备可装备部队列表。";
+        if (columnName == "类型说明") return "隐藏筛选列：保留项目化类型短名，兼容旧筛选/烟测入口。";
         if (columnName == "价格显示") return "隐藏重复列；界面只保留原始可编辑的“价格（/100）”。";
         if (columnName == "装备特效名") return "根据装备特效号读取中文特效名称；普通/无特效显示“无”。";
         if (columnName == "实际效果号") return "创作者视角的实际效果候选：武器/防具优先取装备特效号；辅助装备常见原始值 2、道具常见原始值 3 时，当前优先改看类型字段。";
-        if (columnName == "实际效果说明") return "对原始字段的保守纠偏说明，用于避免把辅助/道具类别标记误读成真实装备特效。";
-        if (columnName == "特效提示") return "把装备特效号、效果值和成长集中提示；辅助/道具段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
+        if (columnName == "实际效果说明") return "对原始字段的保守纠偏说明，用于避免把辅助装备/道具类别标记误读成真实装备特效。";
+        if (columnName == "特效提示") return "把装备特效号、效果值和成长集中提示；辅助段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
         if (columnName == "图标") return "物品图标编号；界面会按该编号从 Itemicon.dll 提取候选图标预览，最终映射仍建议实机确认。";
         if (columnName == "介绍") return "物品说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。";
         if (columnName == "来源文件") return "本行基础字段与说明字段的目标文件，只读显示。";
@@ -3421,14 +3696,27 @@ public sealed partial class MainForm
         return columnName;
     }
 
-    private static string BuildItemEditorSummary(DataTable data)
+    private string BuildItemEditorSummary(DataTable data)
     {
         var named = data.Rows.Cast<DataRow>().Count(row => !string.IsNullOrWhiteSpace(Convert.ToString(row["名称"], CultureInfo.InvariantCulture)));
         var low = data.Rows.Cast<DataRow>().Count(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) <= 103);
         var high = data.Rows.Count - low;
+        var kindGroups = data.Rows.Cast<DataRow>()
+            .GroupBy(row => Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? "未知")
+            .OrderBy(group => group.Key, StringComparer.CurrentCulture)
+            .Select(group => $"{group.Key}{group.Count()}");
+        var typeSourceGroups = data.Columns.Contains("类型来源")
+            ? data.Rows.Cast<DataRow>()
+                .GroupBy(row => Convert.ToString(row["类型来源"], CultureInfo.InvariantCulture) ?? "待确认")
+                .OrderBy(group => group.Key, StringComparer.CurrentCulture)
+                .Select(group => $"{group.Key}{group.Count()}")
+            : Array.Empty<string>();
+        var notesPath = _currentEquipmentTypeProfile?.NotesPath ?? ProjectEquipmentTypeProfileService.BuildNotesPath(_project!);
         return
             $"宝物设定已读取：总行 {data.Rows.Count}，已命名 {named}，0-103 段 {low} 行，104+ 段 {high} 行。\r\n" +
-            "界面按旧版宝物编辑器顺序显示：ID、名称、图标、类别、初始能力、能力成长、价格、特效号、特效名、特效值、介绍；隐藏分段/大类/图鉴/长解释列和重复价格列。\r\n" +
+            $"物品大类：{string.Join("，", kindGroups)}。\r\n" +
+            $"项目类型来源：{string.Join("，", typeSourceGroups)}；人工校正文件：{notesPath}\r\n" +
+            "界面按旧版宝物编辑器顺序显示：ID、名称、图标、物品大类、类型码、初始能力、能力成长、价格、特效号、特效名、特效值、图鉴、介绍；隐藏分段/项目类型诊断/长解释列和重复价格列。\r\n" +
             "右侧图标预览按“图标”字段从 Itemicon.dll 枚举候选图标，保存仍写回 Data.e5、Star.e5、Imsg.e5 的原始字段。\r\n" +
             "保存会写回 Data.e5、Star.e5、Imsg.e5，保存前自动备份，保存后重新读取校验。";
     }
@@ -3447,7 +3735,7 @@ public sealed partial class MainForm
         var escaped = EscapeDataViewLikeValue(keyword);
         var filters = _currentItemEditorData.Columns
             .Cast<DataColumn>()
-            .Where(column => column.ColumnName is "ID" or "分段" or "大类" or "名称" or "类型" or "类型说明" or "装备特效号" or "装备特效名" or "特效提示" or "价格（/100）" or "图标" or "宝物图鉴" or "介绍")
+            .Where(column => column.ColumnName is "ID" or "分段" or "大类" or "物品大类" or "名称" or "类型" or "项目类型" or "类型样例" or "类型来源" or "类型说明" or "装备特效号" or "装备特效名" or "特效提示" or "价格（/100）" or "图标" or "宝物图鉴" or "介绍")
             .Select(column => $"CONVERT([{column.ColumnName}], 'System.String') LIKE '*{escaped}*'");
         _currentItemEditorData.DefaultView.RowFilter = string.Join(" OR ", filters);
         SetStatus($"宝物筛选：{_currentItemEditorData.DefaultView.Count}/{_currentItemEditorData.Rows.Count}");
@@ -3461,7 +3749,32 @@ public sealed partial class MainForm
     }
 
     private void ExportItemEditorCsv()
-        => ExportDataTableCsv(_currentItemEditorData, "宝物设定.csv");
+        => ExportItemEditorVisibleCsv();
+
+    private void ExportItemEditorVisibleCsv()
+    {
+        if (_currentItemEditorData == null) return;
+        var columns = new[]
+            {
+                "ID",
+                "名称",
+                "图标",
+                "物品大类",
+                "类型",
+                "初始能力",
+                "升级能力成长",
+                "价格（/100）",
+                "装备特效号",
+                "装备特效名",
+                "装备特效号-效果值",
+                "宝物图鉴",
+                "介绍"
+            }
+            .Where(_currentItemEditorData.Columns.Contains)
+            .ToArray();
+
+        ExportDataTableCsv(_currentItemEditorData, "宝物设定.csv", columns);
+    }
 
     private void ImportItemEditorCsv()
     {
@@ -3520,6 +3833,10 @@ public sealed partial class MainForm
     private static string[] GetItemEditorDerivedColumnNames()
         =>
         [
+            "物品大类",
+            "项目类型",
+            "类型样例",
+            "类型来源",
             "类型说明",
             "价格显示",
             "装备特效名",
@@ -4127,12 +4444,16 @@ public sealed partial class MainForm
             return;
         }
 
-        var category = Convert.ToString(dataRow["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
+        var category = dataRow.Table.Columns.Contains("物品大类")
+            ? Convert.ToString(dataRow["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+            : Convert.ToString(dataRow["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
         _itemEditorGrid.Rows[rowIndex].DefaultCellStyle.BackColor = category switch
         {
             "武器" => Color.FromArgb(255, 250, 240),
             "防具" => Color.FromArgb(245, 250, 255),
-            "辅助/道具" => Color.FromArgb(248, 255, 248),
+            "辅助装备" => Color.FromArgb(248, 255, 248),
+            "道具/消耗品" => Color.FromArgb(255, 252, 242),
+            "预留/空位" => Color.FromArgb(245, 245, 245),
             _ => Color.Empty
         };
     }
@@ -4145,24 +4466,26 @@ public sealed partial class MainForm
         var row = TryGetDataRow(_itemEditorGrid.Rows[rowIndex]);
         if (row == null) return;
 
-        if ((columnName is "类型" or "宝物图鉴") &&
+        if ((columnName is "类型" or "装备特效号" or "宝物图鉴" or "名称") &&
             row.Table.Columns.Contains("类型说明") &&
             row.Table.Columns.Contains("类型") &&
             row.Table.Columns.Contains("宝物图鉴"))
         {
-            row["类型说明"] = BuildItemTypeDescription(
+            RefreshItemEditorClassificationCells(row);
+            RefreshItemEditorTypeProfileCells(
+                row,
                 Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture),
-                Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty,
-                Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture));
+                Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty);
         }
 
-        if ((columnName is "类型" or "装备特效号" or "装备特效号-效果值" or "升级能力成长") &&
+        if ((columnName is "类型" or "装备特效号" or "装备特效号-效果值" or "升级能力成长" or "名称") &&
             row.Table.Columns.Contains("实际效果号") &&
             row.Table.Columns.Contains("实际效果说明") &&
             row.Table.Columns.Contains("装备特效名") &&
             row.Table.Columns.Contains("特效提示"))
         {
-            var majorCategory = Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
+            RefreshItemEditorClassificationCells(row);
+            var majorCategory = Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
             var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
             var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
@@ -4186,10 +4509,11 @@ public sealed partial class MainForm
             row.Table.Columns.Contains("类型") &&
             row.Table.Columns.Contains("宝物图鉴"))
         {
-            row["类型说明"] = BuildItemTypeDescription(
+            RefreshItemEditorClassificationCells(row);
+            RefreshItemEditorTypeProfileCells(
+                row,
                 Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture),
-                Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty,
-                Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture));
+                Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty);
         }
 
         if (row.Table.Columns.Contains("价格显示") &&
@@ -4207,7 +4531,8 @@ public sealed partial class MainForm
             row.Table.Columns.Contains("装备特效号-效果值") &&
             row.Table.Columns.Contains("升级能力成长"))
         {
-            var majorCategory = Convert.ToString(row["大类"], CultureInfo.InvariantCulture) ?? string.Empty;
+            RefreshItemEditorClassificationCells(row);
+            var majorCategory = Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
             var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
             var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
@@ -4222,6 +4547,20 @@ public sealed partial class MainForm
                 Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture),
                 Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture));
         }
+    }
+
+    private void RefreshItemEditorClassificationCells(DataRow row)
+    {
+        if (!row.Table.Columns.Contains("物品大类")) return;
+        var boundary = _project != null
+            ? ItemCategoryBoundaryService.Resolve(_project)
+            : new ItemCategoryBoundary(
+                ItemCategoryBoundaryService.MinItemId,
+                ItemCategoryBoundaryService.DefaultDefenseStartId,
+                ItemCategoryBoundaryService.DefaultAccessoryStartId,
+                "默认：未打开项目",
+                IsFallback: true);
+        row["物品大类"] = ItemClassificationService.Classify(row, boundary).DisplayName;
     }
 
     private void ShowSelectedItemEditorCell()
@@ -4239,6 +4578,9 @@ public sealed partial class MainForm
         var typeText = _itemEditorGrid.Columns.Contains("类型")
             ? row.Cells["类型"].FormattedValue
             : string.Empty;
+        var kindText = _itemEditorGrid.Columns.Contains("物品大类")
+            ? row.Cells["物品大类"].FormattedValue
+            : string.Empty;
         var priceText = _itemEditorGrid.Columns.Contains("价格（/100）")
             ? row.Cells["价格（/100）"].Value
             : string.Empty;
@@ -4249,7 +4591,7 @@ public sealed partial class MainForm
             _ => string.Empty
         };
         _itemEditorInfoBox.Text =
-            $"宝物/物品：ID={id}    名称={name}    类别={typeText}    价格字段={priceText}{effectText}\r\n" +
+            $"宝物/物品：ID={id}    名称={name}    物品大类={kindText}    类型码={typeText}    价格字段={priceText}{effectText}\r\n" +
             $"字段：{BuildItemEditorColumnHeader(columnName)}    当前值：{value}{extra}\r\n\r\n" +
             BuildItemColumnAnnotation(columnName);
         UpdateItemIconPreview(row);

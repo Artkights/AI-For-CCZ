@@ -19,5 +19,25 @@
     <SelfContained Condition="'$(UseAppHost)' == 'false'">false</SelfContained>
   </PropertyGroup>
 
-</Project>
+  <PropertyGroup>
+    <CczPublishRuntimeSubdirectory Condition="'$(CczPublishRuntimeSubdirectory)' == ''">net</CczPublishRuntimeSubdirectory>
+  </PropertyGroup>
 
+  <Target Name="CleanMaterialLibraryOutputBeforeCopy"
+          BeforeTargets="_CopyOutOfDateSourceItemsToOutputDirectory;_CopyOutOfDateSourceItemsToOutputDirectoryAlways;_CopyOutOfDateSourceItemsToOutputDirectoryPreserveNewest">
+    <ItemGroup>
+      <_MaterialLibraryOutputDirs Include="$(OutDir)LegacyResources\普罗-综合工具v0.3\素材库" />
+      <_MaterialLibraryOutputDirs Include="$(OutDir)$(CczPublishRuntimeSubdirectory)\LegacyResources\普罗-综合工具v0.3\素材库" />
+      <_MaterialLibraryOutputDirs Include="$(TargetDir)LegacyResources\普罗-综合工具v0.3\素材库" />
+      <_MaterialLibraryOutputDirs Include="$(TargetDir)$(CczPublishRuntimeSubdirectory)\LegacyResources\普罗-综合工具v0.3\素材库" />
+    </ItemGroup>
+    <ItemGroup>
+      <_ExistingMaterialLibraryOutputDirs Include="@(_MaterialLibraryOutputDirs)" Condition="Exists('%(_MaterialLibraryOutputDirs.Identity)')" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_ExistingMaterialLibraryOutputDirs)">
+      <Output TaskParameter="Filtered" ItemName="_DistinctMaterialLibraryOutputDirs" />
+    </RemoveDuplicates>
+    <RemoveDir Directories="@(_DistinctMaterialLibraryOutputDirs)" />
+  </Target>
+
+</Project>

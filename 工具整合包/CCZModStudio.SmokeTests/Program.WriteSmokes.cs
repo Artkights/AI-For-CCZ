@@ -584,14 +584,12 @@ internal partial class Program
         var jobTerrainPowerTable = tables.Single(t => t.TableName == "6.5-3-1 地形发挥");
         var jobMoveCostTable = tables.Single(t => t.TableName == "6.5-3-2 移动消耗");
         var jobRestraintTable = tables.Single(t => t.TableName == "6.5-3-3 兵种相克");
-        var jobAttributeTable = tables.Single(t => t.TableName == "6.5-3-4 兵种属性");
         var jobSeriesRead = reader.Read(testProject, jobSeriesTable, tables);
         var jobTerrainPowerRead = reader.Read(testProject, jobTerrainPowerTable, tables);
         var jobMoveCostRead = reader.Read(testProject, jobMoveCostTable, tables);
         var jobRestraintRead = reader.Read(testProject, jobRestraintTable, tables);
-        var jobAttributeRead = reader.Read(testProject, jobAttributeTable, tables);
         if (!jobSeriesRead.Validation.IsUsable || !jobTerrainPowerRead.Validation.IsUsable || !jobMoveCostRead.Validation.IsUsable ||
-            !jobRestraintRead.Validation.IsUsable || !jobAttributeRead.Validation.IsUsable)
+            !jobRestraintRead.Validation.IsUsable)
         {
             throw new InvalidOperationException("兵种系/地形/矩阵写入烟测读取失败。");
         }
@@ -639,28 +637,45 @@ internal partial class Program
         var restraintOriginal = Convert.ToInt32(restraintRow[restraintColumn], CultureInfo.InvariantCulture);
         var restraintChanged = restraintOriginal == 100 ? 95 : 100;
         restraintRow[restraintColumn] = restraintChanged;
-        var attributeColumn = jobAttributeRead.Data.Columns.Contains("0") ? "0" : jobAttributeRead.Data.Columns.Cast<DataColumn>().First(c => c.ColumnName != "ID").ColumnName;
-        var attributeRow = FindSmokeRowById(jobAttributeRead.Data, 0);
-        var attributeOriginal = Convert.ToInt32(attributeRow[attributeColumn], CultureInfo.InvariantCulture);
-        var attributeChanged = attributeOriginal == 1 ? 2 : 1;
-        attributeRow[attributeColumn] = attributeChanged;
+        var equipmentColumn = jobGrowthRead.Data.Columns.Contains("普通剑")
+            ? "普通剑"
+            : jobGrowthRead.Data.Columns.Cast<DataColumn>().First(c => c.ColumnName is not "ID" and not "名称" and not "移动力" and not "攻击范围" and not "攻击" and not "防御" and not "精神" and not "爆发" and not "士气" and not "HP" and not "MP").ColumnName;
+        var equipmentColumnIndex = jobGrowthRead.Data.Columns.IndexOf(equipmentColumn);
+        var equipmentFieldOffset = jobGrowthTable.Fields
+            .Take(Math.Max(0, equipmentColumnIndex - 1))
+            .Where(field => field.ConsumesBytes)
+            .Sum(field => field.Size);
+        var equipmentFilePath = testProject.ResolveGameFile(jobGrowthTable.FileName);
+        var beforeEquipmentBytes = File.ReadAllBytes(equipmentFilePath);
+        var expectedEquipmentOffset = jobGrowthTable.DataPos + ((long)jobId * jobGrowthTable.RowSize) + equipmentFieldOffset;
+        var equipmentRow = FindSmokeRowById(jobGrowthRead.Data, jobId);
+        var equipmentOriginal = Convert.ToInt32(equipmentRow[equipmentColumn], CultureInfo.InvariantCulture);
+        var equipmentChanged = equipmentOriginal == 0 ? 1 : 0;
+        equipmentRow[equipmentColumn] = equipmentChanged;
         var matrixSaves = new[]
         {
             writer.Save(testProject, jobRestraintTable, jobRestraintRead.Data),
-            writer.Save(testProject, jobAttributeTable, jobAttributeRead.Data)
+            writer.Save(testProject, jobGrowthTable, jobGrowthRead.Data)
         };
         var jobRestraintVerify = reader.Read(testProject, jobRestraintTable, tables);
-        var jobAttributeVerify = reader.Read(testProject, jobAttributeTable, tables);
+        var jobGrowthEquipmentVerify = reader.Read(testProject, jobGrowthTable, tables);
+        var afterEquipmentBytes = File.ReadAllBytes(equipmentFilePath);
+        var equipmentChangedOffsets = beforeEquipmentBytes
+            .Select((value, index) => (value, index))
+            .Where(pair => pair.value != afterEquipmentBytes[pair.index])
+            .Select(pair => (long)pair.index)
+            .ToArray();
         var restraintActual = Convert.ToInt32(FindSmokeRowById(jobRestraintVerify.Data, seriesId)[restraintColumn], CultureInfo.InvariantCulture);
-        var attributeActual = Convert.ToInt32(FindSmokeRowById(jobAttributeVerify.Data, 0)[attributeColumn], CultureInfo.InvariantCulture);
+        var equipmentActual = Convert.ToInt32(FindSmokeRowById(jobGrowthEquipmentVerify.Data, jobId)[equipmentColumn], CultureInfo.InvariantCulture);
         if (restraintActual != restraintChanged ||
-            attributeActual != attributeChanged ||
+            equipmentActual != equipmentChanged ||
+            !equipmentChangedOffsets.SequenceEqual(new[] { expectedEquipmentOffset }) ||
             matrixSaves.Any(x => string.IsNullOrWhiteSpace(x.BackupPath) || !File.Exists(x.BackupPath)))
         {
-            throw new InvalidOperationException($"兵种相克/属性矩阵写入烟测复读失败：restraint={restraintActual}, attribute={attributeActual}");
+            throw new InvalidOperationException($"兵种相克/可装备类别写入烟测复读失败：restraint={restraintActual}, {equipmentColumn}={equipmentActual}, offsets={string.Join(",", equipmentChangedOffsets.Select(offset => offset.ToString("X", CultureInfo.InvariantCulture)))} expected={expectedEquipmentOffset:X}");
         }
     
-        Console.WriteLine($"JOB_MATRIX_WRITE_SMOKE_OK 相克[{seriesId},{restraintColumn}]={restraintOriginal}->{restraintActual} 属性[0,{attributeColumn}]={attributeOriginal}->{attributeActual} saves={matrixSaves.Length}");
+        Console.WriteLine($"JOB_MATRIX_WRITE_SMOKE_OK 相克[{seriesId},{restraintColumn}]={restraintOriginal}->{restraintActual} 详细兵种[{jobId},{equipmentColumn}]={equipmentOriginal}->{equipmentActual} byteOffset=0x{expectedEquipmentOffset:X} saves={matrixSaves.Length}");
     
         var jobEffectDescriptionTable = tables.Single(t => t.TableName == "6.5-7-1 兵种特效说明");
         var jobEffectAssignmentTable = tables.Single(t => t.TableName == "6.5-7-2 兵种特效分配");

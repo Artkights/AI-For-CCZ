@@ -4,7 +4,9 @@ public static class MapCellOverrideSources
 {
     public const string ManualOverride = "ManualOverride";
     public const string Generated = "Generated";
+    public const string TerrainBase = "TerrainBase";
     public const string BuildingOverlay = "BuildingOverlay";
+    public const string SceneryOverlay = "SceneryOverlay";
 }
 
 public sealed class MapCellOverride

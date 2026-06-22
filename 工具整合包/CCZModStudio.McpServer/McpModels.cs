@@ -119,3 +119,165 @@ public sealed class BattlefieldUnitAbilityUpdate
     [JsonPropertyName("value")]
     public int? Value { get; init; }
 }
+
+public sealed class MapDraftSaveRequest
+{
+    [JsonPropertyName("draft")]
+    public JsonElement? Draft { get; init; }
+
+    [JsonPropertyName("draft_id")]
+    public string DraftId { get; init; } = string.Empty;
+
+    [JsonPropertyName("bound_map_id")]
+    public string BoundMapId { get; init; } = string.Empty;
+
+    [JsonPropertyName("grid_width")]
+    public int? GridWidth { get; init; }
+
+    [JsonPropertyName("grid_height")]
+    public int? GridHeight { get; init; }
+
+    [JsonPropertyName("base_layer_path")]
+    public string? BaseLayerPath { get; init; }
+
+    [JsonPropertyName("material_root")]
+    public string? MaterialRoot { get; init; }
+
+    [JsonPropertyName("auto_generate_map_from_terrain")]
+    public bool? AutoGenerateMapFromTerrain { get; init; }
+
+    [JsonPropertyName("beautify_generated_map")]
+    public bool? BeautifyGeneratedMap { get; init; }
+
+    [JsonPropertyName("beautify_strength")]
+    public int? BeautifyStrength { get; init; }
+
+    [JsonPropertyName("feather_radius")]
+    public int? FeatherRadius { get; init; }
+}
+
+public sealed class ShopRowUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("campaign_name")]
+    public string? CampaignName { get; init; }
+
+    [JsonPropertyName("shop_values")]
+    public Dictionary<string, JsonElement> ShopValues { get; init; } = new(StringComparer.Ordinal);
+}
+
+public sealed class GlobalSettingsUpdate
+{
+    [JsonPropertyName("game_title")]
+    public string? GameTitle { get; init; }
+
+    [JsonPropertyName("job_series_names")]
+    public Dictionary<int, string> JobSeriesNames { get; init; } = new();
+
+    [JsonPropertyName("detailed_job_names")]
+    public Dictionary<int, string> DetailedJobNames { get; init; } = new();
+}
+
+public sealed class RSceneDraftSaveRequest
+{
+    [JsonPropertyName("scenario_file_name")]
+    public string ScenarioFileName { get; init; } = string.Empty;
+
+    [JsonPropertyName("background_image_number")]
+    public int BackgroundImageNumber { get; init; }
+
+    [JsonPropertyName("grid_size")]
+    public int GridSize { get; init; } = 16;
+
+    [JsonPropertyName("actors")]
+    public List<RSceneActorSaveRequest> Actors { get; init; } = [];
+}
+
+public sealed class RSceneActorSaveRequest
+{
+    [JsonPropertyName("target_key")]
+    public string TargetKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("person_id")]
+    public int PersonId { get; init; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("job_id")]
+    public int? JobId { get; init; }
+
+    [JsonPropertyName("job_name")]
+    public string JobName { get; init; } = string.Empty;
+
+    [JsonPropertyName("r_image_id")]
+    public int RImageId { get; init; }
+
+    [JsonPropertyName("s_image_id")]
+    public int SImageId { get; init; }
+
+    [JsonPropertyName("facing")]
+    public string Facing { get; init; } = string.Empty;
+
+    [JsonPropertyName("frame_index")]
+    public int FrameIndex { get; init; }
+
+    [JsonPropertyName("grid_x")]
+    public int GridX { get; init; }
+
+    [JsonPropertyName("grid_y")]
+    public int GridY { get; init; }
+
+    [JsonPropertyName("pixel_x")]
+    public int PixelX { get; init; }
+
+    [JsonPropertyName("pixel_y")]
+    public int PixelY { get; init; }
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = "MCP";
+
+    [JsonPropertyName("actor_note")]
+    public string ActorNote { get; init; } = string.Empty;
+
+    [JsonPropertyName("last_action_target_key")]
+    public string LastActionTargetKey { get; init; } = string.Empty;
+}
+
+public sealed class BattlefieldDeploymentUpdate
+{
+    [JsonPropertyName("target_key")]
+    public string TargetKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("person_id")]
+    public int PersonId { get; init; }
+
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("grid_x")]
+    public int GridX { get; init; }
+
+    [JsonPropertyName("grid_y")]
+    public int GridY { get; init; }
+
+    [JsonPropertyName("ai_mode")]
+    public string AiMode { get; init; } = string.Empty;
+
+    [JsonPropertyName("direction")]
+    public string Direction { get; init; } = string.Empty;
+
+    [JsonPropertyName("hidden")]
+    public bool Hidden { get; init; }
+
+    [JsonPropertyName("faction")]
+    public string Faction { get; init; } = string.Empty;
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = "MCP";
+
+    [JsonPropertyName("placement_note")]
+    public string PlacementNote { get; init; } = string.Empty;
+}

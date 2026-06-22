@@ -81,6 +81,14 @@ internal partial class Program
         AssertEqual(70, dataSources.WeaponCount, "legacy equipment preview weapon count follows System.ini DefID");
         AssertEqual(39, dataSources.ArmorCount, "legacy equipment preview armor count follows System.ini AssID");
         AssertEqual(147, dataSources.AssistCount, "legacy equipment preview assist count follows System.ini AssID");
+        var consumableClassification = dataSources.ItemClassifications.Values.FirstOrDefault(item => item.Kind == ItemKind.Consumable);
+        if (consumableClassification != null)
+        {
+            AssertTrue(
+                dataSources.Item[consumableClassification.ItemId].Contains("道具/消耗品-不可装备", StringComparison.Ordinal),
+                "legacy item list labels consumables as not equipable");
+        }
+
         var equipmentSet = BuildDisplayCommand(0x48, "战场装备设定", [0, 0, 0, 0, 0, 15], string.Empty);
         var equipmentSetText = formatter.FormatCommand(equipmentSet);
         AssertTrue(equipmentSetText.Contains("122:绝影", StringComparison.Ordinal), "command 48 assist code 15 maps to global item ID122");

@@ -227,7 +227,8 @@ public sealed class ShopEditorService
                 var effectValue = row.Table.Columns.Contains("装备特效号-效果值") ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture) : 0;
                 var growth = row.Table.Columns.Contains("升级能力成长") ? Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture) : 0;
                 var catalog = row.Table.Columns.Contains("宝物图鉴") ? Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture) : 0;
-                var category = boundary.GetMajorCategory(id);
+                var classification = ItemClassificationService.Classify(row, boundary);
+                var category = classification.DisplayName;
                 var typeText = ItemTypeCatalogService.BuildDescription(typeId, category, catalog);
                 var effectName = BuildItemEffectNameDisplay(category, typeId, effectId, itemEffectNames);
                 var effectHint = ItemEffectInterpretationService.BuildEffectHint(category, typeId, effectId, effectName, effectValue, growth);

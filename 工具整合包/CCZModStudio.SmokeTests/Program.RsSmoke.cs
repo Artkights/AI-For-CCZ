@@ -363,7 +363,7 @@ internal partial class Program
             (TypeId: 8, Expected: "普通弩系", MajorCategory: "武器", Catalog: 0),
             (TypeId: 10, Expected: "普通锤系", MajorCategory: "武器", Catalog: 0),
             (TypeId: 12, Expected: "普通斧系", MajorCategory: "武器", Catalog: 0),
-            (TypeId: 58, Expected: "四神宝玉/铜雀", MajorCategory: "辅助/道具", Catalog: 1)
+            (TypeId: 58, Expected: "四神宝玉/铜雀", MajorCategory: "辅助装备", Catalog: 1)
         };
         foreach (var check in itemTypeCatalogChecks)
         {
@@ -374,6 +374,37 @@ internal partial class Program
             }
         }
         Console.WriteLine("ITEM_TYPE_CATALOG type8=普通弩系 type10=普通锤系 type12=普通斧系 type58=四神宝玉/铜雀");
+
+        var probeSampleNames = new Dictionary<int, IReadOnlyList<string>>();
+        var profile = new ProjectEquipmentTypeProfileService().Build(
+            project,
+            tables,
+            Enumerable.Range(0, ProjectEquipmentTypeProfileService.JobPermissionSlotCount)
+                .Select(index => $"装备许可{index:D2}")
+                .ToArray());
+        var nameTableProbeService = new EquipmentTypeNameTableProbeService();
+        var nameTableProbe = nameTableProbeService.ProbeBest(project, probeSampleNames);
+        var nameTableProbeResults = nameTableProbeService.ProbeAll(project, probeSampleNames);
+        var dataLength = new FileInfo(project.ResolveGameFile("Data.e5")).Length;
+        if (profile.JobPermissionSlots.Count != ProjectEquipmentTypeProfileService.JobPermissionSlotCount ||
+            profile.JobPermissionSlots.Any(slot => string.IsNullOrWhiteSpace(slot.StorageColumnName)) ||
+            !profile.Types.TryGetValue(8, out var type8) ||
+            type8.Source is EquipmentTypeSourceConfidence.LegacyFallback or EquipmentTypeSourceConfidence.Unknown ||
+            type8.SampleItemNames.Count == 0 ||
+            profile.NameTableProbe == null ||
+            !string.Equals(profile.NameTableProbe.FileName, "Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
+            profile.NameTableProbe.Offset != ProjectEquipmentTypeProfileService.ExeTypeNameTableOffset ||
+            !profile.NameTableProbe.Names.Take(5).SequenceEqual(new[] { "剑", "枪", "弓", "刀", "炮车" }) ||
+            !type8.SourceDisplayName.Contains("Ekd5.exe@0x8AC70", StringComparison.OrdinalIgnoreCase) ||
+            dataLength > ProjectEquipmentTypeProfileService.ExeTypeNameTableOffset ||
+            nameTableProbe == null ||
+            nameTableProbe.Offset != ProjectEquipmentTypeProfileService.ExeTypeNameTableOffset ||
+            !nameTableProbeResults.Any(result => string.Equals(result.FileName, "Data.e5", StringComparison.OrdinalIgnoreCase) &&
+                                                 result.Diagnostics.Any(line => line.Contains("不能当作离线 Data.e5 文件偏移", StringComparison.Ordinal))))
+        {
+            throw new InvalidOperationException($"项目化装备类型 profile 不符合预期：slots={profile.JobPermissionSlots.Count}, type8={profile.Types.GetValueOrDefault(8)?.DisplayName ?? "<missing>"} source={profile.Types.GetValueOrDefault(8)?.SourceDisplayName}, probe={profile.NameTableProbe?.SummaryText ?? "<missing>"}, dataLen=0x{dataLength:X}");
+        }
+        Console.WriteLine($"PROJECT_EQUIPMENT_TYPE_PROFILE slots={profile.JobPermissionSlots.Count} type8={type8.DisplayName} source={type8.SourceDisplayName} probe={profile.NameTableProbe.SummaryText} dataLen=0x{dataLength:X} samples={string.Join("/", type8.SampleItemNames.Take(3))}");
 
         var itemBoundary = ItemCategoryBoundaryService.Resolve(project);
         if (itemBoundary.WeaponStartId != 0 ||
@@ -415,7 +446,7 @@ internal partial class Program
         var unitStatusService = new BattlefieldUnitStatusWriteService();
         var weaponItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.WeaponStartId, itemBoundary.WeaponCount, "武器", "默认装备", "卸去装备");
         var armorItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.DefenseStartId, itemBoundary.DefenseCount, "防具", "默认装备", "卸去装备");
-        var assistItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.AccessoryStartId, itemBoundary.AccessoryCount, "辅助/道具", "默认装备", "卸去装备");
+        var assistItems = unitStatusService.BuildItemItems(project, tables, itemBoundary.AccessoryStartId, itemBoundary.AccessoryCount, "辅助装备段", "默认装备", "卸去装备");
         if (weaponItems.Count != itemBoundary.WeaponCount + 2 ||
             armorItems.Count != itemBoundary.DefenseCount + 2 ||
             assistItems.Count != itemBoundary.AccessoryCount + 2 ||
@@ -496,24 +527,92 @@ internal partial class Program
     
         var accessoryTable = tables.Single(t => t.TableName == "6.5-2 物品（104-255）");
         var accessoryRead = new HexTableReader().Read(project, accessoryTable, tables);
+        var itemClassifications = new ItemClassificationService().BuildLookup(project, tables);
         var accessoryRow = accessoryRead.Data.Rows.Cast<DataRow>()
             .FirstOrDefault(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) >= 109 &&
                                    Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture) == 2)
             ?? throw new InvalidOperationException("未找到可用于辅助装备字段校正烟测的辅助装备行。");
+        var accessoryItemId = Convert.ToInt32(accessoryRow["ID"], CultureInfo.InvariantCulture);
+        if (!itemClassifications.TryGetValue(accessoryItemId, out var accessoryClassification) ||
+            accessoryClassification.Kind != ItemKind.AccessoryEquipment ||
+            !accessoryClassification.IsEquipmentCandidate ||
+            accessoryClassification.IsConsumable)
+        {
+            throw new InvalidOperationException($"辅助装备分类不符合预期：id={accessoryItemId}, classification={accessoryClassification?.DisplayName ?? "<missing>"}");
+        }
+
         var accessoryTypeId = Convert.ToInt32(accessoryRow["类型"], CultureInfo.InvariantCulture);
         var accessoryEffectId = Convert.ToInt32(accessoryRow["装备特效号"], CultureInfo.InvariantCulture);
-        var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId("辅助/道具", accessoryTypeId, accessoryEffectId);
-        var effectiveEffectIdText = ItemEffectInterpretationService.BuildEffectiveEffectIdText("辅助/道具", accessoryTypeId, accessoryEffectId);
-        var effectiveEffectDescription = ItemEffectInterpretationService.BuildEffectiveEffectDescription("辅助/道具", accessoryTypeId, accessoryEffectId, effectiveEffectId, _ => string.Empty);
+        var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId("辅助装备", accessoryTypeId, accessoryEffectId);
+        var effectiveEffectIdText = ItemEffectInterpretationService.BuildEffectiveEffectIdText("辅助装备", accessoryTypeId, accessoryEffectId);
+        var effectiveEffectDescription = ItemEffectInterpretationService.BuildEffectiveEffectDescription("辅助装备", accessoryTypeId, accessoryEffectId, effectiveEffectId, _ => string.Empty);
         if (effectiveEffectId != accessoryTypeId ||
             !effectiveEffectIdText.Contains($"类型={accessoryTypeId}", StringComparison.Ordinal) ||
             !effectiveEffectDescription.Contains("类别标记", StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"辅助装备效果字段校正不符合预期：type={accessoryTypeId}, effect={accessoryEffectId}, effective={effectiveEffectId}, text={effectiveEffectIdText}, desc={effectiveEffectDescription}");
         }
-        Console.WriteLine($"ITEM_ACCESSORY_EFFECT_MODEL id={Convert.ToInt32(accessoryRow["ID"], CultureInfo.InvariantCulture)} type={accessoryTypeId} rawEffect={accessoryEffectId} effective={effectiveEffectId}");
+        var consumableRow = accessoryRead.Data.Rows.Cast<DataRow>()
+            .FirstOrDefault(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) >= itemBoundary.AccessoryStartId &&
+                                   Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture) == 3);
+        if (consumableRow != null)
+        {
+            var consumableId = Convert.ToInt32(consumableRow["ID"], CultureInfo.InvariantCulture);
+            if (!itemClassifications.TryGetValue(consumableId, out var consumableClassification) ||
+                consumableClassification.Kind != ItemKind.Consumable ||
+                consumableClassification.IsEquipmentCandidate ||
+                !consumableClassification.IsConsumable)
+            {
+                throw new InvalidOperationException($"道具/消耗品分类不符合预期：id={consumableId}, classification={consumableClassification?.DisplayName ?? "<missing>"}");
+            }
+
+            var consumableAssistValue = consumableId - itemBoundary.AccessoryStartId + 2;
+            var consumableAssistItem = assistItems.FirstOrDefault(item => item.Value == consumableAssistValue)
+                ?? throw new InvalidOperationException($"战场辅助槽候选未保留消耗品真实相对编码：id={consumableId}, value={consumableAssistValue}");
+            if (!consumableAssistItem.Text.Contains("道具/消耗品-不可装备", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("战场辅助槽消耗品候选未显示不可装备提示：" + consumableAssistItem.Text);
+            }
+        }
+
+        VerifySanYingItemClassificationIfAvailable(project, tables);
+
+        Console.WriteLine($"ITEM_ACCESSORY_EFFECT_MODEL id={accessoryItemId} type={accessoryTypeId} rawEffect={accessoryEffectId} effective={effectiveEffectId} auxiliarySuitabilityUi=disabled");
     
         Console.WriteLine("RS_SMOKE OK");
+    }
+
+    private static void VerifySanYingItemClassificationIfAvailable(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var sanYingRoot = Path.Combine(project.WorkspaceRoot, "基底", "三英战龙帝_独立落实基底");
+        if (!File.Exists(Path.Combine(sanYingRoot, "Ekd5.exe")) ||
+            !File.Exists(Path.Combine(sanYingRoot, "Data.e5")) ||
+            !File.Exists(Path.Combine(sanYingRoot, "Star.e5")))
+        {
+            return;
+        }
+
+        var sanYingProject = new ProjectDetector().CreateProjectFromGameRoot(sanYingRoot);
+        var lookup = new ItemClassificationService().BuildLookup(sanYingProject, tables);
+        foreach (var id in Enumerable.Range(109, 9))
+        {
+            if (!lookup.TryGetValue(id, out var classification) ||
+                classification.Kind != ItemKind.AccessoryEquipment ||
+                classification.Catalog != 0)
+            {
+                throw new InvalidOperationException($"三英样本辅助装备分类不符合预期：id={id}, classification={classification?.DisplayName ?? "<missing>"}, catalog={classification?.Catalog}");
+            }
+        }
+
+        foreach (var id in Enumerable.Range(118, 5))
+        {
+            if (!lookup.TryGetValue(id, out var classification) ||
+                classification.Kind != ItemKind.Consumable ||
+                classification.Catalog != 0)
+            {
+                throw new InvalidOperationException($"三英样本道具/消耗品分类不符合预期：id={id}, classification={classification?.DisplayName ?? "<missing>"}, catalog={classification?.Catalog}");
+            }
+        }
     }
     
     static int ExtractShopSlotNumber(string columnName)

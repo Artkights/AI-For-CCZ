@@ -720,6 +720,9 @@ public sealed partial class MainForm
         ClearJobStrategyAnimationPreview();
         _jobStrategyAnimationTimer.Stop();
         _jobStrategyAnimationTimer.Dispose();
+        _mapMakerDirtyBaseRefreshTimer.Stop();
+        _mapMakerDirtyBaseRefreshTimer.Dispose();
+        CancelPendingMapMakerBeautify();
         ClearBattlefieldUnitFrameCache();
         ClearBattlefieldMapPreviewImages();
         SaveCurrentUiLayoutSettings();

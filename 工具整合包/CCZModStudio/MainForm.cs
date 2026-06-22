@@ -96,6 +96,36 @@ public sealed partial class MainForm : Form
         ("AI策略（战场）", "6.5-5-8 战场AI策略限制"),
         ("AI策略（练武）", "6.5-5-9 练武场AI策略限制")
     ];
+    private static readonly string[] JobEquipmentCategoryColumns =
+    [
+        "普通剑",
+        "特殊剑",
+        "普通枪",
+        "特殊枪",
+        "普通弓",
+        "特殊弓",
+        "普通刀",
+        "特殊刀",
+        "普通炮车",
+        "特殊炮车",
+        "普通锤",
+        "特殊锤",
+        "普通斧",
+        "特殊斧",
+        "普通扇",
+        "特殊扇",
+        "普通宝剑",
+        "特殊宝剑",
+        "普通将剑",
+        "特殊将剑",
+        "普通铠甲",
+        "特殊铠甲",
+        "普通衣服",
+        "特殊衣服",
+        "普通袍服",
+        "特殊袍服"
+    ];
+    private const string JobEquipmentSummaryColumn = "可装备类别";
 
     private static readonly IReadOnlyDictionary<int, string> JobStrategyTypeNames = new Dictionary<int, string>
     {
@@ -190,6 +220,7 @@ public sealed partial class MainForm : Form
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
     private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
+    private readonly MaterialDrivenTerrainService _materialDrivenTerrainService = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
     private readonly ImageResourceCatalogService _imageResourceCatalogService = new();    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
     private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
@@ -222,6 +253,7 @@ public sealed partial class MainForm : Form
     private readonly ItemIconPreviewService _itemIconPreviewService = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
+    private readonly ProjectEquipmentTypeProfileService _equipmentTypeProfileService = new();
     private readonly ShopEditorService _shopEditorService = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
     private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
@@ -369,6 +401,8 @@ public sealed partial class MainForm : Form
     private TableReadResult? _jobDescriptionRead;
     private TableReadResult? _jobGrowthRead;
     private TableReadResult? _jobPierceRead;
+    private ProjectEquipmentTypeProfile? _currentEquipmentTypeProfile;
+    private IReadOnlyList<JobEquipmentPermissionSlotDefinition> _jobEquipmentPermissionSlots = Array.Empty<JobEquipmentPermissionSlotDefinition>();
     private readonly Stack<List<JobEditorCellEdit>> _jobEditorUndoStack = new();
     private readonly Stack<List<JobEditorCellEdit>> _jobEditorRedoStack = new();
     private List<JobEditorCellTarget> _jobEditorSelectionSnapshotTargets = [];
@@ -436,6 +470,15 @@ public sealed partial class MainForm : Form
     private byte[] _mapMakerOriginalTerrainCells = Array.Empty<byte>();
     private Bitmap? _mapViewerRenderedImage;
     private int _mapMakerTerrainChangedCellCount;
+    private readonly System.Windows.Forms.Timer _mapMakerDirtyBaseRefreshTimer = new() { Interval = 200 };
+    private readonly HashSet<int> _mapMakerDirtyTerrainPreviewIndexes = new();
+    private System.Threading.CancellationTokenSource? _mapMakerBeautifyCts;
+    private int _mapMakerBeautifyRequestId;
+    private bool _mapMakerBeautifyRunning;
+    private bool _mapMakerBeautifyStale;
+    private long _mapMakerLastBaseRefreshMs;
+    private long _mapMakerLastBeautifyMs;
+    private int _mapMakerLastMaterialHitPercent;
     private TableReferenceNavigationTarget? _currentTableReferenceTarget;
     private UiLayoutSettings _uiLayoutSettings = new();
     private readonly Dictionary<string, SplitContainer> _uiLayoutSplits = new(StringComparer.Ordinal);
@@ -686,11 +729,15 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _mapMakerMaterialGrid = new();
     private readonly PictureBox _mapMakerMaterialPreview = new();
     private readonly TextBox _mapMakerMaterialInfoBox = new();
+    private readonly TreeView _mapMakerMaterialTree = new();
+    private readonly ListView _mapMakerMaterialListView = new();
+    private readonly ImageList _mapMakerMaterialImageList = new();
+    private readonly Button _mapMakerRollbackBeautifyButton = new();
     private readonly CheckBox _mapMakerShowTerrainCheckBox = new();
     private readonly CheckBox _mapMakerShowGridCheckBox = new();
     private readonly CheckBox _mapMakerEditTerrainCheckBox = new();
     private readonly CheckBox _mapMakerAutoGenerateCheckBox = new();
-    private readonly CheckBox _mapMakerBeautifyCheckBox = new();
+    private readonly Button _mapMakerBeautifyCheckBox = new();
     private readonly NumericUpDown _mapMakerBeautifyStrengthInput = new();
     private readonly NumericUpDown _mapMakerFeatherRadiusInput = new();
     private readonly TrackBar _mapMakerTerrainOpacityTrackBar = new();
@@ -704,6 +751,7 @@ public sealed partial class MainForm : Form
     private readonly Button _mapMakerReplaceMapImageButton = new();
     private readonly Button _mapMakerExportPreviewButton = new();
     private readonly Button _mapMakerExportJpgButton = new();
+    private readonly Button _mapMakerMaterialPlanButton = new();
     private readonly Button _mapMakerPublishMapButton = new();
     private readonly Button _mapMakerPublishTerrainButton = new();
     private readonly Button _mapMakerPublishAllButton = new();
@@ -1018,7 +1066,8 @@ public sealed partial class MainForm : Form
         Browse,
         MapBrush,
         TerrainBrush,
-        BuildingBrush
+        BuildingBrush,
+        SceneryBrush
     }
 
     private sealed record TerrainEditorCellChange(int Index, byte OldValue, byte NewValue);
@@ -1034,6 +1083,23 @@ public sealed partial class MainForm : Form
     private sealed record TerrainEditorPreset(byte Id, string Name)
     {
         public string DisplayName => string.IsNullOrWhiteSpace(Name) ? HexDisplayFormatter.Format(Id, 2) : $"{HexDisplayFormatter.Format(Id, 2)}  {Name}";
+    }
+
+    private sealed class TerrainMaterialPlanRow
+    {
+        public byte TerrainId { get; init; }
+        public string Terrain { get; init; } = string.Empty;
+        public string VisualFamily { get; init; } = string.Empty;
+        public string CurrentMaterial { get; init; } = string.Empty;
+        public string SelectionMode { get; init; } = string.Empty;
+        public int CandidateCount { get; init; }
+    }
+
+    private sealed class TerrainMaterialCandidateRow
+    {
+        public required MaterialAsset Asset { get; init; }
+        public string DisplayText => $"{Asset.Category}/{Asset.FileName}    HexTag={Asset.HexTag}    {Asset.Description}";
+        public override string ToString() => DisplayText;
     }
 
     public MainForm()

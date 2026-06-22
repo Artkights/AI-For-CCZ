@@ -237,6 +237,50 @@
   </ItemGroup>
 
   <ItemGroup>
+    <MaterialLibraryEmptyDirectory Include="地形\6：山崖" />
+    <MaterialLibraryEmptyDirectory Include="地形\11：池塘" />
+    <MaterialLibraryEmptyDirectory Include="地形\29：地下" />
+    <MaterialLibraryEmptyDirectory Include="建筑\19：关隘" />
+    <MaterialLibraryEmptyDirectory Include="建筑\26：火" />
+    <MaterialLibraryEmptyDirectory Include="建筑\28：祭坛" />
+  </ItemGroup>
+
+  <Target Name="CleanMaterialLibraryOutputBeforeCopy"
+          BeforeTargets="_CopyOutOfDateSourceItemsToOutputDirectory;_CopyOutOfDateSourceItemsToOutputDirectoryAlways;_CopyOutOfDateSourceItemsToOutputDirectoryPreserveNewest">
+    <ItemGroup>
+      <_MaterialLibraryOutputDirs Include="$(OutDir)LegacyResources\普罗-综合工具v0.3\素材库" />
+      <_MaterialLibraryOutputDirs Include="$(OutDir)$(CczPublishRuntimeSubdirectory)\LegacyResources\普罗-综合工具v0.3\素材库" />
+      <_MaterialLibraryOutputDirs Include="$(TargetDir)LegacyResources\普罗-综合工具v0.3\素材库" />
+      <_MaterialLibraryOutputDirs Include="$(TargetDir)$(CczPublishRuntimeSubdirectory)\LegacyResources\普罗-综合工具v0.3\素材库" />
+    </ItemGroup>
+    <ItemGroup>
+      <_ExistingMaterialLibraryOutputDirs Include="@(_MaterialLibraryOutputDirs)" Condition="Exists('%(_MaterialLibraryOutputDirs.Identity)')" />
+    </ItemGroup>
+    <RemoveDuplicates Inputs="@(_ExistingMaterialLibraryOutputDirs)">
+      <Output TaskParameter="Filtered" ItemName="_DistinctMaterialLibraryOutputDirs" />
+    </RemoveDuplicates>
+    <RemoveDir Directories="@(_DistinctMaterialLibraryOutputDirs)" />
+  </Target>
+
+  <Target Name="EnsureMaterialLibraryEmptyDirectoriesInOutput"
+          AfterTargets="CopyFilesToOutputDirectory">
+    <MakeDir Directories="@(MaterialLibraryEmptyDirectory->'$(TargetDir)LegacyResources\普罗-综合工具v0.3\素材库\%(Identity)')" />
+  </Target>
+
+  <Target Name="EnsureMaterialLibraryEmptyDirectoriesInPortableRuntime"
+          AfterTargets="ArrangeSelfContainedBuildLayout;ArrangeSelfContainedBuildLayoutAfterPublish">
+    <MakeDir Directories="@(MaterialLibraryEmptyDirectory->'$(TargetDir)$(CczPublishRuntimeSubdirectory)\LegacyResources\普罗-综合工具v0.3\素材库\%(Identity)')" />
+  </Target>
+
+  <Target Name="EnsureMaterialLibraryEmptyDirectoriesInPublish"
+          AfterTargets="Publish">
+    <MakeDir Directories="@(MaterialLibraryEmptyDirectory->'$(PublishDir)LegacyResources\普罗-综合工具v0.3\素材库\%(Identity)')"
+             Condition="'$(PublishDir)' != ''" />
+    <MakeDir Directories="@(MaterialLibraryEmptyDirectory->'$(PublishDir)$(CczPublishRuntimeSubdirectory)\LegacyResources\普罗-综合工具v0.3\素材库\%(Identity)')"
+             Condition="'$(PublishDir)' != '' and '$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' != '' and '$(PublishSingleFile)' != 'true'" />
+  </Target>
+
+  <ItemGroup>
     <Content Include="Assets\Palettes\tsb">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

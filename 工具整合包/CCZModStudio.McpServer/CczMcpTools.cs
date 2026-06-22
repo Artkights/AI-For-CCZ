@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using CCZModStudio.Models;
 using ModelContextProtocol.Server;
 
@@ -48,7 +48,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.WriteTableRows(game_root, table_name, updates, write_mode);
 
     [McpServerTool]
@@ -130,7 +130,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.WriteBattlefieldUnitStatus(game_root, relative_path, update, write_mode);
 
     [McpServerTool]
@@ -210,7 +210,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.WriteScenarioTexts(game_root, relative_path, updates, write_mode);
 
     [McpServerTool]
@@ -223,7 +223,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.WriteHexzmapBlock(game_root, map_id, changes, write_mode);
 
     [McpServerTool]
@@ -247,7 +247,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceMapImage(game_root, target_relative_path, replacement_path, write_mode);
 
     [McpServerTool]
@@ -446,7 +446,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct",
+        string? write_mode = null,
         [Description("Optional 1-based image number to read from replacement_path when replacement_path is an E5 file.")]
         int? source_image_number = null)
         => runtime.ReplaceE5ImageEntry(game_root, target_relative_path, image_number, replacement_path, write_mode, source_image_number);
@@ -472,7 +472,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceE5ImageBatch(game_root, target_relative_path, updates, write_mode);
 
     [McpServerTool]
@@ -496,7 +496,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceRImageRaw(game_root, r_image_id, material_folder, write_mode);
 
     [McpServerTool]
@@ -520,7 +520,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceRImageRawBatch(game_root, material_root, allowed_r_image_ids, write_mode);
 
     [McpServerTool]
@@ -552,7 +552,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
         int faction_slot = 1,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceSImageRaw(game_root, s_image_id, material_folder, job_id, faction_slot, write_mode);
 
     [McpServerTool]
@@ -580,7 +580,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Default faction slot for S=0 when allowed_usages is omitted: 1=ally, 2=friendly, 3=enemy.")]
         int faction_slot = 1,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceSImageRawBatch(game_root, material_root, allowed_usages, faction_slot, write_mode);
 
     [McpServerTool]
@@ -608,7 +608,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceItemIconBatchImport(game_root, source_files, target_rows, match_mode, write_mode);
 
     [McpServerTool]
@@ -624,7 +624,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.NormalizeE5RoleRaw(game_root, write_mode);
 
     [McpServerTool]
@@ -652,7 +652,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ReplaceDllIcon(game_root, target_relative_path, icon_index, replacement_path, write_mode);
 
     [McpServerTool]
@@ -676,7 +676,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ClearDllIcon(game_root, target_relative_path, icon_index, write_mode);
 
     [McpServerTool]
@@ -689,7 +689,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct",
+        string? write_mode = null,
         [Description("Require target and replacement extensions to match.")]
         bool require_same_extension = true)
         => runtime.ReplaceResource(game_root, target_relative_path, replacement_path, write_mode, require_same_extension);
@@ -771,7 +771,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Operation mode: import, replace, or delete.")]
         string? mode = "import",
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct",
+        string? write_mode = null,
         [Description("Optional game root.")]
         string? game_root = null)
         => runtime.ApplyEffectPackage(game_root, package, mode, write_mode);
@@ -852,7 +852,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct",
+        string? write_mode = null,
         [Description("Automation mode: safe, aggressive_test_copy, force_preview_report, or force_open.")]
         string? automation_mode = "safe")
         => runtime.ApplyModPackage(game_root, package, write_mode, automation_mode);
@@ -940,7 +940,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct")
+        string? write_mode = null)
         => runtime.ApplyScenarioPatch(game_root, patch, write_mode);
 
     [McpServerTool]
@@ -983,7 +983,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Patch-domain EffectPackage JSON object.")]
         EffectPackage package,
         [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "direct",
+        string? write_mode = null,
         [Description("Optional game root.")]
         string? game_root = null)
         => runtime.ApplyEffectPatch(game_root, package, write_mode);
@@ -1003,4 +1003,194 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Prompt name, or empty to list prompts.")]
         string name = "")
         => runtime.ReadEffectPrompt(name);
+
+    [McpServerTool]
+    [Description("List saved map workbench drafts under CCZModStudio_Notes. Read-only.")]
+    public object list_map_drafts(string? game_root = null, int limit = 100)
+        => runtime.ListMapDrafts(game_root, limit);
+
+    [McpServerTool]
+    [Description("Read one map workbench draft with missing-asset diagnostics. Read-only.")]
+    public object read_map_draft(string draft_id, string? game_root = null)
+        => runtime.ReadMapDraft(game_root, draft_id);
+
+    [McpServerTool]
+    [Description("Save a map workbench draft JSON under CCZModStudio_Notes. Does not modify game resources.")]
+    public object save_map_draft(MapDraftSaveRequest request, string? game_root = null)
+        => runtime.SaveMapDraft(game_root, request);
+
+    [McpServerTool]
+    [Description("Compose a map workbench draft preview PNG under CCZModStudio_Exports/MapWorkbench. Read-only.")]
+    public object preview_map_canvas(string draft_id, string? game_root = null, bool show_terrain = false, bool show_grid = true, int terrain_opacity_percent = 55)
+        => runtime.PreviewMapCanvas(game_root, draft_id, show_terrain, show_grid, terrain_opacity_percent);
+
+    [McpServerTool]
+    [Description("Export a map workbench draft as JPEG. Does not modify project Map/*.jpg.")]
+    public object export_map_canvas_jpeg(string draft_id, string? game_root = null, string? output_path = null)
+        => runtime.ExportMapCanvasJpeg(game_root, draft_id, output_path);
+
+    [McpServerTool]
+    [Description("Publish a map workbench draft to a project Map/*.jpg using backups and reports.")]
+    public object publish_map_canvas_to_map_image(string draft_id, string map_id = "", string? game_root = null, string? write_mode = null)
+        => runtime.PublishMapCanvasToMapImage(game_root, draft_id, map_id, write_mode);
+
+    [McpServerTool]
+    [Description("List indexed terrain/building/scenery material assets. Read-only.")]
+    public object list_material_assets(string? game_root = null, string? material_root = null, string? asset_type = null, string? keyword = null, int limit = 200)
+        => runtime.ListMaterialAssets(game_root, material_root, asset_type, keyword, limit);
+
+    [McpServerTool]
+    [Description("Preview legacy material-library migration without copying files.")]
+    public object migrate_material_library_preview(string old_root, string? new_root = null, string? hex_tex_path = null, string? game_root = null)
+        => runtime.MigrateMaterialLibraryPreview(game_root, old_root, new_root, hex_tex_path);
+
+    [McpServerTool]
+    [Description("Migrate a legacy material library into the new terrain/building/scenery layout.")]
+    public object migrate_material_library(string old_root, string new_root, string? game_root = null, string? hex_tex_path = null, bool overwrite = false, string? write_mode = null)
+        => runtime.MigrateMaterialLibrary(game_root, old_root, new_root, hex_tex_path, overwrite, write_mode);
+
+    [McpServerTool]
+    [Description("Analyze terrain derivation from material-driven map workbench layers. Read-only.")]
+    public object analyze_material_driven_terrain(string draft_id, string? game_root = null)
+        => runtime.AnalyzeMaterialDrivenTerrain(game_root, draft_id);
+
+    [McpServerTool]
+    [Description("Derive terrain cells from material layers; optionally save only the draft JSON.")]
+    public object derive_material_terrain_cells(string draft_id, string? game_root = null, bool save_draft = false, string? write_mode = null)
+        => runtime.DeriveMaterialTerrainCells(game_root, draft_id, save_draft, write_mode);
+
+    [McpServerTool]
+    [Description("Generate material map cells from terrain cells and export a preview; optionally save only the draft JSON.")]
+    public object generate_terrain_driven_map(string draft_id, string? game_root = null, bool save_draft = false, string? write_mode = null)
+        => runtime.GenerateTerrainDrivenMap(game_root, draft_id, save_draft, write_mode);
+
+    [McpServerTool]
+    [Description("Render a beautified terrain map preview PNG. Read-only.")]
+    public object beautify_terrain_map_preview(string draft_id, string? game_root = null)
+        => runtime.BeautifyTerrainMapPreview(game_root, draft_id);
+
+    [McpServerTool]
+    [Description("Read shop editor rows composed from campaign names and shop data. Read-only.")]
+    public object read_shop_editor(string? game_root = null, string? keyword = null, int limit = 80)
+        => runtime.ReadShopEditor(game_root, keyword, limit);
+
+    [McpServerTool]
+    [Description("Preview campaign-name/shop-data row updates without writing.")]
+    public object preview_write_shop_rows(List<ShopRowUpdate> updates, string? game_root = null)
+        => runtime.PreviewWriteShopRows(game_root, updates);
+
+    [McpServerTool]
+    [Description("Write campaign-name/shop-data row updates using HexTableWriter backups and reports.")]
+    public object write_shop_rows(List<ShopRowUpdate> updates, string? game_root = null, string? write_mode = null)
+        => runtime.WriteShopRows(game_root, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Read global settings, editable name tables, title, and evidence. Read-only.")]
+    public object read_global_settings(string? game_root = null, int limit = 80)
+        => runtime.ReadGlobalSettings(game_root, limit);
+
+    [McpServerTool]
+    [Description("Preview global setting updates without writing.")]
+    public object preview_write_global_settings(GlobalSettingsUpdate update, string? game_root = null)
+        => runtime.PreviewWriteGlobalSettings(game_root, update);
+
+    [McpServerTool]
+    [Description("Write supported global settings using backups, reports, and reread validation.")]
+    public object write_global_settings(GlobalSettingsUpdate update, string? game_root = null, string? write_mode = null)
+        => runtime.WriteGlobalSettings(game_root, update, write_mode);
+
+    [McpServerTool]
+    [Description("Parse AI scenario text import markup into legacy command previews. Read-only.")]
+    public object parse_scenario_text_import(string input, string? game_root = null, string? scenario_kind = "R")
+        => runtime.ParseScenarioTextImport(game_root, input, scenario_kind);
+
+    [McpServerTool]
+    [Description("Read the AI scenario text import template. Read-only.")]
+    public object read_scenario_text_import_template(string? game_root = null)
+        => runtime.ReadScenarioTextImportTemplate(game_root);
+
+    [McpServerTool]
+    [Description("Export scenario texts to CSV or TXT under CCZModStudio_Exports/ScenarioTexts.")]
+    public object export_scenario_texts(string relative_path, string? game_root = null, string format = "csv")
+        => runtime.ExportScenarioTexts(game_root, relative_path, format);
+
+    [McpServerTool]
+    [Description("Scan R/S scripts for script variable usage. Read-only.")]
+    public object scan_script_variables(string? game_root = null, string? relative_path = null, int limit = 200, int max_files = 200)
+        => runtime.ScanScriptVariables(game_root, relative_path, limit, max_files);
+
+    [McpServerTool]
+    [Description("Read script variable values up to a command for requested addresses. Read-only.")]
+    public object read_script_variable_snapshot(string relative_path, string? game_root = null, int? scene_index = null, int? section_index = null, int? command_index = null, List<int>? addresses = null)
+        => runtime.ReadScriptVariableSnapshot(game_root, relative_path, scene_index, section_index, command_index, addresses);
+
+    [McpServerTool]
+    [Description("Read an R-scene visual draft from CCZModStudio_Notes. Read-only.")]
+    public object read_rscene_draft(string scenario_file_name, string? game_root = null)
+        => runtime.ReadRSceneDraft(game_root, scenario_file_name);
+
+    [McpServerTool]
+    [Description("Save an R-scene visual draft JSON under CCZModStudio_Notes.")]
+    public object save_rscene_draft(RSceneDraftSaveRequest request, string? game_root = null)
+        => runtime.SaveRSceneDraft(game_root, request);
+
+    [McpServerTool]
+    [Description("List R-scene visual command candidates and scene state candidates. Read-only.")]
+    public object list_rscene_command_candidates(string relative_path, string? game_root = null, int limit = 200)
+        => runtime.ListRSceneCommandCandidates(game_root, relative_path, limit);
+
+    [McpServerTool]
+    [Description("List writable battlefield deployment slots from S-script 46/47/4B commands. Read-only.")]
+    public object list_battlefield_deployment_slots(string relative_path, string? game_root = null, int limit = 300)
+        => runtime.ListBattlefieldDeploymentSlots(game_root, relative_path, limit);
+
+    [McpServerTool]
+    [Description("Preview battlefield deployment writes and report which records are writable.")]
+    public object preview_battlefield_deployment_write(string relative_path, List<BattlefieldDeploymentUpdate> updates, string? game_root = null)
+        => runtime.PreviewBattlefieldDeploymentWrite(game_root, relative_path, updates);
+
+    [McpServerTool]
+    [Description("Write battlefield deployment coordinates/person/AI for verified S-script records using backups and reread validation.")]
+    public object write_battlefield_deployment(string relative_path, List<BattlefieldDeploymentUpdate> updates, string? game_root = null, string? write_mode = null)
+        => runtime.WriteBattlefieldDeployment(game_root, relative_path, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Inspect EEX archive header/section candidates. Read-only.")]
+    public object inspect_eex_entries(string relative_path, string? game_root = null, string? category = null, int limit = 200)
+        => runtime.InspectEexEntries(game_root, relative_path, category, limit);
+
+    [McpServerTool]
+    [Description("Compare an EEX archive against nearby/related project archives. Read-only.")]
+    public object compare_eex_archives(string relative_path, string? game_root = null, int max_peers = 8)
+        => runtime.CompareEexArchives(game_root, relative_path, max_peers);
+
+    [McpServerTool]
+    [Description("Export field/table annotations for one HexTable to CCZModStudio_Exports/TableAnnotations.")]
+    public object export_table_annotations(string table_name, string? game_root = null)
+        => runtime.ExportTableAnnotations(game_root, table_name);
+
+    [McpServerTool]
+    [Description("List the project-side item effect catalog. Read-only.")]
+    public object list_item_effect_catalog(string? game_root = null)
+        => runtime.ListItemEffectCatalog(game_root);
+
+    [McpServerTool]
+    [Description("Save the project-side item effect catalog JSON. Does not write fixed-width game tables.")]
+    public object save_item_effect_catalog(List<ItemEffectCatalogEntry> entries, string? game_root = null, string? write_mode = null)
+        => runtime.SaveItemEffectCatalog(game_root, entries, write_mode);
+
+    [McpServerTool]
+    [Description("Read project equipment type profile and evidence. Read-only.")]
+    public object read_equipment_type_profile(string? game_root = null)
+        => runtime.ReadEquipmentTypeProfile(game_root);
+
+    [McpServerTool]
+    [Description("Render attack/pierce area preview PNG under CCZModStudio_Exports/EffectPreviews.")]
+    public object preview_attack_area(string column_name, int field_value, string? game_root = null, int canvas_size = 192)
+        => runtime.PreviewAttackArea(game_root, column_name, field_value, canvas_size);
+
+    [McpServerTool]
+    [Description("Render strategy animation preview frames under CCZModStudio_Exports/EffectPreviews.")]
+    public object preview_strategy_animation(int animation_value, string? game_root = null, string? kind = "small_meff", int canvas_size = 160)
+        => runtime.PreviewStrategyAnimation(game_root, animation_value, kind, canvas_size);
 }

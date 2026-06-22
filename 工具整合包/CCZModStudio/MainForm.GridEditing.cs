@@ -352,6 +352,9 @@ public sealed partial class MainForm
     }
 
     private void ExportDataTableCsv(DataTable? table, string defaultFileName)
+        => ExportDataTableCsv(table, defaultFileName, null);
+
+    private void ExportDataTableCsv(DataTable? table, string defaultFileName, IReadOnlyList<string>? columnNames)
     {
         if (table == null) return;
         using var dialog = new SaveFileDialog
@@ -364,7 +367,14 @@ public sealed partial class MainForm
 
         try
         {
-            CsvService.Export(table, dialog.FileName);
+            if (columnNames == null)
+            {
+                CsvService.Export(table, dialog.FileName);
+            }
+            else
+            {
+                CsvService.ExportColumns(table, dialog.FileName, columnNames);
+            }
             System.Diagnostics.Debug.WriteLine("已导出 CSV：" + dialog.FileName);
             SetStatus("CSV 导出完成");
         }

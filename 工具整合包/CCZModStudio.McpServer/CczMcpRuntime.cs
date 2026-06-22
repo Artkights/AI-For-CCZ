@@ -194,10 +194,20 @@ public sealed partial class CczMcpRuntime
 
     private static string EnsureWriteMode(CczProject project, string? writeMode)
     {
-        var normalized = string.IsNullOrWhiteSpace(writeMode) ? "direct" : writeMode.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(writeMode))
+        {
+            throw new InvalidOperationException("write_mode is required for writes. Use direct explicitly for the active project, or test_copy when the game root has _CCZModStudio_TestCopy.txt.");
+        }
+
+        var normalized = writeMode.Trim().ToLowerInvariant();
         if (normalized is not "direct" and not "test_copy")
         {
             throw new InvalidOperationException("write_mode must be direct or test_copy.");
+        }
+
+        if (normalized == "test_copy" && !project.IsTestCopy)
+        {
+            throw new InvalidOperationException("write_mode=test_copy requires a game root marked with _CCZModStudio_TestCopy.txt.");
         }
 
         return normalized;

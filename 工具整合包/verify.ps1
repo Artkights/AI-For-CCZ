@@ -2,6 +2,7 @@ param(
     [switch]$RunWriteSmoke,
     [switch]$SkipMcpValidation,
     [switch]$StopStaleMcp,
+    [string]$GameRoot = "",
     [string]$Configuration = "Debug"
 )
 
@@ -258,12 +259,91 @@ function Assert-RuntimeBoundary {
     Write-Host "Runtime boundary scan passed: no WinForms references in Core/Formats/Models."
 }
 
+function Test-LooksLikeGameRoot {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return $false
+    }
+
+    $coreFiles = @("Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5")
+    $coreCount = @($coreFiles | Where-Object { Test-Path -LiteralPath (Join-Path $Path $_) -PathType Leaf }).Count
+    return $coreCount -ge 3 -or
+           ($coreCount -ge 1 -and (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container)) -or
+           (Test-Path -LiteralPath (Join-Path $Path "_CCZModStudio_TestCopy.txt") -PathType Leaf)
+}
+
+function Get-VerifyGameRootScore {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $score = 0
+    $leaf = Split-Path -Leaf $Path
+    if ($Path -notmatch '\\CCZModStudio_TestCopies\\') { $score += 1000 }
+    if ($leaf -match '6\.5') { $score += 200 }
+    if (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container) { $score += 50 }
+    if (Test-Path -LiteralPath (Join-Path $Path "Map") -PathType Container) { $score += 20 }
+    if (Test-Path -LiteralPath (Join-Path $Path "_CCZModStudio_TestCopy.txt") -PathType Leaf) { $score -= 500 }
+    return $score
+}
+
+function Resolve-VerifyGameRoot {
+    param(
+        [string]$ExplicitGameRoot,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$ToolRoot
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitGameRoot)) {
+        $candidates.Add($ExplicitGameRoot)
+    }
+
+    $envGameRoot = [Environment]::GetEnvironmentVariable("CCZMODSTUDIO_GAME_ROOT")
+    if (-not [string]::IsNullOrWhiteSpace($envGameRoot)) {
+        $candidates.Add($envGameRoot)
+    }
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        try {
+            $fullPath = [System.IO.Path]::GetFullPath($candidate)
+        } catch {
+            continue
+        }
+
+        if (Test-LooksLikeGameRoot -Path $fullPath) {
+            return $fullPath
+        }
+    }
+
+    $exe = Get-ChildItem -LiteralPath $RepoRoot -Recurse -File -Filter "Ekd5.exe" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '\\bin\\|\\obj\\|\\.git\\|\\CCZModStudio_Exports\\|\\CCZModStudio_Reports\\|\\_CCZModStudio_Backups\\' } |
+        Where-Object { Test-LooksLikeGameRoot -Path $_.DirectoryName } |
+        Sort-Object `
+            @{ Expression = { Get-VerifyGameRootScore -Path $_.DirectoryName }; Descending = $true }, `
+            @{ Expression = { $_.DirectoryName.Length }; Descending = $false }, `
+            FullName |
+        Select-Object -First 1
+    if ($exe) {
+        return $exe.DirectoryName
+    }
+
+    throw "Could not resolve a usable game root. Pass -GameRoot or set CCZMODSTUDIO_GAME_ROOT."
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $PSScriptRoot "CCZModStudio.sln"
 $smokeProject = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\CCZModStudio.SmokeTests.csproj"
 $smokeDll = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\bin\$Configuration\net8.0-windows\CCZModStudio.SmokeTests.dll"
-$mcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-mcp-config.ps1"
-$gameDebugMcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-ccz-game-debug-mcp.ps1"
+$mcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-all-mcp-config.ps1"
+$resolvedGameRoot = Resolve-VerifyGameRoot -ExplicitGameRoot $GameRoot -RepoRoot $repoRoot -ToolRoot $PSScriptRoot
+$env:CCZMODSTUDIO_GAME_ROOT = $resolvedGameRoot
+$env:CCZGAME_DEBUG_GAME_ROOT = $resolvedGameRoot
+
+Write-Host ("VERIFY_GAME_ROOT {0}" -f $resolvedGameRoot)
 
 Invoke-Step "Generated source pollution scan" {
     Assert-NoGeneratedSourcePollution -ToolRoot $PSScriptRoot -Configuration $Configuration
@@ -305,11 +385,7 @@ if ($RunWriteSmoke) {
 
 if (-not $SkipMcpValidation) {
     Invoke-Step "MCP stdio validation" {
-        Invoke-External -FilePath powershell -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $mcpValidation)
-    }
-
-    Invoke-Step "Game debug MCP stdio validation" {
-        Invoke-External -FilePath powershell -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $gameDebugMcpValidation)
+        Invoke-External -FilePath powershell -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $mcpValidation, "-GameRoot", $resolvedGameRoot)
     }
 }
 

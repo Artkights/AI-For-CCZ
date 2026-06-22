@@ -381,17 +381,17 @@ public sealed class EffectPackageService
         }
         else if (template.Domain == "personal")
         {
-            package.EffectValue = ReadInt(parameters, "effect_value", 0);
+            package.EffectValue = TryReadInt(parameters, "effect_value");
             var itemIds = ReadIntList(parameters, "item_ids").ToList();
             package.Bindings.Add(new EffectPackageBinding
             {
                 Kind = ReadString(parameters, "slot_kind", "person_item"),
                 RowId = package.EffectId,
-                PersonId = ReadInt(parameters, "person_id", 0),
-                ItemId = itemIds.ElementAtOrDefault(0),
-                ItemId2 = itemIds.ElementAtOrDefault(1),
-                ItemId3 = itemIds.ElementAtOrDefault(2),
-                ItemId4 = itemIds.ElementAtOrDefault(3),
+                PersonId = TryReadInt(parameters, "person_id"),
+                ItemId = itemIds.Count > 0 ? itemIds[0] : null,
+                ItemId2 = itemIds.Count > 1 ? itemIds[1] : null,
+                ItemId3 = itemIds.Count > 2 ? itemIds[2] : null,
+                ItemId4 = itemIds.Count > 3 ? itemIds[3] : null,
                 EffectValue = package.EffectValue
             });
         }
@@ -648,6 +648,12 @@ public sealed class EffectPackageService
             return;
         }
 
+        preview.Warnings.AddRange(ValidatePersonalBindings(package, mode));
+        if (preview.Warnings.Count > 0)
+        {
+            return;
+        }
+
         var values = BuildPersonalValues(row, package, mode);
         foreach (var (column, value) in values)
         {
@@ -796,26 +802,31 @@ public sealed class EffectPackageService
         foreach (var binding in package.Bindings)
         {
             var kind = binding.Kind.Trim().ToLowerInvariant();
+            var clearedColumns = new HashSet<string>(StringComparer.Ordinal);
             if (kind is "person_item_1" or "person_item" or "exclusive")
             {
-                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("武将1", binding.PersonId), ("装备1", binding.ItemId), ("特效值1", binding.EffectValue ?? package.EffectValue));
+                var effectValue = ResolvePersonalEffectValue(binding, package, "特效值1");
+                SetPersonalSlot(values, clearedColumns, effectValue ?? 0, ("武将1", ResolvePersonalFieldValue(binding, "武将1", binding.PersonId)), ("装备1", ResolvePersonalFieldValue(binding, "装备1", binding.ItemId)), ("特效值1", effectValue));
             }
             else if (kind == "person_item_2")
             {
-                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("武将2", binding.PersonId), ("装备2", binding.ItemId), ("特效值2", binding.EffectValue ?? package.EffectValue));
+                var effectValue = ResolvePersonalEffectValue(binding, package, "特效值2");
+                SetPersonalSlot(values, clearedColumns, effectValue ?? 0, ("武将2", ResolvePersonalFieldValue(binding, "武将2", binding.PersonId)), ("装备2", ResolvePersonalFieldValue(binding, "装备2", binding.ItemId)), ("特效值2", effectValue));
             }
             else if (kind is "set_3" or "three_piece")
             {
-                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("装备3-1", binding.ItemId), ("装备3-2", binding.ItemId2), ("装备3-3", binding.ItemId3), ("特效值3", binding.EffectValue ?? package.EffectValue));
+                var effectValue = ResolvePersonalEffectValue(binding, package, "特效值3");
+                SetPersonalSlot(values, clearedColumns, effectValue ?? 0, ("装备3-1", ResolvePersonalFieldValue(binding, "装备3-1", binding.ItemId)), ("装备3-2", ResolvePersonalFieldValue(binding, "装备3-2", binding.ItemId2)), ("装备3-3", ResolvePersonalFieldValue(binding, "装备3-3", binding.ItemId3)), ("特效值3", effectValue));
             }
             else if (kind is "set_4" or "four_piece")
             {
-                SetPersonalSlot(values, binding.EffectValue ?? package.EffectValue ?? 0, ("装备4-1", binding.ItemId), ("装备4-2", binding.ItemId2), ("装备4-3", binding.ItemId3), ("特效值4", binding.EffectValue ?? package.EffectValue));
+                var effectValue = ResolvePersonalEffectValue(binding, package, "特效值4");
+                SetPersonalSlot(values, clearedColumns, effectValue ?? 0, ("装备4-1", ResolvePersonalFieldValue(binding, "装备4-1", binding.ItemId)), ("装备4-2", ResolvePersonalFieldValue(binding, "装备4-2", binding.ItemId2)), ("装备4-3", ResolvePersonalFieldValue(binding, "装备4-3", binding.ItemId3)), ("特效值4", effectValue));
             }
 
             foreach (var (key, value) in binding.Values)
             {
-                if (knownColumns.Contains(key)) values[key] = value;
+                if (knownColumns.Contains(key) && !clearedColumns.Contains(key)) values[key] = value;
             }
         }
 
@@ -828,6 +839,63 @@ public sealed class EffectPackageService
         }
 
         return values;
+    }
+
+    private static IReadOnlyList<string> ValidatePersonalBindings(EffectPackage package, string mode)
+    {
+        if (mode == "delete") return Array.Empty<string>();
+        var warnings = new List<string>();
+        foreach (var binding in package.Bindings)
+        {
+            var kind = binding.Kind.Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(kind))
+            {
+                warnings.Add("Personal binding kind is required. Use person_item_1, person_item_2, set_3, or set_4.");
+                continue;
+            }
+
+            var effectColumn = ResolvePersonalEffectColumn(kind);
+            var effectValue = effectColumn == null ? null : ResolvePersonalEffectValue(binding, package, effectColumn);
+            if (!effectValue.HasValue)
+            {
+                warnings.Add($"Personal binding {kind} requires explicit effect_value. Use 0 only when intentionally clearing that slot.");
+                continue;
+            }
+
+            if (effectValue.Value == 0)
+            {
+                continue;
+            }
+
+            if (kind is "person_item_1" or "person_item" or "exclusive")
+            {
+                RequirePersonalField(warnings, binding, "person_item_1", "武将1", "PersonId", binding.PersonId);
+                RequirePersonalField(warnings, binding, "person_item_1", "装备1", "ItemId", binding.ItemId);
+            }
+            else if (kind == "person_item_2")
+            {
+                RequirePersonalField(warnings, binding, "person_item_2", "武将2", "PersonId", binding.PersonId);
+                RequirePersonalField(warnings, binding, "person_item_2", "装备2", "ItemId", binding.ItemId);
+            }
+            else if (kind is "set_3" or "three_piece")
+            {
+                RequirePersonalField(warnings, binding, "set_3", "装备3-1", "ItemId", binding.ItemId);
+                RequirePersonalField(warnings, binding, "set_3", "装备3-2", "ItemId2", binding.ItemId2);
+                RequirePersonalField(warnings, binding, "set_3", "装备3-3", "ItemId3", binding.ItemId3);
+            }
+            else if (kind is "set_4" or "four_piece")
+            {
+                RequirePersonalField(warnings, binding, "set_4", "装备4-1", "ItemId", binding.ItemId);
+                RequirePersonalField(warnings, binding, "set_4", "装备4-2", "ItemId2", binding.ItemId2);
+                RequirePersonalField(warnings, binding, "set_4", "装备4-3", "ItemId3", binding.ItemId3);
+            }
+            else
+            {
+                warnings.Add("Unsupported personal binding kind: " + binding.Kind);
+            }
+        }
+
+        return warnings;
     }
 
     private TableReadResult ReadTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
@@ -875,13 +943,36 @@ public sealed class EffectPackageService
         "装备4-1", "装备4-2", "装备4-3", "特效值4"
     ];
 
-    private static void SetPersonalSlot(Dictionary<string, object> values, int effectValue, params (string Column, int? Value)[] fields)
+    private static int? ResolvePersonalEffectValue(EffectPackageBinding binding, EffectPackage package, string effectColumn)
+        => binding.EffectValue ?? package.EffectValue ?? (binding.Values.TryGetValue(effectColumn, out var value) ? value : null);
+
+    private static int? ResolvePersonalFieldValue(EffectPackageBinding binding, string columnName, int? typedValue)
+        => typedValue ?? (binding.Values.TryGetValue(columnName, out var value) ? value : null);
+
+    private static string? ResolvePersonalEffectColumn(string normalizedKind)
+        => normalizedKind switch
+        {
+            "person_item_1" or "person_item" or "exclusive" => "特效值1",
+            "person_item_2" => "特效值2",
+            "set_3" or "three_piece" => "特效值3",
+            "set_4" or "four_piece" => "特效值4",
+            _ => null
+        };
+
+    private static void RequirePersonalField(List<string> warnings, EffectPackageBinding binding, string slotKind, string columnName, string apiName, int? value)
+    {
+        if (ResolvePersonalFieldValue(binding, columnName, value).HasValue) return;
+        warnings.Add($"Personal binding {slotKind} requires {apiName}/{columnName} when effect_value is non-zero.");
+    }
+
+    private static void SetPersonalSlot(Dictionary<string, object> values, HashSet<string> clearedColumns, int effectValue, params (string Column, int? Value)[] fields)
     {
         if (effectValue == 0)
         {
             foreach (var (column, _) in fields)
             {
                 values[column] = 0;
+                clearedColumns.Add(column);
             }
 
             return;
@@ -889,7 +980,12 @@ public sealed class EffectPackageService
 
         foreach (var (column, value) in fields)
         {
-            values[column] = value ?? 0;
+            if (!value.HasValue)
+            {
+                throw new InvalidOperationException($"Personal effect field {column} is required when effect value is non-zero.");
+            }
+
+            values[column] = value.Value;
         }
     }
 
@@ -1183,6 +1279,11 @@ public sealed class EffectPackageService
         => values.TryGetValue(key, out var value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : fallback;
+
+    private static int? TryReadInt(Dictionary<string, string> values, string key)
+        => values.TryGetValue(key, out var value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
 
     private static string ReadString(Dictionary<string, string> values, string key, string fallback)
         => values.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;

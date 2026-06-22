@@ -164,7 +164,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapZoomTrackBar.Width = 140;
         _mapMakerShowTerrainCheckBox.Text = "查看地形层";
         _mapMakerShowTerrainCheckBox.AutoSize = true;
-        _mapMakerShowTerrainCheckBox.Checked = true;
+        _mapMakerShowTerrainCheckBox.Checked = false;
+        _mapMakerShowTerrainCheckBox.Visible = false;
         _mapMakerShowGridCheckBox.Text = "显示网格";
         _mapMakerShowGridCheckBox.AutoSize = true;
         _mapMakerShowGridCheckBox.Checked = true;
@@ -172,9 +173,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerAutoGenerateCheckBox.AutoSize = true;
         _mapMakerAutoGenerateCheckBox.Checked = true;
         _mapMakerAutoGenerateCheckBox.Visible = false;
-        _mapMakerBeautifyCheckBox.Text = "美化生成";
+        _mapMakerBeautifyCheckBox.Text = "美化当前地图";
         _mapMakerBeautifyCheckBox.AutoSize = true;
-        _mapMakerBeautifyCheckBox.Checked = false;
+        _mapMakerBeautifyCheckBox.Enabled = false;
+        _mapMakerRollbackBeautifyButton.Text = "回退美化";
+        _mapMakerRollbackBeautifyButton.AutoSize = true;
+        _mapMakerRollbackBeautifyButton.Enabled = false;
         _mapMakerBeautifyStrengthInput.Minimum = 0;
         _mapMakerBeautifyStrengthInput.Maximum = 3;
         _mapMakerBeautifyStrengthInput.Value = 2;
@@ -228,6 +232,10 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerExportJpgButton.Text = "导出美化JPG";
         _mapMakerExportJpgButton.AutoSize = true;
         _mapMakerExportJpgButton.Enabled = false;
+        _mapMakerMaterialPlanButton.Text = "主素材设置";
+        _mapMakerMaterialPlanButton.AutoSize = true;
+        _mapMakerMaterialPlanButton.Enabled = false;
+        _mapMakerMaterialPlanButton.Visible = false;
         _mapMakerPublishMapButton.Text = "高级：仅底图";
         _mapMakerPublishMapButton.AutoSize = true;
         _mapMakerPublishMapButton.Enabled = false;
@@ -251,11 +259,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _mapActualButton,
             new Label { Text = "缩放：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _mapZoomTrackBar,
-            _mapMakerShowTerrainCheckBox,
             _mapMakerShowGridCheckBox,
             _mapMakerBeautifyCheckBox,
-            new Label { Text = "地形：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
-            _mapMakerTerrainPresetCombo,
+            _mapMakerRollbackBeautifyButton,
             _mapMakerBrushNameLabel,
             _mapMakerUndoTerrainButton,
             _mapMakerRedoTerrainButton,
@@ -315,11 +321,51 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapViewerInfoBox.ReadOnly = true;
         _mapViewerInfoBox.ScrollBars = ScrollBars.Vertical;
         _mapViewerInfoBox.WordWrap = true;
-        _mapViewerInfoBox.Text = "地图编辑：选择地形后直接绘制；勾选“查看地形层”只显示地形，取消后显示由地形生成的地图；点击“美化生成”后得到最终地图效果。";
+        _mapViewerInfoBox.Text = "地图编辑：左侧选择 Mxxx 地图后显示真实底图；右侧素材库按地形 / 建筑 / 景物选择图片绘制；点击“美化当前地图”生成美化预览，可用“回退美化”恢复普通预览。";
         mapRightLayout.Controls.Add(_mapViewerCellPreviewLabel, 0, 0);
         mapRightLayout.Controls.Add(mapScroll, 0, 1);
+        var materialBrowserPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 5,
+            ColumnCount = 1,
+            Padding = new Padding(6, 0, 0, 0)
+        };
+        materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
+        materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
+        _mapMakerMaterialSearchBox.Dock = DockStyle.Fill;
+        _mapMakerMaterialSearchBox.PlaceholderText = "搜索编号 / 名称 / 文件";
+        _mapMakerMaterialTree.Dock = DockStyle.Fill;
+        _mapMakerMaterialTree.HideSelection = false;
+        _mapMakerMaterialTree.FullRowSelect = true;
+        _mapMakerMaterialTree.ShowNodeToolTips = true;
+        _mapMakerMaterialImageList.ImageSize = new Size(48, 48);
+        _mapMakerMaterialImageList.ColorDepth = ColorDepth.Depth32Bit;
+        _mapMakerMaterialListView.Dock = DockStyle.Fill;
+        _mapMakerMaterialListView.View = View.LargeIcon;
+        _mapMakerMaterialListView.LargeImageList = _mapMakerMaterialImageList;
+        _mapMakerMaterialListView.MultiSelect = false;
+        _mapMakerMaterialListView.HideSelection = false;
+        _mapMakerMaterialPreview.Dock = DockStyle.Fill;
+        _mapMakerMaterialPreview.SizeMode = PictureBoxSizeMode.Zoom;
+        _mapMakerMaterialPreview.BorderStyle = BorderStyle.FixedSingle;
+        _mapMakerMaterialInfoBox.Dock = DockStyle.Fill;
+        _mapMakerMaterialInfoBox.Multiline = true;
+        _mapMakerMaterialInfoBox.ReadOnly = true;
+        _mapMakerMaterialInfoBox.ScrollBars = ScrollBars.Vertical;
+        _mapMakerMaterialInfoBox.WordWrap = true;
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialSearchBox, 0, 0);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialTree, 0, 1);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialListView, 0, 2);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialPreview, 0, 3);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialInfoBox, 0, 4);
+        mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
+        mapEditorSplit.Panel2.Controls.Add(materialBrowserPanel);
         AddCollapsibleSplitPanel(mapSplit, 1, "地图列表", _mapImageList, "BuildMapEditorPage.MapListEditor.MapList");
-        AddCollapsibleSplitPanel(mapSplit, 2, "地图预览", mapRightLayout, "BuildMapEditorPage.MapListEditor.MapPreview");
+        AddCollapsibleSplitPanel(mapSplit, 2, "地图预览 / 素材库", mapEditorSplit, "BuildMapEditorPage.MapListEditor.MapPreview");
         mapLayout.Controls.Add(mapSplit, 0, 1);
         return mapViewerPage;
     }
@@ -351,9 +397,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveRoleEditorButton.Enabled = false;
         _openRoleInTableEditorButton.Text = "打开通用人物表";
         _openRoleInTableEditorButton.AutoSize = true;
-        _openRolePersonalEffectButton.Text = "个人专属";
+        _openRolePersonalEffectButton.Text = "剧本专属/套装(72/10)";
         _openRolePersonalEffectButton.AutoSize = true;
-        _openRoleEffectButton.Text = "个人特效";
+        _openRoleEffectButton.Text = "个人特效(EXE表)";
         _openRoleEffectButton.AutoSize = true;
         _openGlobalSettingsButton.Text = "全局设定";
         _openGlobalSettingsButton.AutoSize = true;
@@ -722,7 +768,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobAreaPreviewInfoBox.ReadOnly = true;
         _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobAreaPreviewInfoBox.WordWrap = true;
-        _jobAreaPreviewInfoBox.Text = "读取兵种后，选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。";
+        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种行显示可装备类别；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。双击兵种行可编辑可装备类别。";
         AddCollapsibleSplitPanel(detailBody, 2, "范围预览", previewPanel, "BuildJobEditorPage.DetailGridPreview.Preview");
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
@@ -730,7 +776,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobEditorInfoBox.ReadOnly = true;
         _jobEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobEditorInfoBox.WordWrap = true;
-        _jobEditorInfoBox.Text = "兵种设定：读取后可编辑详细兵种名称、说明、成长参数和穿透；保存前自动备份，保存后复读校验。";
+        _jobEditorInfoBox.Text = "兵种设定：读取后可编辑详细兵种名称、说明、成长参数、可装备类别和穿透；保存前自动备份，保存后复读校验。";
         layout.Controls.Add(detailBody, 0, 1);
         tabs.TabPages.Add(detailPage);
 

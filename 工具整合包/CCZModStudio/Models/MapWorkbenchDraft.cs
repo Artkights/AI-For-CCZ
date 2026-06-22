@@ -9,9 +9,13 @@ public sealed class MapWorkbenchDraft
     public int TileSize { get; set; } = MapResourceItem.MapTilePixelSize;
     public string BaseLayerPath { get; set; } = string.Empty;
     public string MaterialRoot { get; set; } = string.Empty;
+    public List<TerrainMaterialPlanItem> TerrainMaterialPlan { get; set; } = new();
     public List<MapCellOverride> MapCellOverrides { get; set; } = new();
+    public List<MapCellOverride> TerrainBaseCells { get; set; } = new();
     public List<MapCellOverride> GeneratedMapCells { get; set; } = new();
     public List<MapCellOverride> BuildingOverlayCells { get; set; } = new();
+    public List<MapCellOverride> SceneryOverlayCells { get; set; } = new();
+    public byte[] OriginalTerrainCells { get; set; } = Array.Empty<byte>();
     public byte[] TerrainCells { get; set; } = Array.Empty<byte>();
     public bool AutoGenerateMapFromTerrain { get; set; } = true;
     public bool BeautifyGeneratedMap { get; set; }

@@ -1,14 +1,13 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
 
 public sealed class MapCanvasComposeService
 {
-    private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly TerrainDrivenMapGenerationService _terrainGenerator = new();
-    private readonly TerrainMapBeautifyService _beautifyService = new();
+    private readonly MaterialDrivenTerrainService _materialDrivenService = new();
 
     public Bitmap ComposeFinal(MapWorkbenchDraft draft)
         => Compose(draft, Array.Empty<MaterialAsset>(), showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: true);
@@ -35,13 +34,13 @@ public sealed class MapCanvasComposeService
     {
         if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
         {
-            throw new InvalidOperationException("地图草稿格数无效。");
+            throw new InvalidOperationException("Map draft grid size is invalid.");
         }
 
         var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
         var pixelWidth = checked(draft.GridWidth * tileSize);
         var pixelHeight = checked(draft.GridHeight * tileSize);
-        var bitmap = new Bitmap(pixelWidth, pixelHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var bitmap = new Bitmap(pixelWidth, pixelHeight, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
         g.SmoothingMode = SmoothingMode.None;
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
@@ -72,120 +71,29 @@ public sealed class MapCanvasComposeService
     {
         if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
         {
-            throw new InvalidOperationException("地图草稿格数无效。");
+            throw new InvalidOperationException("Map draft grid size is invalid.");
         }
 
-        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
-        var pixelWidth = checked(draft.GridWidth * tileSize);
-        var pixelHeight = checked(draft.GridHeight * tileSize);
-        var bitmap = new Bitmap(pixelWidth, pixelHeight, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        draft.TerrainCells = _materialDrivenService.DeriveTerrainCells(draft, materials);
+        using var visual = _materialDrivenService.ComposeVisualMap(draft, materials, checkerboardBlank, beautifyGeneratedMap);
+        var bitmap = new Bitmap(visual.Width, visual.Height, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
         g.SmoothingMode = SmoothingMode.None;
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
-
-        var baseImage = GetCachedImage(draft.BaseLayerPath);
-        if (baseImage != null)
-        {
-            g.Clear(Color.Black);
-            g.DrawImage(baseImage, new Rectangle(0, 0, pixelWidth, pixelHeight));
-        }
-        else if (checkerboardBlank)
-        {
-            DrawCheckerboard(g, pixelWidth, pixelHeight);
-        }
-        else
-        {
-            g.Clear(Color.Black);
-        }
-
-        if (draft.AutoGenerateMapFromTerrain)
-        {
-            using var generated = _terrainGenerator.RenderBaseTerrain(draft, materials);
-            if (beautifyGeneratedMap)
-            {
-                using var beautified = _beautifyService.Beautify(draft, generated);
-                g.DrawImage(beautified, new Rectangle(0, 0, pixelWidth, pixelHeight));
-            }
-            else
-            {
-                g.DrawImage(generated, new Rectangle(0, 0, pixelWidth, pixelHeight));
-            }
-        }
-        else
-        {
-            DrawCells(g, draft, draft.GeneratedMapCells);
-        }
-
-        DrawCells(g, draft, draft.BuildingOverlayCells);
-        DrawCells(g, draft, draft.MapCellOverrides);
+        g.DrawImage(visual, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
 
         if (showTerrain && draft.TerrainCells.Length == draft.GridWidth * draft.GridHeight)
         {
-            DrawTerrain(g, draft, pixelWidth, pixelHeight, terrainOpacityPercent);
+            DrawTerrain(g, draft, bitmap.Width, bitmap.Height, terrainOpacityPercent);
         }
 
         if (showGrid)
         {
-            DrawGrid(g, draft.GridWidth, draft.GridHeight, pixelWidth, pixelHeight);
+            DrawGrid(g, draft.GridWidth, draft.GridHeight, bitmap.Width, bitmap.Height);
         }
 
         return bitmap;
-    }
-
-    private void DrawCells(Graphics g, MapWorkbenchDraft draft, IEnumerable<MapCellOverride> cells)
-    {
-        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
-        foreach (var cell in cells.OrderBy(x => x.Index))
-        {
-            if (cell.Index < 0 || cell.Index >= draft.GridWidth * draft.GridHeight) continue;
-            var materialPath = MapDraftService.ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath);
-            var material = GetCachedImage(materialPath);
-            if (material == null) continue;
-
-            var x = cell.Index % draft.GridWidth;
-            var y = cell.Index / draft.GridWidth;
-            g.DrawImage(material, new Rectangle(x * tileSize, y * tileSize, tileSize, tileSize));
-        }
-    }
-
-    private Bitmap? GetCachedImage(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
-
-        var fullPath = Path.GetFullPath(path);
-        var info = new FileInfo(fullPath);
-        if (_imageCache.TryGetValue(fullPath, out var cached) &&
-            cached.LastWriteUtc == info.LastWriteTimeUtc &&
-            cached.Length == info.Length)
-        {
-            return cached.Bitmap;
-        }
-
-        using var source = Image.FromFile(fullPath);
-        var bitmap = new Bitmap(source);
-        if (_imageCache.TryGetValue(fullPath, out cached))
-        {
-            cached.Bitmap.Dispose();
-        }
-
-        _imageCache[fullPath] = new CachedImage(info.LastWriteTimeUtc, info.Length, bitmap);
-        return bitmap;
-    }
-
-    private static void DrawCheckerboard(Graphics g, int pixelWidth, int pixelHeight)
-    {
-        const int size = 24;
-        using var light = new SolidBrush(Color.FromArgb(62, 62, 62));
-        using var dark = new SolidBrush(Color.FromArgb(38, 38, 38));
-        for (var y = 0; y < pixelHeight; y += size)
-        {
-            for (var x = 0; x < pixelWidth; x += size)
-            {
-                var brush = ((x / size) + (y / size)) % 2 == 0 ? light : dark;
-                g.FillRectangle(brush, x, y, Math.Min(size, pixelWidth - x), Math.Min(size, pixelHeight - y));
-            }
-        }
     }
 
     private static void DrawTerrain(Graphics g, MapWorkbenchDraft draft, int pixelWidth, int pixelHeight, int opacityPercent)
@@ -225,6 +133,4 @@ public sealed class MapCanvasComposeService
             g.DrawLine(lightPen, 0, py + 1, pixelWidth, py + 1);
         }
     }
-
-    private sealed record CachedImage(DateTime LastWriteUtc, long Length, Bitmap Bitmap);
 }

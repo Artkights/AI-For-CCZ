@@ -35,7 +35,7 @@ public sealed class MapDraftService
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException("地图工作台设置 JSON 解析失败：" + path, ex);
+            throw new InvalidOperationException("Map workbench settings JSON parse failed: " + path, ex);
         }
     }
 
@@ -59,6 +59,7 @@ public sealed class MapDraftService
             CreatedAtText = now,
             UpdatedAtText = now
         };
+        draft.OriginalTerrainCells = new byte[draft.CellCount];
         draft.TerrainCells = new byte[draft.CellCount];
         return draft;
     }
@@ -69,15 +70,7 @@ public sealed class MapDraftService
         var gridHeight = item.GridHeight > 0 ? item.GridHeight : 30;
         var draft = CreateBlankDraft(gridWidth, gridHeight, materialRoot);
         draft.BoundMapId = GetMapId(item);
-        if (File.Exists(item.Path))
-        {
-            var assetRoot = GetDraftAssetRoot(project, draft.DraftId);
-            Directory.CreateDirectory(assetRoot);
-            var extension = Path.GetExtension(item.Path);
-            var baseLayerPath = Path.Combine(assetRoot, "base" + (string.IsNullOrWhiteSpace(extension) ? ".jpg" : extension));
-            File.Copy(item.Path, baseLayerPath, overwrite: true);
-            draft.BaseLayerPath = baseLayerPath;
-        }
+        if (File.Exists(item.Path)) draft.BaseLayerPath = Path.GetFullPath(item.Path);
 
         return draft;
     }
@@ -87,18 +80,18 @@ public sealed class MapDraftService
         var path = GetDraftPath(project, draftId);
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException("地图工作台草稿不存在。", path);
+            throw new FileNotFoundException("Map workbench draft does not exist.", path);
         }
 
         try
         {
             var draft = JsonSerializer.Deserialize<MapWorkbenchDraft>(File.ReadAllText(path, Encoding.UTF8), JsonOptions)
-                        ?? throw new InvalidOperationException("地图工作台草稿为空：" + path);
+                        ?? throw new InvalidOperationException("Map workbench draft is empty: " + path);
             return NormalizeDraft(draft);
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException("地图工作台草稿 JSON 解析失败：" + path, ex);
+            throw new InvalidOperationException("Map workbench draft JSON parse failed: " + path, ex);
         }
     }
 
@@ -149,11 +142,14 @@ public sealed class MapDraftService
                 Index = -1,
                 RelativePath = draft.BaseLayerPath,
                 ExpectedPath = draft.BaseLayerPath,
-                Reason = "底稿图片不存在"
+                Reason = "Base layer image is missing."
             });
         }
 
-        foreach (var cell in draft.MapCellOverrides.Concat(draft.BuildingOverlayCells))
+        foreach (var cell in draft.TerrainBaseCells
+                     .Concat(draft.BuildingOverlayCells)
+                     .Concat(draft.SceneryOverlayCells)
+                     .Concat(draft.MapCellOverrides))
         {
             var path = ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath);
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -163,7 +159,9 @@ public sealed class MapDraftService
                     Index = cell.Index,
                     RelativePath = cell.MaterialRelativePath,
                     ExpectedPath = path,
-                    Reason = string.IsNullOrWhiteSpace(draft.MaterialRoot) ? "未设置素材库根目录" : "素材文件不存在"
+                    Reason = string.IsNullOrWhiteSpace(draft.MaterialRoot)
+                        ? "Material library root is not set."
+                        : "Material file is missing."
                 });
             }
         }
@@ -186,7 +184,7 @@ public sealed class MapDraftService
         }
         catch
         {
-            // Fall back to the absolute path below.
+            // Fall back to the original path below.
         }
 
         return materialPath;
@@ -210,22 +208,22 @@ public sealed class MapDraftService
         draft.TileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
         if (draft.TileSize != MapResourceItem.MapTilePixelSize) draft.TileSize = MapResourceItem.MapTilePixelSize;
         var cellCount = checked(draft.GridWidth * draft.GridHeight);
-        if (draft.TerrainCells == null || draft.TerrainCells.Length != cellCount)
-        {
-            var normalized = new byte[cellCount];
-            if (draft.TerrainCells != null)
-            {
-                Array.Copy(draft.TerrainCells, normalized, Math.Min(draft.TerrainCells.Length, normalized.Length));
-            }
-            draft.TerrainCells = normalized;
-        }
 
+        draft.OriginalTerrainCells = NormalizeTerrainArray(draft.OriginalTerrainCells, cellCount, draft.TerrainCells);
+        draft.TerrainCells = NormalizeTerrainArray(draft.TerrainCells, cellCount, draft.OriginalTerrainCells);
         draft.MapCellOverrides ??= new List<MapCellOverride>();
         draft.MapCellOverrides = NormalizeCells(draft.MapCellOverrides, cellCount, MapCellOverrideSources.ManualOverride);
+        draft.TerrainBaseCells ??= new List<MapCellOverride>();
+        draft.TerrainBaseCells = NormalizeCells(draft.TerrainBaseCells, cellCount, MapCellOverrideSources.TerrainBase);
         draft.GeneratedMapCells ??= new List<MapCellOverride>();
         draft.GeneratedMapCells = NormalizeCells(draft.GeneratedMapCells, cellCount, MapCellOverrideSources.Generated);
         draft.BuildingOverlayCells ??= new List<MapCellOverride>();
         draft.BuildingOverlayCells = NormalizeCells(draft.BuildingOverlayCells, cellCount, MapCellOverrideSources.BuildingOverlay);
+        draft.SceneryOverlayCells ??= new List<MapCellOverride>();
+        draft.SceneryOverlayCells = NormalizeCells(draft.SceneryOverlayCells, cellCount, MapCellOverrideSources.SceneryOverlay);
+        MigrateLegacyCellsToMaterialLayers(draft);
+        draft.TerrainMaterialPlan ??= new List<TerrainMaterialPlanItem>();
+        draft.TerrainMaterialPlan = NormalizeTerrainMaterialPlan(draft.TerrainMaterialPlan);
         draft.BeautifyStrength = Math.Clamp(draft.BeautifyStrength, 0, 3);
         draft.FeatherRadius = Math.Clamp(draft.FeatherRadius, 0, MapResourceItem.MapTilePixelSize / 2);
         draft.BoundMapId = draft.BoundMapId?.Trim() ?? string.Empty;
@@ -234,6 +232,52 @@ public sealed class MapDraftService
         draft.CreatedAtText = draft.CreatedAtText?.Trim() ?? string.Empty;
         draft.UpdatedAtText = draft.UpdatedAtText?.Trim() ?? string.Empty;
         return draft;
+    }
+
+    private static byte[] NormalizeTerrainArray(byte[]? source, int cellCount, byte[]? fallback = null)
+    {
+        var normalized = new byte[cellCount];
+        if (source != null && source.Length > 0)
+        {
+            Array.Copy(source, normalized, Math.Min(source.Length, normalized.Length));
+            return normalized;
+        }
+
+        if (fallback != null && fallback.Length > 0)
+        {
+            Array.Copy(fallback, normalized, Math.Min(fallback.Length, normalized.Length));
+        }
+
+        return normalized;
+    }
+
+    private static void MigrateLegacyCellsToMaterialLayers(MapWorkbenchDraft draft)
+    {
+        if (draft.TerrainBaseCells.Count == 0 && draft.GeneratedMapCells.Count > 0)
+        {
+            draft.TerrainBaseCells = draft.GeneratedMapCells
+                .Select(cell =>
+                {
+                    var clone = CloneCell(cell);
+                    clone.Source = MapCellOverrideSources.TerrainBase;
+                    return clone;
+                })
+                .ToList();
+        }
+
+        if (draft.SceneryOverlayCells.Count == 0 && draft.MapCellOverrides.Count > 0)
+        {
+            draft.SceneryOverlayCells = draft.MapCellOverrides
+                .Where(cell => !cell.Source.Equals(MapCellOverrideSources.BuildingOverlay, StringComparison.OrdinalIgnoreCase))
+                .Select(cell =>
+                {
+                    var clone = CloneCell(cell);
+                    clone.Source = MapCellOverrideSources.SceneryOverlay;
+                    return clone;
+                })
+                .ToList();
+            draft.MapCellOverrides.Clear();
+        }
     }
 
     private static List<MapCellOverride> NormalizeCells(IEnumerable<MapCellOverride> cells, int cellCount, string defaultSource)
@@ -250,6 +294,39 @@ public sealed class MapDraftService
             .GroupBy(cell => cell.Index)
             .Select(group => group.Last())
             .OrderBy(cell => cell.Index)
+            .ToList();
+
+    private static MapCellOverride CloneCell(MapCellOverride cell)
+        => new()
+        {
+            Index = cell.Index,
+            MaterialRelativePath = cell.MaterialRelativePath,
+            MaterialCategory = cell.MaterialCategory,
+            DisplayName = cell.DisplayName,
+            Source = cell.Source
+        };
+
+    private static List<TerrainMaterialPlanItem> NormalizeTerrainMaterialPlan(IEnumerable<TerrainMaterialPlanItem> items)
+        => items
+            .Where(item => !string.IsNullOrWhiteSpace(item.VisualFamilyKey) &&
+                           !string.IsNullOrWhiteSpace(item.MaterialRelativePath))
+            .Select(item =>
+            {
+                item.MapId = item.MapId?.Trim() ?? string.Empty;
+                item.VisualFamilyKey = item.VisualFamilyKey?.Trim() ?? string.Empty;
+                item.MaterialRelativePath = item.MaterialRelativePath?.Trim() ?? string.Empty;
+                item.MaterialCategory = item.MaterialCategory?.Trim() ?? string.Empty;
+                item.DisplayName = item.DisplayName?.Trim() ?? string.Empty;
+                item.SelectionMode = string.IsNullOrWhiteSpace(item.SelectionMode)
+                    ? TerrainMaterialSelectionModes.Auto
+                    : item.SelectionMode.Trim();
+                item.MaterialRootFingerprint = item.MaterialRootFingerprint?.Trim() ?? string.Empty;
+                return item;
+            })
+            .GroupBy(item => item.VisualFamilyKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .OrderBy(item => item.TerrainId)
+            .ThenBy(item => item.VisualFamilyKey, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private static string GetMapId(MapResourceItem item)

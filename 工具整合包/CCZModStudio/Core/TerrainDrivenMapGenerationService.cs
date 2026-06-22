@@ -10,19 +10,127 @@ public sealed class TerrainDrivenMapGenerationService
 {
     private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
 
+    public void EnsureMaterialPlan(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, bool recoverMissingAuto = true)
+    {
+        if (!CanGenerate(draft)) return;
+
+        draft.TerrainMaterialPlan ??= new List<TerrainMaterialPlanItem>();
+        var terrainAssets = BuildTerrainAssets(materials);
+        var fingerprint = BuildMaterialRootFingerprint(draft.MaterialRoot);
+        var mapId = GetPlanMapId(draft);
+        var requiredFamilies = draft.TerrainCells
+            .Distinct()
+            .Select(id => (TerrainId: id, VisualFamilyKey: BuildVisualFamilyKey(id)))
+            .GroupBy(item => item.VisualFamilyKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderBy(item => item.TerrainId).First())
+            .OrderBy(item => item.TerrainId)
+            .ToList();
+
+        foreach (var family in requiredFamilies)
+        {
+            var item = draft.TerrainMaterialPlan.FirstOrDefault(x => x.VisualFamilyKey.Equals(family.VisualFamilyKey, StringComparison.OrdinalIgnoreCase));
+            if (!terrainAssets.TryGetValue(family.TerrainId, out var candidates) || candidates.Count == 0)
+            {
+                if (item != null &&
+                    (item.SelectionMode.Equals(TerrainMaterialSelectionModes.Manual, StringComparison.OrdinalIgnoreCase) ||
+                     item.SelectionMode.Equals(TerrainMaterialSelectionModes.MissingManual, StringComparison.OrdinalIgnoreCase)))
+                {
+                    item.SelectionMode = TerrainMaterialSelectionModes.MissingManual;
+                }
+
+                continue;
+            }
+
+            if (item != null && TryResolvePlanMaterial(draft, item, candidates, out _))
+            {
+                item.MapId = mapId;
+                item.TerrainId = family.TerrainId;
+                item.MaterialRootFingerprint = fingerprint;
+                continue;
+            }
+
+            if (item != null &&
+                (item.SelectionMode.Equals(TerrainMaterialSelectionModes.Manual, StringComparison.OrdinalIgnoreCase) ||
+                 item.SelectionMode.Equals(TerrainMaterialSelectionModes.MissingManual, StringComparison.OrdinalIgnoreCase)))
+            {
+                item.SelectionMode = TerrainMaterialSelectionModes.MissingManual;
+                continue;
+            }
+
+            if (item != null && !recoverMissingAuto)
+            {
+                continue;
+            }
+
+            var selected = SelectPlanCandidate(candidates, mapId, family.VisualFamilyKey, fingerprint);
+            var mode = item == null ? TerrainMaterialSelectionModes.Auto : TerrainMaterialSelectionModes.AutoRecovered;
+            UpsertPlanItem(draft, CreatePlanItem(draft, mapId, family.TerrainId, family.VisualFamilyKey, selected, mode, fingerprint));
+        }
+
+        draft.TerrainMaterialPlan.RemoveAll(item => !requiredFamilies.Any(family => family.VisualFamilyKey.Equals(item.VisualFamilyKey, StringComparison.OrdinalIgnoreCase)));
+        draft.TerrainMaterialPlan = draft.TerrainMaterialPlan
+            .OrderBy(item => item.TerrainId)
+            .ThenBy(item => item.VisualFamilyKey, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public TerrainGenerationDiagnostics Analyze(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
+    {
+        if (!CanGenerate(draft))
+        {
+            return new TerrainGenerationDiagnostics(
+                CanGenerate: false,
+                MaterialCount: materials.Count,
+                TerrainAssetIdCount: 0,
+                MatchedCellCount: 0,
+                FallbackCellCount: draft.CellCount,
+                MissingTerrainIds: Array.Empty<byte>(),
+                MatchedTerrainIds: Array.Empty<byte>());
+        }
+
+        var terrainAssets = BuildTerrainAssets(materials);
+        var matchedIds = new HashSet<byte>();
+        var missingIds = new HashSet<byte>();
+        var matchedCells = 0;
+        var fallbackCells = 0;
+        for (var index = 0; index < draft.CellCount; index++)
+        {
+            var terrainId = draft.TerrainCells[index];
+            if (terrainAssets.TryGetValue(terrainId, out var candidates) && candidates.Count > 0)
+            {
+                matchedCells++;
+                matchedIds.Add(terrainId);
+            }
+            else
+            {
+                fallbackCells++;
+                missingIds.Add(terrainId);
+            }
+        }
+
+        return new TerrainGenerationDiagnostics(
+            CanGenerate: true,
+            MaterialCount: materials.Count,
+            TerrainAssetIdCount: terrainAssets.Count,
+            MatchedCellCount: matchedCells,
+            FallbackCellCount: fallbackCells,
+            MissingTerrainIds: missingIds.OrderBy(x => x).ToArray(),
+            MatchedTerrainIds: matchedIds.OrderBy(x => x).ToArray());
+    }
+
     public IReadOnlyList<MapCellOverride> GenerateMapCells(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
     {
         if (!CanGenerate(draft)) return Array.Empty<MapCellOverride>();
 
-        var terrainAssets = BuildTerrainAssets(draft, materials);
+        EnsureMaterialPlan(draft, materials);
+        var terrainAssets = BuildTerrainAssets(materials);
         var result = new List<MapCellOverride>(draft.CellCount);
         for (var index = 0; index < draft.CellCount; index++)
         {
             var terrainId = draft.TerrainCells[index];
             if (!terrainAssets.TryGetValue(terrainId, out var candidates) || candidates.Count == 0) continue;
 
-            var kind = GetAdjacencyKind(draft, index, terrainId);
-            var candidate = SelectStableCandidate(candidates, draft, index, terrainId, kind);
+            if (!TrySelectPlanOrAutoMaterial(draft, candidates, terrainId, out var candidate)) continue;
             result.Add(new MapCellOverride
             {
                 Index = index,
@@ -51,7 +159,8 @@ public sealed class TerrainDrivenMapGenerationService
             return bitmap;
         }
 
-        var terrainAssets = BuildTerrainAssets(draft, materials);
+        EnsureMaterialPlan(draft, materials);
+        var terrainAssets = BuildTerrainAssets(materials);
         for (var y = 0; y < draft.GridHeight; y++)
         {
             for (var x = 0; x < draft.GridWidth; x++)
@@ -61,13 +170,14 @@ public sealed class TerrainDrivenMapGenerationService
                 var rect = new Rectangle(x * tileSize, y * tileSize, tileSize, tileSize);
                 if (terrainAssets.TryGetValue(terrainId, out var candidates) && candidates.Count > 0)
                 {
-                    var kind = GetAdjacencyKind(draft, index, terrainId);
-                    var candidate = SelectStableCandidate(candidates, draft, index, terrainId, kind);
-                    var image = GetCachedImage(candidate.FilePath);
-                    if (image != null)
+                    if (TrySelectPlanOrAutoMaterial(draft, candidates, terrainId, out var candidate))
                     {
-                        DrawVariant(g, image, rect, draft, index, terrainId);
-                        continue;
+                        var image = GetCachedImage(candidate.FilePath);
+                        if (image != null)
+                        {
+                            DrawMainMaterial(g, image, rect);
+                            continue;
+                        }
                     }
                 }
 
@@ -95,18 +205,12 @@ public sealed class TerrainDrivenMapGenerationService
            draft.GridHeight > 0 &&
            draft.TerrainCells.Length == draft.CellCount;
 
-    private static Dictionary<byte, List<MaterialAsset>> BuildTerrainAssets(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
+    private static Dictionary<byte, List<MaterialAsset>> BuildTerrainAssets(IReadOnlyList<MaterialAsset> materials)
     {
         var result = new Dictionary<byte, List<MaterialAsset>>();
         foreach (var material in materials)
         {
-            if (!material.Category.Equals("地形", StringComparison.CurrentCultureIgnoreCase) &&
-                !material.Category.Contains("地形", StringComparison.CurrentCultureIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!byte.TryParse(material.HexTag.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+            if (!MaterialHexTagParser.TryParseTerrainId(material.HexTag, out var id))
             {
                 continue;
             }
@@ -130,6 +234,9 @@ public sealed class TerrainDrivenMapGenerationService
 
     private static int CompareMaterialAssets(MaterialAsset left, MaterialAsset right)
     {
+        var categoryCompare = GetCategoryPriority(left.Category).CompareTo(GetCategoryPriority(right.Category));
+        if (categoryCompare != 0) return categoryCompare;
+
         var leftNumber = ParseLeadingNumber(left.FileName);
         var rightNumber = ParseLeadingNumber(right.FileName);
         var numberCompare = leftNumber.CompareTo(rightNumber);
@@ -143,80 +250,129 @@ public sealed class TerrainDrivenMapGenerationService
             ? number
             : int.MaxValue;
 
-    private static MaterialAsset SelectStableCandidate(IReadOnlyList<MaterialAsset> candidates, MapWorkbenchDraft draft, int index, byte terrainId, TerrainAdjacencyKind kind)
+    private static int GetCategoryPriority(string category)
     {
-        if (candidates.Count == 1) return candidates[0];
-        var preferred = FilterByAdjacency(candidates, kind);
-        var hash = StableHash(draft.DraftId, index, terrainId, 0x9E3779B9u ^ (uint)kind);
-        var selected = (int)(hash % (uint)preferred.Count);
-        return preferred[selected];
-    }
-
-    private static IReadOnlyList<MaterialAsset> FilterByAdjacency(IReadOnlyList<MaterialAsset> candidates, TerrainAdjacencyKind kind)
-    {
-        var exact = candidates.Where(asset => MatchesAdjacency(asset, kind)).ToList();
-        if (exact.Count > 0) return exact;
-
-        if (kind != TerrainAdjacencyKind.Normal)
+        if (category.Equals("地形", StringComparison.CurrentCultureIgnoreCase) ||
+            category.Contains("地形", StringComparison.CurrentCultureIgnoreCase))
         {
-            var transition = candidates
-                .Where(asset => ContainsAny(asset, "transition", "blend", "mix", "过渡", "融合", "混合", "边", "岸", "沿"))
-                .ToList();
-            if (transition.Count > 0) return transition;
+            return 0;
         }
 
-        var ordinary = candidates
+        if (category.Contains("建筑", StringComparison.CurrentCultureIgnoreCase)) return 1;
+        if (category.Contains("围墙", StringComparison.CurrentCultureIgnoreCase)) return 2;
+        if (category.Contains("随机", StringComparison.CurrentCultureIgnoreCase)) return 3;
+        return 4;
+    }
+
+    private static bool TryResolvePlanMaterial(
+        MapWorkbenchDraft draft,
+        TerrainMaterialPlanItem item,
+        IReadOnlyList<MaterialAsset> candidates,
+        out MaterialAsset material)
+    {
+        material = null!;
+        var plannedPath = MapDraftService.ResolveMaterialPath(draft.MaterialRoot, item.MaterialRelativePath);
+        material = candidates.FirstOrDefault(candidate =>
+            candidate.FilePath.Equals(plannedPath, StringComparison.OrdinalIgnoreCase) ||
+            MapDraftService.GetMaterialRelativePath(draft.MaterialRoot, candidate.FilePath).Equals(item.MaterialRelativePath, StringComparison.OrdinalIgnoreCase))!;
+        return material != null && File.Exists(material.FilePath);
+    }
+
+    public IReadOnlyList<MaterialAsset> GetCandidateMaterialsForTerrain(byte terrainId, IReadOnlyList<MaterialAsset> materials)
+        => BuildTerrainAssets(materials).TryGetValue(terrainId, out var candidates)
+            ? candidates
+            : Array.Empty<MaterialAsset>();
+
+    public void SetManualPlanItem(MapWorkbenchDraft draft, byte terrainId, MaterialAsset material)
+    {
+        var fingerprint = BuildMaterialRootFingerprint(draft.MaterialRoot);
+        var familyKey = BuildVisualFamilyKey(terrainId);
+        UpsertPlanItem(draft, CreatePlanItem(
+            draft,
+            GetPlanMapId(draft),
+            terrainId,
+            familyKey,
+            material,
+            TerrainMaterialSelectionModes.Manual,
+            fingerprint));
+    }
+
+    public void ResetPlanItemToAuto(MapWorkbenchDraft draft, byte terrainId, IReadOnlyList<MaterialAsset> materials)
+    {
+        var familyKey = BuildVisualFamilyKey(terrainId);
+        draft.TerrainMaterialPlan?.RemoveAll(item => item.VisualFamilyKey.Equals(familyKey, StringComparison.OrdinalIgnoreCase));
+        EnsureMaterialPlan(draft, materials);
+    }
+
+    public void RerandomizePlanItem(MapWorkbenchDraft draft, byte terrainId, IReadOnlyList<MaterialAsset> materials)
+    {
+        var candidates = GetCandidateMaterialsForTerrain(terrainId, materials);
+        if (candidates.Count == 0) return;
+
+        var familyKey = BuildVisualFamilyKey(terrainId);
+        var preferred = GetPreferredPlanCandidates(candidates);
+        var currentItem = draft.TerrainMaterialPlan?
+            .FirstOrDefault(item => item.VisualFamilyKey.Equals(familyKey, StringComparison.OrdinalIgnoreCase));
+        var currentPath = currentItem == null
+            ? string.Empty
+            : MapDraftService.ResolveMaterialPath(draft.MaterialRoot, currentItem.MaterialRelativePath);
+        var currentIndex = string.IsNullOrWhiteSpace(currentPath)
+            ? -1
+            : preferred.FindIndex(asset => asset.FilePath.Equals(currentPath, StringComparison.OrdinalIgnoreCase));
+        var selected = preferred[(currentIndex + 1 + preferred.Count) % preferred.Count];
+        UpsertPlanItem(draft, CreatePlanItem(
+            draft,
+            GetPlanMapId(draft),
+            terrainId,
+            familyKey,
+            selected,
+            TerrainMaterialSelectionModes.Auto,
+            BuildMaterialRootFingerprint(draft.MaterialRoot)));
+    }
+
+    private static bool TrySelectPlanOrAutoMaterial(
+        MapWorkbenchDraft draft,
+        IReadOnlyList<MaterialAsset> candidates,
+        byte terrainId,
+        out MaterialAsset material)
+    {
+        var familyKey = BuildVisualFamilyKey(terrainId);
+        var item = draft.TerrainMaterialPlan?
+            .FirstOrDefault(x => x.VisualFamilyKey.Equals(familyKey, StringComparison.OrdinalIgnoreCase));
+        if (item != null)
+        {
+            if (TryResolvePlanMaterial(draft, item, candidates, out material))
+            {
+                return true;
+            }
+
+            if (item.SelectionMode.Equals(TerrainMaterialSelectionModes.Manual, StringComparison.OrdinalIgnoreCase) ||
+                item.SelectionMode.Equals(TerrainMaterialSelectionModes.MissingManual, StringComparison.OrdinalIgnoreCase))
+            {
+                material = null!;
+                return false;
+            }
+        }
+
+        material = SelectPlanCandidate(candidates, GetPlanMapId(draft), familyKey, BuildMaterialRootFingerprint(draft.MaterialRoot));
+        return true;
+    }
+
+    private static MaterialAsset SelectPlanCandidate(IReadOnlyList<MaterialAsset> candidates, string mapId, string familyKey, string fingerprint)
+    {
+        var preferred = GetPreferredPlanCandidates(candidates);
+        var hash = StableHash(mapId + "|" + familyKey + "|" + fingerprint, 0, 0, 0x9E3779B9u);
+        return preferred[(int)(hash % (uint)preferred.Count)];
+    }
+
+    private static List<MaterialAsset> GetPreferredPlanCandidates(IReadOnlyList<MaterialAsset> candidates)
+    {
+        var topPriority = candidates.Min(asset => GetCategoryPriority(asset.Category));
+        var preferred = candidates.Where(asset => GetCategoryPriority(asset.Category) == topPriority).ToList();
+        var ordinary = preferred
             .Where(asset => !ContainsAny(asset, "edge", "border", "corner", "transition", "blend", "mix", "边", "岸", "沿", "角", "过渡", "融合", "混合"))
             .ToList();
-        return ordinary.Count > 0 ? ordinary : candidates;
-    }
-
-    private static bool MatchesAdjacency(MaterialAsset asset, TerrainAdjacencyKind kind)
-        => kind switch
-        {
-            TerrainAdjacencyKind.Edge => ContainsAny(asset, "edge", "border", "side", "边", "岸", "沿"),
-            TerrainAdjacencyKind.Corner => ContainsAny(asset, "corner", "inner", "outer", "角", "转角", "内角", "外角"),
-            TerrainAdjacencyKind.Transition => ContainsAny(asset, "transition", "blend", "mix", "过渡", "融合", "混合"),
-            _ => !ContainsAny(asset, "edge", "border", "corner", "transition", "blend", "mix", "边", "岸", "沿", "角", "过渡", "融合", "混合")
-        };
-
-    private static bool ContainsAny(MaterialAsset asset, params string[] tokens)
-    {
-        var text = asset.FileName + " " + asset.Description;
-        return tokens.Any(token => text.Contains(token, StringComparison.CurrentCultureIgnoreCase));
-    }
-
-    private static TerrainAdjacencyKind GetAdjacencyKind(MapWorkbenchDraft draft, int index, byte terrainId)
-    {
-        var x = index % draft.GridWidth;
-        var y = index / draft.GridWidth;
-        var left = IsDifferentTerrain(draft, x - 1, y, terrainId);
-        var right = IsDifferentTerrain(draft, x + 1, y, terrainId);
-        var top = IsDifferentTerrain(draft, x, y - 1, terrainId);
-        var bottom = IsDifferentTerrain(draft, x, y + 1, terrainId);
-        var cardinal = (left ? 1 : 0) + (right ? 1 : 0) + (top ? 1 : 0) + (bottom ? 1 : 0);
-        if (cardinal == 0)
-        {
-            return HasDifferentDiagonal(draft, x, y, terrainId)
-                ? TerrainAdjacencyKind.Corner
-                : TerrainAdjacencyKind.Normal;
-        }
-
-        if (cardinal == 1) return TerrainAdjacencyKind.Edge;
-        var adjacentPair = (left || right) && (top || bottom);
-        return adjacentPair ? TerrainAdjacencyKind.Corner : TerrainAdjacencyKind.Transition;
-    }
-
-    private static bool HasDifferentDiagonal(MapWorkbenchDraft draft, int x, int y, byte terrainId)
-        => IsDifferentTerrain(draft, x - 1, y - 1, terrainId) ||
-           IsDifferentTerrain(draft, x + 1, y - 1, terrainId) ||
-           IsDifferentTerrain(draft, x - 1, y + 1, terrainId) ||
-           IsDifferentTerrain(draft, x + 1, y + 1, terrainId);
-
-    private static bool IsDifferentTerrain(MapWorkbenchDraft draft, int x, int y, byte terrainId)
-    {
-        if (x < 0 || y < 0 || x >= draft.GridWidth || y >= draft.GridHeight) return false;
-        return draft.TerrainCells[y * draft.GridWidth + x] != terrainId;
+        return ordinary.Count > 0 ? ordinary : preferred;
     }
 
     private Bitmap? GetCachedImage(string path)
@@ -243,25 +399,62 @@ public sealed class TerrainDrivenMapGenerationService
         return bitmap;
     }
 
-    private static void DrawVariant(Graphics g, Image source, Rectangle target, MapWorkbenchDraft draft, int index, byte terrainId)
-    {
-        var hash = StableHash(draft.DraftId, index, terrainId, 0x85EBCA6Bu);
-        var flip = (hash & 1) != 0;
-        using var variant = new Bitmap(source);
-        if (flip)
+    private static void DrawMainMaterial(Graphics g, Image source, Rectangle target)
+        => g.DrawImage(source, target);
+
+    private static TerrainMaterialPlanItem CreatePlanItem(
+        MapWorkbenchDraft draft,
+        string mapId,
+        byte terrainId,
+        string familyKey,
+        MaterialAsset material,
+        string selectionMode,
+        string fingerprint)
+        => new()
         {
-            variant.RotateFlip(RotateFlipType.RotateNoneFlipX);
+            MapId = mapId,
+            TerrainId = terrainId,
+            VisualFamilyKey = familyKey,
+            MaterialRelativePath = MapDraftService.GetMaterialRelativePath(draft.MaterialRoot, material.FilePath),
+            MaterialCategory = material.Category,
+            DisplayName = material.FileName,
+            SelectionMode = selectionMode,
+            MaterialRootFingerprint = fingerprint
+        };
+
+    private static void UpsertPlanItem(MapWorkbenchDraft draft, TerrainMaterialPlanItem item)
+    {
+        draft.TerrainMaterialPlan ??= new List<TerrainMaterialPlanItem>();
+        draft.TerrainMaterialPlan.RemoveAll(existing => existing.VisualFamilyKey.Equals(item.VisualFamilyKey, StringComparison.OrdinalIgnoreCase));
+        draft.TerrainMaterialPlan.Add(item);
+    }
+
+    private static string BuildVisualFamilyKey(byte terrainId) => terrainId.ToString(CultureInfo.InvariantCulture);
+
+    public string GetVisualFamilyKey(byte terrainId) => BuildVisualFamilyKey(terrainId);
+
+    public string GetMaterialRootFingerprint(string materialRoot) => BuildMaterialRootFingerprint(materialRoot);
+
+    private static string BuildMaterialRootFingerprint(string materialRoot)
+    {
+        if (string.IsNullOrWhiteSpace(materialRoot)) return string.Empty;
+        try
+        {
+            return Path.GetFullPath(materialRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
         }
+        catch
+        {
+            return materialRoot.Trim().ToUpperInvariant();
+        }
+    }
 
-        g.DrawImage(variant, target);
-        var tint = (int)((hash >> 3) & 0x0F) - 7;
-        if (tint == 0) return;
+    private static string GetPlanMapId(MapWorkbenchDraft draft)
+        => string.IsNullOrWhiteSpace(draft.BoundMapId) ? draft.DraftId : draft.BoundMapId;
 
-        var alpha = Math.Min(18, Math.Abs(tint) * 2);
-        using var brush = new SolidBrush(tint > 0
-            ? Color.FromArgb(alpha, Color.White)
-            : Color.FromArgb(alpha, Color.Black));
-        g.FillRectangle(brush, target);
+    private static bool ContainsAny(MaterialAsset asset, params string[] tokens)
+    {
+        var text = asset.FileName + " " + asset.Description;
+        return tokens.Any(token => text.Contains(token, StringComparison.CurrentCultureIgnoreCase));
     }
 
     private static uint StableHash(string? seed, int index, byte terrainId, uint salt)
@@ -283,13 +476,14 @@ public sealed class TerrainDrivenMapGenerationService
         }
     }
 
-    private enum TerrainAdjacencyKind
-    {
-        Normal,
-        Edge,
-        Corner,
-        Transition
-    }
-
     private sealed record CachedImage(DateTime LastWriteUtc, long Length, Bitmap Bitmap);
 }
+
+public sealed record TerrainGenerationDiagnostics(
+    bool CanGenerate,
+    int MaterialCount,
+    int TerrainAssetIdCount,
+    int MatchedCellCount,
+    int FallbackCellCount,
+    IReadOnlyList<byte> MissingTerrainIds,
+    IReadOnlyList<byte> MatchedTerrainIds);

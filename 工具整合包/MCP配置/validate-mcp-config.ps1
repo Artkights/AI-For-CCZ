@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 10000,
-    [int]$MinimumToolCount = 65
+    [int]$MinimumToolCount = 117
 )
 
 $ErrorActionPreference = "Stop"
@@ -230,6 +230,44 @@ try {
         "build_effect_package_from_template",
         "preview_effect_patch",
         "apply_effect_patch",
+        "list_map_drafts",
+        "read_map_draft",
+        "save_map_draft",
+        "preview_map_canvas",
+        "export_map_canvas_jpeg",
+        "publish_map_canvas_to_map_image",
+        "list_material_assets",
+        "migrate_material_library_preview",
+        "migrate_material_library",
+        "analyze_material_driven_terrain",
+        "derive_material_terrain_cells",
+        "generate_terrain_driven_map",
+        "beautify_terrain_map_preview",
+        "read_shop_editor",
+        "preview_write_shop_rows",
+        "write_shop_rows",
+        "read_global_settings",
+        "preview_write_global_settings",
+        "write_global_settings",
+        "parse_scenario_text_import",
+        "read_scenario_text_import_template",
+        "export_scenario_texts",
+        "scan_script_variables",
+        "read_script_variable_snapshot",
+        "read_rscene_draft",
+        "save_rscene_draft",
+        "list_rscene_command_candidates",
+        "list_battlefield_deployment_slots",
+        "preview_battlefield_deployment_write",
+        "write_battlefield_deployment",
+        "inspect_eex_entries",
+        "compare_eex_archives",
+        "export_table_annotations",
+        "list_item_effect_catalog",
+        "save_item_effect_catalog",
+        "read_equipment_type_profile",
+        "preview_attack_area",
+        "preview_strategy_animation",
         "read_effect_resource",
         "read_effect_prompt"
     )

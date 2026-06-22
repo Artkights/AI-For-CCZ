@@ -22,6 +22,7 @@ public sealed partial class MainForm
         _battlefieldUnitAnimationTimer.Start();
         _rScenePlaybackTimer.Tick += (_, _) => AdvanceRScenePlayback();
         _jobStrategyAnimationTimer.Tick += (_, _) => AdvanceJobStrategyAnimationPreview();
+        _mapMakerDirtyBaseRefreshTimer.Tick += (_, _) => FlushMapMakerDirtyBasePreview(runBeautify: false);
         _openProjectButton.Click += (_, _) => OpenProjectDialog();
         _reloadButton.Click += (_, _) => ReloadCurrentProject();
         _saveTableButton.Click += (_, _) => SaveCurrentTable();
@@ -38,7 +39,7 @@ public sealed partial class MainForm
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
         _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
-        _openRoleEffectButton.Click += (_, _) => OpenJobEffectEditor();
+        _openRoleEffectButton.Click += (_, _) => OpenRolePersonalEffectTableEditor();
         _openGlobalSettingsButton.Click += (_, _) => OpenGlobalSettingsDialog();
         _exportRoleEditorCsvButton.Click += (_, _) => ExportRoleEditorCsv();
         _importRoleEditorCsvButton.Click += (_, _) => ImportRoleEditorCsv();
@@ -86,6 +87,7 @@ public sealed partial class MainForm
         };
         _jobEditorGrid.SelectionChanged += (_, _) => HandleJobEditorSelectionChanged();
         _jobEditorGrid.CellMouseDown += (_, _) => MarkJobEditorSelectionChangeFromMouse();
+        _jobEditorGrid.CellDoubleClick += (_, e) => OpenJobEquipmentAttributeEditor(e.RowIndex);
         _jobEditorGrid.KeyDown += (_, e) =>
         {
             if (IsPotentialJobEditorTextInput(e)) SnapshotJobEditorSelectionForEdit();
@@ -544,6 +546,11 @@ public sealed partial class MainForm
             {
                 TryLoadMapMakerTerrainForSelectedMap(showMessage: false);
             }
+            else
+            {
+                FlushMapMakerDirtyBasePreview(runBeautify: false);
+            }
+
             RenderMapMakerPreview();
         };
         _mapMakerShowGridCheckBox.CheckedChanged += (_, _) => RenderMapMakerPreview();
@@ -565,13 +572,15 @@ public sealed partial class MainForm
 
             RenderMapMakerPreview(force: true);
         };
-        _mapMakerBeautifyCheckBox.Click += (_, _) => BeautifyCurrentGeneratedMap();
+        _mapMakerBeautifyCheckBox.Click += (_, _) => _ = BeautifyCurrentGeneratedMapAsync();
+        _mapMakerRollbackBeautifyButton.Click += (_, _) => RollbackCurrentMapBeautify();
         _mapMakerBeautifyStrengthInput.ValueChanged += (_, _) =>
         {
             if (_currentMapWorkbenchDraft != null)
             {
                 _currentMapWorkbenchDraft.BeautifyStrength = (int)_mapMakerBeautifyStrengthInput.Value;
             }
+            MarkCurrentGeneratedMapNeedsBeautify();
             RenderMapMakerPreview(force: true);
         };
         _mapMakerFeatherRadiusInput.ValueChanged += (_, _) =>
@@ -580,6 +589,7 @@ public sealed partial class MainForm
             {
                 _currentMapWorkbenchDraft.FeatherRadius = (int)_mapMakerFeatherRadiusInput.Value;
             }
+            MarkCurrentGeneratedMapNeedsBeautify();
             RenderMapMakerPreview(force: true);
         };
         _mapMakerTerrainOpacityTrackBar.ValueChanged += (_, _) =>
@@ -595,9 +605,13 @@ public sealed partial class MainForm
         _mapMakerReplaceMapImageButton.Click += (_, _) => ReplaceCurrentMapImage();
         _mapMakerExportPreviewButton.Click += (_, _) => ExportCurrentMapMakerPreviewPng();
         _mapMakerExportJpgButton.Click += (_, _) => ExportCurrentMapWorkbenchJpg();
+        _mapMakerMaterialPlanButton.Click += (_, _) => OpenMapWorkbenchMaterialPlanDialog();
         _mapMakerPublishAllButton.Click += (_, _) => PublishCurrentMapWorkbenchMapAndTerrain();
         _mapMakerPublishMapButton.Click += (_, _) => PublishCurrentMapWorkbenchMapImage();
         _mapMakerPublishTerrainButton.Click += (_, _) => PublishCurrentMapWorkbenchTerrain();
+        _mapMakerMaterialSearchBox.TextChanged += (_, _) => PopulateMapWorkbenchMaterialBrowser();
+        _mapMakerMaterialTree.AfterSelect += (_, _) => PopulateMapWorkbenchMaterialListForSelection();
+        _mapMakerMaterialListView.SelectedIndexChanged += (_, _) => SelectMapWorkbenchMaterialFromListView();
         _mapViewerBox.MouseDown += (_, e) => BeginMapMakerTerrainPaint(e);
         _mapViewerBox.MouseMove += (_, e) => ContinueMapMakerTerrainPaint(e);
         _mapViewerBox.MouseUp += (_, _) => EndMapMakerTerrainPaint();

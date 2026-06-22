@@ -998,7 +998,7 @@ public sealed partial class MainForm
                 _tables,
                 start: itemBoundary.AccessoryStartId,
                 count: itemBoundary.AccessoryCount,
-                categoryName: "辅助/道具",
+                categoryName: "辅助装备段",
                 defaultText: "默认装备",
                 unequipText: "卸去装备");
             Cursor = Cursors.Default;

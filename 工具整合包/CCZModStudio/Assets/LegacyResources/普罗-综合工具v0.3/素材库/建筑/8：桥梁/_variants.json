@@ -1,0 +1,194 @@
+[
+  {
+    "FileName": "1.png",
+    "Role": "default",
+    "Mask": 0,
+    "Mode": "default",
+    "Priority": 0,
+    "X": 0,
+    "Y": 0,
+    "Width": 48,
+    "Height": 48,
+    "SourceRect": {
+      "Location": {
+        "IsEmpty": true,
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "IsEmpty": false,
+        "Width": 48,
+        "Height": 48
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 48,
+      "Height": 48,
+      "Left": 0,
+      "Top": 0,
+      "Right": 48,
+      "Bottom": 48,
+      "IsEmpty": false
+    }
+  },
+  {
+    "FileName": "2.png",
+    "Role": "default",
+    "Mask": 0,
+    "Mode": "default",
+    "Priority": 0,
+    "X": 0,
+    "Y": 0,
+    "Width": 48,
+    "Height": 48,
+    "SourceRect": {
+      "Location": {
+        "IsEmpty": true,
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "IsEmpty": false,
+        "Width": 48,
+        "Height": 48
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 48,
+      "Height": 48,
+      "Left": 0,
+      "Top": 0,
+      "Right": 48,
+      "Bottom": 48,
+      "IsEmpty": false
+    }
+  },
+  {
+    "FileName": "3.png",
+    "Role": "default",
+    "Mask": 0,
+    "Mode": "default",
+    "Priority": 0,
+    "X": 0,
+    "Y": 0,
+    "Width": 48,
+    "Height": 48,
+    "SourceRect": {
+      "Location": {
+        "IsEmpty": true,
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "IsEmpty": false,
+        "Width": 48,
+        "Height": 48
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 48,
+      "Height": 48,
+      "Left": 0,
+      "Top": 0,
+      "Right": 48,
+      "Bottom": 48,
+      "IsEmpty": false
+    }
+  },
+  {
+    "FileName": "4.png",
+    "Role": "default",
+    "Mask": 0,
+    "Mode": "default",
+    "Priority": 0,
+    "X": 0,
+    "Y": 0,
+    "Width": 48,
+    "Height": 48,
+    "SourceRect": {
+      "Location": {
+        "IsEmpty": true,
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "IsEmpty": false,
+        "Width": 48,
+        "Height": 48
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 48,
+      "Height": 48,
+      "Left": 0,
+      "Top": 0,
+      "Right": 48,
+      "Bottom": 48,
+      "IsEmpty": false
+    }
+  },
+  {
+    "FileName": "5.png",
+    "Role": "default",
+    "Mask": 0,
+    "Mode": "default",
+    "Priority": 0,
+    "X": 0,
+    "Y": 0,
+    "Width": 48,
+    "Height": 48,
+    "SourceRect": {
+      "Location": {
+        "IsEmpty": true,
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "IsEmpty": false,
+        "Width": 48,
+        "Height": 48
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 48,
+      "Height": 48,
+      "Left": 0,
+      "Top": 0,
+      "Right": 48,
+      "Bottom": 48,
+      "IsEmpty": false
+    }
+  },
+  {
+    "FileName": "6.png",
+    "Role": "default",
+    "Mask": 0,
+    "Mode": "default",
+    "Priority": 0,
+    "X": 0,
+    "Y": 0,
+    "Width": 48,
+    "Height": 48,
+    "SourceRect": {
+      "Location": {
+        "IsEmpty": true,
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "IsEmpty": false,
+        "Width": 48,
+        "Height": 48
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 48,
+      "Height": 48,
+      "Left": 0,
+      "Top": 0,
+      "Right": 48,
+      "Bottom": 48,
+      "IsEmpty": false
+    }
+  }
+]

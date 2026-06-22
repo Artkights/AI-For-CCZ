@@ -201,9 +201,46 @@ internal partial class Program
         });
         var personalTable = tables.Single(t => t.TableName == "6.5-7-3 人物专属、套装专属");
         var personalBefore = FindSmokeRowById(reader.Read(testProject, personalTable, tables).Data, 44);
+        var personalBeforeSlot1Person = Convert.ToInt32(personalBefore["武将1"], CultureInfo.InvariantCulture);
+        var personalBeforeSlot1Item = Convert.ToInt32(personalBefore["装备1"], CultureInfo.InvariantCulture);
         var beforeSlot2Person = Convert.ToInt32(personalBefore["武将2"], CultureInfo.InvariantCulture);
         var beforeSlot2Item = Convert.ToInt32(personalBefore["装备2"], CultureInfo.InvariantCulture);
         var beforeSlot2Value = Convert.ToInt32(personalBefore["特效值2"], CultureInfo.InvariantCulture);
+        var missingPersonalPackage = service.BuildPackageFromTemplate("config.personal.exclusive", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["effect_id"] = "44",
+            ["slot_kind"] = "person_item_1",
+            ["person_id"] = "0",
+            ["effect_value"] = "5"
+        });
+        var missingPersonalPreview = service.Preview(testProject, tables, missingPersonalPackage, "replace");
+        if (missingPersonalPreview.CanApply ||
+            missingPersonalPreview.Warnings.All(warning => !warning.Contains("ItemId", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("个人/套装特效包缺少必要装备字段时未拒绝写入。");
+        }
+
+        var missingEffectValuePackage = new EffectPackage
+        {
+            Domain = "personal",
+            EffectId = 44,
+            Bindings =
+            {
+                new EffectPackageBinding
+                {
+                    Kind = "person_item_1",
+                    PersonId = 0,
+                    ItemId = 1
+                }
+            }
+        };
+        var missingEffectValuePreview = service.Preview(testProject, tables, missingEffectValuePackage, "replace");
+        if (missingEffectValuePreview.CanApply ||
+            missingEffectValuePreview.Warnings.All(warning => !warning.Contains("effect_value", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("个人/套装特效包缺少特效值时未拒绝写入。");
+        }
+
         var personalPreview = service.Preview(testProject, tables, personalPackage, "replace");
         if (!personalPreview.CanApply ||
             personalPreview.Changes.Count(change => change.Category == "PersonalExclusive") != 3 ||
@@ -224,6 +261,42 @@ internal partial class Program
         {
             throw new InvalidOperationException("个人/套装特效包写入后复读失败，或误改了未指定槽位。");
         }
+
+        var clearSlotPackage = new EffectPackage
+        {
+            Domain = "personal",
+            EffectId = 44,
+            EffectValue = 0,
+            Bindings =
+            {
+                new EffectPackageBinding
+                {
+                    Kind = "person_item_1",
+                    PersonId = 999,
+                    ItemId = 88
+                }
+            }
+        };
+        var clearSlotPreview = service.Preview(testProject, tables, clearSlotPackage, "replace");
+        if (!clearSlotPreview.CanApply ||
+            clearSlotPreview.Changes.Count(change => change.Category == "PersonalExclusive") != 3 ||
+            clearSlotPreview.Changes.Any(change => change.NewValue != "0"))
+        {
+            throw new InvalidOperationException("个人/套装特效值=0 未按旧扳手规则预览为清空当前槽。");
+        }
+
+        var clearSlotApply = service.Apply(testProject, tables, clearSlotPackage, "replace");
+        VerifyEffectApplyResult(clearSlotApply, expectedDomain: "personal", minChanges: 3);
+        var personalCleared = FindSmokeRowById(reader.Read(testProject, personalTable, tables).Data, 44);
+        if (Convert.ToInt32(personalCleared["武将1"], CultureInfo.InvariantCulture) != 0 ||
+            Convert.ToInt32(personalCleared["装备1"], CultureInfo.InvariantCulture) != 0 ||
+            Convert.ToInt32(personalCleared["特效值1"], CultureInfo.InvariantCulture) != 0 ||
+            Convert.ToInt32(personalCleared["武将2"], CultureInfo.InvariantCulture) != beforeSlot2Person ||
+            Convert.ToInt32(personalCleared["装备2"], CultureInfo.InvariantCulture) != beforeSlot2Item ||
+            Convert.ToInt32(personalCleared["特效值2"], CultureInfo.InvariantCulture) != beforeSlot2Value)
+        {
+            throw new InvalidOperationException("个人/套装特效值=0 写入未清空当前槽，或误改了未指定槽位。");
+        }
     
         var personalDelete = service.Apply(testProject, tables, new EffectPackage { Domain = "personal", EffectId = 44 }, "delete");
         VerifyEffectApplyResult(personalDelete, expectedDomain: "personal", minChanges: 14);
@@ -235,6 +308,8 @@ internal partial class Program
                 throw new InvalidOperationException("个人/套装特效删除未清空固定槽位：" + column);
             }
         }
+
+        Console.WriteLine($"PERSONAL_EFFECT_WRITE_SMOKE_OK effect=44 beforeSlot1=({personalBeforeSlot1Person},{personalBeforeSlot1Item}) importManifest={Path.GetFileName(personalApply.ManifestPath)} clearManifest={Path.GetFileName(clearSlotApply.ManifestPath)} deleteManifest={Path.GetFileName(personalDelete.ManifestPath)}");
     
         var patchPackage = service.BuildPackageFromTemplate("patch.inline_stub.draft", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {

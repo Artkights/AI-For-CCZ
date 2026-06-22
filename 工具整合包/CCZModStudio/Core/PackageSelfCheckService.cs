@@ -25,7 +25,7 @@ public static class PackageSelfCheckService
         ("LegacyResources\\a新剧本编辑器v0.23\\cczEditor2\\cczEditor2.rc", PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23", "cczEditor2", "cczEditor2.rc"), "缺少旧 MFC 对话框资源定义，旧版对话框映射不可用。"),
         ("LegacyResources\\a新剧本编辑器v0.23\\cczEditor2\\cczEditor2View.cpp", PortableInstallPaths.LegacyResource("a新剧本编辑器v0.23", "cczEditor2", "cczEditor2View.cpp"), "缺少旧 MFC 事件映射源码，旧版对话框字段解释不可用。"),
         ("LegacyResources\\B形象指定器\\形象指定器6.5\\System.ini", PortableInstallPaths.LegacyResource("B形象指定器", "形象指定器6.5", "System.ini"), "缺少形象指定器 System.ini，装备分段和部分映射提示会退化。"),
-        ("LegacyResources\\普罗-综合工具v0.3\\素材库\\地形\\1.png", PortableInstallPaths.LegacyResource("普罗-综合工具v0.3", "素材库", "地形", "1.png"), "缺少内置素材库，地图素材预览和素材索引会退化。"),
+        ("LegacyResources\\普罗-综合工具v0.3\\素材库\\地形\\0：平原\\1.png", PortableInstallPaths.LegacyResource("普罗-综合工具v0.3", "素材库", "地形", "0：平原", "1.png"), "缺少内置素材库，地图素材预览和素材索引会退化。"),
         ("Assets\\Palettes\\tsb", PortableInstallPaths.PaletteTsbPath, "缺少 tsb 调色板，RAW/E5 图像预览和编码可能不可用。"),
         ("Assets\\About\\Doro-white.ico", PortableInstallPaths.AboutAsset("Doro-white.ico"), "缺少应用图标 ico，窗口左上角和任务栏图标可能无法保持一致。"),
         ("Assets\\About\\Doro-white.png", PortableInstallPaths.AboutAsset("Doro-white.png"), "缺少应用图标 png，跨设备复用和图标素材预览会退化。"),

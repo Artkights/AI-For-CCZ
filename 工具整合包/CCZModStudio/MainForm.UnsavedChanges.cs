@@ -673,6 +673,7 @@ public sealed partial class MainForm
         _mapWorkbenchSettings.LastDraftId = _currentMapWorkbenchDraft.DraftId;
         _mapWorkbenchSettings.LastBoundMapId = _currentMapWorkbenchDraft.BoundMapId;
         _mapWorkbenchSettings.LastMaterialRoot = _currentMapWorkbenchDraft.MaterialRoot;
+        PersistCurrentTerrainMaterialPlan();
         SaveMapWorkbenchSettings();
         ResetMapWorkbenchHistory();
         SetStatus("鍦板浘宸ヤ綔鍙拌崏绋垮凡淇濆瓨");

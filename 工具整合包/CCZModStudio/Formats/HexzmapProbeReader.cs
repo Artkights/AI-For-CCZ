@@ -413,21 +413,7 @@ public sealed class HexzmapProbeReader
     }
 
     private static bool TryParseTerrainId(string text, out byte id)
-    {
-        id = 0;
-        text = text.Trim();
-        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-        {
-            return byte.TryParse(text[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id);
-        }
-
-        if (byte.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out id))
-        {
-            return true;
-        }
-
-        return byte.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id);
-    }
+        => MaterialHexTagParser.TryParseTerrainId(text, out id);
 
     private sealed record HexzmapMapInfo(
         string MapId,

@@ -51,6 +51,7 @@ internal sealed class LegacyMfcDialogDataSources
     public List<string> Person1 { get; } = [];
     public List<string> Person2 { get; } = [];
     public List<string> Item { get; } = [];
+    public IReadOnlyDictionary<int, ItemClassification> ItemClassifications { get; private set; } = new Dictionary<int, ItemClassification>();
     public List<string> Job { get; } = [];
     public List<string> Movie { get; } = [];
     public List<string> Object { get; } = [];
@@ -634,6 +635,7 @@ internal sealed class LegacyMfcDialogDataSources
         LoadSingleTableNames(project, tables, profile.TableHints.PersonTable, Person1, 0, 1024);
         LoadSingleTableNames(project, tables, profile.TableHints.PersonTable, Person2, 0, 1024);
         LoadItemTableNames(project, tables);
+        ApplyItemClassificationLabels(project, tables);
         LoadSingleTableNames(project, tables, profile.TableHints.DetailedJobTable, Job, 0, 80);
     }
 
@@ -727,6 +729,49 @@ internal sealed class LegacyMfcDialogDataSources
         {
             // Keep defaults.
         }
+    }
+
+    private void ApplyItemClassificationLabels(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        try
+        {
+            ItemClassifications = new ItemClassificationService().BuildLookup(project, tables);
+            foreach (var classification in ItemClassifications.Values)
+            {
+                if (classification.ItemId < 0 || classification.ItemId >= Item.Count) continue;
+                Item[classification.ItemId] = AppendItemClassificationLabel(Item[classification.ItemId], classification);
+            }
+        }
+        catch
+        {
+            ItemClassifications = new Dictionary<int, ItemClassification>();
+        }
+    }
+
+    private static string AppendItemClassificationLabel(string text, ItemClassification classification)
+    {
+        if (classification.Kind == ItemKind.Consumable)
+        {
+            return text.Contains("不可装备", StringComparison.Ordinal)
+                ? text
+                : text + " [道具/消耗品-不可装备]";
+        }
+
+        if (classification.Kind == ItemKind.AccessoryEquipment)
+        {
+            return text.Contains("辅助装备", StringComparison.Ordinal)
+                ? text
+                : text + " [辅助装备]";
+        }
+
+        if (classification.Kind == ItemKind.Reserved)
+        {
+            return text.Contains("预留", StringComparison.Ordinal)
+                ? text
+                : text + " [预留/空位]";
+        }
+
+        return text;
     }
 
     private static string FindNameColumn(DataTable data)

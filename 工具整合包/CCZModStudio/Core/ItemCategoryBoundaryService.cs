@@ -16,13 +16,13 @@ public sealed record ItemCategoryBoundary(
     public int AccessoryCount => Math.Max(0, 256 - AccessoryStartId);
 
     public string DisplayText =>
-        $"DefID={DefenseStartId}, AssID={AccessoryStartId} ({Source})";
+        $"DefID={DefenseStartId}, AssID={AccessoryStartId}；AssID..255 为辅助段编码范围，实际需按物品行区分辅助装备/道具 ({Source})";
 
     public string GetMajorCategory(int itemId)
     {
         if (itemId < DefenseStartId) return "武器";
         if (itemId < AccessoryStartId) return "防具";
-        return "辅助/道具";
+        return "辅助段";
     }
 }
 

@@ -39,7 +39,9 @@ var mapTerrainConsistencySmokeOnly = args.Contains("--map-terrain-consistency-sm
 var hexzmapSyncSmokeOnly = args.Contains("--hexzmap-sync-smoke", StringComparer.OrdinalIgnoreCase);
 var hexzmapWriteSmokeOnly = args.Contains("--hexzmap-write-smoke", StringComparer.OrdinalIgnoreCase);
 var mapCanvasPreviewSmokeOnly = args.Contains("--map-canvas-preview-smoke", StringComparer.OrdinalIgnoreCase);
+var mapWorkbenchUiSmokeOnly = args.Contains("--map-workbench-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var terrainDrivenMapSmokeOnly = args.Contains("--terrain-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
+var materialDrivenMapSmokeOnly = args.Contains("--material-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldPreviewSmokeOnly = args.Contains("--battlefield-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldUnitStatusWriteSmokeOnly = args.Contains("--battlefield-unit-status-write-smoke", StringComparer.OrdinalIgnoreCase);
 var effectPackageSmokeOnly = args.Contains("--effect-package-smoke", StringComparer.OrdinalIgnoreCase);
@@ -55,7 +57,10 @@ var revised66SmokeOnly = args.Contains("--66-revised-smoke", StringComparer.Ordi
 var revised66RegressionSmokeOnly = args.Contains("--66-regression-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
-var project = detector.DetectDefaultProject();
+var envGameRoot = Environment.GetEnvironmentVariable("CCZMODSTUDIO_GAME_ROOT");
+var project = string.IsNullOrWhiteSpace(envGameRoot)
+    ? detector.DetectDefaultProject()
+    : detector.CreateProjectFromGameRoot(envGameRoot);
 Console.WriteLine($"Workspace={project.WorkspaceRoot}");
 Console.WriteLine($"GameRoot={project.GameRoot}");
 Console.WriteLine($"HexTable={project.HexTableXmlPath}");
@@ -250,9 +255,21 @@ if (mapCanvasPreviewSmokeOnly)
     return;
 }
 
+if (mapWorkbenchUiSmokeOnly)
+{
+    RunMapWorkbenchUiSmoke(project);
+    return;
+}
+
 if (terrainDrivenMapSmokeOnly)
 {
     RunTerrainDrivenMapSmoke();
+    return;
+}
+
+if (materialDrivenMapSmokeOnly)
+{
+    RunMaterialDrivenMapSmoke();
     return;
 }
 

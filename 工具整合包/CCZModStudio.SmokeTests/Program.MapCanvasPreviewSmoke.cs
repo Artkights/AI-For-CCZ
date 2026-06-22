@@ -29,54 +29,57 @@ internal partial class Program
                 TileSize = MapResourceItem.MapTilePixelSize,
                 BaseLayerPath = basePath,
                 MaterialRoot = materialRoot,
-                AutoGenerateMapFromTerrain = false,
+                AutoGenerateMapFromTerrain = true,
                 TerrainCells = [0, 1, 2, 3],
-                MapCellOverrides =
+                TerrainBaseCells =
                 [
                     new MapCellOverride
                     {
                         Index = 0,
                         MaterialRelativePath = Path.GetFileName(grassPath),
                         MaterialCategory = "terrain",
-                        DisplayName = "grass.png"
+                        DisplayName = "grass.png",
+                        Source = MapCellOverrideSources.TerrainBase
                     }
                 ]
             };
 
             var composeService = new MapCanvasComposeService();
             using var renderer = new MapCanvasPreviewRenderer();
-            using var fullBefore = composeService.ComposePreview(draft, showTerrain: true, showGrid: true, terrainOpacityPercent: 45);
-            var incrementalBefore = renderer.Rebuild(draft, showTerrain: true, showGrid: true, terrainOpacityPercent: 45);
+            using var fullBefore = composeService.ComposePreview(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
+            var incrementalBefore = renderer.Rebuild(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
             AssertSameBitmap(fullBefore, incrementalBefore, "initial rebuild");
+            AssertPixelNear(incrementalBefore, 72, 24, Color.FromArgb(20, 30, 40), "unpainted cell keeps real base map");
 
-            draft.MapCellOverrides =
+            draft.TerrainBaseCells =
             [
-                draft.MapCellOverrides[0],
+                draft.TerrainBaseCells[0],
                 new MapCellOverride
                 {
                     Index = 3,
                     MaterialRelativePath = Path.GetFileName(waterPath),
                     MaterialCategory = "terrain",
-                    DisplayName = "water.png"
+                    DisplayName = "water.png",
+                    Source = MapCellOverrideSources.TerrainBase
                 }
             ];
-            var dirtyMap = renderer.UpdateMapCell(draft, 3, draft.MapCellOverrides[1]);
+            var dirtyMap = renderer.UpdateMapCell(draft, 3, draft.TerrainBaseCells[1]);
             if (dirtyMap != new Rectangle(48, 48, 48, 48))
             {
                 throw new InvalidOperationException($"Unexpected map dirty rect: {dirtyMap}.");
             }
 
-            using var fullAfterMap = composeService.ComposePreview(draft, showTerrain: true, showGrid: true, terrainOpacityPercent: 45);
+            using var fullAfterMap = composeService.ComposePreview(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
             AssertSameBitmap(fullAfterMap, incrementalBefore, "map cell update");
 
             draft.TerrainCells[1] = 9;
             var dirtyTerrain = renderer.UpdateTerrainCell(draft, 1);
-            if (dirtyTerrain != new Rectangle(48, 0, 48, 48))
+            if (dirtyTerrain != new Rectangle(0, 0, 96, 96))
             {
                 throw new InvalidOperationException($"Unexpected terrain dirty rect: {dirtyTerrain}.");
             }
 
-            using var fullAfterTerrain = composeService.ComposePreview(draft, showTerrain: true, showGrid: true, terrainOpacityPercent: 45);
+            using var fullAfterTerrain = composeService.ComposePreview(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
             AssertSameBitmap(fullAfterTerrain, incrementalBefore, "terrain cell update");
 
             Console.WriteLine("MAP_CANVAS_PREVIEW_SMOKE_OK");
@@ -118,6 +121,17 @@ internal partial class Program
                     throw new InvalidOperationException($"{scenario}: pixel differs at {x},{y}.");
                 }
             }
+        }
+    }
+
+    private static void AssertPixelNear(Bitmap bitmap, int x, int y, Color expected, string scenario)
+    {
+        var actual = bitmap.GetPixel(x, y);
+        if (Math.Abs(actual.R - expected.R) > 3 ||
+            Math.Abs(actual.G - expected.G) > 3 ||
+            Math.Abs(actual.B - expected.B) > 3)
+        {
+            throw new InvalidOperationException($"{scenario}: expected near {expected}, got {actual} at {x},{y}.");
         }
     }
 }
