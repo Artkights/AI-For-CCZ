@@ -30,6 +30,12 @@ public sealed partial class MainForm : Form
     private sealed record JobStrategyIconImportTarget(int StrategyId, string StrategyName, int IconIndex, string SourcePath);
     private sealed record BattlefieldCommand25Marker(int GridX, int GridY, LegacyScenarioCommandNode Command, int Count);
 
+    private enum ItemIconPreviewRole
+    {
+        Large,
+        Small
+    }
+
     private const int DefaultWindowWidth = 1280;
     private const int DefaultWindowHeight = 820;
     private const int MinimumWindowWidth = 900;
@@ -208,6 +214,7 @@ public sealed partial class MainForm : Form
     private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
     private readonly BatchItemIconImportService _batchItemIconImportService = new();
     private readonly BatchRoleFaceImportService _batchRoleFaceImportService = new();
+    private readonly BmpImageExportService _bmpImageExportService = new();
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
@@ -555,6 +562,7 @@ public sealed partial class MainForm : Form
     private readonly Button _saveRoleEditorButton = new();
     private readonly Button _importRoleFaceButton = new();
     private readonly Button _batchImportRoleFaceButton = new();
+    private readonly Button _exportRoleFaceBmpButton = new();
     private readonly Button _openRoleInTableEditorButton = new();
     private readonly Button _openRolePersonalEffectButton = new();
     private readonly Button _openRoleEffectButton = new();
@@ -611,6 +619,7 @@ public sealed partial class MainForm : Form
     private readonly Button _loadJobStrategyEditorButton = new();
     private readonly Button _saveJobStrategyEditorButton = new();
     private readonly Button _importJobStrategyIconButton = new();
+    private readonly Button _exportJobStrategyIconBmpButton = new();
     private readonly Button _editJobStrategyIconButton = new();
     private readonly Button _openJobStrategyTableButton = new();
     private readonly Button _filterJobStrategyEditorButton = new();
@@ -637,6 +646,7 @@ public sealed partial class MainForm : Form
     private readonly Button _pasteItemEditorSelectionButton = new();
     private readonly Button _batchFillItemEditorColumnButton = new();
     private readonly Button _batchImportItemIconButton = new();
+    private readonly Button _exportItemIconBmpButton = new();
     private readonly Button _editItemIconButton = new();
     private readonly Button _undoItemEditorButton = new();
     private readonly Button _redoItemEditorButton = new();
@@ -645,8 +655,18 @@ public sealed partial class MainForm : Form
     private readonly TextBox _itemEditorSearchBox = new();
     private readonly DataGridView _itemEditorGrid = new();
     private readonly TextBox _itemEditorInfoBox = new();
+    private readonly SplitContainer _itemIconPreviewSplit = new();
+    private readonly Panel _itemIconLargePreviewScrollPanel = new();
+    private readonly Panel _itemIconSmallPreviewScrollPanel = new();
+    private readonly Label _itemIconLargePreviewTitle = new();
+    private readonly Label _itemIconSmallPreviewTitle = new();
     private readonly PictureBox _itemIconPreviewBox = new();
+    private readonly PictureBox _itemIconSmallPreviewBox = new();
     private readonly TextBox _itemIconPreviewInfoBox = new();
+    private Bitmap? _itemIconLargeSourceBitmap;
+    private Bitmap? _itemIconSmallSourceBitmap;
+    private int _itemIconLargeZoomPercent;
+    private int _itemIconSmallZoomPercent;
     private readonly Button _loadShopEditorButton = new();
     private readonly Button _saveShopEditorButton = new();
     private readonly Button _exportShopEditorCsvButton = new();
@@ -796,12 +816,15 @@ public sealed partial class MainForm : Form
     private readonly Button _replaceImageResourceButton = new();
     private readonly Button _editRImageResourceButton = new();
     private readonly Button _editSImageResourceButton = new();
+    private readonly Button _exportRImageBmpButton = new();
+    private readonly Button _exportSImageBmpButton = new();
     private readonly Button _replaceRImageSetButton = new();
     private readonly Button _replaceSImageSetButton = new();
     private readonly Button _batchReplaceRImageSetButton = new();
     private readonly Button _batchReplaceSImageSetButton = new();
     private readonly Button _importImageAssignmentFaceButton = new();
     private readonly Button _batchImportImageAssignmentFaceButton = new();
+    private readonly Button _exportImageAssignmentFaceBmpButton = new();
     private readonly Button _restoreImageResourceButton = new();
     private readonly Button _exportMissingImageResourcesButton = new();
     private readonly DataGridView _imageAssignmentGrid = new();
@@ -1729,6 +1752,12 @@ public sealed partial class MainForm : Form
         _editRImageResourceButton.AutoSize = true;
         _editSImageResourceButton.Text = "编辑S形象";
         _editSImageResourceButton.AutoSize = true;
+        _exportRImageBmpButton.Text = "导出R BMP";
+        _exportRImageBmpButton.AutoSize = true;
+        _exportRImageBmpButton.Enabled = false;
+        _exportSImageBmpButton.Text = "导出S BMP";
+        _exportSImageBmpButton.AutoSize = true;
+        _exportSImageBmpButton.Enabled = false;
         _replaceRImageSetButton.Text = "一键替换R形象";
         _replaceRImageSetButton.AutoSize = true;
         _replaceSImageSetButton.Text = "一键替换S形象";
@@ -1743,6 +1772,9 @@ public sealed partial class MainForm : Form
         _batchImportImageAssignmentFaceButton.Text = "批量导入头像";
         _batchImportImageAssignmentFaceButton.AutoSize = true;
         _batchImportImageAssignmentFaceButton.Enabled = false;
+        _exportImageAssignmentFaceBmpButton.Text = "导出头像BMP";
+        _exportImageAssignmentFaceBmpButton.AutoSize = true;
+        _exportImageAssignmentFaceBmpButton.Enabled = false;
         _restoreImageResourceButton.Text = "还原E5条目";
         _restoreImageResourceButton.AutoSize = true;
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
@@ -1762,12 +1794,15 @@ public sealed partial class MainForm : Form
             _replaceImageResourceButton,
             _editRImageResourceButton,
             _editSImageResourceButton,
+            _exportRImageBmpButton,
+            _exportSImageBmpButton,
             _replaceRImageSetButton,
             _replaceSImageSetButton,
             _batchReplaceRImageSetButton,
             _batchReplaceSImageSetButton,
             _importImageAssignmentFaceButton,
             _batchImportImageAssignmentFaceButton,
+            _exportImageAssignmentFaceBmpButton,
             _restoreImageResourceButton,
             _exportMissingImageResourcesButton
         });

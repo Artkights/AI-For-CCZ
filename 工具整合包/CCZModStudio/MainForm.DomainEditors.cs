@@ -76,6 +76,7 @@ public sealed partial class MainForm
             _saveRoleEditorButton.Enabled = true;
             _importRoleFaceButton.Enabled = true;
             _batchImportRoleFaceButton.Enabled = true;
+            _exportRoleFaceBmpButton.Enabled = true;
             _exportRoleEditorCsvButton.Enabled = true;
             _importRoleEditorCsvButton.Enabled = true;
             _roleEditorInfoBox.Text = BuildRoleEditorSummary(_currentRoleEditorData);
@@ -3493,6 +3494,9 @@ public sealed partial class MainForm
             _saveItemEditorButton.Enabled = true;
             _exportItemEditorCsvButton.Enabled = true;
             _importItemEditorCsvButton.Enabled = true;
+            _batchImportItemIconButton.Enabled = true;
+            _exportItemIconBmpButton.Enabled = true;
+            _editItemIconButton.Enabled = true;
             ResetItemEditorHistory();
             _itemEditorInfoBox.Text = BuildItemEditorSummary(_currentItemEditorData);
             ShowSelectedItemEditorCell();
@@ -4053,7 +4057,7 @@ public sealed partial class MainForm
         if (columnName == "实际效果号") return "创作者视角的实际效果候选：武器/防具优先取装备特效号；辅助装备常见原始值 2、道具常见原始值 3 时，当前优先改看类型字段。";
         if (columnName == "实际效果说明") return "对原始字段的保守纠偏说明，用于避免把辅助装备/道具类别标记误读成真实装备特效。";
         if (columnName == "特效提示") return "把装备特效号、效果值和成长集中提示；辅助段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
-        if (columnName == "图标") return "物品图标编号；界面会按该编号从 Itemicon.dll 提取候选图标预览，最终映射仍建议实机确认。";
+        if (columnName == "图标") return "物品图标字段为 0-based；6.5 会映射到 Itemicon.dll 的 RT_BITMAP 成对资源 small/large，右侧按游戏实际资源槽重读预览。";
         if (columnName == "介绍") return "物品说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。";
         if (columnName == "来源文件") return "本行基础字段与说明字段的目标文件，只读显示。";
         if (_itemBaseLowRead?.Table.Fields.FirstOrDefault(f => f.ColumnName == columnName) is { } field)
@@ -4084,7 +4088,7 @@ public sealed partial class MainForm
             $"物品大类：{string.Join("，", kindGroups)}。\r\n" +
             $"项目类型来源：{string.Join("，", typeSourceGroups)}；人工校正文件：{notesPath}\r\n" +
             "界面按旧版宝物编辑器顺序显示：ID、名称、图标、物品大类、类型码、初始能力、能力成长、价格、特效号、特效名、特效值、图鉴、介绍；隐藏分段/项目类型诊断/长解释列和重复价格列。\r\n" +
-            "右侧图标预览按“图标”字段从 Itemicon.dll 枚举候选图标，保存仍写回 Data.e5、Star.e5、Imsg.e5 的原始字段。\r\n" +
+            "右侧图标预览按“图标”字段定位 Itemicon.dll 的 RT_BITMAP small/large 实际资源槽，保存仍写回 Data.e5、Star.e5、Imsg.e5 的原始字段。\r\n" +
             "保存会写回 Data.e5、Star.e5、Imsg.e5，保存前自动备份，保存后重新读取校验。";
     }
 
@@ -4986,24 +4990,208 @@ public sealed partial class MainForm
         }
 
         var result = _itemIconPreviewService.BuildPreview(_project, iconIndex);
-        var oldImage = _itemIconPreviewBox.Image;
-        _itemIconPreviewBox.Image = result.Bitmap;
-        oldImage?.Dispose();
+        var largeSource = result.LargeBitmap ?? result.NativeBitmap ?? result.Bitmap;
+        SetItemIconPreviewSources(largeSource, result.SmallBitmap);
         var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         _itemIconPreviewInfoBox.Text =
             $"物品 ID={id}  名称={name}\r\n" +
             $"图标字段={iconIndex}\r\n" +
             $"{result.Message}\r\n" +
+            $"渲染模式：{result.RenderMode}\r\n" +
+            $"实际大图：{FormatIconResourceVariant(result.LargeVariant)}\r\n" +
+            $"实际小图：{FormatIconResourceVariant(result.SmallVariant)}\r\n" +
+            $"全部变体：{FormatIconResourceVariants(result.ResourceVariants)}\r\n" +
+            $"选择模式：{(string.IsNullOrWhiteSpace(result.SelectionMode) ? "无" : result.SelectionMode)}\r\n" +
+            $"警告：{FormatIconPreviewWarnings(result.Warnings)}\r\n" +
+            "透明区以棋盘格显示；写回会更新同一 small/large ID 下的所有语言/位深变体，并在写后重读校验。\r\n" +
             $"资源路径：{result.SourcePath}";
+        _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
+        DisposeItemIconPreviewResultBitmaps(result);
     }
+
+    private static string FormatIconResourceVariant(IconResourceVariantInfo? variant)
+        => variant == null ? "无" : variant.DisplayLabel;
+
+    private static string FormatIconResourceVariants(IReadOnlyList<IconResourceVariantInfo>? variants)
+    {
+        if (variants == null || variants.Count == 0) return "无";
+        return string.Join("；", variants.Take(8).Select(variant => variant.DisplayLabel)) +
+               (variants.Count > 8 ? $"；...共 {variants.Count} 个" : string.Empty);
+    }
+
+    private static string FormatIconPreviewWarnings(IReadOnlyList<string>? warnings)
+        => warnings == null || warnings.Count == 0 ? "无" : string.Join("；", warnings.Take(6));
 
     private void ClearItemIconPreview(string message)
     {
-        var oldImage = _itemIconPreviewBox.Image;
-        _itemIconPreviewBox.Image = null;
-        oldImage?.Dispose();
+        ClearItemIconPreviewImages();
         _itemIconPreviewInfoBox.Text = message;
+    }
+
+    private void SetItemIconPreviewSources(Bitmap? largeSource, Bitmap? smallSource)
+    {
+        _itemIconLargeSourceBitmap?.Dispose();
+        _itemIconSmallSourceBitmap?.Dispose();
+        _itemIconLargeSourceBitmap = largeSource == null ? null : new Bitmap(largeSource);
+        _itemIconSmallSourceBitmap = smallSource == null ? null : new Bitmap(smallSource);
+        _itemIconLargeZoomPercent = 0;
+        _itemIconSmallZoomPercent = 0;
+        RenderItemIconPreview(ItemIconPreviewRole.Large);
+        RenderItemIconPreview(ItemIconPreviewRole.Small);
+    }
+
+    private void ClearItemIconPreviewImages()
+    {
+        _itemIconLargeSourceBitmap?.Dispose();
+        _itemIconSmallSourceBitmap?.Dispose();
+        _itemIconLargeSourceBitmap = null;
+        _itemIconSmallSourceBitmap = null;
+        _itemIconLargeZoomPercent = 0;
+        _itemIconSmallZoomPercent = 0;
+        ReplacePictureBoxImage(_itemIconPreviewBox, null);
+        ReplacePictureBoxImage(_itemIconSmallPreviewBox, null);
+        _itemIconPreviewBox.Size = Size.Empty;
+        _itemIconSmallPreviewBox.Size = Size.Empty;
+        _itemIconLargePreviewTitle.Text = "大图";
+        _itemIconSmallPreviewTitle.Text = "小图";
+    }
+
+    private void RenderItemIconPreview(ItemIconPreviewRole role)
+    {
+        var source = role == ItemIconPreviewRole.Large ? _itemIconLargeSourceBitmap : _itemIconSmallSourceBitmap;
+        var pictureBox = role == ItemIconPreviewRole.Large ? _itemIconPreviewBox : _itemIconSmallPreviewBox;
+        var title = role == ItemIconPreviewRole.Large ? _itemIconLargePreviewTitle : _itemIconSmallPreviewTitle;
+        var scrollPanel = role == ItemIconPreviewRole.Large ? _itemIconLargePreviewScrollPanel : _itemIconSmallPreviewScrollPanel;
+        var baseTitle = role == ItemIconPreviewRole.Large ? "大图" : "小图";
+
+        if (source == null)
+        {
+            ReplacePictureBoxImage(pictureBox, null);
+            pictureBox.Size = Size.Empty;
+            title.Text = baseTitle;
+            return;
+        }
+
+        var zoomPercent = role == ItemIconPreviewRole.Large ? _itemIconLargeZoomPercent : _itemIconSmallZoomPercent;
+        if (zoomPercent <= 0)
+        {
+            zoomPercent = CalculateItemIconFitZoomPercent(source, scrollPanel);
+        }
+
+        var zoom = Math.Clamp(zoomPercent / 100, 1, 64);
+        using var rendered = RenderItemIconZoomedPreview(source, zoom);
+        ReplacePictureBoxImage(pictureBox, new Bitmap(rendered));
+        pictureBox.Size = rendered.Size;
+        pictureBox.Location = Point.Empty;
+        scrollPanel.AutoScrollMinSize = rendered.Size;
+        title.Text = $"{baseTitle} {source.Width}x{source.Height} {zoom}x";
+    }
+
+    private static int CalculateItemIconFitZoomPercent(Bitmap source, ScrollableControl scrollPanel)
+    {
+        var viewportWidth = Math.Max(1, scrollPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
+        var viewportHeight = Math.Max(1, scrollPanel.ClientSize.Height - SystemInformation.HorizontalScrollBarHeight);
+        var zoom = Math.Max(1, Math.Min(viewportWidth / Math.Max(1, source.Width), viewportHeight / Math.Max(1, source.Height)));
+        return Math.Clamp(zoom, 1, 64) * 100;
+    }
+
+    private void HandleItemIconPreviewMouseWheel(ItemIconPreviewRole role, MouseEventArgs e)
+    {
+        var source = role == ItemIconPreviewRole.Large ? _itemIconLargeSourceBitmap : _itemIconSmallSourceBitmap;
+        if (source == null) return;
+
+        var panel = role == ItemIconPreviewRole.Large ? _itemIconLargePreviewScrollPanel : _itemIconSmallPreviewScrollPanel;
+        var currentPercent = role == ItemIconPreviewRole.Large ? _itemIconLargeZoomPercent : _itemIconSmallZoomPercent;
+        if (currentPercent <= 0)
+        {
+            currentPercent = CalculateItemIconFitZoomPercent(source, panel);
+        }
+
+        var currentZoom = Math.Clamp(currentPercent / 100, 1, 64);
+        var nextZoom = Math.Clamp(currentZoom + (e.Delta > 0 ? 1 : -1), 1, 64);
+        if (role == ItemIconPreviewRole.Large)
+        {
+            _itemIconLargeZoomPercent = nextZoom * 100;
+        }
+        else
+        {
+            _itemIconSmallZoomPercent = nextZoom * 100;
+        }
+
+        RenderItemIconPreview(role);
+    }
+
+    private void ResetItemIconPreviewZoom(ItemIconPreviewRole role)
+    {
+        if (role == ItemIconPreviewRole.Large)
+        {
+            _itemIconLargeZoomPercent = 0;
+        }
+        else
+        {
+            _itemIconSmallZoomPercent = 0;
+        }
+
+        RenderItemIconPreview(role);
+    }
+
+    private static Bitmap RenderItemIconZoomedPreview(Bitmap source, int zoom)
+    {
+        var scale = Math.Clamp(zoom, 1, 64);
+        var width = checked(source.Width * scale);
+        var height = checked(source.Height * scale);
+        var output = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(output);
+        graphics.Clear(Color.Transparent);
+        DrawItemIconChecker(graphics, new Rectangle(0, 0, width, height), Math.Max(4, scale * 2));
+
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                var pixel = source.GetPixel(x, y);
+                if (pixel.A == 0) continue;
+                using var brush = new SolidBrush(pixel);
+                graphics.FillRectangle(brush, x * scale, y * scale, scale, scale);
+            }
+        }
+
+        return output;
+    }
+
+    private static void DrawItemIconChecker(Graphics graphics, Rectangle rect, int size)
+    {
+        using var light = new SolidBrush(Color.FromArgb(230, 230, 230));
+        using var dark = new SolidBrush(Color.FromArgb(190, 190, 190));
+        for (var y = rect.Top; y < rect.Bottom; y += size)
+        {
+            for (var x = rect.Left; x < rect.Right; x += size)
+            {
+                var even = ((x / size) + (y / size)) % 2 == 0;
+                graphics.FillRectangle(even ? light : dark, x, y, size, size);
+            }
+        }
+    }
+
+    private static void ReplacePictureBoxImage(PictureBox pictureBox, Image? image)
+    {
+        var old = pictureBox.Image;
+        pictureBox.Image = image;
+        old?.Dispose();
+    }
+
+    private static void DisposeItemIconPreviewResultBitmaps(ItemIconPreviewResult result)
+    {
+        var bitmap = result.Bitmap;
+        var native = result.NativeBitmap;
+        var small = result.SmallBitmap;
+        var large = result.LargeBitmap;
+
+        bitmap?.Dispose();
+        if (!ReferenceEquals(native, bitmap)) native?.Dispose();
+        if (!ReferenceEquals(small, bitmap) && !ReferenceEquals(small, native)) small?.Dispose();
+        if (!ReferenceEquals(large, bitmap) && !ReferenceEquals(large, native) && !ReferenceEquals(large, small)) large?.Dispose();
     }
 
     private void BatchImportSelectedItemIcons()
@@ -5072,6 +5260,7 @@ public sealed partial class MainForm
 
         var previewText = BuildBatchItemIconImportPreviewText(preview);
         _itemIconPreviewInfoBox.Text = previewText;
+        _itemEditorInfoBox.Text = previewText;
         if (!preview.CanWrite)
         {
             MessageBox.Show(this, previewText, "宝物图标批量导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -5095,6 +5284,7 @@ public sealed partial class MainForm
             _itemIconPreviewService.ClearCache();
             ShowSelectedItemEditorCell();
             _itemIconPreviewInfoBox.Text = BuildBatchItemIconImportResultText(result);
+            _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
             SetStatus($"宝物图标批量导入完成：{result.TotalOperationCount} 条");
         }
         catch (Exception ex)
@@ -5105,6 +5295,57 @@ public sealed partial class MainForm
         finally
         {
             Cursor = Cursors.Default;
+        }
+    }
+
+    private void ExportSelectedItemIconsBmp()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentItemEditorData == null)
+        {
+            MessageBox.Show(this, "请先读取宝物/物品。", "导出宝物图标BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedItemRowsForIconImport();
+        if (selectedRows.Count == 0 && _itemEditorGrid.CurrentRow != null)
+        {
+            selectedRows = [_itemEditorGrid.CurrentRow];
+        }
+
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在宝物表中选中要导出图标的行。", "导出宝物图标BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        IReadOnlyList<BatchItemIconTargetRow> itemTargets;
+        try
+        {
+            itemTargets = BuildItemIconImportTargetRows(selectedRows);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "导出宝物图标BMP", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var targets = itemTargets.Select(target => new BmpExportTarget
+        {
+            RowId = target.RowId,
+            DisplayName = target.DisplayName,
+            FieldValue = target.IconIndex
+        }).ToArray();
+        var result = ExecuteBmpExport(BmpExportKind.ItemIcon, targets, "选择宝物图标 BMP 导出目录", "导出宝物图标BMP", singleMode: targets.Length == 1);
+        if (result != null)
+        {
+            _itemIconPreviewInfoBox.Text = BuildBmpExportResultText(result);
+            _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
         }
     }
 
@@ -6577,6 +6818,7 @@ public sealed partial class MainForm
     {
         if (_project == null) return;
         _importJobStrategyIconButton.Enabled = false;
+        _exportJobStrategyIconBmpButton.Enabled = false;
         _editJobStrategyIconButton.Enabled = false;
         if (_tables.Count == 0)
         {
@@ -6593,6 +6835,7 @@ public sealed partial class MainForm
             ConfigureJobStrategyGrid();
             _saveJobStrategyEditorButton.Enabled = true;
             _importJobStrategyIconButton.Enabled = true;
+            _exportJobStrategyIconBmpButton.Enabled = true;
             _editJobStrategyIconButton.Enabled = true;
             _jobStrategyEditorInfoBox.Text = BuildJobStrategySummary(_currentJobStrategyData);
             ShowSelectedJobStrategyCell();
@@ -6799,7 +7042,7 @@ public sealed partial class MainForm
         if (columnName == "施展对象") return "策略可施展对象，写入 6.5-5 策略 / Data.e5。旧形象指定器可见候选包括敌方、我方/气合类、全屏气合类；修改后需实机验证目标选择。";
         if (columnName == "施法范围") return "策略施法目标选择范围，写入 6.5-5 策略 / Data.e5；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。";
         if (columnName == "穿透范围") return "策略效果范围/穿透模板，写入 6.5-5 策略 / Data.e5；选择该字段会按字段值+1 从 E5\\Effarea.e5 预览范围图。";
-        if (columnName == "策略图标") return "策略图标编号，写入 6.5-5 策略 / Data.e5；选择该字段会按编号从 Mgcicon.dll 预览候选图标。";
+        if (columnName == "策略图标") return "策略图标编号，写入 6.5-5 策略 / Data.e5；选择该字段会按编号从 Mgcicon.dll 的 RT_BITMAP 实际资源槽预览图标。";
         if (TryGetJobStrategyLearningSourceColumn(columnName, out var sourceColumnName) &&
             int.TryParse(sourceColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out var jobId))
         {
@@ -7562,6 +7805,66 @@ public sealed partial class MainForm
             .Distinct()
             .OrderBy(row => row.Index)
             .ToArray();
+    }
+
+    private void ExportSelectedJobStrategyIconsBmp()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentJobStrategyData == null)
+        {
+            MessageBox.Show(this, "请先读取兵种策略。", "导出策略图标BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedJobStrategyRowsForIconImport();
+        if (selectedRows.Count == 0 && _jobStrategyEditorGrid.CurrentRow != null)
+        {
+            selectedRows = [_jobStrategyEditorGrid.CurrentRow];
+        }
+
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在兵种策略表中选中要导出图标的行。", "导出策略图标BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var targets = new List<BmpExportTarget>();
+        try
+        {
+            foreach (var row in selectedRows)
+            {
+                var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为兵种策略数据行。");
+                var strategyId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+                var strategyName = Convert.ToString(dataRow["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+                if (!TryConvertToInt(dataRow["策略图标"], out var iconIndex))
+                {
+                    throw new InvalidOperationException($"策略 ID={strategyId} 的“策略图标”字段不是有效整数。");
+                }
+
+                targets.Add(new BmpExportTarget
+                {
+                    RowId = strategyId,
+                    DisplayName = strategyName,
+                    FieldValue = iconIndex
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "导出策略图标BMP", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var result = ExecuteBmpExport(BmpExportKind.StrategyIcon, targets, "选择策略图标 BMP 导出目录", "导出策略图标BMP", singleMode: targets.Count == 1);
+        if (result != null)
+        {
+            _jobStrategyPreviewInfoBox.Text = BuildBmpExportResultText(result);
+        }
     }
 
     private static IReadOnlyList<JobStrategyIconImportTarget> BuildJobStrategyIconImportTargets(

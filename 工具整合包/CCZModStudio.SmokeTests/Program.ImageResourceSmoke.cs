@@ -345,7 +345,9 @@ internal partial class Program
         var iconReplaceResult = iconReplaceService.ReplaceBitmapIcon(testProject, itemIconTarget, 0, iconReplacement);
         if (!File.Exists(iconReplaceResult.BackupPath) ||
             !File.Exists(iconReplaceResult.ReportJsonPath) ||
-            iconReplaceResult.NewFileSha256.Equals(iconReplaceResult.OldFileSha256, StringComparison.OrdinalIgnoreCase))
+            iconReplaceResult.NewFileSha256.Equals(iconReplaceResult.OldFileSha256, StringComparison.OrdinalIgnoreCase) ||
+            !iconReplaceResult.ReadbackVerified ||
+            iconReplaceResult.ReadbackItems.Count == 0)
         {
             throw new InvalidOperationException("DLL 图标替换写入或报告断言失败。");
         }
@@ -353,7 +355,9 @@ internal partial class Program
         var iconClearResult = iconReplaceService.ClearBitmapIcon(testProject, itemIconTarget, 1);
         if (!File.Exists(iconClearResult.BackupPath) ||
             !File.Exists(iconClearResult.ReportJsonPath) ||
-            iconClearResult.NewFileSha256.Equals(iconClearResult.OldFileSha256, StringComparison.OrdinalIgnoreCase))
+            iconClearResult.NewFileSha256.Equals(iconClearResult.OldFileSha256, StringComparison.OrdinalIgnoreCase) ||
+            !iconClearResult.ReadbackVerified ||
+            iconClearResult.ReadbackItems.Count == 0)
         {
             throw new InvalidOperationException("DLL 图标清空写入或报告断言失败。");
         }
@@ -403,22 +407,30 @@ internal partial class Program
             !File.Exists(mgcBatchResult.ReportJsonPath) ||
             !File.ReadAllText(mgcBatchResult.ReportJsonPath).Contains("DLL图标RT_BITMAP批量替换", StringComparison.Ordinal) ||
             mgcBatchResult.NewFileSha256.Equals(mgcBatchResult.OldFileSha256, StringComparison.OrdinalIgnoreCase) ||
-            mgcBackupsAfter != mgcBackupsBefore + 1)
+            mgcBackupsAfter != mgcBackupsBefore + 1 ||
+            !mgcBatchResult.ReadbackVerified ||
+            mgcBatchResult.ReadbackItems.Count == 0)
         {
             throw new InvalidOperationException("DLL 策略图标批量替换写入、单次备份或报告断言失败。");
         }
 
         AssertDllBitmapTopFirstRows(mgcIconTarget, mgcBatchResult.Items[0].ResourceIds, Color.FromArgb(255, 230, 70, 80), Color.FromArgb(255, 40, 190, 80));
         var mgcPreviewAfterWrite = new ItemIconPreviewService().BuildPreview(testProject, 0, "Mgcicon.dll", "策略图标", 96);
-        if (mgcPreviewAfterWrite.Bitmap == null)
+        if (mgcPreviewAfterWrite.Bitmap == null ||
+            !mgcPreviewAfterWrite.RenderMode.Equals("DLL RT_BITMAP", StringComparison.Ordinal) ||
+            mgcPreviewAfterWrite.LargeBitmap == null ||
+            mgcPreviewAfterWrite.SmallBitmap == null)
         {
             throw new InvalidOperationException("DLL 策略图标写入后预览未生成。");
         }
 
         using (mgcPreviewAfterWrite.Bitmap)
+        using (mgcPreviewAfterWrite.NativeBitmap)
+        using (mgcPreviewAfterWrite.LargeBitmap)
+        using (mgcPreviewAfterWrite.SmallBitmap)
         {
             AssertBitmapPreviewTopBottom(
-                mgcPreviewAfterWrite.Bitmap,
+                mgcPreviewAfterWrite.LargeBitmap,
                 Color.FromArgb(255, 230, 70, 80),
                 Color.FromArgb(255, 40, 190, 80),
                 "DLL 策略图标写入后 BuildPreview");

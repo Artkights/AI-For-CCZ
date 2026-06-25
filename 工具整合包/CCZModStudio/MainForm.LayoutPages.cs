@@ -422,6 +422,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _importRoleEditorCsvButton.Text = "导入CSV";
         _importRoleEditorCsvButton.AutoSize = true;
         _importRoleEditorCsvButton.Enabled = false;
+        _importRoleFaceButton.Text = "导入头像";
+        _importRoleFaceButton.AutoSize = true;
+        _importRoleFaceButton.Enabled = false;
+        _batchImportRoleFaceButton.Text = "批量导入头像";
+        _batchImportRoleFaceButton.AutoSize = true;
+        _batchImportRoleFaceButton.Enabled = false;
+        _exportRoleFaceBmpButton.Text = "导出头像BMP";
+        _exportRoleFaceBmpButton.AutoSize = true;
+        _exportRoleFaceBmpButton.Enabled = false;
         _copyRoleEditorSelectionButton.Text = "复制";
         _copyRoleEditorSelectionButton.AutoSize = true;
         _pasteRoleEditorSelectionButton.Text = "粘贴";
@@ -443,6 +452,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _openGlobalSettingsButton,
             _exportRoleEditorCsvButton,
             _importRoleEditorCsvButton,
+            _importRoleFaceButton,
+            _batchImportRoleFaceButton,
+            _exportRoleFaceBmpButton,
             _copyRoleEditorSelectionButton,
             _pasteRoleEditorSelectionButton,
             _batchFillRoleEditorColumnButton,
@@ -586,6 +598,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _importItemEditorCsvButton.Text = "导入CSV";
         _importItemEditorCsvButton.AutoSize = true;
         _importItemEditorCsvButton.Enabled = false;
+        _batchImportItemIconButton.Text = "一键导入图标";
+        _batchImportItemIconButton.AutoSize = true;
+        _batchImportItemIconButton.Enabled = false;
+        _exportItemIconBmpButton.Text = "导出BMP";
+        _exportItemIconBmpButton.AutoSize = true;
+        _exportItemIconBmpButton.Enabled = false;
+        _editItemIconButton.Text = "宝物图标编辑";
+        _editItemIconButton.AutoSize = true;
+        _editItemIconButton.Enabled = false;
         _copyItemEditorSelectionButton.Text = "复制";
         _copyItemEditorSelectionButton.AutoSize = true;
         _pasteItemEditorSelectionButton.Text = "粘贴";
@@ -611,6 +632,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _openItemEffectCatalogButton,
             _exportItemEditorCsvButton,
             _importItemEditorCsvButton,
+            _batchImportItemIconButton,
+            _exportItemIconBmpButton,
+            _editItemIconButton,
             _copyItemEditorSelectionButton,
             _pasteItemEditorSelectionButton,
             _batchFillItemEditorColumnButton,
@@ -636,30 +660,136 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var previewPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 6,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         previewPanel.Controls.Add(new Label
         {
-            Text = "图标预览",
+            Text = "大图实机预览",
             Dock = DockStyle.Fill,
             AutoSize = true,
             Font = new Font(Font, FontStyle.Bold)
         }, 0, 0);
         _itemIconPreviewBox.Dock = DockStyle.Fill;
         _itemIconPreviewBox.BorderStyle = BorderStyle.FixedSingle;
-        _itemIconPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
-        _itemIconPreviewBox.BackColor = Color.White;
+        _itemIconPreviewBox.SizeMode = PictureBoxSizeMode.CenterImage;
+        _itemIconPreviewBox.BackColor = Color.FromArgb(44, 44, 48);
         previewPanel.Controls.Add(_itemIconPreviewBox, 0, 1);
+        previewPanel.Controls.Add(new Label
+        {
+            Text = "小图实机预览",
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            Font = new Font(Font, FontStyle.Bold),
+            Padding = new Padding(0, 8, 0, 0)
+        }, 0, 2);
+        _itemIconSmallPreviewBox.Dock = DockStyle.Fill;
+        _itemIconSmallPreviewBox.BorderStyle = BorderStyle.FixedSingle;
+        _itemIconSmallPreviewBox.SizeMode = PictureBoxSizeMode.CenterImage;
+        _itemIconSmallPreviewBox.BackColor = Color.FromArgb(44, 44, 48);
+        previewPanel.Controls.Add(_itemIconSmallPreviewBox, 0, 3);
+        previewPanel.Controls.Add(new Label
+        {
+            Text = "资源信息",
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            Font = new Font(Font, FontStyle.Bold),
+            Padding = new Padding(0, 8, 0, 0)
+        }, 0, 4);
         _itemIconPreviewInfoBox.Dock = DockStyle.Fill;
         _itemIconPreviewInfoBox.Multiline = true;
         _itemIconPreviewInfoBox.ReadOnly = true;
         _itemIconPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _itemIconPreviewInfoBox.WordWrap = true;
-        _itemIconPreviewInfoBox.Text = "读取宝物/物品后，选择某行会按“图标”字段从 Itemicon.dll 显示候选图标。";
+        _itemIconPreviewInfoBox.Text = "读取宝物/物品后，选择某行会按“图标”字段定位游戏实际 RT_BITMAP small/large 资源。";
+        previewPanel.Controls.Add(_itemIconPreviewInfoBox, 0, 5);
+        previewPanel.SuspendLayout();
+        previewPanel.Controls.Clear();
+        previewPanel.RowStyles.Clear();
+        previewPanel.ColumnStyles.Clear();
+        previewPanel.RowCount = 1;
+        previewPanel.ColumnCount = 1;
+        previewPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        _itemIconPreviewSplit.Dock = DockStyle.Fill;
+        _itemIconPreviewSplit.Orientation = Orientation.Horizontal;
+        _itemIconPreviewSplit.SplitterWidth = 6;
+        _itemIconPreviewSplit.Panel1MinSize = 80;
+        _itemIconPreviewSplit.Panel2MinSize = 80;
+        _itemIconPreviewSplit.FixedPanel = FixedPanel.None;
+        previewPanel.Controls.Add(_itemIconPreviewSplit, 0, 0);
+
+        var largePreviewPane = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 0, 3) };
+        _itemIconLargePreviewTitle.Text = "大图";
+        _itemIconLargePreviewTitle.Dock = DockStyle.Top;
+        _itemIconLargePreviewTitle.Height = 24;
+        _itemIconLargePreviewTitle.Font = new Font(Font, FontStyle.Bold);
+        _itemIconLargePreviewTitle.TextAlign = ContentAlignment.MiddleLeft;
+        _itemIconLargePreviewScrollPanel.Dock = DockStyle.Fill;
+        _itemIconLargePreviewScrollPanel.AutoScroll = true;
+        _itemIconLargePreviewScrollPanel.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconLargePreviewScrollPanel.BorderStyle = BorderStyle.FixedSingle;
+        _itemIconLargePreviewScrollPanel.TabStop = true;
+        _itemIconPreviewBox.Dock = DockStyle.None;
+        _itemIconPreviewBox.Location = Point.Empty;
+        _itemIconPreviewBox.SizeMode = PictureBoxSizeMode.Normal;
+        _itemIconPreviewBox.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconPreviewBox.BorderStyle = BorderStyle.None;
+        _itemIconLargePreviewScrollPanel.Controls.Add(_itemIconPreviewBox);
+        largePreviewPane.Controls.Add(_itemIconLargePreviewScrollPanel);
+        largePreviewPane.Controls.Add(_itemIconLargePreviewTitle);
+        _itemIconPreviewSplit.Panel1.Controls.Add(largePreviewPane);
+
+        var smallPreviewPane = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 3, 0, 0) };
+        _itemIconSmallPreviewTitle.Text = "小图";
+        _itemIconSmallPreviewTitle.Dock = DockStyle.Top;
+        _itemIconSmallPreviewTitle.Height = 24;
+        _itemIconSmallPreviewTitle.Font = new Font(Font, FontStyle.Bold);
+        _itemIconSmallPreviewTitle.TextAlign = ContentAlignment.MiddleLeft;
+        _itemIconSmallPreviewScrollPanel.Dock = DockStyle.Fill;
+        _itemIconSmallPreviewScrollPanel.AutoScroll = true;
+        _itemIconSmallPreviewScrollPanel.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconSmallPreviewScrollPanel.BorderStyle = BorderStyle.FixedSingle;
+        _itemIconSmallPreviewScrollPanel.TabStop = true;
+        _itemIconSmallPreviewBox.Dock = DockStyle.None;
+        _itemIconSmallPreviewBox.Location = Point.Empty;
+        _itemIconSmallPreviewBox.SizeMode = PictureBoxSizeMode.Normal;
+        _itemIconSmallPreviewBox.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconSmallPreviewBox.BorderStyle = BorderStyle.None;
+        _itemIconSmallPreviewScrollPanel.Controls.Add(_itemIconSmallPreviewBox);
+        smallPreviewPane.Controls.Add(_itemIconSmallPreviewScrollPanel);
+        smallPreviewPane.Controls.Add(_itemIconSmallPreviewTitle);
+        _itemIconPreviewSplit.Panel2.Controls.Add(smallPreviewPane);
+
+        _itemIconLargePreviewScrollPanel.MouseEnter += (_, _) => _itemIconLargePreviewScrollPanel.Focus();
+        _itemIconSmallPreviewScrollPanel.MouseEnter += (_, _) => _itemIconSmallPreviewScrollPanel.Focus();
+        _itemIconPreviewBox.MouseEnter += (_, _) => _itemIconLargePreviewScrollPanel.Focus();
+        _itemIconSmallPreviewBox.MouseEnter += (_, _) => _itemIconSmallPreviewScrollPanel.Focus();
+        _itemIconLargePreviewScrollPanel.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Large, e);
+        _itemIconSmallPreviewScrollPanel.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Small, e);
+        _itemIconPreviewBox.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Large, e);
+        _itemIconSmallPreviewBox.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Small, e);
+        _itemIconPreviewBox.DoubleClick += (_, _) => ResetItemIconPreviewZoom(ItemIconPreviewRole.Large);
+        _itemIconSmallPreviewBox.DoubleClick += (_, _) => ResetItemIconPreviewZoom(ItemIconPreviewRole.Small);
+        _itemIconLargePreviewScrollPanel.Resize += (_, _) =>
+        {
+            if (_itemIconLargeZoomPercent == 0) RenderItemIconPreview(ItemIconPreviewRole.Large);
+        };
+        _itemIconSmallPreviewScrollPanel.Resize += (_, _) =>
+        {
+            if (_itemIconSmallZoomPercent == 0) RenderItemIconPreview(ItemIconPreviewRole.Small);
+        };
+
+        _itemIconPreviewInfoBox.Visible = false;
+        previewPanel.ResumeLayout();
         _itemEditorInfoBox.Dock = DockStyle.Fill;
         _itemEditorInfoBox.Multiline = true;
         _itemEditorInfoBox.ReadOnly = true;
@@ -938,6 +1068,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _importJobStrategyIconButton.Text = "导入策略图标";
         _importJobStrategyIconButton.AutoSize = true;
         _importJobStrategyIconButton.Enabled = false;
+        _exportJobStrategyIconBmpButton.Text = "导出BMP";
+        _exportJobStrategyIconBmpButton.AutoSize = true;
+        _exportJobStrategyIconBmpButton.Enabled = false;
         _openJobStrategyTableButton.Text = "通用策略表";
         _openJobStrategyTableButton.AutoSize = true;
         _jobStrategyEditorSearchBox.Width = 220;
@@ -951,6 +1084,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _loadJobStrategyEditorButton,
             _saveJobStrategyEditorButton,
             _importJobStrategyIconButton,
+            _exportJobStrategyIconBmpButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _jobStrategyEditorSearchBox,
             _filterJobStrategyEditorButton,

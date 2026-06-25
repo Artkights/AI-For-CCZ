@@ -26,6 +26,7 @@ var pixelEditorCodecSmokeOnly = args.Contains("--pixel-editor-codec-smoke", Stri
 var rImageRawReplaceSmokeOnly = args.Contains("--r-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var batchImageImportSmokeOnly = args.Contains("--batch-image-import-smoke", StringComparer.OrdinalIgnoreCase);
+var bmpExportSmokeOnly = args.Contains("--bmp-export-smoke", StringComparer.OrdinalIgnoreCase);
 var aiImageAssetSmokeOnly = args.Contains("--ai-image-asset-smoke", StringComparer.OrdinalIgnoreCase);
 var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCase);
 var jobAreaDropdownSmokeOnly = args.Contains("--job-area-dropdown-smoke", StringComparer.OrdinalIgnoreCase);
@@ -179,6 +180,12 @@ if (sImageRawReplaceSmokeOnly)
 if (batchImageImportSmokeOnly)
 {
     RunBatchImageImportSmoke(project);
+    return;
+}
+
+if (bmpExportSmokeOnly)
+{
+    RunBmpExportSmoke(project);
     return;
 }
 

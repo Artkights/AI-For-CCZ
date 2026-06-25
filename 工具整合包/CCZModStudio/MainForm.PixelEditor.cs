@@ -3,6 +3,7 @@ using CCZModStudio.Formats;
 using CCZModStudio.Models;
 using System.ComponentModel;
 using System.Data;
+using System.Drawing;
 using System.Globalization;
 
 namespace CCZModStudio;
@@ -38,7 +39,7 @@ public sealed partial class MainForm
         try
         {
             var target = BuildItemIconEditableTarget(iconIndex);
-            OpenPixelEditor(target, _itemIconPreviewInfoBox, () =>
+            OpenPixelEditor(target, _itemEditorInfoBox, () =>
             {
                 _itemIconPreviewService.ClearCache();
                 UpdateItemIconPreview(_itemEditorGrid.CurrentRow);
@@ -213,9 +214,12 @@ public sealed partial class MainForm
         }
 
         using (document)
-        using (var dialog = new PixelImageEditorDialog(document))
+        using (var dialog = new PixelImageEditorDialog(
+                   document,
+                   bitmap => TryWritePixelEditorChanges(target, bitmap, infoBox, refreshAfterWrite)))
         {
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            if (dialog.IsCurrentRevisionWritten) return;
 
             EditableImageWritePreview preview;
             try
@@ -265,6 +269,62 @@ public sealed partial class MainForm
             {
                 Cursor = Cursors.Default;
             }
+        }
+    }
+
+    private bool TryWritePixelEditorChanges(EditableImageTarget target, Bitmap editedBitmap, TextBox infoBox, Action refreshAfterWrite)
+    {
+        if (_project == null) return false;
+
+        EditableImageWritePreview preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _editableImageCodecService.PreviewWrite(_project, target, editedBitmap);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("像素编辑写回预览失败：" + ex);
+            MessageBox.Show(Form.ActiveForm ?? this, ex.Message, "像素编辑写回预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildPixelEditorPreviewText(preview);
+        infoBox.Text = previewText;
+        if (MessageBox.Show(Form.ActiveForm ?? this,
+                previewText + "\r\n\r\n确认后会先备份目标资源，再写回当前像素画布。是否继续？",
+                "确认像素编辑写回",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return false;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _editableImageCodecService.Write(_project, target, editedBitmap);
+            _itemIconPreviewService.ClearCache();
+            _imageResourceCatalogService.ClearCache();
+            _imageAssignmentPreviewService.ClearCache();
+            refreshAfterWrite();
+            infoBox.AppendText("\r\n\r\n" + BuildPixelEditorResultText(result));
+            SetStatus("像素编辑写回完成：" + result.TargetRelativePath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("像素编辑写回失败：" + ex);
+            MessageBox.Show(Form.ActiveForm ?? this, ex.Message, "像素编辑写回失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
         }
     }
 

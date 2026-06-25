@@ -256,9 +256,51 @@ internal partial class Program
 
         var itemPreview = new ItemIconPreviewService().BuildPreview(project, 0);
         var strategyPreview = new ItemIconPreviewService().BuildPreview(project, 0, "Mgcicon.dll", "策略图标");
-        if (itemPreview.AvailableIconCount <= 0 || strategyPreview.AvailableIconCount <= 0)
+        if (itemPreview.AvailableIconCount <= 0 ||
+            strategyPreview.AvailableIconCount <= 0 ||
+            !itemPreview.RenderMode.Equals("DLL RT_BITMAP", StringComparison.Ordinal) ||
+            !strategyPreview.RenderMode.Equals("DLL RT_BITMAP", StringComparison.Ordinal) ||
+            itemPreview.ResourceVariants == null ||
+            itemPreview.ResourceVariants.Count == 0 ||
+            strategyPreview.ResourceVariants == null ||
+            strategyPreview.ResourceVariants.Count == 0)
         {
             throw new InvalidOperationException("6.5 icon preview no longer reads DLL icon resources.");
+        }
+
+        using (itemPreview.Bitmap)
+        using (itemPreview.NativeBitmap)
+        using (itemPreview.SmallBitmap)
+        using (itemPreview.LargeBitmap)
+        using (strategyPreview.Bitmap)
+        using (strategyPreview.NativeBitmap)
+        using (strategyPreview.SmallBitmap)
+        using (strategyPreview.LargeBitmap)
+        {
+        }
+
+        var toolExe = typeof(CCZModStudio.MainForm).Assembly.Location;
+        toolExe = Path.ChangeExtension(toolExe, ".exe");
+        if (File.Exists(toolExe))
+        {
+            var fallbackProject = new CCZModStudio.Models.CczProject
+            {
+                WorkspaceRoot = Path.GetDirectoryName(toolExe)!,
+                GameRoot = Path.GetDirectoryName(toolExe)!,
+                HexTableXmlPath = project.HexTableXmlPath
+            };
+            var fallbackPreview = new ItemIconPreviewService().BuildPreview(fallbackProject, 0, Path.GetFileName(toolExe), "普通程序图标");
+            if (fallbackPreview.AvailableIconCount <= 0 ||
+                !fallbackPreview.RenderMode.Equals("Windows ICO", StringComparison.Ordinal) ||
+                fallbackPreview.Bitmap == null)
+            {
+                throw new InvalidOperationException("Non-game DLL/EXE icon preview did not keep the Windows ICO fallback path.");
+            }
+
+            using (fallbackPreview.Bitmap)
+            using (fallbackPreview.NativeBitmap)
+            {
+            }
         }
 
         Console.WriteLine($"CCZ66_REGRESSION_SMOKE OK engine={engine.VersionHint} itemDll={itemIcon.EntryCount} mgcDll={mgcIcon.EntryCount}");

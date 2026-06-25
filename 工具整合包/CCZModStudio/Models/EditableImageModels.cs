@@ -32,6 +32,7 @@ public sealed class EditableImageDocument : IDisposable
     public int? FrameWidth { get; init; }
     public int? FrameHeight { get; init; }
     public string LoadDetail { get; init; } = string.Empty;
+    public EditableImageIconSlotInfo? IconSlotInfo { get; init; }
 
     public bool HasFrameGrid => FrameWidth.GetValueOrDefault() > 0 && FrameHeight.GetValueOrDefault() > 0;
 
@@ -39,6 +40,29 @@ public sealed class EditableImageDocument : IDisposable
     {
         Bitmap.Dispose();
         OriginalBitmap.Dispose();
+    }
+}
+
+public sealed class EditableImageIconSlotInfo
+{
+    public int IconIndex { get; init; }
+    public string ResourceFileName { get; init; } = string.Empty;
+    public IReadOnlyList<IconResourceVariantInfo> Variants { get; init; } = Array.Empty<IconResourceVariantInfo>();
+    public IconResourceVariantInfo? SmallVariant { get; init; }
+    public IconResourceVariantInfo? LargeVariant { get; init; }
+    public string SelectionMode { get; init; } = string.Empty;
+    public IReadOnlyList<string> SelectionWarnings { get; init; } = Array.Empty<string>();
+
+    public string DisplayText
+    {
+        get
+        {
+            var small = SmallVariant == null ? "小图=无" : $"小图 ID={SmallVariant.ResourceId} Lang={SmallVariant.LanguageId} {SmallVariant.Width}x{SmallVariant.Height} {SmallVariant.BitCount}bpp";
+            var large = LargeVariant == null ? "大图=无" : $"大图 ID={LargeVariant.ResourceId} Lang={LargeVariant.LanguageId} {LargeVariant.Width}x{LargeVariant.Height} {LargeVariant.BitCount}bpp";
+            var mode = string.IsNullOrWhiteSpace(SelectionMode) ? string.Empty : $"    选择={SelectionMode}";
+            var warnings = SelectionWarnings.Count == 0 ? string.Empty : $"    警告={string.Join("；", SelectionWarnings.Take(2))}";
+            return $"字段={IconIndex}    {Path.GetFileName(ResourceFileName)}    {small}    {large}{mode}{warnings}";
+        }
     }
 }
 

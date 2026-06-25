@@ -1,4 +1,5 @@
 using CCZModStudio.Models;
+using CCZModStudio.Core;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
@@ -18,10 +19,15 @@ internal sealed class PixelImageEditorDialog : Form
     }
 
     private readonly EditableImageDocument _document;
+    private readonly Func<Bitmap, bool>? _writeBackAction;
     private readonly PixelCanvas _canvas;
     private readonly PictureBox _colorPreview = new();
+    private readonly PictureBox _largeGamePreview = new();
+    private readonly PictureBox _smallGamePreview = new();
     private readonly TrackBar _zoomBar = new();
     private readonly Label _statusLabel = new();
+    private readonly ToolTip _toolTip = new();
+    private CheckBox? _gridCheckBox;
     private readonly Stack<Bitmap> _undo = new();
     private readonly Stack<Bitmap> _redo = new();
     private ToolKind _tool = ToolKind.Pencil;
@@ -29,10 +35,13 @@ internal sealed class PixelImageEditorDialog : Form
     private bool _painting;
     private Point _startPixel;
     private Point _lastPixel;
+    private int _editRevision;
+    private int _lastWriteBackRevision = -1;
 
-    public PixelImageEditorDialog(EditableImageDocument document)
+    public PixelImageEditorDialog(EditableImageDocument document, Func<Bitmap, bool>? writeBackAction = null)
     {
         _document = document;
+        _writeBackAction = writeBackAction;
         Text = "像素编辑 - " + document.Target.DisplayName;
         StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = false;
@@ -57,10 +66,15 @@ internal sealed class PixelImageEditorDialog : Form
 
         Controls.Add(BuildRoot());
         UpdateColorPreview();
+        RefreshGamePreview();
         UpdateStatus(null);
     }
 
     public Bitmap EditedBitmap => _document.Bitmap;
+    public bool IsCurrentRevisionWritten => _lastWriteBackRevision >= 0 && _lastWriteBackRevision == _editRevision;
+    internal string CurrentToolDisplayNameForSmoke => GetToolDisplayName(_tool);
+    internal bool IsGridVisibleForSmoke => _canvas.ShowGrid;
+    internal int ZoomForSmoke => _canvas.Zoom;
 
     private Control BuildRoot()
     {
@@ -84,29 +98,111 @@ internal sealed class PixelImageEditorDialog : Form
             BackColor = Color.FromArgb(36, 36, 40)
         };
         scroll.Controls.Add(_canvas);
-        root.Controls.Add(scroll, 0, 1);
+        if (_document.IconSlotInfo == null)
+        {
+            root.Controls.Add(scroll, 0, 1);
+        }
+        else
+        {
+            var middle = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                RowCount = 1,
+                ColumnCount = 2
+            };
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+            middle.Controls.Add(scroll, 0, 0);
+            middle.Controls.Add(BuildGamePreviewPanel(), 1, 0);
+            root.Controls.Add(middle, 0, 1);
+        }
 
         var bottom = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             RowCount = 1,
-            ColumnCount = 3,
+            ColumnCount = 4,
             AutoSize = true
         };
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _statusLabel.AutoSize = true;
         _statusLabel.Padding = new Padding(2, 8, 12, 0);
         bottom.Controls.Add(_statusLabel, 0, 0);
-        var ok = new Button { Text = "保存写回", AutoSize = true, MinimumSize = new Size(96, 32), DialogResult = DialogResult.OK };
+        var writeBack = new Button { Text = "写回游戏", AutoSize = true, MinimumSize = new Size(96, 32), Enabled = _writeBackAction != null };
+        _toolTip.SetToolTip(writeBack, "写回游戏 Ctrl+S");
+        writeBack.Click += (_, _) => WriteBackToGame();
+        var ok = new Button { Text = "保存写回并关闭", AutoSize = true, MinimumSize = new Size(118, 32), DialogResult = DialogResult.OK };
+        _toolTip.SetToolTip(ok, "保存写回并关闭 Ctrl+Enter");
         var cancel = new Button { Text = "取消", AutoSize = true, MinimumSize = new Size(80, 32), DialogResult = DialogResult.Cancel };
-        bottom.Controls.Add(ok, 1, 0);
-        bottom.Controls.Add(cancel, 2, 0);
+        bottom.Controls.Add(writeBack, 1, 0);
+        bottom.Controls.Add(ok, 2, 0);
+        bottom.Controls.Add(cancel, 3, 0);
         AcceptButton = ok;
         CancelButton = cancel;
         root.Controls.Add(bottom, 0, 2);
         return root;
+    }
+
+    private Control BuildGamePreviewPanel()
+    {
+        var slotInfo = _document.IconSlotInfo;
+        if (slotInfo == null) throw new InvalidOperationException("当前图片没有 DLL 图标槽信息。");
+
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 5,
+            ColumnCount = 1,
+            Padding = new Padding(8, 0, 0, 0)
+        };
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        panel.Controls.Add(new Label
+        {
+            Text = "写前模拟大图",
+            AutoSize = true,
+            Font = new Font(Font, FontStyle.Bold),
+            Padding = new Padding(0, 0, 0, 4)
+        }, 0, 0);
+        ConfigurePreviewBox(_largeGamePreview);
+        panel.Controls.Add(_largeGamePreview, 0, 1);
+
+        panel.Controls.Add(new Label
+        {
+            Text = "写前模拟小图",
+            AutoSize = true,
+            Font = new Font(Font, FontStyle.Bold),
+            Padding = new Padding(0, 8, 0, 4)
+        }, 0, 2);
+        ConfigurePreviewBox(_smallGamePreview);
+        panel.Controls.Add(_smallGamePreview, 0, 3);
+
+        var info = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            WordWrap = true,
+            ScrollBars = ScrollBars.Vertical,
+            Text = slotInfo.DisplayText
+        };
+        panel.Controls.Add(info, 0, 4);
+        return panel;
+    }
+
+    private static void ConfigurePreviewBox(PictureBox box)
+    {
+        box.Dock = DockStyle.Fill;
+        box.BorderStyle = BorderStyle.FixedSingle;
+        box.SizeMode = PictureBoxSizeMode.CenterImage;
+        box.BackColor = Color.FromArgb(44, 44, 48);
     }
 
     private Control BuildToolbar()
@@ -119,13 +215,13 @@ internal sealed class PixelImageEditorDialog : Form
             WrapContents = true
         };
 
-        bar.Controls.Add(MakeToolButton("铅笔", ToolKind.Pencil));
-        bar.Controls.Add(MakeToolButton("橡皮", ToolKind.Eraser));
-        bar.Controls.Add(MakeToolButton("取色", ToolKind.Picker));
-        bar.Controls.Add(MakeToolButton("填充", ToolKind.Fill));
-        bar.Controls.Add(MakeToolButton("直线", ToolKind.Line));
-        bar.Controls.Add(MakeToolButton("矩形", ToolKind.Rectangle));
-        bar.Controls.Add(MakeButton("颜色", PickColor));
+        bar.Controls.Add(MakeToolButton("铅笔", ToolKind.Pencil, "铅笔 P"));
+        bar.Controls.Add(MakeToolButton("橡皮", ToolKind.Eraser, "橡皮 E"));
+        bar.Controls.Add(MakeToolButton("取色", ToolKind.Picker, "取色 I"));
+        bar.Controls.Add(MakeToolButton("填充", ToolKind.Fill, "填充 F"));
+        bar.Controls.Add(MakeToolButton("直线", ToolKind.Line, "直线 L"));
+        bar.Controls.Add(MakeToolButton("矩形", ToolKind.Rectangle, "矩形 R"));
+        bar.Controls.Add(MakeButton("颜色", PickColor, "选择颜色"));
         _colorPreview.Width = 32;
         _colorPreview.Height = 28;
         _colorPreview.BorderStyle = BorderStyle.FixedSingle;
@@ -150,17 +246,23 @@ internal sealed class PixelImageEditorDialog : Form
             bar.Controls.Add(swatch);
         }
 
-        bar.Controls.Add(MakeButton("导入PNG", ImportPng));
-        bar.Controls.Add(MakeButton("导出PNG", ExportPng));
-        bar.Controls.Add(MakeButton("撤销", Undo));
-        bar.Controls.Add(MakeButton("重做", Redo));
-        var grid = new CheckBox { Text = "网格", Checked = true, AutoSize = true, Padding = new Padding(10, 7, 0, 0) };
-        grid.CheckedChanged += (_, _) =>
+        bar.Controls.Add(MakeButton("导入PNG", ImportPng, "导入 PNG Ctrl+I"));
+        bar.Controls.Add(MakeButton("导出PNG", ExportPng, "导出 PNG Ctrl+E"));
+        if (_writeBackAction != null)
         {
-            _canvas.ShowGrid = grid.Checked;
+            bar.Controls.Add(MakeButton("写回游戏", () => WriteBackToGame(), "写回游戏 Ctrl+S"));
+        }
+        bar.Controls.Add(MakeButton("撤销", Undo, "撤销 Ctrl+Z"));
+        bar.Controls.Add(MakeButton("重做", Redo, "重做 Ctrl+Y / Ctrl+Shift+Z"));
+        var gridCheckBox = new CheckBox { Text = "网格", Checked = true, AutoSize = true, Padding = new Padding(10, 7, 0, 0) };
+        _gridCheckBox = gridCheckBox;
+        _toolTip.SetToolTip(gridCheckBox, "显示/隐藏网格 Ctrl+H / G");
+        gridCheckBox.CheckedChanged += (_, _) =>
+        {
+            _canvas.ShowGrid = gridCheckBox.Checked;
             _canvas.Invalidate();
         };
-        bar.Controls.Add(grid);
+        bar.Controls.Add(gridCheckBox);
         bar.Controls.Add(new Label { Text = "缩放", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
         _zoomBar.Minimum = 2;
         _zoomBar.Maximum = 32;
@@ -170,26 +272,201 @@ internal sealed class PixelImageEditorDialog : Form
         _zoomBar.Height = 28;
         _zoomBar.TickFrequency = 4;
         _zoomBar.ValueChanged += (_, _) => _canvas.Zoom = _zoomBar.Value;
+        _toolTip.SetToolTip(_zoomBar, "缩放 +/-，重置 0");
         bar.Controls.Add(_zoomBar);
 
         return bar;
     }
 
-    private Button MakeToolButton(string text, ToolKind tool)
+    private Button MakeToolButton(string text, ToolKind tool, string tooltip)
     {
-        var button = MakeButton(text, () =>
-        {
-            _tool = tool;
-            UpdateStatus(null);
-        });
+        var button = MakeButton(text, () => SetTool(tool), tooltip);
         return button;
     }
 
-    private static Button MakeButton(string text, Action action)
+    private Button MakeButton(string text, Action action, string? tooltip = null)
     {
         var button = new Button { Text = text, AutoSize = true, MinimumSize = new Size(64, 30), Margin = new Padding(2) };
         button.Click += (_, _) => action();
+        if (!string.IsNullOrWhiteSpace(tooltip)) _toolTip.SetToolTip(button, tooltip);
         return button;
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (ShouldIgnoreShortcut()) return base.ProcessCmdKey(ref msg, keyData);
+        return TryHandleShortcut(keyData) || base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    internal bool TryHandleShortcutForSmoke(Keys keyData)
+        => TryHandleShortcut(keyData);
+
+    private bool TryHandleShortcut(Keys keyData)
+    {
+        if (keyData == (Keys.Control | Keys.Z))
+        {
+            Undo();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))
+        {
+            Redo();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.H))
+        {
+            ToggleGrid();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.I))
+        {
+            ImportPng();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.E))
+        {
+            ExportPng();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.S))
+        {
+            if (_writeBackAction == null) return false;
+            WriteBackToGame();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.Enter))
+        {
+            DialogResult = DialogResult.OK;
+            Close();
+            return true;
+        }
+
+        var modifiers = keyData & (Keys.Control | Keys.Alt | Keys.Shift);
+        if (modifiers != Keys.None) return false;
+
+        switch (keyData & Keys.KeyCode)
+        {
+            case Keys.P:
+                SetTool(ToolKind.Pencil);
+                return true;
+            case Keys.E:
+                SetTool(ToolKind.Eraser);
+                return true;
+            case Keys.I:
+                SetTool(ToolKind.Picker);
+                return true;
+            case Keys.F:
+                SetTool(ToolKind.Fill);
+                return true;
+            case Keys.L:
+                SetTool(ToolKind.Line);
+                return true;
+            case Keys.R:
+                SetTool(ToolKind.Rectangle);
+                return true;
+            case Keys.G:
+                ToggleGrid();
+                return true;
+            case Keys.Add:
+            case Keys.Oemplus:
+                CancelPaintingPreview();
+                SetZoom(_canvas.Zoom + 1);
+                return true;
+            case Keys.Subtract:
+            case Keys.OemMinus:
+                CancelPaintingPreview();
+                SetZoom(_canvas.Zoom - 1);
+                return true;
+            case Keys.D0:
+            case Keys.NumPad0:
+                CancelPaintingPreview();
+                SetZoom(12);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private bool ShouldIgnoreShortcut()
+        => ActiveControl is TextBoxBase or ComboBox;
+
+    private void SetTool(ToolKind tool)
+    {
+        CancelPaintingPreview();
+        _tool = tool;
+        UpdateStatus(null);
+    }
+
+    private void ToggleGrid()
+    {
+        if (_gridCheckBox != null)
+        {
+            _gridCheckBox.Checked = !_gridCheckBox.Checked;
+        }
+        else
+        {
+            _canvas.ShowGrid = !_canvas.ShowGrid;
+            _canvas.Invalidate();
+        }
+    }
+
+    private void SetZoom(int value)
+    {
+        var next = Math.Clamp(value, _zoomBar.Minimum, _zoomBar.Maximum);
+        _zoomBar.Value = next;
+        _canvas.Zoom = next;
+        UpdateStatus(null);
+    }
+
+    private void CancelPaintingPreview()
+    {
+        _painting = false;
+        _canvas.ClearPreview();
+        _canvas.Invalidate();
+    }
+
+    private void RefreshGamePreview()
+    {
+        var slot = _document.IconSlotInfo;
+        if (slot == null) return;
+
+        SetPreviewImage(_largeGamePreview, BuildVariantPreview(slot.LargeVariant));
+        SetPreviewImage(_smallGamePreview, BuildVariantPreview(slot.SmallVariant));
+    }
+
+    private Bitmap? BuildVariantPreview(IconResourceVariantInfo? variant)
+    {
+        if (variant == null) return null;
+        IconTransparencyNormalizeResult? normalized = null;
+        try
+        {
+            var source = _document.Bitmap;
+            if (_document.Target.Kind == EditableImageTargetKind.DllBitmapIcon)
+            {
+                normalized = DllIconBitmapCodec.NormalizeIconSource(source, useCornerBackgroundKey: false);
+                source = normalized.Bitmap;
+            }
+
+            using var scaled = DllIconBitmapCodec.ScaleToFit(source, variant.Width, variant.Height);
+            return DllIconBitmapCodec.RenderPixelPreview(scaled, 96);
+        }
+        finally
+        {
+            normalized?.Dispose();
+        }
+    }
+
+    private static void SetPreviewImage(PictureBox box, Image? image)
+    {
+        var old = box.Image;
+        box.Image = image;
+        old?.Dispose();
     }
 
     private IReadOnlyList<Color> BuildPaletteColors()
@@ -242,6 +519,7 @@ internal sealed class PixelImageEditorDialog : Form
             FloodFill(e.Pixel, _primaryColor);
             _painting = false;
             _canvas.Invalidate();
+            RefreshGamePreview();
             return;
         }
 
@@ -249,6 +527,7 @@ internal sealed class PixelImageEditorDialog : Form
         {
             DrawPixel(e.Pixel);
             _canvas.Invalidate();
+            RefreshGamePreview();
         }
     }
 
@@ -289,6 +568,7 @@ internal sealed class PixelImageEditorDialog : Form
 
         _canvas.ClearPreview();
         _canvas.Invalidate();
+        RefreshGamePreview();
     }
 
     private void DrawPixel(Point point)
@@ -361,6 +641,7 @@ internal sealed class PixelImageEditorDialog : Form
     {
         _undo.Push(new Bitmap(_document.Bitmap));
         _redo.Clear();
+        MarkEdited();
         if (_undo.Count > 50)
         {
             var kept = _undo.Take(50).ToArray();
@@ -380,23 +661,50 @@ internal sealed class PixelImageEditorDialog : Form
     private void Undo()
     {
         if (_undo.Count == 0) return;
+        CancelPaintingPreview();
         _redo.Push(new Bitmap(_document.Bitmap));
         using var previous = _undo.Pop();
         using var g = Graphics.FromImage(_document.Bitmap);
         g.CompositingMode = CompositingMode.SourceCopy;
         g.DrawImage(previous, 0, 0);
+        MarkEdited();
         _canvas.Invalidate();
+        RefreshGamePreview();
+        UpdateStatus(null);
     }
 
     private void Redo()
     {
         if (_redo.Count == 0) return;
+        CancelPaintingPreview();
         _undo.Push(new Bitmap(_document.Bitmap));
         using var next = _redo.Pop();
         using var g = Graphics.FromImage(_document.Bitmap);
         g.CompositingMode = CompositingMode.SourceCopy;
         g.DrawImage(next, 0, 0);
+        MarkEdited();
         _canvas.Invalidate();
+        RefreshGamePreview();
+        UpdateStatus(null);
+    }
+
+    private void WriteBackToGame()
+    {
+        if (_writeBackAction == null) return;
+        if (_writeBackAction(_document.Bitmap))
+        {
+            _lastWriteBackRevision = _editRevision;
+        }
+        RefreshGamePreview();
+        UpdateStatus(null);
+    }
+
+    private void MarkEdited()
+    {
+        unchecked
+        {
+            _editRevision++;
+        }
     }
 
     private void PickColor()
@@ -422,14 +730,51 @@ internal sealed class PixelImageEditorDialog : Form
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         using var raw = Image.FromFile(dialog.FileName);
+        using var scaled = BuildImportedCanvasBitmap(raw, _document.Target.Kind, _document.Bitmap.Size);
         SaveUndo();
-        using var g = Graphics.FromImage(_document.Bitmap);
+        for (var y = 0; y < _document.Bitmap.Height; y++)
+        {
+            for (var x = 0; x < _document.Bitmap.Width; x++)
+            {
+                _document.Bitmap.SetPixel(x, y, scaled.GetPixel(x, y));
+            }
+        }
+
+        MarkEdited();
+        _canvas.Invalidate();
+        RefreshGamePreview();
+        UpdateStatus(null);
+    }
+
+    private static Bitmap BuildImportedCanvasBitmap(Image raw, EditableImageTargetKind targetKind, Size canvasSize)
+    {
+        var width = Math.Max(1, canvasSize.Width);
+        var height = Math.Max(1, canvasSize.Height);
+        if (targetKind == EditableImageTargetKind.DllBitmapIcon)
+        {
+            var codec = new DllIconBitmapCodec();
+            using var prepared = codec.PrepareIconSource(
+                raw,
+                new Size(width, height),
+                new Size(width, height),
+                new IconSourcePrepareOptions(UseCornerBackgroundKey: true));
+            return new Bitmap(prepared.LargeBitmap);
+        }
+
+        using var normalized = DllIconBitmapCodec.NormalizeIconSource(raw, useCornerBackgroundKey: false);
+        return StretchToCanvas(normalized.Bitmap, width, height);
+    }
+
+    private static Bitmap StretchToCanvas(Bitmap source, int width, int height)
+    {
+        var output = new Bitmap(Math.Max(1, width), Math.Max(1, height), PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(output);
         g.CompositingMode = CompositingMode.SourceCopy;
-        g.Clear(Color.Transparent);
+        g.Clear(Color.FromArgb(0, 0, 0, 0));
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(raw, new Rectangle(0, 0, _document.Bitmap.Width, _document.Bitmap.Height));
-        _canvas.Invalidate();
+        g.DrawImage(source, new Rectangle(0, 0, output.Width, output.Height));
+        return output;
     }
 
     private void ExportPng()
@@ -466,8 +811,21 @@ internal sealed class PixelImageEditorDialog : Form
         var frame = _document.HasFrameGrid
             ? $"    帧 {_document.FrameWidth}x{_document.FrameHeight}"
             : string.Empty;
-        _statusLabel.Text = $"{_document.LoadDetail}    工具 {_tool}    缩放 {_canvas.Zoom}x{frame}{pos}";
+        var slot = _document.IconSlotInfo == null ? string.Empty : $"    {_document.IconSlotInfo.DisplayText}    写后重读结果见写回信息";
+        _statusLabel.Text = $"{_document.LoadDetail}{slot}    工具 {GetToolDisplayName(_tool)}    缩放 {_canvas.Zoom}x{frame}{pos}";
     }
+
+    private static string GetToolDisplayName(ToolKind tool)
+        => tool switch
+        {
+            ToolKind.Pencil => "铅笔",
+            ToolKind.Eraser => "橡皮",
+            ToolKind.Picker => "取色",
+            ToolKind.Fill => "填充",
+            ToolKind.Line => "直线",
+            ToolKind.Rectangle => "矩形",
+            _ => tool.ToString()
+        };
 
     private static void DrawChecker(Graphics g, Rectangle rect, int size)
     {

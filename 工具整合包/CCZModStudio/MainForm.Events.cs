@@ -36,6 +36,7 @@ public sealed partial class MainForm
         _saveRoleEditorButton.Click += (_, _) => SaveRoleEditor();
         _importRoleFaceButton.Click += (_, _) => ImportSelectedRoleFace();
         _batchImportRoleFaceButton.Click += (_, _) => BatchImportSelectedRoleFaces();
+        _exportRoleFaceBmpButton.Click += (_, _) => ExportSelectedRoleFacesBmp();
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
         _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
@@ -120,6 +121,7 @@ public sealed partial class MainForm
         _pasteItemEditorSelectionButton.Click += (_, _) => PasteItemEditorSelection();
         _batchFillItemEditorColumnButton.Click += (_, _) => FillItemEditorSelectionWithCurrentValue();
         _batchImportItemIconButton.Click += (_, _) => BatchImportSelectedItemIcons();
+        _exportItemIconBmpButton.Click += (_, _) => ExportSelectedItemIconsBmp();
         _editItemIconButton.Click += (_, _) => EditSelectedItemIcon();
         _undoItemEditorButton.Click += (_, _) => UndoItemEditorChange();
         _redoItemEditorButton.Click += (_, _) => RedoItemEditorChange();
@@ -204,6 +206,7 @@ public sealed partial class MainForm
         _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
         _importJobStrategyIconButton.Click += (_, _) => ImportSelectedJobStrategyIcons();
+        _exportJobStrategyIconBmpButton.Click += (_, _) => ExportSelectedJobStrategyIconsBmp();
         _editJobStrategyIconButton.Click += (_, _) => EditSelectedJobStrategyIcon();
         _openJobStrategyTableButton.Click += (_, _) => OpenCoreTable("6.5-5 策略");
         _filterJobStrategyEditorButton.Click += (_, _) => ApplyJobStrategyFilter();
@@ -336,12 +339,15 @@ public sealed partial class MainForm
         _replaceImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: false);
         _editRImageResourceButton.Click += (_, _) => EditSelectedImageAssignmentResource(ImageAssignmentResourceKind.R);
         _editSImageResourceButton.Click += (_, _) => EditSelectedImageAssignmentResource(ImageAssignmentResourceKind.S);
+        _exportRImageBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmps(ImageAssignmentResourceKind.R);
+        _exportSImageBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmps(ImageAssignmentResourceKind.S);
         _replaceRImageSetButton.Click += (_, _) => ReplaceSelectedRImageSet();
         _replaceSImageSetButton.Click += (_, _) => ReplaceSelectedSImageSet();
         _batchReplaceRImageSetButton.Click += (_, _) => BatchReplaceRImageSets();
         _batchReplaceSImageSetButton.Click += (_, _) => BatchReplaceSImageSets();
         _importImageAssignmentFaceButton.Click += (_, _) => ImportSelectedImageAssignmentFace();
         _batchImportImageAssignmentFaceButton.Click += (_, _) => BatchImportSelectedImageAssignmentFaces();
+        _exportImageAssignmentFaceBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmps(ImageAssignmentResourceKind.Face);
         _restoreImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: true);
         _exportMissingImageResourcesButton.Click += (_, _) => ExportMissingImageResourceReport();
         _imageAssignmentGrid.CellValidating += (_, e) => ValidateImageAssignmentCell(e);

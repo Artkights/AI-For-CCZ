@@ -178,6 +178,7 @@ public sealed partial class MainForm
         _saveRoleEditorButton.Enabled = false;
         _importRoleFaceButton.Enabled = false;
         _batchImportRoleFaceButton.Enabled = false;
+        _exportRoleFaceBmpButton.Enabled = false;
         _saveRoleTextDetailButton.Enabled = false;
 
         _currentJobEditorData = null;
@@ -192,12 +193,18 @@ public sealed partial class MainForm
         _jobStrategyEditorGrid.DataSource = null;
         _saveJobStrategyEditorButton.Enabled = false;
         _importJobStrategyIconButton.Enabled = false;
+        _exportJobStrategyIconBmpButton.Enabled = false;
         _editJobStrategyIconButton.Enabled = false;
         ClearJobStrategyPreview("读取兵种策略后显示预览。");
 
         _currentItemEditorData = null;
         _itemEditorGrid.DataSource = null;
         _saveItemEditorButton.Enabled = false;
+        _exportItemEditorCsvButton.Enabled = false;
+        _importItemEditorCsvButton.Enabled = false;
+        _batchImportItemIconButton.Enabled = false;
+        _exportItemIconBmpButton.Enabled = false;
+        _editItemIconButton.Enabled = false;
 
         _currentShopEditorData = null;
         _shopEditorGrid.DataSource = null;
@@ -210,6 +217,9 @@ public sealed partial class MainForm
         _saveImageAssignmentsButton.Enabled = false;
         _importImageAssignmentFaceButton.Enabled = false;
         _batchImportImageAssignmentFaceButton.Enabled = false;
+        _exportImageAssignmentFaceBmpButton.Enabled = false;
+        _exportRImageBmpButton.Enabled = false;
+        _exportSImageBmpButton.Enabled = false;
         ClearImageAssignmentPreview();
         _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
         _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();

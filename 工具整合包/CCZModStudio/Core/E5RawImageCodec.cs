@@ -64,6 +64,47 @@ public sealed class E5RawImageCodec
         }
     }
 
+    public Bitmap DecodeRawBytes(CczProject project, byte[] rawBytes, string sourceLabel, E5RawImageSpec spec, bool trimToWholeRows = true)
+    {
+        if (rawBytes.Length == 0)
+        {
+            throw new InvalidOperationException($"RAW 条目为空：{sourceLabel}");
+        }
+
+        var remainder = rawBytes.Length % spec.Width;
+        if (remainder != 0 && !trimToWholeRows)
+        {
+            throw new InvalidOperationException($"RAW 条目长度 {rawBytes.Length:N0} 不是宽度 {spec.Width} 的整数倍：{sourceLabel}");
+        }
+
+        var rawLength = rawBytes.Length - remainder;
+        if (rawLength < spec.Width * spec.FrameHeight)
+        {
+            throw new InvalidOperationException($"RAW 条目长度不足，无法按 {spec.Width}x{spec.FrameHeight} 帧条读取：{sourceLabel}");
+        }
+
+        var palette = TryLoadRawPalette(project);
+        var height = rawLength / spec.Width;
+        var bitmap = new Bitmap(spec.Width, height, PixelFormat.Format32bppArgb);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < spec.Width; x++)
+            {
+                var value = rawBytes[y * spec.Width + x];
+                if (value == 0)
+                {
+                    bitmap.SetPixel(x, y, Color.Transparent);
+                    continue;
+                }
+
+                var color = value < palette.Count ? palette[value] : Color.FromArgb(255, value, value, value);
+                bitmap.SetPixel(x, y, IsMagentaKey(color) ? Color.Transparent : color);
+            }
+        }
+
+        return bitmap;
+    }
+
     private E5RawEncodeResult EncodeBitmapCore(CczProject project, Bitmap bitmap, string sourceLabel, E5RawImageSpec spec, bool strictHeight)
     {
         ValidateDimensions(bitmap, spec, strictHeight);
@@ -201,6 +242,24 @@ public sealed class E5RawImageCodec
         };
 
         return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
+    }
+
+    private static IReadOnlyList<Color> TryLoadRawPalette(CczProject project)
+    {
+        var path = ResolvePalettePath(project);
+        if (!File.Exists(path)) return Array.Empty<Color>();
+
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length < 256 * 4) return Array.Empty<Color>();
+
+        var colors = new Color[256];
+        for (var i = 0; i < colors.Length; i++)
+        {
+            var offset = i * 4;
+            colors[i] = Color.FromArgb(255, bytes[offset + 2], bytes[offset + 1], bytes[offset]);
+        }
+
+        return colors;
     }
 
     private static Dictionary<int, byte> BuildExactLookup(IReadOnlyList<Color> palette)

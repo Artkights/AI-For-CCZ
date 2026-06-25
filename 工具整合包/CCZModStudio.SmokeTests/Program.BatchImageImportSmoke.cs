@@ -220,9 +220,72 @@ internal partial class Program
             orderedResult.DllResult.Items.Count != 2 ||
             !File.Exists(orderedResult.DllResult.BackupPath) ||
             !File.Exists(orderedResult.AggregateReportPath) ||
-            orderedResult.DllResult.NewFileSha256.Equals(orderedResult.DllResult.OldFileSha256, StringComparison.OrdinalIgnoreCase))
+            orderedResult.DllResult.NewFileSha256.Equals(orderedResult.DllResult.OldFileSha256, StringComparison.OrdinalIgnoreCase) ||
+            !orderedResult.DllResult.ReadbackVerified ||
+            orderedResult.DllResult.ReadbackItems.Count == 0)
         {
             throw new InvalidOperationException("Batch item icon DLL write did not create the expected write result and aggregate report.");
+        }
+
+        var itemPreviewAfterWrite = new ItemIconPreviewService().BuildPreview(testProject, 0, "Itemicon.dll", "物品图标", 96);
+        if (!itemPreviewAfterWrite.RenderMode.Equals("DLL RT_BITMAP", StringComparison.Ordinal) ||
+            itemPreviewAfterWrite.Bitmap == null ||
+            itemPreviewAfterWrite.LargeBitmap == null ||
+            itemPreviewAfterWrite.SmallBitmap == null)
+        {
+            throw new InvalidOperationException("Batch item icon preview after write did not use reread DLL RT_BITMAP data.");
+        }
+
+        using (itemPreviewAfterWrite.Bitmap)
+        using (itemPreviewAfterWrite.NativeBitmap)
+        using (itemPreviewAfterWrite.LargeBitmap)
+        using (itemPreviewAfterWrite.SmallBitmap)
+        {
+            AssertBitmapPreviewTopBottom(
+                itemPreviewAfterWrite.LargeBitmap,
+                Color.FromArgb(255, 230, 70, 80),
+                Color.FromArgb(255, 40, 190, 80),
+                "Batch item icon reread large RT_BITMAP");
+        }
+
+        var magentaIcon = Path.Combine(smokeRoot, "item_icon_magenta_key.png");
+        using (var source = CreateMagentaKeyIconSource(32, 32))
+        {
+            source.Save(magentaIcon, System.Drawing.Imaging.ImageFormat.Png);
+        }
+
+        var magentaRequest = new BatchItemIconImportRequest
+        {
+            SourceFiles = new[] { magentaIcon },
+            TargetRows = new[]
+            {
+                new BatchItemIconTargetRow(102, "Smoke Magenta", 3)
+            },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        };
+        var magentaResult = service.Replace(testProject, magentaRequest);
+        if (magentaResult.DllResult == null ||
+            !magentaResult.DllResult.ReadbackVerified ||
+            magentaResult.DllResult.ReadbackItems.All(item => item.MagentaKeyPixelCount == 0))
+        {
+            throw new InvalidOperationException("Batch item icon magenta-key import did not convert magenta background to transparent RT_BITMAP data.");
+        }
+
+        var magentaPreview = new ItemIconPreviewService().BuildPreview(testProject, 3, "Itemicon.dll", "物品图标", 96);
+        if (magentaPreview.LargeBitmap == null || magentaPreview.SmallBitmap == null)
+        {
+            throw new InvalidOperationException("Batch item icon magenta-key preview did not produce large/small bitmaps.");
+        }
+
+        using (magentaPreview.Bitmap)
+        using (magentaPreview.NativeBitmap)
+        using (magentaPreview.LargeBitmap)
+        using (magentaPreview.SmallBitmap)
+        {
+            AssertTransparentPixel(magentaPreview.LargeBitmap, 1, 0, "Batch item icon magenta-key large background");
+            AssertNoVisibleMagenta(magentaPreview.LargeBitmap, "Batch item icon magenta-key large");
+            AssertNoVisibleMagenta(magentaPreview.SmallBitmap, "Batch item icon magenta-key small");
         }
 
         var filenameRequest = new BatchItemIconImportRequest

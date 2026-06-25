@@ -765,6 +765,7 @@ public sealed partial class MainForm
     private static string BuildDllIconReplaceResultText(IconResourceReplaceResult result)
         => BuildDllIconReplacePreviewText(result) + "\r\n" +
            $"新大小：{result.NewFileSizeBytes:N0} 字节    变化字节：{result.ChangedBytesEstimate:N0}\r\n" +
+           $"重读校验：{(result.ReadbackVerified ? "通过" : "需检查")}    {(result.ReadbackWarnings.Count == 0 ? "无警告" : string.Join("；", result.ReadbackWarnings.Take(6)))}\r\n" +
            $"备份：{result.BackupPath}\r\n" +
            $"报告：{result.ReportJsonPath}";
 
@@ -779,6 +780,7 @@ public sealed partial class MainForm
     private static string BuildDllIconBatchReplaceResultText(IconResourceBatchReplaceResult result)
         => BuildDllIconBatchReplacePreviewText(result) + "\r\n" +
            $"新大小：{result.NewFileSizeBytes:N0} 字节    变化字节：{result.ChangedBytesEstimate:N0}\r\n" +
+           $"重读校验：{(result.ReadbackVerified ? "通过" : "需检查")}    {(result.ReadbackWarnings.Count == 0 ? "无警告" : string.Join("；", result.ReadbackWarnings.Take(6)))}\r\n" +
            $"备份：{result.BackupPath}\r\n" +
            $"报告：{result.ReportJsonPath}";
 
@@ -887,6 +889,9 @@ public sealed partial class MainForm
             _saveImageAssignmentsButton.Enabled = canEdit;
             _importImageAssignmentFaceButton.Enabled = true;
             _batchImportImageAssignmentFaceButton.Enabled = true;
+            _exportImageAssignmentFaceBmpButton.Enabled = true;
+            _exportRImageBmpButton.Enabled = true;
+            _exportSImageBmpButton.Enabled = true;
             foreach (DataGridViewColumn column in _imageAssignmentGrid.Columns)
             {
                 column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "头像编号" or "职业" or "职业名称" or "R资源状态" or "S资源状态";
@@ -1426,6 +1431,82 @@ public sealed partial class MainForm
         finally
         {
             Cursor = Cursors.Default;
+        }
+    }
+
+    private void ExportSelectedImageAssignmentBmps(ImageAssignmentResourceKind kind)
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentImageAssignments == null)
+        {
+            MessageBox.Show(this, "请先读取人物 R/S 形象联动表。", $"导出{GetImageAssignmentResourceKindText(kind)}BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedImageAssignmentRowsForFaceImport();
+        if (selectedRows.Count == 0 && _imageAssignmentGrid.CurrentRow != null)
+        {
+            selectedRows = [_imageAssignmentGrid.CurrentRow];
+        }
+
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, $"请先在人物 R/S 表中选中要导出的 {GetImageAssignmentResourceKindText(kind)} 行。", $"导出{GetImageAssignmentResourceKindText(kind)}BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var targets = new List<BmpExportTarget>();
+        try
+        {
+            foreach (var gridRow in selectedRows)
+            {
+                var row = TryGetDataRow(gridRow) ?? throw new InvalidOperationException("选中行无法解析为人物 R/S 数据行。");
+                if (!TryGetImageResourceId(row, kind, out var fieldValue))
+                {
+                    throw new InvalidOperationException($"无法读取 {GetImageAssignmentResourceKindText(kind)} 编号。");
+                }
+
+                var rowId = row.Table.Columns.Contains("ID")
+                    ? Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)
+                    : gridRow.Index;
+                var displayName = TryGetRoleDisplayName(row);
+                targets.Add(new BmpExportTarget
+                {
+                    RowId = rowId,
+                    DisplayName = displayName,
+                    FieldValue = fieldValue,
+                    JobId = kind == ImageAssignmentResourceKind.S ? TryGetImageAssignmentJobId(row) : null
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, $"导出{GetImageAssignmentResourceKindText(kind)}BMP", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var exportKind = kind switch
+        {
+            ImageAssignmentResourceKind.Face => BmpExportKind.Face,
+            ImageAssignmentResourceKind.S => BmpExportKind.SImage,
+            _ => BmpExportKind.RImage
+        };
+        var title = $"导出{GetImageAssignmentResourceKindText(kind)}BMP";
+        var result = ExecuteBmpExport(
+            exportKind,
+            targets,
+            $"选择{GetImageAssignmentResourceKindText(kind)} BMP 导出目录",
+            title,
+            singleMode: targets.Count == 1,
+            factionSlot: GetImageAssignmentSPreviewFactionSlot());
+        if (result != null)
+        {
+            _imageAssignmentInfoBox.Text = BuildBmpExportResultText(result);
         }
     }
 

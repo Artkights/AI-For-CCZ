@@ -13,13 +13,15 @@ public sealed class EditableImageCodecService
     private readonly E5ImageReplaceService _e5 = new();
     private readonly E5RawImageCodec _raw = new();
     private readonly IconResourceReplaceService _icons = new();
+    private readonly DllIconBitmapCodec _dllIconCodec = new();
 
     public EditableImageDocument Load(CczProject project, EditableImageTarget target)
     {
         var effectiveKind = ResolveEffectiveKind(target);
+        EditableImageIconSlotInfo? iconSlotInfo = null;
         var bitmap = effectiveKind switch
         {
-            EditableImageTargetKind.DllBitmapIcon => LoadDllBitmap(target),
+            EditableImageTargetKind.DllBitmapIcon => LoadDllBitmap(target, out iconSlotInfo),
             EditableImageTargetKind.E5RawStrip => LoadRawStrip(project, target),
             _ => LoadStandardE5(target)
         };
@@ -42,7 +44,8 @@ public sealed class EditableImageCodecService
             PalettePath = palettePath,
             FrameWidth = effectiveKind == EditableImageTargetKind.E5RawStrip ? target.FrameWidth : null,
             FrameHeight = effectiveKind == EditableImageTargetKind.E5RawStrip ? target.FrameHeight : null,
-            LoadDetail = BuildLoadDetail(effectiveTarget, bitmap)
+            LoadDetail = BuildLoadDetail(effectiveTarget, bitmap),
+            IconSlotInfo = iconSlotInfo
         };
     }
 
@@ -144,42 +147,39 @@ public sealed class EditableImageCodecService
     {
         var bytes = _e5.ReadEntryBytes(target.TargetPath, target.ImageNumber);
         var spec = ResolveRawSpec(target.TargetPath);
-        var palette = LoadRawPalette(project, out _);
-        var rawLength = bytes.Length - bytes.Length % spec.Width;
-        if (rawLength < spec.Width * spec.FrameHeight)
-        {
-            throw new InvalidOperationException($"RAW 条目长度不足，无法按 {spec.Width}x{spec.FrameHeight} 帧条读取。");
-        }
-
-        var height = rawLength / spec.Width;
-        var bitmap = new Bitmap(spec.Width, height, PixelFormat.Format32bppArgb);
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < spec.Width; x++)
-            {
-                var value = bytes[y * spec.Width + x];
-                if (value == 0)
-                {
-                    bitmap.SetPixel(x, y, Color.Transparent);
-                    continue;
-                }
-
-                var color = value < palette.Count ? palette[value] : Color.FromArgb(255, value, value, value);
-                bitmap.SetPixel(x, y, IsMagentaKey(color) ? Color.Transparent : color);
-            }
-        }
-
-        return bitmap;
+        return _raw.DecodeRawBytes(project, bytes, $"{Path.GetFileName(target.TargetPath)} #{target.ImageNumber}", spec);
     }
 
-    private Bitmap LoadDllBitmap(EditableImageTarget target)
+    private Bitmap LoadDllBitmap(EditableImageTarget target, out EditableImageIconSlotInfo? slotInfo)
     {
-        var resources = ParseBitmapResources(target.TargetPath);
-        var pair = ResolveBitmapResourcePair(resources, target.IconIndex);
-        var selected = pair.OrderByDescending(x => x.Width * x.Height).FirstOrDefault()
-                       ?? throw new InvalidOperationException($"图标编号 {target.IconIndex} 没有可编辑的 RT_BITMAP 资源。");
-        return DecodeDib(selected.DibBytes) ?? throw new InvalidOperationException("DLL 图标 DIB 无法解码。");
+        var resources = _dllIconCodec.ReadBitmapResources(target.TargetPath);
+        var slot = _dllIconCodec.ResolveGameIconSlot(target.TargetPath, resources, target.IconIndex, target.DisplayName);
+        var selected = slot.EditableVariant;
+        var small = slot.SmallSelectedVariant;
+        var large = slot.LargeSelectedVariant;
+        slotInfo = new EditableImageIconSlotInfo
+        {
+            IconIndex = target.IconIndex,
+            ResourceFileName = target.TargetPath,
+            Variants = slot.Variants.Select(ToVariantInfo).ToArray(),
+            SmallVariant = small == null ? null : ToVariantInfo(small),
+            LargeVariant = large == null ? null : ToVariantInfo(large),
+            SelectionMode = slot.SelectionMode,
+            SelectionWarnings = slot.Warnings
+        };
+        return _dllIconCodec.DecodeDib(selected.DibBytes) ?? throw new InvalidOperationException("DLL 图标 DIB 无法解码。");
     }
+
+    private static IconResourceVariantInfo ToVariantInfo(DllIconBitmapResource resource)
+        => new()
+        {
+            ResourceId = resource.Id,
+            LanguageId = resource.LanguageId,
+            Width = resource.Width,
+            Height = resource.Height,
+            BitCount = resource.BitCount,
+            SizeBytes = resource.SizeBytes
+        };
 
     private byte[] BuildE5SourceBytes(CczProject project, EditableImageTarget target, Bitmap bitmap, out IReadOnlyList<string> warnings)
     {

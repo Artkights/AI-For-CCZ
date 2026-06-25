@@ -9,6 +9,56 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private void ExportSelectedRoleFacesBmp()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentRoleEditorData == null)
+        {
+            MessageBox.Show(this, "请先读取角色并选中要导出的行。", "导出头像BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedRoleRowsForFaceImport();
+        if (selectedRows.Count == 0 && _roleEditorGrid.CurrentRow != null)
+        {
+            selectedRows = [_roleEditorGrid.CurrentRow];
+        }
+
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在角色表中选中要导出头像的行。", "导出头像BMP", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        IReadOnlyList<BatchRoleFaceTargetRow> faceTargets;
+        try
+        {
+            faceTargets = BuildRoleFaceImportTargetRows(selectedRows);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "导出头像BMP", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var requestTargets = faceTargets.Select(target => new BmpExportTarget
+        {
+            RowId = target.RowId,
+            DisplayName = target.DisplayName,
+            FieldValue = target.FaceId
+        }).ToArray();
+        var result = ExecuteBmpExport(BmpExportKind.Face, requestTargets, "导出角色头像 BMP", "导出头像BMP", singleMode: requestTargets.Length == 1);
+        if (result != null)
+        {
+            _roleEditorInfoBox.Text = BuildBmpExportResultText(result);
+        }
+    }
+
     private void ImportSelectedRoleFace()
     {
         if (_project == null)
@@ -499,4 +549,138 @@ public sealed partial class MainForm
 
         return builder.ToString();
     }
+
+    private BmpExportResult? ExecuteBmpExport(
+        BmpExportKind kind,
+        IReadOnlyList<BmpExportTarget> targets,
+        string dialogTitle,
+        string messageTitle,
+        bool singleMode,
+        int? factionSlot = null)
+    {
+        if (_project == null) return null;
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this, "没有可导出的目标。", messageTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return null;
+        }
+
+        using var folderDialog = new FolderBrowserDialog
+        {
+            Description = dialogTitle,
+            UseDescriptionForTitle = true
+        };
+        if (folderDialog.ShowDialog(this) != DialogResult.OK) return null;
+
+        var overwrite = false;
+        if (singleMode)
+        {
+            overwrite = MessageBox.Show(this,
+                "如果导出目录中已有同名 BMP 文件，是否覆盖？",
+                messageTitle,
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) == DialogResult.Yes;
+        }
+
+        var request = new BmpExportRequest
+        {
+            Kind = kind,
+            OutputRoot = folderDialog.SelectedPath,
+            OverwriteExisting = overwrite,
+            FactionSlot = factionSlot ?? CharacterImageResourceService.DefaultSPreviewFactionSlot,
+            Targets = targets
+        };
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _bmpImageExportService.Export(_project, request);
+            SetStatus($"BMP 导出完成：成功 {result.Files.Count} 个文件，跳过 {result.SkippedItems.Count} 项");
+            if (result.Files.Count == 0)
+            {
+                MessageBox.Show(this, BuildBmpExportResultText(result), messageTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("BMP export failed: " + ex);
+            MessageBox.Show(this, ex.Message, messageTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return null;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static string BuildBmpExportResultText(BmpExportResult result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("BMP 导出完成");
+        builder.AppendLine($"类型：{GetBmpExportKindText(result.Request.Kind)}");
+        builder.AppendLine($"成功文件：{result.Files.Count}");
+        builder.AppendLine($"跳过/问题：{result.SkippedItems.Count}");
+        builder.AppendLine($"输出目录：{result.Request.OutputRoot}");
+        foreach (var file in result.Files.Take(30))
+        {
+            var source = file.ImageNumber.HasValue
+                ? $"E5 #{file.ImageNumber.Value}"
+                : file.ResourceId.HasValue
+                    ? $"RT_BITMAP {file.ResourceId.Value}"
+                    : string.Empty;
+            builder.AppendLine($"- {file.Role}: {file.Width}x{file.Height} {source} -> {file.OutputPath}");
+        }
+
+        if (result.Files.Count > 30)
+        {
+            builder.AppendLine($"- 还有 {result.Files.Count - 30} 个文件未显示。");
+        }
+
+        if (result.SkippedItems.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("跳过/问题：");
+            foreach (var item in result.SkippedItems.Take(20))
+            {
+                builder.AppendLine($"- {item.RowId} {item.DisplayName} 值={item.FieldValue}: {item.Reason}");
+            }
+
+            if (result.SkippedItems.Count > 20)
+            {
+                builder.AppendLine($"- 还有 {result.SkippedItems.Count - 20} 项未显示。");
+            }
+        }
+
+        if (result.Warnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("提示：");
+            foreach (var warning in result.Warnings.Take(20))
+            {
+                builder.AppendLine("- " + warning);
+            }
+
+            if (result.Warnings.Count > 20)
+            {
+                builder.AppendLine($"- 还有 {result.Warnings.Count - 20} 条提示未显示。");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine($"报告：{result.ReportJsonPath}");
+        return builder.ToString();
+    }
+
+    private static string GetBmpExportKindText(BmpExportKind kind)
+        => kind switch
+        {
+            BmpExportKind.ItemIcon => "宝物图标",
+            BmpExportKind.StrategyIcon => "兵种策略图标",
+            BmpExportKind.RImage => "R形象",
+            BmpExportKind.SImage => "S形象",
+            BmpExportKind.Face => "头像",
+            _ => kind.ToString()
+        };
 }
