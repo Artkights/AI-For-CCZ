@@ -1,98 +1,365 @@
 [
-  {
-    "FileName": "1.png",
-    "Role": "default",
-    "Mask": 0,
-    "Mode": "default",
-    "Priority": 0,
-    "X": 0,
-    "Y": 0,
-    "Width": 48,
-    "Height": 48,
-    "SourceRect": {
-      "Location": {
-        "IsEmpty": true,
-        "X": 0,
-        "Y": 0
-      },
-      "Size": {
-        "IsEmpty": false,
-        "Width": 48,
-        "Height": 48
-      },
-      "X": 0,
-      "Y": 0,
-      "Width": 48,
-      "Height": 48,
-      "Left": 0,
-      "Top": 0,
-      "Right": 48,
-      "Bottom": 48,
-      "IsEmpty": false
+    {
+        "FileName":  "1.png",
+        "Role":  "default",
+        "Mask":  0,
+        "Mode":  "default",
+        "Priority":  0,
+        "X":  0,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "2.png",
+        "Role":  "default",
+        "Mask":  0,
+        "Mode":  "default",
+        "Priority":  0,
+        "X":  0,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "3.png",
+        "Role":  "default",
+        "Mask":  0,
+        "Mode":  "default",
+        "Priority":  0,
+        "X":  0,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "straightH",
+        "Mask":  10,
+        "Mode":  "regionBoundary",
+        "Priority":  0,
+        "X":  0,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "straightV",
+        "Mask":  5,
+        "Mode":  "regionBoundary",
+        "Priority":  1,
+        "X":  48,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "cornerNW",
+        "Mask":  6,
+        "Mode":  "regionBoundary",
+        "Priority":  2,
+        "X":  96,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "cornerNE",
+        "Mask":  12,
+        "Mode":  "regionBoundary",
+        "Priority":  3,
+        "X":  144,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "cornerSW",
+        "Mask":  3,
+        "Mode":  "regionBoundary",
+        "Priority":  4,
+        "X":  192,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "cornerSE",
+        "Mask":  9,
+        "Mode":  "regionBoundary",
+        "Priority":  5,
+        "X":  240,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "endN",
+        "Mask":  1,
+        "Mode":  "regionBoundary",
+        "Priority":  6,
+        "X":  288,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "endE",
+        "Mask":  2,
+        "Mode":  "regionBoundary",
+        "Priority":  7,
+        "X":  336,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "endS",
+        "Mask":  4,
+        "Mode":  "regionBoundary",
+        "Priority":  8,
+        "X":  384,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "endW",
+        "Mask":  8,
+        "Mode":  "regionBoundary",
+        "Priority":  9,
+        "X":  432,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "teeN",
+        "Mask":  14,
+        "Mode":  "regionBoundary",
+        "Priority":  10,
+        "X":  480,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "teeS",
+        "Mask":  11,
+        "Mode":  "regionBoundary",
+        "Priority":  11,
+        "X":  528,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "teeW",
+        "Mask":  7,
+        "Mode":  "regionBoundary",
+        "Priority":  12,
+        "X":  576,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "teeE",
+        "Mask":  13,
+        "Mode":  "regionBoundary",
+        "Priority":  13,
+        "X":  624,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "4.png",
+        "Role":  "cross",
+        "Mask":  15,
+        "Mode":  "regionBoundary",
+        "Priority":  14,
+        "X":  672,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "straightH",
+        "Mask":  10,
+        "Mode":  "regionBoundary",
+        "Priority":  0,
+        "X":  0,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "straightV",
+        "Mask":  5,
+        "Mode":  "regionBoundary",
+        "Priority":  1,
+        "X":  48,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "cornerNW",
+        "Mask":  6,
+        "Mode":  "regionBoundary",
+        "Priority":  2,
+        "X":  96,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "cornerNE",
+        "Mask":  12,
+        "Mode":  "regionBoundary",
+        "Priority":  3,
+        "X":  144,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "cornerSW",
+        "Mask":  3,
+        "Mode":  "regionBoundary",
+        "Priority":  4,
+        "X":  192,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "cornerSE",
+        "Mask":  9,
+        "Mode":  "regionBoundary",
+        "Priority":  5,
+        "X":  240,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "endN",
+        "Mask":  1,
+        "Mode":  "regionBoundary",
+        "Priority":  6,
+        "X":  288,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "endE",
+        "Mask":  2,
+        "Mode":  "regionBoundary",
+        "Priority":  7,
+        "X":  336,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "endS",
+        "Mask":  4,
+        "Mode":  "regionBoundary",
+        "Priority":  8,
+        "X":  384,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "endW",
+        "Mask":  8,
+        "Mode":  "regionBoundary",
+        "Priority":  9,
+        "X":  432,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "teeN",
+        "Mask":  14,
+        "Mode":  "regionBoundary",
+        "Priority":  10,
+        "X":  480,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "teeS",
+        "Mask":  11,
+        "Mode":  "regionBoundary",
+        "Priority":  11,
+        "X":  528,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "teeW",
+        "Mask":  7,
+        "Mode":  "regionBoundary",
+        "Priority":  12,
+        "X":  576,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "teeE",
+        "Mask":  13,
+        "Mode":  "regionBoundary",
+        "Priority":  13,
+        "X":  624,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
+    },
+    {
+        "FileName":  "5.png",
+        "Role":  "cross",
+        "Mask":  15,
+        "Mode":  "regionBoundary",
+        "Priority":  14,
+        "X":  672,
+        "Y":  0,
+        "Width":  48,
+        "Height":  48
     }
-  },
-  {
-    "FileName": "2.png",
-    "Role": "default",
-    "Mask": 0,
-    "Mode": "default",
-    "Priority": 0,
-    "X": 0,
-    "Y": 0,
-    "Width": 48,
-    "Height": 48,
-    "SourceRect": {
-      "Location": {
-        "IsEmpty": true,
-        "X": 0,
-        "Y": 0
-      },
-      "Size": {
-        "IsEmpty": false,
-        "Width": 48,
-        "Height": 48
-      },
-      "X": 0,
-      "Y": 0,
-      "Width": 48,
-      "Height": 48,
-      "Left": 0,
-      "Top": 0,
-      "Right": 48,
-      "Bottom": 48,
-      "IsEmpty": false
-    }
-  },
-  {
-    "FileName": "3.png",
-    "Role": "default",
-    "Mask": 0,
-    "Mode": "default",
-    "Priority": 0,
-    "X": 0,
-    "Y": 0,
-    "Width": 48,
-    "Height": 48,
-    "SourceRect": {
-      "Location": {
-        "IsEmpty": true,
-        "X": 0,
-        "Y": 0
-      },
-      "Size": {
-        "IsEmpty": false,
-        "Width": 48,
-        "Height": 48
-      },
-      "X": 0,
-      "Y": 0,
-      "Width": 48,
-      "Height": 48,
-      "Left": 0,
-      "Top": 0,
-      "Right": 48,
-      "Bottom": 48,
-      "IsEmpty": false
-    }
-  }
 ]

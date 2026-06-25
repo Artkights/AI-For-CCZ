@@ -212,6 +212,37 @@ try {
     $proc.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}')
     $proc.StandardInput.Flush()
 
+    $script:nextId++
+    $toolsPayload = New-McpRequest -Id $script:nextId -Method "tools/list"
+    $proc.StandardInput.WriteLine($toolsPayload)
+    $proc.StandardInput.Flush()
+    $toolsLine = Read-LineWithTimeout -Reader $proc.StandardOutput -Timeout $TimeoutMs -Label "tools/list"
+    $tools = $toolsLine | ConvertFrom-Json
+    if ($tools.error) {
+        throw "MCP tools/list failed: $($tools.error.message)"
+    }
+
+    $toolNames = @($tools.result.tools | ForEach-Object { $_.name })
+    $requiredDirectTools = @(
+        "apply_mod_package",
+        "auto_make_mod",
+        "apply_scenario_patch_aggressive",
+        "apply_scenario_text_import",
+        "publish_rscene_draft_to_scenario",
+        "publish_map_workbench_bundle",
+        "draw_and_replace_ccz_image_asset"
+    )
+    $missingDirectTools = @($requiredDirectTools | Where-Object { $toolNames -notcontains $_ })
+    if ($missingDirectTools.Count -gt 0) {
+        throw "Missing direct-production tools: $($missingDirectTools -join ', ')"
+    }
+
+    $obsoleteTools = @("promote_test_copy_mod", "create_test_copy", "diff_test_copy", "create_release_copy")
+    $presentObsoleteTools = @($obsoleteTools | Where-Object { $toolNames -contains $_ })
+    if ($presentObsoleteTools.Count -gt 0) {
+        throw "Obsolete test-copy tools are still exposed: $($presentObsoleteTools -join ', ')"
+    }
+
     $draftId = "mcp_smoke_" + (Get-Date -Format "yyyyMMdd_HHmmss")
     $mapDraft = Invoke-McpTool -Process $proc -Name "save_map_draft" -Arguments @{
         request = @{
@@ -237,21 +268,12 @@ try {
     $jpegMap = Invoke-McpTool -Process $proc -Name "export_map_canvas_jpeg" -Arguments @{ draft_id = $draftId }
     Assert-Truthy ((Test-Path -LiteralPath ([string]$jpegMap.outputPath) -PathType Leaf)) "export_map_canvas_jpeg did not create a JPEG."
 
-    $publishDenied = Invoke-McpTool -Process $proc -Name "publish_map_canvas_to_map_image" -Arguments @{ draft_id = $draftId; map_id = "001" } -ExpectError
-    Assert-Truthy ($publishDenied.Error -ne $null) "publish_map_canvas_to_map_image did not enforce explicit write_mode."
-
     $materials = Invoke-McpTool -Process $proc -Name "list_material_assets" -Arguments @{ limit = 5 }
     Assert-Truthy ($materials.totalAssets -ge 1) "list_material_assets returned no material assets."
     $materialRoot = [string]$materials.materialRoot
 
     $migrationPreview = Invoke-McpTool -Process $proc -Name "migrate_material_library_preview" -Arguments @{ old_root = $materialRoot }
     Assert-Truthy ($migrationPreview.sourceAssetCount -ge 1) "migrate_material_library_preview returned no source assets."
-
-    $migrationDenied = Invoke-McpTool -Process $proc -Name "migrate_material_library" -Arguments @{
-        old_root = $materialRoot
-        new_root = "CCZModStudio_Exports/MCPProductionSmoke/MaterialLibrary"
-    } -ExpectError
-    Assert-Truthy ($migrationDenied.Error -ne $null) "migrate_material_library did not enforce explicit write_mode."
 
     $terrainAnalysis = Invoke-McpTool -Process $proc -Name "analyze_material_driven_terrain" -Arguments @{ draft_id = $draftId }
     Assert-Truthy ($null -ne $terrainAnalysis.diagnostics) "analyze_material_driven_terrain did not return diagnostics."
@@ -278,23 +300,11 @@ try {
     }
     Assert-Truthy ($shopPreview.preview.changeCount -ge 1) "preview_write_shop_rows did not report a change preview."
 
-    $shopDenied = Invoke-McpTool -Process $proc -Name "write_shop_rows" -Arguments @{
-        updates = @(@{
-            row_id = [int]$firstShopRow.ID
-            campaign_name = "MCP Smoke"
-            shop_values = @{}
-        })
-    } -ExpectError
-    Assert-Truthy ($shopDenied.Error -ne $null) "write_shop_rows did not enforce explicit write_mode."
-
     $settings = Invoke-McpTool -Process $proc -Name "read_global_settings" -Arguments @{ limit = 2 }
     Assert-Truthy ($settings.gameTitle -ne $null) "read_global_settings did not return game title evidence."
 
     $settingsPreview = Invoke-McpTool -Process $proc -Name "preview_write_global_settings" -Arguments @{ update = @{ game_title = [string]$settings.gameTitle.title } }
     Assert-Truthy ($settingsPreview.changes.changeCount -ge 1) "preview_write_global_settings did not report a title preview."
-
-    $settingsDenied = Invoke-McpTool -Process $proc -Name "write_global_settings" -Arguments @{ update = @{ game_title = [string]$settings.gameTitle.title } } -ExpectError
-    Assert-Truthy ($settingsDenied.Error -ne $null) "write_global_settings did not enforce explicit write_mode."
 
     $importTemplate = Invoke-McpTool -Process $proc -Name "read_scenario_text_import_template"
     Assert-Truthy ([string]$importTemplate.template -like "*@narration*") "read_scenario_text_import_template did not return the template text."
@@ -348,24 +358,6 @@ try {
     }
     Assert-Truthy ($deploymentPreview.requestedPlacementCount -eq 1) "preview_battlefield_deployment_write did not report the requested placement."
 
-    $deploymentDenied = Invoke-McpTool -Process $proc -Name "write_battlefield_deployment" -Arguments @{
-        relative_path = "RS/S_00.eex"
-        updates = @(@{
-            target_key = "mcp-smoke-non-writable"
-            person_id = 0
-            name = "MCP Smoke"
-            grid_x = 0
-            grid_y = 0
-            ai_mode = ""
-            direction = ""
-            hidden = $false
-            faction = ""
-            source = "MCP"
-            placement_note = "explicit write-mode guard"
-        })
-    } -ExpectError
-    Assert-Truthy ($deploymentDenied.Error -ne $null) "write_battlefield_deployment did not enforce explicit write_mode."
-
     $eex = Invoke-McpTool -Process $proc -Name "inspect_eex_entries" -Arguments @{ relative_path = "RS/R_00.eex"; limit = 5 }
     Assert-Truthy (($eex.PSObject.Properties.Name -contains "rows")) "inspect_eex_entries did not return an entry payload."
 
@@ -380,9 +372,6 @@ try {
 
     $catalog = Invoke-McpTool -Process $proc -Name "list_item_effect_catalog"
     Assert-Truthy ($catalog.count -ge 0) "list_item_effect_catalog did not return a catalog payload."
-
-    $catalogDenied = Invoke-McpTool -Process $proc -Name "save_item_effect_catalog" -Arguments @{ entries = @() } -ExpectError
-    Assert-Truthy ($catalogDenied.Error -ne $null) "save_item_effect_catalog did not enforce explicit write_mode."
 
     $equipmentProfile = Invoke-McpTool -Process $proc -Name "read_equipment_type_profile"
     Assert-Truthy ($equipmentProfile.profile -ne $null) "read_equipment_type_profile did not return a profile."

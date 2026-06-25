@@ -1094,6 +1094,7 @@ public sealed partial class MainForm
         _mapMakerAutoGenerateCheckBox.Checked = true;
         SetNumericSilently(_mapMakerBeautifyStrengthInput, Math.Clamp(_currentMapWorkbenchDraft.BeautifyStrength, 0, 3));
         SetNumericSilently(_mapMakerFeatherRadiusInput, Math.Clamp(_currentMapWorkbenchDraft.FeatherRadius, 0, 24));
+        SetSelectedBeautifyFilterProfile(_currentMapWorkbenchDraft.BeautifyFilterProfile);
         SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.TerrainBrush);
         RebuildMapMakerOverrideLookup();
         RecalculateMapMakerTerrainChangedCellCount();
@@ -1126,6 +1127,13 @@ public sealed partial class MainForm
         _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
         _currentMapWorkbenchDraft.BeautifyStrength = (int)_mapMakerBeautifyStrengthInput.Value;
         _currentMapWorkbenchDraft.FeatherRadius = (int)_mapMakerFeatherRadiusInput.Value;
+        _currentMapWorkbenchDraft.BeautifyFilterProfile = GetSelectedBeautifyFilterProfile();
+        if (_currentMapWorkbenchDraft.BeautifyFilterProfile.Equals(TerrainBeautifyFilterProfiles.Custom, StringComparison.OrdinalIgnoreCase) &&
+            _currentMapWorkbenchDraft.CustomBeautifyFilter == null)
+        {
+            _currentMapWorkbenchDraft.CustomBeautifyFilter = _mapWorkbenchSettings.DefaultCustomBeautifyFilter?.Clone()
+                ?? BeautifyCustomFilterSettings.CreateDefault();
+        }
         EnsureCurrentTerrainMaterialPlan(persist: false);
         if (!_mapMakerPainting)
         {
@@ -1165,6 +1173,100 @@ public sealed partial class MainForm
     private static void SetNumericSilently(NumericUpDown input, int value)
     {
         input.Value = Math.Clamp(value, (int)input.Minimum, (int)input.Maximum);
+    }
+
+    private string GetSelectedBeautifyFilterProfile()
+        => _mapMakerBeautifyFilterCombo.SelectedItem is BeautifyFilterComboItem item
+            ? item.Profile
+            : TerrainBeautifyFilterProfiles.Natural;
+
+    private bool TryConfigureCustomBeautifyFilter(bool requireDialog)
+    {
+        if (_currentMapWorkbenchDraft == null) return false;
+        var current = _currentMapWorkbenchDraft.CustomBeautifyFilter?.Clone()
+            ?? _mapWorkbenchSettings.DefaultCustomBeautifyFilter?.Clone()
+            ?? BeautifyCustomFilterSettings.CreateDefault();
+        if (!requireDialog && _currentMapWorkbenchDraft.CustomBeautifyFilter != null)
+        {
+            return true;
+        }
+
+        using var preview = BuildCustomBeautifyPreviewSource();
+        using var dialog = new CustomBeautifyFilterDialog(
+            current,
+            _mapWorkbenchSettings.DefaultCustomBeautifyFilter,
+            preview,
+            (int)_mapMakerBeautifyStrengthInput.Value);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return false;
+        }
+
+        _currentMapWorkbenchDraft.CustomBeautifyFilter = dialog.Settings.Clone();
+        _currentMapWorkbenchDraft.BeautifyFilterProfile = TerrainBeautifyFilterProfiles.Custom;
+        if (dialog.SaveAsGlobalDefault)
+        {
+            _mapWorkbenchSettings.DefaultCustomBeautifyFilter = dialog.Settings.Clone();
+            SaveMapWorkbenchSettings();
+        }
+
+        return true;
+    }
+
+    private Bitmap BuildCustomBeautifyPreviewSource()
+    {
+        if (_currentMapWorkbenchDraft != null)
+        {
+            using var bitmap = _mapCanvasPreviewRenderer.Rebuild(
+                _currentMapWorkbenchDraft,
+                _currentMaterialAssets,
+                showTerrain: false,
+                showGrid: false,
+                terrainOpacityPercent: 0,
+                beautifyGeneratedMap: false);
+            return BuildCustomBeautifyPreviewBitmap(bitmap, 420, 420);
+        }
+
+        var fallback = new Bitmap(96, 96);
+        using var g = Graphics.FromImage(fallback);
+        g.Clear(Color.FromArgb(64, 64, 64));
+        return fallback;
+    }
+
+    private static Bitmap BuildCustomBeautifyPreviewBitmap(Image image, int maxWidth, int maxHeight)
+    {
+        var scale = Math.Min(maxWidth / (double)Math.Max(1, image.Width), maxHeight / (double)Math.Max(1, image.Height));
+        var width = Math.Max(1, (int)Math.Round(image.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(image.Height * scale));
+        var bitmap = new Bitmap(width, height);
+        using var g = Graphics.FromImage(bitmap);
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        g.DrawImage(image, new Rectangle(0, 0, width, height), new Rectangle(0, 0, image.Width, image.Height), GraphicsUnit.Pixel);
+        return bitmap;
+    }
+
+    private void SetSelectedBeautifyFilterProfile(string profile)
+    {
+        if (_mapMakerBeautifyFilterCombo.Items.Count == 0) return;
+        _updatingMapMakerBeautifyFilterSelection = true;
+        try
+        {
+            for (var i = 0; i < _mapMakerBeautifyFilterCombo.Items.Count; i++)
+            {
+                if (_mapMakerBeautifyFilterCombo.Items[i] is BeautifyFilterComboItem item &&
+                    item.Profile.Equals(profile, StringComparison.OrdinalIgnoreCase))
+                {
+                    _mapMakerBeautifyFilterCombo.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            _mapMakerBeautifyFilterCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _updatingMapMakerBeautifyFilterSelection = false;
+        }
     }
 
     private void ResetMapWorkbenchHistory()
@@ -1493,12 +1595,21 @@ public sealed partial class MainForm
         try
         {
             using var image = Image.FromFile(asset.FilePath);
-            var sourceRect = new Rectangle(
-                Math.Clamp(asset.SourceX, 0, Math.Max(0, image.Width - 1)),
-                Math.Clamp(asset.SourceY, 0, Math.Max(0, image.Height - 1)),
-                Math.Clamp(asset.SourceWidth <= 0 ? Math.Min(48, image.Width) : asset.SourceWidth, 1, image.Width),
-                Math.Clamp(asset.SourceHeight <= 0 ? Math.Min(48, image.Height) : asset.SourceHeight, 1, image.Height));
-            g.DrawImage(image, new Rectangle(0, 0, 48, 48), sourceRect, GraphicsUnit.Pixel);
+            if (asset.AssetType.Equals(MaterialAssetTypes.Scenery, StringComparison.OrdinalIgnoreCase))
+            {
+                var target = FitRectangle(image.Width, image.Height, 48, 48);
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(image, target, new Rectangle(0, 0, image.Width, image.Height), GraphicsUnit.Pixel);
+            }
+            else
+            {
+                var sourceRect = new Rectangle(
+                    Math.Clamp(asset.SourceX, 0, Math.Max(0, image.Width - 1)),
+                    Math.Clamp(asset.SourceY, 0, Math.Max(0, image.Height - 1)),
+                    Math.Clamp(asset.SourceWidth <= 0 ? Math.Min(48, image.Width) : asset.SourceWidth, 1, image.Width),
+                    Math.Clamp(asset.SourceHeight <= 0 ? Math.Min(48, image.Height) : asset.SourceHeight, 1, image.Height));
+                g.DrawImage(image, new Rectangle(0, 0, 48, 48), sourceRect, GraphicsUnit.Pixel);
+            }
         }
         catch
         {
@@ -1530,7 +1641,9 @@ public sealed partial class MainForm
         try
         {
             using var image = Image.FromFile(asset.FilePath);
-            _mapMakerMaterialPreview.Image = new Bitmap(image);
+            _mapMakerMaterialPreview.Image = asset.AssetType.Equals(MaterialAssetTypes.Scenery, StringComparison.OrdinalIgnoreCase)
+                ? BuildZoomedPreviewBitmap(image, 160, 160)
+                : new Bitmap(image);
         }
         catch (Exception ex)
         {
@@ -1556,6 +1669,34 @@ public sealed partial class MainForm
         }
 
         UpdateMapMakerBrushLabel();
+    }
+
+    private static Rectangle FitRectangle(int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0)
+        {
+            return Rectangle.Empty;
+        }
+
+        var scale = Math.Min(targetWidth / (double)sourceWidth, targetHeight / (double)sourceHeight);
+        var width = Math.Max(1, (int)Math.Round(sourceWidth * scale));
+        var height = Math.Max(1, (int)Math.Round(sourceHeight * scale));
+        return new Rectangle((targetWidth - width) / 2, (targetHeight - height) / 2, width, height);
+    }
+
+    private static Bitmap BuildZoomedPreviewBitmap(Image image, int maxWidth, int maxHeight)
+    {
+        var bitmap = new Bitmap(maxWidth, maxHeight);
+        using var g = Graphics.FromImage(bitmap);
+        g.Clear(Color.FromArgb(245, 245, 245));
+        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        var target = FitRectangle(image.Width, image.Height, maxWidth, maxHeight);
+        if (!target.IsEmpty)
+        {
+            g.DrawImage(image, target, new Rectangle(0, 0, image.Width, image.Height), GraphicsUnit.Pixel);
+        }
+
+        return bitmap;
     }
 
     private static bool MaterialMatchesMapWorkbenchKeyword(MaterialAsset asset, string keyword)
@@ -1763,6 +1904,14 @@ public sealed partial class MainForm
             _mapMakerDirtyBaseRefreshTimer.Stop();
             EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
             SyncMapWorkbenchDraftFromEditor();
+            if (_currentMapWorkbenchDraft.BeautifyFilterProfile.Equals(TerrainBeautifyFilterProfiles.Custom, StringComparison.OrdinalIgnoreCase) &&
+                !TryConfigureCustomBeautifyFilter(requireDialog: _currentMapWorkbenchDraft.CustomBeautifyFilter == null))
+            {
+                _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
+                UpdateMapMakerBeautifyButtonState();
+                return;
+            }
+
             FlushMapMakerDirtyBasePreview(runBeautify: false);
             _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
             _currentMapWorkbenchDraft.BeautifyGeneratedMap = true;
@@ -1792,7 +1941,6 @@ public sealed partial class MainForm
 
         try
         {
-            using var baseSnapshot = _mapCanvasPreviewRenderer.CreateBaseMapSnapshot(_currentMapWorkbenchDraft, _currentMaterialAssets);
             var draft = CloneMapWorkbenchDraftForBackground(_currentMapWorkbenchDraft);
             var materials = _currentMaterialAssets.ToList();
             var stopwatch = Stopwatch.StartNew();
@@ -1986,12 +2134,15 @@ public sealed partial class MainForm
             GeneratedMapCells = source.GeneratedMapCells.Select(CloneMapCellOverrideForBackground).ToList(),
             BuildingOverlayCells = source.BuildingOverlayCells.Select(CloneMapCellOverrideForBackground).ToList(),
             SceneryOverlayCells = source.SceneryOverlayCells.Select(CloneMapCellOverrideForBackground).ToList(),
+            SceneryOverlays = source.SceneryOverlays.Select(CloneMapSceneryOverlayForBackground).ToList(),
             OriginalTerrainCells = source.OriginalTerrainCells.ToArray(),
             TerrainCells = source.TerrainCells.ToArray(),
             AutoGenerateMapFromTerrain = source.AutoGenerateMapFromTerrain,
             BeautifyGeneratedMap = true,
             BeautifyStrength = source.BeautifyStrength,
             FeatherRadius = source.FeatherRadius,
+            BeautifyFilterProfile = source.BeautifyFilterProfile,
+            CustomBeautifyFilter = source.CustomBeautifyFilter?.Clone(),
             CreatedAtText = source.CreatedAtText,
             UpdatedAtText = source.UpdatedAtText
         };
@@ -2004,6 +2155,20 @@ public sealed partial class MainForm
             MaterialCategory = value.MaterialCategory,
             DisplayName = value.DisplayName,
             Source = value.Source
+        };
+
+    private static MapSceneryOverlay CloneMapSceneryOverlayForBackground(MapSceneryOverlay value)
+        => new()
+        {
+            MaterialRelativePath = value.MaterialRelativePath,
+            MaterialCategory = value.MaterialCategory,
+            DisplayName = value.DisplayName,
+            X = value.X,
+            Y = value.Y,
+            Width = value.Width,
+            Height = value.Height,
+            RotationDegrees = value.RotationDegrees,
+            ZOrder = value.ZOrder
         };
 
     private static void DrawMapWorkbenchCellForBackground(
@@ -2078,12 +2243,14 @@ public sealed partial class MainForm
     private void MarkMapWorkbenchMaterialDirty(int index)
     {
         if (_currentMapWorkbenchDraft == null) return;
-        foreach (var dirtyIndex in ExpandIndexesWithNeighbors(new[] { index }))
+        var dirtyIndexes = ExpandIndexesWithNeighbors(new[] { index }).ToList();
+        foreach (var dirtyIndex in dirtyIndexes)
         {
             _mapMakerDirtyTerrainPreviewIndexes.Add(dirtyIndex);
         }
 
-        var dirtyRect = _mapCanvasPreviewRenderer.MarkTerrainDirty(_currentMapWorkbenchDraft, index);
+        DeriveCurrentMapWorkbenchTerrain();
+        var dirtyRect = _mapCanvasPreviewRenderer.MarkTerrainDirty(_currentMapWorkbenchDraft, dirtyIndexes);
         if (_mapMakerPainting && !_mapMakerShowTerrainCheckBox.Checked)
         {
             _mapMakerRenderDeferred = true;
@@ -2153,6 +2320,13 @@ public sealed partial class MainForm
             if (_currentMapWorkbenchDraft == null) return;
         }
 
+        _mapViewerBox.Focus();
+        if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush &&
+            TryBeginMapWorkbenchSceneryObjectEdit(e))
+        {
+            return;
+        }
+
         _mapMakerPainting = true;
         _mapMakerPendingMapPaintChanges.Clear();
         _mapMakerPendingMapPaintIndexes.Clear();
@@ -2163,10 +2337,21 @@ public sealed partial class MainForm
 
     private void ContinueMapMakerTerrainPaint(MouseEventArgs e)
     {
+        if (_sceneryOverlayDragging)
+        {
+            ContinueMapWorkbenchSceneryObjectEdit(e);
+            return;
+        }
+
         if (_mapMakerPainting && e.Button is MouseButtons.Left or MouseButtons.Right)
         {
             PaintMapWorkbenchCell(e.Location, groupWithCurrentStroke: true, erase: e.Button == MouseButtons.Right);
             return;
+        }
+
+        if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush)
+        {
+            UpdateMapWorkbenchSceneryCursor(e.Location);
         }
 
         UpdateMapMakerCellInfo(e.Location);
@@ -2174,6 +2359,12 @@ public sealed partial class MainForm
 
     private void EndMapMakerTerrainPaint()
     {
+        if (_sceneryOverlayDragging)
+        {
+            EndMapWorkbenchSceneryObjectEdit();
+            return;
+        }
+
         if (!_mapMakerPainting) return;
         _mapMakerPainting = false;
         if (_mapMakerPendingMapPaintChanges.Count > 0)
@@ -2272,15 +2463,76 @@ public sealed partial class MainForm
     private void PaintMapWorkbenchSceneryCell(int index, int x, int y, bool groupWithCurrentStroke, bool erase)
     {
         if (_currentMapWorkbenchDraft == null) return;
-        PaintMapWorkbenchLayerCell(
-            index,
-            x,
-            y,
-            groupWithCurrentStroke,
-            erase,
-            _currentMapWorkbenchDraft.SceneryOverlayCells,
-            MapCellOverrideSources.SceneryOverlay,
-            "景物素材");
+        if (groupWithCurrentStroke && !_mapMakerPendingMapPaintIndexes.Add(index)) return;
+
+        var tileSize = _currentMapWorkbenchDraft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : _currentMapWorkbenchDraft.TileSize;
+        var pixelX = x * tileSize;
+        var pixelY = y * tileSize;
+        var oldValue = CloneMapSceneryOverlay(FindSceneryOverlayAt(pixelX, pixelY, index));
+        MapSceneryOverlay? newValue = null;
+
+        if (!erase)
+        {
+            if (_mapMakerSelectedMaterial == null || !_mapMakerSelectedMaterial.AssetType.Equals(MaterialAssetTypes.Scenery, StringComparison.OrdinalIgnoreCase))
+            {
+                _mapViewerInfoBox.Text = BuildMapMakerInfo("请先选择一个景物素材。", x, y);
+                return;
+            }
+
+            var relative = MapDraftService.GetMaterialRelativePath(_currentMapWorkbenchDraft.MaterialRoot, _mapMakerSelectedMaterial.FilePath);
+            newValue = new MapSceneryOverlay
+            {
+                OverlayId = Guid.NewGuid().ToString("N"),
+                MaterialRelativePath = relative,
+                MaterialCategory = _mapMakerSelectedMaterial.Category,
+                DisplayName = _mapMakerSelectedMaterial.FileName,
+                X = pixelX,
+                Y = pixelY,
+                Width = Math.Max(1, _mapMakerSelectedMaterial.Width),
+                Height = Math.Max(1, _mapMakerSelectedMaterial.Height),
+                ZOrder = GetNextSceneryOverlayZOrder()
+            };
+
+            if (oldValue != null &&
+                oldValue.MaterialRelativePath.Equals(newValue.MaterialRelativePath, StringComparison.OrdinalIgnoreCase) &&
+                oldValue.X == newValue.X &&
+                oldValue.Y == newValue.Y)
+            {
+                _mapViewerInfoBox.Text = BuildMapMakerInfo($"格子 ({x},{y}) 已经贴入该景物。", x, y);
+                return;
+            }
+        }
+        else if (oldValue == null)
+        {
+            _mapViewerInfoBox.Text = BuildMapMakerInfo($"格子 ({x},{y}) 没有可删除的景物。", x, y);
+            return;
+        }
+
+        RemoveSceneryOverlay(oldValue);
+        if (newValue != null)
+        {
+            _currentMapWorkbenchDraft.SceneryOverlays.Add(CloneMapSceneryOverlay(newValue)!);
+            SortSceneryOverlays();
+            _selectedSceneryOverlayId = newValue.OverlayId;
+        }
+
+        MarkCurrentGeneratedMapNeedsBeautify();
+        var change = new MapWorkbenchCellChange(index, null, null, oldValue, CloneMapSceneryOverlay(newValue));
+        if (groupWithCurrentStroke)
+        {
+            _mapMakerPendingMapPaintChanges.Add(change);
+        }
+        else
+        {
+            _mapMakerMapUndoStack.Push(new List<MapWorkbenchCellChange> { change });
+            _mapMakerMapRedoStack.Clear();
+        }
+
+        RenderMapMakerPreview(force: true);
+        var action = erase ? "删除" : "贴入";
+        UpdateMapMakerCellPreview(x, y, GetMapWorkbenchFinalTerrainText(index));
+        _mapViewerInfoBox.Text = BuildMapMakerInfo($"{action}景物：格子 ({x},{y})", x, y);
+        SetStatus($"{action}景物: ({x},{y})");
     }
 
     private void PaintMapWorkbenchLayerCell(
@@ -2358,6 +2610,525 @@ public sealed partial class MainForm
         UpdateMapMakerCellPreview(x, y, GetMapWorkbenchFinalTerrainText(index));
         _mapViewerInfoBox.Text = BuildMapMakerInfo($"{action}{layerName}：格子 ({x},{y})", x, y);
         SetStatus($"{action}{layerName}: ({x},{y})");
+    }
+
+    private MapSceneryOverlay? FindSceneryOverlayAt(int pixelX, int pixelY, int index)
+    {
+        if (_currentMapWorkbenchDraft == null) return null;
+        var tileSize = _currentMapWorkbenchDraft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : _currentMapWorkbenchDraft.TileSize;
+        var tileRect = new Rectangle((index % _currentMapWorkbenchDraft.GridWidth) * tileSize, (index / _currentMapWorkbenchDraft.GridWidth) * tileSize, tileSize, tileSize);
+        return _currentMapWorkbenchDraft.SceneryOverlays
+            .OrderByDescending(overlay => overlay.ZOrder)
+            .FirstOrDefault(overlay =>
+            {
+                var rect = GetSceneryOverlayRectangle(overlay);
+                return rect.Contains(pixelX, pixelY) || rect.IntersectsWith(tileRect);
+            });
+    }
+
+    private bool TryBeginMapWorkbenchSceneryObjectEdit(MouseEventArgs e)
+    {
+        if (_currentMapWorkbenchDraft == null || _mapViewerBox.Image == null) return false;
+        if (!TryMapPictureBoxPointToImagePoint(_mapViewerBox, e.Location, out var imagePoint)) return false;
+        var hitKind = MapSceneryOverlayHitKind.None;
+        var overlay = FindSelectedSceneryOverlayHandleAtPoint(imagePoint, out hitKind)
+            ?? FindSceneryOverlayAtPoint(imagePoint);
+        if (overlay == null)
+        {
+            _selectedSceneryOverlayId = string.Empty;
+            _mapViewerBox.Invalidate();
+            return false;
+        }
+
+        _selectedSceneryOverlayId = EnsureSceneryOverlayId(overlay);
+        if (e.Button == MouseButtons.Right)
+        {
+            DeleteSelectedSceneryOverlay();
+            return true;
+        }
+
+        _sceneryOverlayDragging = true;
+        _sceneryDragOriginalOverlay = CloneMapSceneryOverlay(overlay);
+        _sceneryDragStartImagePoint = imagePoint;
+        _sceneryDragHitKind = hitKind == MapSceneryOverlayHitKind.None ? MapSceneryOverlayHitKind.Body : hitKind;
+        _mapViewerBox.Capture = true;
+        _mapViewerBox.Invalidate();
+        return true;
+    }
+
+    private void ContinueMapWorkbenchSceneryObjectEdit(MouseEventArgs e)
+    {
+        if (_currentMapWorkbenchDraft == null || !_sceneryOverlayDragging || _sceneryDragOriginalOverlay == null) return;
+        if (!TryMapPictureBoxPointToImagePoint(_mapViewerBox, e.Location, out var imagePoint)) return;
+        var overlay = FindSceneryOverlayById(_selectedSceneryOverlayId);
+        if (overlay == null) return;
+        switch (_sceneryDragHitKind)
+        {
+            case MapSceneryOverlayHitKind.ScaleNorthWest:
+            case MapSceneryOverlayHitKind.ScaleNorthEast:
+            case MapSceneryOverlayHitKind.ScaleSouthEast:
+            case MapSceneryOverlayHitKind.ScaleSouthWest:
+                ScaleSceneryOverlayFromDrag(overlay, _sceneryDragOriginalOverlay, _sceneryDragStartImagePoint, imagePoint);
+                break;
+            case MapSceneryOverlayHitKind.Rotate:
+                RotateSceneryOverlayFromDrag(overlay, _sceneryDragOriginalOverlay, _sceneryDragStartImagePoint, imagePoint);
+                break;
+            case MapSceneryOverlayHitKind.Body:
+            default:
+                overlay.X = _sceneryDragOriginalOverlay.X + (int)MathF.Round(imagePoint.X - _sceneryDragStartImagePoint.X);
+                overlay.Y = _sceneryDragOriginalOverlay.Y + (int)MathF.Round(imagePoint.Y - _sceneryDragStartImagePoint.Y);
+                break;
+        }
+        ClampSceneryOverlayToDraft(overlay);
+        MarkCurrentGeneratedMapNeedsBeautify();
+        RenderMapMakerPreview(force: true);
+        _mapViewerInfoBox.Text = BuildMapMakerInfo(BuildSceneryOverlayTransformInfo(overlay, _sceneryDragHitKind));
+    }
+
+    private void EndMapWorkbenchSceneryObjectEdit()
+    {
+        if (!_sceneryOverlayDragging) return;
+        _mapViewerBox.Capture = false;
+        _sceneryOverlayDragging = false;
+        var oldValue = _sceneryDragOriginalOverlay;
+        var newValue = CloneMapSceneryOverlay(FindSceneryOverlayById(_selectedSceneryOverlayId));
+        _sceneryDragOriginalOverlay = null;
+        _sceneryDragHitKind = MapSceneryOverlayHitKind.None;
+        if (oldValue != null && newValue != null && !SameSceneryOverlayTransform(oldValue, newValue))
+        {
+            _mapMakerMapUndoStack.Push(new List<MapWorkbenchCellChange>
+            {
+                new(-1, null, null, oldValue, newValue)
+            });
+            _mapMakerMapRedoStack.Clear();
+        }
+
+        RenderMapMakerPreview(force: true);
+        UpdateMapMakerEditingButtons();
+    }
+
+    private MapSceneryOverlay? FindSceneryOverlayAtPoint(PointF imagePoint)
+        => _currentMapWorkbenchDraft?.SceneryOverlays
+            .OrderByDescending(overlay => overlay.ZOrder)
+            .FirstOrDefault(overlay => IsPointInsideSceneryOverlay(overlay, imagePoint));
+
+    private MapSceneryOverlay? FindSelectedSceneryOverlayHandleAtPoint(PointF imagePoint, out MapSceneryOverlayHitKind hitKind)
+    {
+        hitKind = MapSceneryOverlayHitKind.None;
+        var overlay = FindSceneryOverlayById(_selectedSceneryOverlayId);
+        if (overlay == null) return null;
+
+        var hitRadius = GetSceneryOverlayHandleHitRadiusInSource();
+        if (Distance(imagePoint, GetSceneryOverlayRotationHandlePoint(overlay)) <= hitRadius)
+        {
+            hitKind = MapSceneryOverlayHitKind.Rotate;
+            return overlay;
+        }
+
+        var corners = GetSceneryOverlayCorners(overlay);
+        var kinds = new[]
+        {
+            MapSceneryOverlayHitKind.ScaleNorthWest,
+            MapSceneryOverlayHitKind.ScaleNorthEast,
+            MapSceneryOverlayHitKind.ScaleSouthEast,
+            MapSceneryOverlayHitKind.ScaleSouthWest
+        };
+        for (var i = 0; i < corners.Length && i < kinds.Length; i++)
+        {
+            if (Distance(imagePoint, corners[i]) > hitRadius) continue;
+            hitKind = kinds[i];
+            return overlay;
+        }
+
+        return null;
+    }
+
+    private void UpdateMapWorkbenchSceneryCursor(Point location)
+    {
+        if (_currentMapWorkbenchDraft == null || _mapViewerBox.Image == null)
+        {
+            _mapViewerBox.Cursor = Cursors.Default;
+            return;
+        }
+
+        if (!TryMapPictureBoxPointToImagePoint(_mapViewerBox, location, out var imagePoint))
+        {
+            _mapViewerBox.Cursor = Cursors.Cross;
+            return;
+        }
+
+        if (FindSelectedSceneryOverlayHandleAtPoint(imagePoint, out var hitKind) != null)
+        {
+            _mapViewerBox.Cursor = hitKind switch
+            {
+                MapSceneryOverlayHitKind.ScaleNorthWest or MapSceneryOverlayHitKind.ScaleSouthEast => Cursors.SizeNWSE,
+                MapSceneryOverlayHitKind.ScaleNorthEast or MapSceneryOverlayHitKind.ScaleSouthWest => Cursors.SizeNESW,
+                MapSceneryOverlayHitKind.Rotate => Cursors.Hand,
+                _ => Cursors.SizeAll
+            };
+            return;
+        }
+
+        _mapViewerBox.Cursor = FindSceneryOverlayAtPoint(imagePoint) == null ? Cursors.Cross : Cursors.SizeAll;
+    }
+
+    private MapSceneryOverlay? FindSceneryOverlayById(string overlayId)
+        => string.IsNullOrWhiteSpace(overlayId) || _currentMapWorkbenchDraft == null
+            ? null
+            : _currentMapWorkbenchDraft.SceneryOverlays.FirstOrDefault(overlay => EnsureSceneryOverlayId(overlay).Equals(overlayId, StringComparison.Ordinal));
+
+    private string EnsureSceneryOverlayId(MapSceneryOverlay overlay)
+    {
+        if (string.IsNullOrWhiteSpace(overlay.OverlayId))
+        {
+            overlay.OverlayId = Guid.NewGuid().ToString("N");
+        }
+
+        return overlay.OverlayId;
+    }
+
+    private static bool IsPointInsideSceneryOverlay(MapSceneryOverlay overlay, PointF point)
+    {
+        var rect = GetSceneryOverlayRectangle(overlay);
+        var centerX = rect.Left + rect.Width / 2f;
+        var centerY = rect.Top + rect.Height / 2f;
+        var dx = point.X - centerX;
+        var dy = point.Y - centerY;
+        var radians = -overlay.RotationDegrees * MathF.PI / 180f;
+        var cos = MathF.Cos(radians);
+        var sin = MathF.Sin(radians);
+        var localX = dx * cos - dy * sin;
+        var localY = dx * sin + dy * cos;
+        return MathF.Abs(localX) <= rect.Width / 2f && MathF.Abs(localY) <= rect.Height / 2f;
+    }
+
+    private void DeleteSelectedSceneryOverlay()
+    {
+        var overlay = CloneMapSceneryOverlay(FindSceneryOverlayById(_selectedSceneryOverlayId));
+        if (overlay == null) return;
+        RemoveSceneryOverlay(overlay);
+        _selectedSceneryOverlayId = string.Empty;
+        MarkCurrentGeneratedMapNeedsBeautify();
+        _mapMakerMapUndoStack.Push(new List<MapWorkbenchCellChange>
+        {
+            new(-1, null, null, overlay, null)
+        });
+        _mapMakerMapRedoStack.Clear();
+        RenderMapMakerPreview(force: true);
+    }
+
+    private void HandleMapWorkbenchSceneryKeyDown(KeyEventArgs e)
+    {
+        if (_currentMapWorkbenchDraft == null || string.IsNullOrWhiteSpace(_selectedSceneryOverlayId)) return;
+        var overlay = FindSceneryOverlayById(_selectedSceneryOverlayId);
+        if (overlay == null) return;
+        var oldValue = CloneMapSceneryOverlay(overlay);
+        var step = e.Shift ? 10 : 1;
+        var handled = true;
+        switch (e.KeyCode)
+        {
+            case Keys.Delete:
+                DeleteSelectedSceneryOverlay();
+                e.Handled = true;
+                return;
+            case Keys.Left:
+                overlay.X -= step;
+                break;
+            case Keys.Right:
+                overlay.X += step;
+                break;
+            case Keys.Up:
+                overlay.Y -= step;
+                break;
+            case Keys.Down:
+                overlay.Y += step;
+                break;
+            case Keys.Oemplus:
+            case Keys.Add:
+                ScaleSceneryOverlay(overlay, e.Shift ? 1.25f : 1.05f);
+                break;
+            case Keys.OemMinus:
+            case Keys.Subtract:
+                ScaleSceneryOverlay(overlay, e.Shift ? 0.8f : 0.95f);
+                break;
+            case Keys.OemOpenBrackets:
+                overlay.RotationDegrees = NormalizeRotationDegrees(overlay.RotationDegrees - (e.Shift ? 15f : 5f));
+                break;
+            case Keys.OemCloseBrackets:
+                overlay.RotationDegrees = NormalizeRotationDegrees(overlay.RotationDegrees + (e.Shift ? 15f : 5f));
+                break;
+            default:
+                handled = false;
+                break;
+        }
+
+        if (!handled || oldValue == null) return;
+        ClampSceneryOverlayToDraft(overlay);
+        MarkCurrentGeneratedMapNeedsBeautify();
+        _mapMakerMapUndoStack.Push(new List<MapWorkbenchCellChange>
+        {
+            new(-1, null, null, oldValue, CloneMapSceneryOverlay(overlay))
+        });
+        _mapMakerMapRedoStack.Clear();
+        RenderMapMakerPreview(force: true);
+        e.Handled = true;
+    }
+
+    private void ScaleSceneryOverlay(MapSceneryOverlay overlay, float factor)
+    {
+        var oldWidth = Math.Max(1, overlay.Width);
+        var oldHeight = Math.Max(1, overlay.Height);
+        var centerX = overlay.X + oldWidth / 2f;
+        var centerY = overlay.Y + oldHeight / 2f;
+        overlay.Width = Math.Max(1, (int)MathF.Round(oldWidth * factor));
+        overlay.Height = Math.Max(1, (int)MathF.Round(oldHeight * factor));
+        overlay.X = (int)MathF.Round(centerX - overlay.Width / 2f);
+        overlay.Y = (int)MathF.Round(centerY - overlay.Height / 2f);
+    }
+
+    private void ScaleSceneryOverlayFromDrag(
+        MapSceneryOverlay overlay,
+        MapSceneryOverlay original,
+        PointF startPoint,
+        PointF imagePoint)
+    {
+        var rect = GetSceneryOverlayRectangle(original);
+        var center = GetSceneryOverlayCenter(original);
+        var startDistance = MathF.Max(1f, Distance(center, startPoint));
+        var currentDistance = MathF.Max(1f, Distance(center, imagePoint));
+        var factor = MathF.Max(0.05f, currentDistance / startDistance);
+        overlay.Width = Math.Max(1, (int)MathF.Round(rect.Width * factor));
+        overlay.Height = Math.Max(1, (int)MathF.Round(rect.Height * factor));
+        overlay.X = (int)MathF.Round(center.X - overlay.Width / 2f);
+        overlay.Y = (int)MathF.Round(center.Y - overlay.Height / 2f);
+        overlay.RotationDegrees = original.RotationDegrees;
+    }
+
+    private static void RotateSceneryOverlayFromDrag(MapSceneryOverlay overlay, MapSceneryOverlay original, PointF startPoint, PointF imagePoint)
+    {
+        var center = GetSceneryOverlayCenter(original);
+        var currentAngle = AngleFromCenter(center, imagePoint);
+        var startAngle = AngleFromCenter(center, startPoint);
+        overlay.X = original.X;
+        overlay.Y = original.Y;
+        overlay.Width = original.Width;
+        overlay.Height = original.Height;
+        overlay.RotationDegrees = NormalizeRotationDegrees(original.RotationDegrees + currentAngle - startAngle);
+    }
+
+    private void ClampSceneryOverlayToDraft(MapSceneryOverlay overlay)
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        var pixelWidth = Math.Max(MapResourceItem.MapTilePixelSize, _currentMapWorkbenchDraft.PixelWidth);
+        var pixelHeight = Math.Max(MapResourceItem.MapTilePixelSize, _currentMapWorkbenchDraft.PixelHeight);
+        overlay.X = Math.Clamp(overlay.X, -pixelWidth, pixelWidth);
+        overlay.Y = Math.Clamp(overlay.Y, -pixelHeight, pixelHeight);
+        overlay.Width = Math.Clamp(overlay.Width, 1, pixelWidth * 2);
+        overlay.Height = Math.Clamp(overlay.Height, 1, pixelHeight * 2);
+        overlay.RotationDegrees = NormalizeRotationDegrees(overlay.RotationDegrees);
+    }
+
+    private static float NormalizeRotationDegrees(float value)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value)) return 0;
+        value %= 360f;
+        if (value < 0) value += 360f;
+        return value;
+    }
+
+    private static bool SameSceneryOverlayTransform(MapSceneryOverlay left, MapSceneryOverlay right)
+        => left.OverlayId.Equals(right.OverlayId, StringComparison.Ordinal) &&
+           left.MaterialRelativePath.Equals(right.MaterialRelativePath, StringComparison.OrdinalIgnoreCase) &&
+           left.X == right.X &&
+           left.Y == right.Y &&
+           left.Width == right.Width &&
+           left.Height == right.Height &&
+           Math.Abs(left.RotationDegrees - right.RotationDegrees) < 0.001f &&
+           left.ZOrder == right.ZOrder;
+
+    private static string BuildSceneryOverlayTransformInfo(MapSceneryOverlay overlay, MapSceneryOverlayHitKind hitKind)
+    {
+        var action = hitKind switch
+        {
+            MapSceneryOverlayHitKind.Rotate => "旋转",
+            MapSceneryOverlayHitKind.ScaleNorthWest or MapSceneryOverlayHitKind.ScaleNorthEast or MapSceneryOverlayHitKind.ScaleSouthEast or MapSceneryOverlayHitKind.ScaleSouthWest => "缩放",
+            _ => "移动"
+        };
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "景物对象：{0} X={1} Y={2} W={3} H={4} R={5:0.#}°",
+            action,
+            overlay.X,
+            overlay.Y,
+            overlay.Width,
+            overlay.Height,
+            overlay.RotationDegrees);
+    }
+
+    private void PaintMapWorkbenchScenerySelection(Graphics g)
+    {
+        var overlay = FindSceneryOverlayById(_selectedSceneryOverlayId);
+        if (overlay == null || _mapViewerRenderedImage == null) return;
+        var points = GetSceneryOverlayCorners(overlay)
+            .Select(MapMakerSourcePointToDisplayPoint)
+            .ToArray();
+        if (points.Length != 4) return;
+        var rotationHandle = MapMakerSourcePointToDisplayPoint(GetSceneryOverlayRotationHandlePoint(overlay));
+        var topCenter = new PointF((points[0].X + points[1].X) / 2f, (points[0].Y + points[1].Y) / 2f);
+        using var pen = new Pen(Color.FromArgb(255, 255, 220, 40), 2f);
+        g.DrawPolygon(pen, points);
+        g.DrawLine(pen, topCenter, rotationHandle);
+        using var brush = new SolidBrush(Color.FromArgb(240, 255, 255, 255));
+        using var border = new Pen(Color.FromArgb(220, 30, 30, 30), 1f);
+        foreach (var point in points)
+        {
+            var rect = new RectangleF(point.X - 4, point.Y - 4, 8, 8);
+            g.FillRectangle(brush, rect);
+            g.DrawRectangle(border, rect.X, rect.Y, rect.Width, rect.Height);
+        }
+
+        var handleRect = new RectangleF(rotationHandle.X - 5, rotationHandle.Y - 5, 10, 10);
+        g.FillEllipse(brush, handleRect);
+        g.DrawEllipse(border, handleRect);
+    }
+
+    private static PointF[] GetSceneryOverlayCorners(MapSceneryOverlay overlay)
+    {
+        var rect = GetSceneryOverlayRectangle(overlay);
+        var center = GetSceneryOverlayCenter(overlay);
+        var halfW = rect.Width / 2f;
+        var halfH = rect.Height / 2f;
+        var radians = overlay.RotationDegrees * MathF.PI / 180f;
+        var cos = MathF.Cos(radians);
+        var sin = MathF.Sin(radians);
+        PointF Transform(float x, float y) => new(center.X + x * cos - y * sin, center.Y + x * sin + y * cos);
+        return
+        [
+            Transform(-halfW, -halfH),
+            Transform(halfW, -halfH),
+            Transform(halfW, halfH),
+            Transform(-halfW, halfH)
+        ];
+    }
+
+    private static PointF GetSceneryOverlayCenter(MapSceneryOverlay overlay)
+    {
+        var rect = GetSceneryOverlayRectangle(overlay);
+        return new PointF(rect.Left + rect.Width / 2f, rect.Top + rect.Height / 2f);
+    }
+
+    private static PointF GetSceneryOverlayRotationHandlePoint(MapSceneryOverlay overlay)
+    {
+        var rect = GetSceneryOverlayRectangle(overlay);
+        var center = GetSceneryOverlayCenter(overlay);
+        var offset = MathF.Max(18f, MathF.Min(48f, MathF.Min(rect.Width, rect.Height) * 0.28f));
+        return RotatePoint(new PointF(center.X, rect.Top - offset), center, overlay.RotationDegrees);
+    }
+
+    private float GetSceneryOverlayHandleHitRadiusInSource()
+    {
+        if (_mapViewerRenderedImage == null || _mapViewerBox.Width <= 0 || _mapViewerBox.Height <= 0) return 8f;
+        var scaleX = _mapViewerBox.Width / (float)Math.Max(1, _mapViewerRenderedImage.Width);
+        var scaleY = _mapViewerBox.Height / (float)Math.Max(1, _mapViewerRenderedImage.Height);
+        var scale = Math.Max(0.01f, Math.Min(scaleX, scaleY));
+        return MathF.Max(6f, 10f / scale);
+    }
+
+    private static PointF RotatePoint(PointF point, PointF center, float degrees)
+    {
+        var radians = degrees * MathF.PI / 180f;
+        var cos = MathF.Cos(radians);
+        var sin = MathF.Sin(radians);
+        var dx = point.X - center.X;
+        var dy = point.Y - center.Y;
+        return new PointF(center.X + dx * cos - dy * sin, center.Y + dx * sin + dy * cos);
+    }
+
+    private static float AngleFromCenter(PointF center, PointF point)
+        => MathF.Atan2(point.Y - center.Y, point.X - center.X) * 180f / MathF.PI;
+
+    private static float Distance(PointF left, PointF right)
+    {
+        var dx = left.X - right.X;
+        var dy = left.Y - right.Y;
+        return MathF.Sqrt(dx * dx + dy * dy);
+    }
+
+    private PointF MapMakerSourcePointToDisplayPoint(PointF source)
+    {
+        if (_mapViewerRenderedImage == null || _mapViewerRenderedImage.Width <= 0 || _mapViewerRenderedImage.Height <= 0) return PointF.Empty;
+        var scaleX = _mapViewerBox.Width / (float)_mapViewerRenderedImage.Width;
+        var scaleY = _mapViewerBox.Height / (float)_mapViewerRenderedImage.Height;
+        return new PointF(source.X * scaleX, source.Y * scaleY);
+    }
+
+    private static bool TryMapPictureBoxPointToImagePoint(PictureBox box, Point point, out PointF imagePoint)
+    {
+        imagePoint = PointF.Empty;
+        if (box.Image == null || box.Width <= 0 || box.Height <= 0) return false;
+        if (box.SizeMode == PictureBoxSizeMode.StretchImage)
+        {
+            imagePoint = new PointF(
+                point.X * box.Image.Width / (float)Math.Max(1, box.Width),
+                point.Y * box.Image.Height / (float)Math.Max(1, box.Height));
+            return imagePoint.X >= 0 && imagePoint.Y >= 0 && imagePoint.X < box.Image.Width && imagePoint.Y < box.Image.Height;
+        }
+
+        var rect = GetImageDisplayRectangle(box);
+        if (!rect.Contains(point)) return false;
+        imagePoint = new PointF(
+            (point.X - rect.X) * box.Image.Width / (float)Math.Max(1, rect.Width),
+            (point.Y - rect.Y) * box.Image.Height / (float)Math.Max(1, rect.Height));
+        return true;
+    }
+
+    private int GetNextSceneryOverlayZOrder()
+        => _currentMapWorkbenchDraft == null || _currentMapWorkbenchDraft.SceneryOverlays.Count == 0
+            ? 0
+            : _currentMapWorkbenchDraft.SceneryOverlays.Max(overlay => overlay.ZOrder) + 1;
+
+    private void RemoveSceneryOverlay(MapSceneryOverlay? overlay)
+    {
+        if (_currentMapWorkbenchDraft == null || overlay == null) return;
+        _currentMapWorkbenchDraft.SceneryOverlays.RemoveAll(existing => SameSceneryOverlay(existing, overlay));
+    }
+
+    private void UpsertSceneryOverlay(MapSceneryOverlay? overlay)
+    {
+        if (_currentMapWorkbenchDraft == null || overlay == null) return;
+        RemoveSceneryOverlay(overlay);
+        _currentMapWorkbenchDraft.SceneryOverlays.Add(CloneMapSceneryOverlay(overlay)!);
+        SortSceneryOverlays();
+    }
+
+    private void SortSceneryOverlays()
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        _currentMapWorkbenchDraft.SceneryOverlays = _currentMapWorkbenchDraft.SceneryOverlays
+            .OrderBy(overlay => overlay.ZOrder)
+            .ThenBy(overlay => overlay.Y)
+            .ThenBy(overlay => overlay.X)
+            .ToList();
+    }
+
+    private static Rectangle GetSceneryOverlayRectangle(MapSceneryOverlay overlay)
+        => new(
+            overlay.X,
+            overlay.Y,
+            Math.Max(1, overlay.Width),
+            Math.Max(1, overlay.Height));
+
+    private static bool SameSceneryOverlay(MapSceneryOverlay left, MapSceneryOverlay right)
+    {
+        if (!string.IsNullOrWhiteSpace(left.OverlayId) && !string.IsNullOrWhiteSpace(right.OverlayId))
+        {
+            return left.OverlayId.Equals(right.OverlayId, StringComparison.Ordinal);
+        }
+
+        return left.ZOrder == right.ZOrder &&
+               left.X == right.X &&
+               left.Y == right.Y &&
+               left.MaterialRelativePath.Equals(right.MaterialRelativePath, StringComparison.OrdinalIgnoreCase);
     }
 
     private void PaintMapWorkbenchMapCell(int index, int x, int y, bool groupWithCurrentStroke)
@@ -2555,11 +3326,10 @@ public sealed partial class MainForm
             for (var i = changes.Count - 1; i >= 0; i--)
             {
                 var change = changes[i];
-                ApplyMapWorkbenchCellChangeValue(change.Index, change.OldValue ?? change.NewValue, change.OldValue);
+                ApplyMapWorkbenchChange(change, undo: true);
             }
             _mapMakerMapRedoStack.Push(changes);
-            DeriveCurrentMapWorkbenchTerrain();
-            RefreshMapMakerTerrainChangePreview(changes.Select(change => change.Index), runBeautify: false);
+            RefreshMapWorkbenchMapChanges(changes);
             _mapViewerInfoBox.Text = BuildMapMakerInfo($"已撤销一笔覆盖绘制：{changes.Count} 格。");
             SetStatus("地图工作台已撤销覆盖绘制");
         }
@@ -2594,14 +3364,40 @@ public sealed partial class MainForm
             var changes = _mapMakerMapRedoStack.Pop();
             foreach (var change in changes)
             {
-                ApplyMapWorkbenchCellChangeValue(change.Index, change.NewValue ?? change.OldValue, change.NewValue);
+                ApplyMapWorkbenchChange(change, undo: false);
             }
             _mapMakerMapUndoStack.Push(changes);
-            DeriveCurrentMapWorkbenchTerrain();
-            RefreshMapMakerTerrainChangePreview(changes.Select(change => change.Index), runBeautify: false);
+            RefreshMapWorkbenchMapChanges(changes);
             _mapViewerInfoBox.Text = BuildMapMakerInfo($"已重做一笔覆盖绘制：{changes.Count} 格。");
             SetStatus("地图工作台已重做覆盖绘制");
         }
+    }
+
+    private void ApplyMapWorkbenchChange(MapWorkbenchCellChange change, bool undo)
+    {
+        if (change.OldSceneryOverlay != null || change.NewSceneryOverlay != null)
+        {
+            RemoveSceneryOverlay(undo ? change.NewSceneryOverlay : change.OldSceneryOverlay);
+            UpsertSceneryOverlay(undo ? change.OldSceneryOverlay : change.NewSceneryOverlay);
+            return;
+        }
+
+        var sourceHint = undo ? change.OldValue ?? change.NewValue : change.NewValue ?? change.OldValue;
+        var value = undo ? change.OldValue : change.NewValue;
+        ApplyMapWorkbenchCellChangeValue(change.Index, sourceHint, value);
+    }
+
+    private void RefreshMapWorkbenchMapChanges(IReadOnlyList<MapWorkbenchCellChange> changes)
+    {
+        if (changes.Any(change => change.OldSceneryOverlay != null || change.NewSceneryOverlay != null))
+        {
+            MarkCurrentGeneratedMapNeedsBeautify();
+            RenderMapMakerPreview(force: true);
+            return;
+        }
+
+        DeriveCurrentMapWorkbenchTerrain();
+        RefreshMapMakerTerrainChangePreview(changes.Select(change => change.Index), runBeautify: false);
     }
 
     private void SetMapCellOverride(int index, MapCellOverride? value)
@@ -2681,6 +3477,23 @@ public sealed partial class MainForm
                 MaterialCategory = value.MaterialCategory,
                 DisplayName = value.DisplayName,
                 Source = string.IsNullOrWhiteSpace(value.Source) ? MapCellOverrideSources.ManualOverride : value.Source
+            };
+
+    private static MapSceneryOverlay? CloneMapSceneryOverlay(MapSceneryOverlay? value)
+        => value == null
+            ? null
+            : new MapSceneryOverlay
+            {
+                OverlayId = value.OverlayId,
+                MaterialRelativePath = value.MaterialRelativePath,
+                MaterialCategory = value.MaterialCategory,
+                DisplayName = value.DisplayName,
+                X = value.X,
+                Y = value.Y,
+                Width = value.Width,
+                Height = value.Height,
+                RotationDegrees = value.RotationDegrees,
+                ZOrder = value.ZOrder
             };
 
     private void ClearMapMakerCellPreview()
@@ -3057,7 +3870,9 @@ public sealed partial class MainForm
         _mapMakerPublishAllButton.Enabled = canPublishMap;
         _mapMakerPublishMapButton.Enabled = canPublishMap;
         _mapMakerPublishTerrainButton.Enabled = hasBoundMap;
-        _mapViewerBox.Cursor = hasDraft ? Cursors.Cross : Cursors.Default;
+        _mapViewerBox.Cursor = hasDraft
+            ? (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush ? Cursors.SizeAll : Cursors.Cross)
+            : Cursors.Default;
     }
 
     private void RefreshMapMakerPresetCombo()

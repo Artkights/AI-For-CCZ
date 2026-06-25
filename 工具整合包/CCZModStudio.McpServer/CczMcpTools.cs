@@ -47,7 +47,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         List<TableRowUpdate> updates,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.WriteTableRows(game_root, table_name, updates, write_mode);
 
@@ -129,7 +129,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         BattlefieldUnitStatusUpdate update,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.WriteBattlefieldUnitStatus(game_root, relative_path, update, write_mode);
 
@@ -209,9 +209,24 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         List<ScenarioTextUpdate> updates,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.WriteScenarioTexts(game_root, relative_path, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Restore one R/S scenario file from a verified backup, backing up the current target first and validating by legacy reread.")]
+    public object restore_scenario_backup(
+        [Description("Project-relative scenario path, for example RS/S_02.eex.")]
+        string relative_path,
+        [Description("Backup file path. Relative paths resolve from the selected game root.")]
+        string backup_path,
+        [Description("Expected SHA256 of backup_path.")]
+        string expected_backup_sha256,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.RestoreScenarioBackup(game_root, relative_path, backup_path, expected_backup_sha256, write_mode);
 
     [McpServerTool]
     [Description("Write Hexzmap terrain cells for a map block. Creates a backup and structured report.")]
@@ -222,7 +237,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         List<HexzmapCellUpdate> changes,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.WriteHexzmapBlock(game_root, map_id, changes, write_mode);
 
@@ -246,7 +261,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string replacement_path,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceMapImage(game_root, target_relative_path, replacement_path, write_mode);
 
@@ -409,6 +424,37 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.DrawCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height, dry_run);
 
     [McpServerTool]
+    [Description("Draw, post-process, and directly replace a CCZ image asset in an E5 or DLL resource. Creates backups and reports.")]
+    public object draw_and_replace_ccz_image_asset(
+        [Description("Preset key: r_background, dll_icon, face, r_actor, or s_unit.")]
+        string preset,
+        [Description("Natural-language description of the desired image.")]
+        string description,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional project-relative target resource path. Defaults from preset.")]
+        string? target_relative_path = null,
+        [Description("Optional direct target image number. E5 numbers are 1-based; DLL icon indexes are 0-based.")]
+        int? image_number = null,
+        [Description("Optional R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int? r_image_id = null,
+        [Description("Optional S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int? s_image_id = null,
+        [Description("Optional Data face id. face maps Data face id to Face.e5 image number.")]
+        int? face_id = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional final output format: png, jpg, or bmp.")]
+        string? output_format = null,
+        [Description("Optional final output width.")]
+        int? width = null,
+        [Description("Optional final output height.")]
+        int? height = null)
+        => runtime.DrawAndReplaceCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height);
+
+    [McpServerTool]
     [Description("List image index entries from an E5 image resource such as Face.e5 or Unit_mov.e5.")]
     public object list_e5_image_entries(
         [Description("Project-relative E5 resource path, for example Unit_mov.e5.")]
@@ -445,7 +491,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string replacement_path,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null,
         [Description("Optional 1-based image number to read from replacement_path when replacement_path is an E5 file.")]
         int? source_image_number = null)
@@ -471,7 +517,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         List<E5ImageBatchUpdate> updates,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceE5ImageBatch(game_root, target_relative_path, updates, write_mode);
 
@@ -495,7 +541,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string material_folder,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceRImageRaw(game_root, r_image_id, material_folder, write_mode);
 
@@ -519,7 +565,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         List<int>? allowed_r_image_ids = null,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceRImageRawBatch(game_root, material_root, allowed_r_image_ids, write_mode);
 
@@ -551,9 +597,37 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         int? job_id = null,
         [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
         int faction_slot = 1,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceSImageRaw(game_root, s_image_id, material_folder, job_id, faction_slot, write_mode);
+
+    [McpServerTool]
+    [Description("Preview default job S unit image replacement without writing. Uses S=0 plus detailed job id and selected faction slots.")]
+    public object preview_job_s_image_raw_replace(
+        [Description("Detailed job id from the 6.5-4 detailed job table.")]
+        int job_id,
+        [Description("Material folder containing mov.bmp, atk.bmp, and/or spc.bmp. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_folder,
+        [Description("Faction slots to preview: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
+        List<int> faction_slots,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewJobSImageRawReplace(game_root, job_id, material_folder, faction_slots);
+
+    [McpServerTool]
+    [Description("Replace default job S unit image assets for selected faction slots. Uses S=0 plus detailed job id; creates backups and reports.")]
+    public object replace_job_s_image_raw(
+        [Description("Detailed job id from the 6.5-4 detailed job table.")]
+        int job_id,
+        [Description("Material folder containing mov.bmp, atk.bmp, and/or spc.bmp. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_folder,
+        [Description("Faction slots to write: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
+        List<int> faction_slots,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.ReplaceJobSImageRaw(game_root, job_id, material_folder, faction_slots, write_mode);
 
     [McpServerTool]
     [Description("Preview batch raw S unit image replacement from a material root without writing. Subfolders use S12, S_12, or 12 and contain mov.bmp/atk.bmp/spc.bmp.")]
@@ -579,7 +653,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string? game_root = null,
         [Description("Default faction slot for S=0 when allowed_usages is omitted: 1=ally, 2=friendly, 3=enemy.")]
         int faction_slot = 1,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceSImageRawBatch(game_root, material_root, allowed_usages, faction_slot, write_mode);
 
@@ -607,7 +681,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string? match_mode = "auto",
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceItemIconBatchImport(game_root, source_files, target_rows, match_mode, write_mode);
 
@@ -623,7 +697,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     public object normalize_e5_role_raw(
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.NormalizeE5RoleRaw(game_root, write_mode);
 
@@ -651,7 +725,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string replacement_path,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ReplaceDllIcon(game_root, target_relative_path, icon_index, replacement_path, write_mode);
 
@@ -675,7 +749,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         int icon_index,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ClearDllIcon(game_root, target_relative_path, icon_index, write_mode);
 
@@ -688,7 +762,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string replacement_path,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null,
         [Description("Require target and replacement extensions to match.")]
         bool require_same_extension = true)
@@ -770,7 +844,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         EffectPackage package,
         [Description("Operation mode: import, replace, or delete.")]
         string? mode = "import",
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null,
         [Description("Optional game root.")]
         string? game_root = null)
@@ -840,32 +914,32 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         ModPackage package,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("Automation mode: safe, aggressive_test_copy, force_preview_report, or force_open.")]
-        string? automation_mode = "safe")
+        [Description("Automation mode: direct, force_preview_report, or force_open.")]
+        string? automation_mode = "direct")
         => runtime.PreviewModPackage(game_root, package, automation_mode);
 
     [McpServerTool]
-    [Description("Apply a ModPackage through dedicated writers. aggressive_test_copy creates a test copy automatically.")]
+    [Description("Apply a ModPackage through dedicated writers. Defaults to direct writes with backups and reports.")]
     public object apply_mod_package(
         [Description("ModPackage JSON object.")]
         ModPackage package,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null,
-        [Description("Automation mode: safe, aggressive_test_copy, force_preview_report, or force_open.")]
-        string? automation_mode = "safe")
+        [Description("Automation mode: direct, force_preview_report, or force_open.")]
+        string? automation_mode = "direct")
         => runtime.ApplyModPackage(game_root, package, write_mode, automation_mode);
 
     [McpServerTool]
-    [Description("Analyze, compile, preview, write a test copy, and emit reports for a natural-language MOD request.")]
+    [Description("Analyze, compile, preview, write the detected project directly, and emit reports for a natural-language MOD request.")]
     public object auto_make_mod(
         [Description("Natural-language MOD request.")]
         string prompt,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("Automation mode: aggressive_test_copy or force_open.")]
-        string? automation_mode = "aggressive_test_copy",
+        [Description("Automation mode: direct or force_open.")]
+        string? automation_mode = "direct",
         [Description("Maximum automatic repair attempts. Defaults to 3; capped at 10.")]
         int max_repair_attempts = 3)
         => runtime.AutoMakeMod(game_root, prompt, automation_mode, max_repair_attempts);
@@ -880,17 +954,6 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("When true, run required SmokeTests commands.")]
         bool run_smokes = false)
         => runtime.AutoValidateMod(game_root, package, run_smokes);
-
-    [McpServerTool]
-    [Description("Promote a validated ModPackage from a test-copy workflow into the formal base after explicit confirmation.")]
-    public object promote_test_copy_mod(
-        [Description("ModPackage JSON object.")]
-        ModPackage package,
-        [Description("Optional game root.")]
-        string? game_root = null,
-        [Description("Must be true to write the formal base.")]
-        bool confirm_promote = false)
-        => runtime.PromoteTestCopyMod(game_root, package, confirm_promote);
 
     [McpServerTool]
     [Description("Validate a ModPackage and report required smoke/manual checks.")]
@@ -939,19 +1002,19 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         ModScenarioPatch patch,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ApplyScenarioPatch(game_root, patch, write_mode);
 
     [McpServerTool]
-    [Description("Apply a structural ModScenarioPatch in aggressive mode, intended for test copies.")]
+    [Description("Apply a structural ModScenarioPatch in aggressive mode. Defaults to direct writes with backups and reports.")]
     public object apply_scenario_patch_aggressive(
         [Description("ModScenarioPatch JSON object.")]
         ModScenarioPatch patch,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
-        string? write_mode = "test_copy")
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = "direct")
         => runtime.ApplyScenarioPatchAggressive(game_root, patch, write_mode);
 
     [McpServerTool]
@@ -982,7 +1045,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     public object apply_effect_patch(
         [Description("Patch-domain EffectPackage JSON object.")]
         EffectPackage package,
-        [Description("direct writes the detected project; test_copy requires _CCZModStudio_TestCopy.txt.")]
+        [Description("Default direct writes the detected project.")]
         string? write_mode = null,
         [Description("Optional game root.")]
         string? game_root = null)
@@ -1033,6 +1096,11 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [Description("Publish a map workbench draft to a project Map/*.jpg using backups and reports.")]
     public object publish_map_canvas_to_map_image(string draft_id, string map_id = "", string? game_root = null, string? write_mode = null)
         => runtime.PublishMapCanvasToMapImage(game_root, draft_id, map_id, write_mode);
+
+    [McpServerTool]
+    [Description("Publish a map workbench draft as both Map/Mxxx.jpg and the matching Hexzmap.e5 terrain block with backups and reports.")]
+    public object publish_map_workbench_bundle(string draft_id, string? map_id = null, string? game_root = null)
+        => runtime.PublishMapWorkbenchBundle(game_root, draft_id, map_id);
 
     [McpServerTool]
     [Description("List indexed terrain/building/scenery material assets. Read-only.")]
@@ -1105,6 +1173,15 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ParseScenarioTextImport(game_root, input, scenario_kind);
 
     [McpServerTool]
+    [Description("Compile AI scenario text import markup into R/S structural commands and write it directly with backups and reports.")]
+    public object apply_scenario_text_import(
+        string input,
+        string relative_path,
+        string? game_root = null,
+        string? scenario_kind = "R")
+        => runtime.ApplyScenarioTextImport(game_root, input, relative_path, scenario_kind);
+
+    [McpServerTool]
     [Description("Read the AI scenario text import template. Read-only.")]
     public object read_scenario_text_import_template(string? game_root = null)
         => runtime.ReadScenarioTextImportTemplate(game_root);
@@ -1133,6 +1210,11 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [Description("Save an R-scene visual draft JSON under CCZModStudio_Notes.")]
     public object save_rscene_draft(RSceneDraftSaveRequest request, string? game_root = null)
         => runtime.SaveRSceneDraft(game_root, request);
+
+    [McpServerTool]
+    [Description("Publish a saved R-scene visual draft to RS/R_*.eex as background and actor placement commands with backups and reports.")]
+    public object publish_rscene_draft_to_scenario(string scenario_file_name, string? game_root = null)
+        => runtime.PublishRSceneDraftToScenario(game_root, scenario_file_name);
 
     [McpServerTool]
     [Description("List R-scene visual command candidates and scene state candidates. Read-only.")]
@@ -1185,6 +1267,56 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReadEquipmentTypeProfile(game_root);
 
     [McpServerTool]
+    [Description("Read integrated job settings: job series, detailed jobs, growth/equipment permissions, pierce, restraint matrix, and job attribute matrix. Read-only.")]
+    public object read_job_settings(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional detailed job IDs to return.")]
+        List<int>? job_ids = null,
+        [Description("Optional job-series IDs to return.")]
+        List<int>? job_series_ids = null,
+        [Description("Include 40x40 restraint matrix and 8x40 attribute matrix.")]
+        bool include_matrices = true,
+        [Description("Maximum job/job-series rows to return. Defaults to 80; capped at 500.")]
+        int limit = 80)
+        => runtime.ReadJobSettings(game_root, job_ids, job_series_ids, include_matrices, limit);
+
+    [McpServerTool]
+    [Description("Preview job setting updates without writing files. Supports job series names, detailed job name/description/growth/pierce, restraint matrix, and attribute matrix.")]
+    public object preview_job_settings(
+        [Description("Job settings update payload.")]
+        JobSettingsUpdate update,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewJobSettings(game_root, update);
+
+    [McpServerTool]
+    [Description("Write job setting updates through HexTableWriter backups/reports. Defaults to direct writes with backups and reports.")]
+    public object write_job_settings(
+        [Description("Job settings update payload.")]
+        JobSettingsUpdate update,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.WriteJobSettings(game_root, update, write_mode);
+
+    [McpServerTool]
+    [Description("Read accessory equipment multi-job-series groups from Ekd5.exe OD address 0044C341. Read-only.")]
+    public object read_accessory_job_groups(string? game_root = null)
+        => runtime.ReadAccessoryJobGroups(game_root);
+
+    [McpServerTool]
+    [Description("Preview accessory equipment multi-job-series group bytes for Ekd5.exe OD address 0044C341. Does not write files.")]
+    public object preview_accessory_job_groups(List<List<int>> groups, string? game_root = null)
+        => runtime.PreviewAccessoryJobGroups(game_root, groups);
+
+    [McpServerTool]
+    [Description("Write accessory equipment multi-job-series groups to Ekd5.exe OD address 0044C341 using fixed-length overwrite. Defaults to direct writes with backups and reports.")]
+    public object write_accessory_job_groups(List<List<int>> groups, string? game_root = null, string? write_mode = null)
+        => runtime.WriteAccessoryJobGroups(game_root, groups, write_mode);
+
+    [McpServerTool]
     [Description("Render attack/pierce area preview PNG under CCZModStudio_Exports/EffectPreviews.")]
     public object preview_attack_area(string column_name, int field_value, string? game_root = null, int canvas_size = 192)
         => runtime.PreviewAttackArea(game_root, column_name, field_value, canvas_size);
@@ -1194,3 +1326,4 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     public object preview_strategy_animation(int animation_value, string? game_root = null, string? kind = "small_meff", int canvas_size = 160)
         => runtime.PreviewStrategyAnimation(game_root, animation_value, kind, canvas_size);
 }
+

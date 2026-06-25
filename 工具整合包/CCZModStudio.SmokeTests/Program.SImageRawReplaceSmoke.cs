@@ -140,7 +140,142 @@ internal partial class Program
             VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
         }
 
+        RunJobSImageRawReplaceSmoke(testProject, replace);
+
         Console.WriteLine($"S_IMAGE_RAW_REPLACE_SMOKE OK root={smokeRoot} s250=554 s1=241/242/243 report={Path.GetFileName(result.AggregateReportPath)}");
+    }
+
+    private static void RunJobSImageRawReplaceSmoke(CczProject testProject, E5ImageReplaceService replace)
+    {
+        var materialRoot = Path.Combine(testProject.GameRoot, "_JobSImageRawMaterials");
+        Directory.CreateDirectory(materialRoot);
+        CreateSmokeBmp(Path.Combine(materialRoot, "MOV.BMP"), 48, 528, Color.FromArgb(255, 20, 80, 210), Color.FromArgb(255, 240, 220, 90));
+        CreateSmokeBmp(Path.Combine(materialRoot, "ATK.BMP"), 64, 768, Color.FromArgb(255, 200, 40, 100), Color.FromArgb(255, 70, 210, 170));
+        CreateSmokeBmp(Path.Combine(materialRoot, "SPC.BMP"), 48, 240, Color.FromArgb(255, 90, 40, 210), Color.FromArgb(255, 240, 120, 30));
+
+        var service = new JobSImageReplaceService();
+        var movPath = CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5");
+        var atkPath = CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5");
+        var spcPath = CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5");
+        var before32 = replace.ReadEntryBytes(movPath, 32);
+        var before33 = replace.ReadEntryBytes(movPath, 33);
+        var beforeAtk32 = replace.ReadEntryBytes(atkPath, 32);
+        var beforeAtk33 = replace.ReadEntryBytes(atkPath, 33);
+        var beforeSpc32 = replace.ReadEntryBytes(spcPath, 32);
+        var beforeSpc33 = replace.ReadEntryBytes(spcPath, 33);
+
+        var previewOne = service.Preview(testProject, new JobSImageReplaceRequest
+        {
+            JobId = 10,
+            MaterialFolder = materialRoot,
+            FactionSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (previewOne.TotalOperationCount != 3 ||
+            previewOne.Factions.Count != 1 ||
+            !previewOne.Factions[0].Preview.Mapping.ImageNumbers.SequenceEqual(new[] { 31 }))
+        {
+            throw new InvalidOperationException("Job S image preview for faction 1 did not map only Unit #31.");
+        }
+
+        var resultOne = service.Replace(testProject, new JobSImageReplaceRequest
+        {
+            JobId = 10,
+            MaterialFolder = materialRoot,
+            FactionSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (resultOne.TotalOperationCount != 3)
+        {
+            throw new InvalidOperationException("Job S image replace for faction 1 did not write exactly 3 entries.");
+        }
+
+        VerifyRawEntry(replace, movPath, 31, 48 * 528);
+        VerifyRawEntry(replace, atkPath, 31, 64 * 768);
+        VerifyRawEntry(replace, spcPath, 31, 48 * 240);
+        var afterFactionOneMov31 = replace.ReadEntryBytes(movPath, 31);
+        var afterFactionOneAtk31 = replace.ReadEntryBytes(atkPath, 31);
+        var afterFactionOneSpc31 = replace.ReadEntryBytes(spcPath, 31);
+        AssertEntryBytesEqual(replace.ReadEntryBytes(movPath, 32), before32, "Unit_mov.e5 #32 changed even though faction 2 was not selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(movPath, 33), before33, "Unit_mov.e5 #33 changed even though faction 3 was not selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(atkPath, 32), beforeAtk32, "Unit_atk.e5 #32 changed even though faction 2 was not selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(atkPath, 33), beforeAtk33, "Unit_atk.e5 #33 changed even though faction 3 was not selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(spcPath, 32), beforeSpc32, "Unit_spc.e5 #32 changed even though faction 2 was not selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(spcPath, 33), beforeSpc33, "Unit_spc.e5 #33 changed even though faction 3 was not selected.");
+
+        var materialRootTwo = Path.Combine(testProject.GameRoot, "_JobSImageRawMaterialsTwo");
+        Directory.CreateDirectory(materialRootTwo);
+        CreateSmokeBmp(Path.Combine(materialRootTwo, "MOV.BMP"), 48, 528, Color.FromArgb(255, 40, 210, 80), Color.FromArgb(255, 210, 70, 220));
+        CreateSmokeBmp(Path.Combine(materialRootTwo, "ATK.BMP"), 64, 768, Color.FromArgb(255, 230, 120, 40), Color.FromArgb(255, 40, 140, 230));
+        CreateSmokeBmp(Path.Combine(materialRootTwo, "SPC.BMP"), 48, 240, Color.FromArgb(255, 180, 40, 210), Color.FromArgb(255, 80, 230, 120));
+
+        var previewTwo = service.Preview(testProject, new JobSImageReplaceRequest
+        {
+            JobId = 10,
+            MaterialFolder = materialRootTwo,
+            FactionSlots = new[] { 3, 2, 2 },
+            WriteMode = "test_copy"
+        });
+        if (previewTwo.TotalOperationCount != 6 ||
+            !previewTwo.Factions.SelectMany(x => x.Preview.Mapping.ImageNumbers).SequenceEqual(new[] { 32, 33 }))
+        {
+            throw new InvalidOperationException("Job S image preview for factions 2/3 did not map only Unit #32/#33.");
+        }
+
+        var resultTwo = service.Replace(testProject, new JobSImageReplaceRequest
+        {
+            JobId = 10,
+            MaterialFolder = materialRootTwo,
+            FactionSlots = new[] { 2, 3 },
+            WriteMode = "test_copy"
+        });
+        if (resultTwo.TotalOperationCount != 6)
+        {
+            throw new InvalidOperationException("Job S image replace for factions 2/3 did not write exactly 6 entries.");
+        }
+
+        VerifyRawEntry(replace, movPath, 32, 48 * 528);
+        VerifyRawEntry(replace, atkPath, 32, 64 * 768);
+        VerifyRawEntry(replace, spcPath, 32, 48 * 240);
+        VerifyRawEntry(replace, movPath, 33, 48 * 528);
+        VerifyRawEntry(replace, atkPath, 33, 64 * 768);
+        VerifyRawEntry(replace, spcPath, 33, 48 * 240);
+        AssertEntryBytesEqual(replace.ReadEntryBytes(movPath, 31), afterFactionOneMov31, "Unit_mov.e5 #31 changed when only factions 2/3 were selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(atkPath, 31), afterFactionOneAtk31, "Unit_atk.e5 #31 changed when only factions 2/3 were selected.");
+        AssertEntryBytesEqual(replace.ReadEntryBytes(spcPath, 31), afterFactionOneSpc31, "Unit_spc.e5 #31 changed when only factions 2/3 were selected.");
+
+        var previewAll = service.Preview(testProject, new JobSImageReplaceRequest
+        {
+            JobId = 10,
+            MaterialFolder = materialRoot,
+            FactionSlots = new[] { 1, 2, 3 },
+            WriteMode = "test_copy"
+        });
+        if (previewAll.TotalOperationCount != 9 ||
+            !previewAll.Factions.SelectMany(x => x.Preview.Mapping.ImageNumbers).SequenceEqual(new[] { 31, 32, 33 }))
+        {
+            throw new InvalidOperationException("Job S image preview for all factions did not map Unit #31/#32/#33.");
+        }
+
+        var resultAll = service.Replace(testProject, new JobSImageReplaceRequest
+        {
+            JobId = 10,
+            MaterialFolder = materialRoot,
+            FactionSlots = new[] { 1, 2, 3 },
+            WriteMode = "test_copy"
+        });
+        if (resultAll.TotalOperationCount != 9 ||
+            !resultAll.Factions.SelectMany(x => x.Result.Mapping.ImageNumbers).SequenceEqual(new[] { 31, 32, 33 }))
+        {
+            throw new InvalidOperationException("Job S image replace for all factions did not write Unit #31/#32/#33.");
+        }
+
+        foreach (var imageNumber in new[] { 31, 32, 33 })
+        {
+            VerifyRawEntry(replace, movPath, imageNumber, 48 * 528);
+            VerifyRawEntry(replace, atkPath, imageNumber, 64 * 768);
+            VerifyRawEntry(replace, spcPath, imageNumber, 48 * 240);
+        }
     }
 
     private static void CreateSmokeBmp(string path, int width, int height, Color primary, Color secondary)
@@ -177,6 +312,14 @@ internal partial class Program
         if (!entry.Kind.Equals("RAW", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} 未识别为 RAW：{entry.Kind}");
+        }
+    }
+
+    private static void AssertEntryBytesEqual(byte[] actual, byte[] expected, string message)
+    {
+        if (!actual.SequenceEqual(expected))
+        {
+            throw new InvalidOperationException(message);
         }
     }
 }

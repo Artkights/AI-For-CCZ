@@ -18,6 +18,7 @@ public sealed class ScenarioTextReader
             if (string.IsNullOrWhiteSpace(cleaned)) continue;
             if (!LooksLikeScenarioText(cleaned)) continue;
             var kind = Classify(cleaned);
+            var rawPrefix = BuildRawPrefix(hit.Text, cleaned);
             result.Add(new ScenarioTextEntry
             {
                 Index = result.Count + 1,
@@ -28,6 +29,8 @@ public sealed class ScenarioTextReader
                 Kind = kind,
                 HasNewLines = cleaned.Contains('\n') || cleaned.Contains('\r'),
                 Preview = BuildPreview(cleaned, 80),
+                RawText = hit.Text,
+                RawPrefix = rawPrefix,
                 Text = cleaned,
                 OriginalText = cleaned,
                 Annotation = BuildAnnotation(cleaned, kind, hit.Offset, hit.ByteLength)
@@ -44,6 +47,17 @@ public sealed class ScenarioTextReader
             text = text[1..].TrimStart();
         }
         return text;
+    }
+
+    private static string BuildRawPrefix(string rawText, string cleanedText)
+    {
+        if (string.IsNullOrEmpty(rawText) || string.IsNullOrEmpty(cleanedText))
+        {
+            return string.Empty;
+        }
+
+        var index = rawText.IndexOf(cleanedText, StringComparison.Ordinal);
+        return index > 0 ? rawText[..index] : string.Empty;
     }
 
     private static string Classify(string text)

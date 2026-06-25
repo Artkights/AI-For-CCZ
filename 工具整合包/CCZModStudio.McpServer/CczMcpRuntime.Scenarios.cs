@@ -196,33 +196,308 @@ public sealed partial class CczMcpRuntime
 
     public object WriteScenarioTexts(string? gameRoot, string relativePath, List<ScenarioTextUpdate> updates, string? writeMode)
     {
-        if (updates.Count == 0) throw new InvalidOperationException("updates must contain at least one scenario text update.");
-
-        var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, writeMode);
-        var filePath = ResolveProjectFile(project, relativePath, mustExist: true);
-        EnsureScenarioTargetAllowed(project, filePath);
-        var normalizedRelative = NormalizeProjectRelativePath(project, filePath);
-        var entries = _scenarioTextReader.Read(filePath, maxItems: 4096).ToList();
-
-        foreach (var update in updates)
+        try
         {
-            var entry = entries.FirstOrDefault(x => x.Index == update.Index)
-                ?? throw new InvalidOperationException($"Scenario text index {update.Index} was not found.");
-            entry.Text = update.Text ?? string.Empty;
+            if (updates.Count == 0) throw new InvalidOperationException("updates must contain at least one scenario text update.");
+
+            var project = LoadProject(gameRoot);
+            EnsureWriteMode(project, writeMode);
+            var filePath = ResolveProjectFile(project, relativePath, mustExist: true);
+            EnsureScenarioTargetAllowed(project, filePath);
+            var normalizedRelative = NormalizeProjectRelativePath(project, filePath);
+            var dictionary = LoadRequiredScenarioCommandDictionary(project);
+            var beforeDocument = _legacyScenarioReader.Read(filePath, dictionary);
+            var entries = _scenarioTextReader.Read(filePath, maxItems: 4096).ToList();
+
+            foreach (var update in updates)
+            {
+                var entry = entries.FirstOrDefault(x => x.Index == update.Index)
+                    ?? throw new InvalidOperationException($"Scenario text index {update.Index} was not found.");
+                entry.Text = update.Text ?? string.Empty;
+            }
+
+            var tempPath = CreateScenarioTempCopy(filePath);
+            try
+            {
+                var tempSave = _scenarioTextWriter.SaveInPlaceFile(
+                    project,
+                    normalizedRelative,
+                    tempPath,
+                    entries,
+                    createBackup: false,
+                    sourceAction: "MCP scenario text write preflight");
+                var tempDocument = _legacyScenarioReader.Read(tempPath, dictionary);
+                EnsureSameScenarioStructure(beforeDocument, tempDocument, "temporary scenario text write preflight");
+
+                if (tempSave.EntriesWritten == 0)
+                {
+                    return new
+                    {
+                        FilePath = filePath,
+                        BackupPath = string.Empty,
+                        ReportJsonPath = string.Empty,
+                        EntriesWritten = 0,
+                        ChangedBytes = 0,
+                        RelativePath = normalizedRelative,
+                        BeforeStructure = BuildScenarioStructureSummary(beforeDocument),
+                        TempStructure = BuildScenarioStructureSummary(tempDocument),
+                        AfterStructure = BuildScenarioStructureSummary(beforeDocument),
+                        Validation = "No text entries changed; formal write skipped after preflight."
+                    };
+                }
+            }
+            finally
+            {
+                TryDeleteFile(tempPath);
+            }
+
+            var save = _scenarioTextWriter.SaveInPlace(project, normalizedRelative, entries, "MCP scenario text write");
+            LegacyScenarioDocument afterDocument;
+            try
+            {
+                afterDocument = _legacyScenarioReader.Read(filePath, dictionary);
+                EnsureSameScenarioStructure(beforeDocument, afterDocument, "formal scenario text write reread");
+            }
+            catch (Exception ex)
+            {
+                if (!string.IsNullOrWhiteSpace(save.BackupPath) && File.Exists(save.BackupPath))
+                {
+                    File.Copy(save.BackupPath, filePath, overwrite: true);
+                }
+
+                throw new InvalidOperationException("Formal scenario text write failed legacy reread validation and was rolled back from the writer backup.", ex);
+            }
+
+            return new
+            {
+                save.FilePath,
+                save.BackupPath,
+                save.ReportJsonPath,
+                save.EntriesWritten,
+                save.ChangedBytes,
+                RelativePath = normalizedRelative,
+                BeforeStructure = BuildScenarioStructureSummary(beforeDocument),
+                AfterStructure = BuildScenarioStructureSummary(afterDocument),
+                Validation = "Temporary preflight and formal reread both passed with unchanged Scene/Section/Command counts."
+            };
+        }
+        catch (Exception ex)
+        {
+            return BuildScenarioToolError("write_scenario_texts", ex);
+        }
+    }
+
+    public object RestoreScenarioBackup(string? gameRoot, string relativePath, string backupPath, string expectedBackupSha256, string? writeMode)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(backupPath)) throw new InvalidOperationException("backup_path is required.");
+            if (string.IsNullOrWhiteSpace(expectedBackupSha256)) throw new InvalidOperationException("expected_backup_sha256 is required.");
+
+            var project = LoadProject(gameRoot);
+            EnsureWriteMode(project, writeMode);
+            var targetPath = ResolveProjectFile(project, relativePath, mustExist: true);
+            EnsureScenarioTargetAllowed(project, targetPath);
+            var normalizedRelative = NormalizeProjectRelativePath(project, targetPath);
+            var resolvedBackupPath = ResolveScenarioBackupPath(project, backupPath);
+            var actualBackupSha256 = WriteOperationReportService.ComputeSha256(resolvedBackupPath);
+            if (!actualBackupSha256.Equals(expectedBackupSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Backup hash mismatch. Expected {expectedBackupSha256}, actual {actualBackupSha256}.");
+            }
+
+            var beforeBytes = File.ReadAllBytes(targetPath);
+            var restoreBytes = File.ReadAllBytes(resolvedBackupPath);
+            var currentBackupPath = CreateScenarioBackup(project, targetPath);
+            File.WriteAllBytes(targetPath, restoreBytes);
+
+            var dictionary = LoadRequiredScenarioCommandDictionary(project);
+            LegacyScenarioDocument restoredDocument;
+            try
+            {
+                restoredDocument = _legacyScenarioReader.Read(targetPath, dictionary);
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllBytes(targetPath, beforeBytes);
+                throw new InvalidOperationException("Scenario backup restore failed legacy reread validation; target was rolled back to the pre-restore bytes.", ex);
+            }
+
+            var afterBytes = File.ReadAllBytes(targetPath);
+            var reportPath = WriteScenarioRestoreReport(
+                project,
+                normalizedRelative,
+                targetPath,
+                currentBackupPath,
+                resolvedBackupPath,
+                beforeBytes,
+                afterBytes,
+                restoredDocument);
+
+            return new
+            {
+                FilePath = targetPath,
+                RelativePath = normalizedRelative,
+                BackupPath = currentBackupPath,
+                RestoredFrom = resolvedBackupPath,
+                ExpectedBackupSha256 = expectedBackupSha256,
+                ActualBackupSha256 = actualBackupSha256,
+                ReportJsonPath = reportPath,
+                RestoredStructure = BuildScenarioStructureSummary(restoredDocument),
+                Validation = "Restore completed and legacy scenario reread passed."
+            };
+        }
+        catch (Exception ex)
+        {
+            return BuildScenarioToolError("restore_scenario_backup", ex);
+        }
+    }
+
+    private static string CreateScenarioTempCopy(string sourcePath)
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), "CCZModStudio_ScenarioTextPreflight");
+        Directory.CreateDirectory(tempRoot);
+        var tempPath = Path.Combine(tempRoot, $"{Guid.NewGuid():N}_{Path.GetFileName(sourcePath)}");
+        File.Copy(sourcePath, tempPath, overwrite: false);
+        return tempPath;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
+    }
+
+    private static void EnsureSameScenarioStructure(LegacyScenarioDocument before, LegacyScenarioDocument after, string stage)
+    {
+        if (before.SceneCount == after.SceneCount &&
+            before.SectionCount == after.SectionCount &&
+            before.CommandCount == after.CommandCount)
+        {
+            return;
         }
 
-        var save = _scenarioTextWriter.SaveInPlace(project, normalizedRelative, entries, "MCP scenario text write");
+        throw new InvalidOperationException(
+            $"{stage} changed legacy scenario structure counts. " +
+            $"Before Scene={before.SceneCount}, Section={before.SectionCount}, Command={before.CommandCount}; " +
+            $"After Scene={after.SceneCount}, Section={after.SectionCount}, Command={after.CommandCount}.");
+    }
 
-        return new
+    private static object BuildScenarioStructureSummary(LegacyScenarioDocument document)
+        => new
         {
-            save.FilePath,
-            save.BackupPath,
-            save.ReportJsonPath,
-            save.EntriesWritten,
-            save.ChangedBytes,
-            RelativePath = normalizedRelative
+            document.Summary,
+            document.SceneCount,
+            document.SectionCount,
+            document.CommandCount
         };
+
+    private static object BuildScenarioToolError(string toolName, Exception ex)
+        => new
+        {
+            Succeeded = false,
+            Tool = toolName,
+            ErrorType = ex.GetType().FullName,
+            ex.Message,
+            InnerErrorType = ex.InnerException?.GetType().FullName,
+            InnerMessage = ex.InnerException?.Message,
+            Stack = ex.StackTrace
+        };
+
+    private static string ResolveScenarioBackupPath(CczProject project, string backupPath)
+    {
+        var normalized = backupPath.Replace('/', Path.DirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(Path.IsPathRooted(normalized)
+            ? normalized
+            : Path.Combine(project.GameRoot, normalized));
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException("Scenario backup file was not found.", fullPath);
+        }
+
+        return fullPath;
+    }
+
+    private static string CreateScenarioBackup(CczProject project, string targetPath)
+    {
+        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        Directory.CreateDirectory(backupRoot);
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
+        var backupFileName = $"{stamp}_before_restore_{Path.GetFileName(targetPath)}";
+        var backup = Path.Combine(backupRoot, backupFileName);
+        var suffix = 1;
+        while (File.Exists(backup))
+        {
+            backup = Path.Combine(backupRoot, $"{stamp}_{suffix++}_before_restore_{Path.GetFileName(targetPath)}");
+        }
+
+        File.Copy(targetPath, backup, overwrite: false);
+        return backup;
+    }
+
+    private string WriteScenarioRestoreReport(
+        CczProject project,
+        string relativePath,
+        string targetPath,
+        string currentBackupPath,
+        string restoredFrom,
+        byte[] beforeBytes,
+        byte[] afterBytes,
+        LegacyScenarioDocument restoredDocument)
+    {
+        var changedBytes = CountChangedBytes(beforeBytes, afterBytes);
+        var report = new WriteOperationReport
+        {
+            OperationKind = "R/S eex scenario backup restore",
+            SourceAction = "MCP restore_scenario_backup",
+            ProjectRoot = project.GameRoot,
+            TargetRelativePath = relativePath,
+            TargetPath = targetPath,
+            BackupPath = currentBackupPath,
+            BeforeSha256 = WriteOperationReportService.ComputeSha256(beforeBytes),
+            AfterSha256 = WriteOperationReportService.ComputeSha256(afterBytes),
+            ChangedBytes = changedBytes,
+            Summary = $"Restored {relativePath} from {restoredFrom}; changed {changedBytes:N0} bytes.",
+            SafetyNotes = "The current target was backed up before restore. The restored file was validated by the legacy scenario reader.",
+            Changes =
+            [
+                new WriteOperationChange
+                {
+                    Category = "ScenarioRestore",
+                    TableName = Path.GetFileName(relativePath),
+                    OldValue = WriteOperationReportService.ComputeSha256(beforeBytes),
+                    NewValue = WriteOperationReportService.ComputeSha256(afterBytes),
+                    Annotation = $"Restored from backup {restoredFrom}; structure {restoredDocument.Summary}."
+                }
+            ],
+            Metadata =
+            {
+                ["RestoredFrom"] = restoredFrom,
+                ["SceneCount"] = restoredDocument.SceneCount.ToString(CultureInfo.InvariantCulture),
+                ["SectionCount"] = restoredDocument.SectionCount.ToString(CultureInfo.InvariantCulture),
+                ["CommandCount"] = restoredDocument.CommandCount.ToString(CultureInfo.InvariantCulture)
+            }
+        };
+
+        return new WriteOperationReportService().WriteJsonReport(report, currentBackupPath);
+    }
+
+    private static int CountChangedBytes(byte[] before, byte[] after)
+    {
+        var length = Math.Min(before.Length, after.Length);
+        var changed = Math.Abs(before.Length - after.Length);
+        for (var i = 0; i < length; i++)
+        {
+            if (before[i] != after[i]) changed++;
+        }
+
+        return changed;
     }
 
     public object ListScenarioCommandTemplates(string? gameRoot, string? keyword, string? category, string? status, int limit)

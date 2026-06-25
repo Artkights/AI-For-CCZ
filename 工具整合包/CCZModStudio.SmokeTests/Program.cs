@@ -28,7 +28,10 @@ var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", Str
 var batchImageImportSmokeOnly = args.Contains("--batch-image-import-smoke", StringComparer.OrdinalIgnoreCase);
 var aiImageAssetSmokeOnly = args.Contains("--ai-image-asset-smoke", StringComparer.OrdinalIgnoreCase);
 var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCase);
+var jobAreaDropdownSmokeOnly = args.Contains("--job-area-dropdown-smoke", StringComparer.OrdinalIgnoreCase);
+var jobWriteSmokeOnly = args.Contains("--job-write-smoke", StringComparer.OrdinalIgnoreCase);
 var jobStrategyWriteSmokeOnly = args.Contains("--job-strategy-write-smoke", StringComparer.OrdinalIgnoreCase);
+var accessoryJobGroupSmokeOnly = args.Contains("--accessory-job-group-smoke", StringComparer.OrdinalIgnoreCase);
 var globalSettingsWriteSmokeOnly = args.Contains("--global-settings-write-smoke", StringComparer.OrdinalIgnoreCase);
 var globalSettingsDialogSmokeOnly = args.Contains("--global-settings-dialog-smoke", StringComparer.OrdinalIgnoreCase);
 var uiLayoutSettingsSmokeOnly = args.Contains("--ui-layout-settings-smoke", StringComparer.OrdinalIgnoreCase);
@@ -42,6 +45,7 @@ var mapCanvasPreviewSmokeOnly = args.Contains("--map-canvas-preview-smoke", Stri
 var mapWorkbenchUiSmokeOnly = args.Contains("--map-workbench-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var terrainDrivenMapSmokeOnly = args.Contains("--terrain-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
 var materialDrivenMapSmokeOnly = args.Contains("--material-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
+var autoTileRegionSmokeOnly = args.Contains("--autotile-region-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldPreviewSmokeOnly = args.Contains("--battlefield-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldUnitStatusWriteSmokeOnly = args.Contains("--battlefield-unit-status-write-smoke", StringComparer.OrdinalIgnoreCase);
 var effectPackageSmokeOnly = args.Contains("--effect-package-smoke", StringComparer.OrdinalIgnoreCase);
@@ -52,6 +56,7 @@ var standaloneGoldenSamplesSmokeOnly = args.Contains("--standalone-golden-sample
 var strictPlayablePreviewSmokeOnly = args.Contains("--strict-playable-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var exclusiveSetScenarioSmokeOnly = args.Contains("--exclusive-set-smoke", StringComparer.OrdinalIgnoreCase);
 var scenarioTextImportSmokeOnly = args.Contains("--scenario-text-import-smoke", StringComparer.OrdinalIgnoreCase);
+var scenarioTextWriterSmokeOnly = args.Contains("--scenario-text-writer-smoke", StringComparer.OrdinalIgnoreCase);
 var roleCriticalQuoteUiSmokeOnly = args.Contains("--role-critical-quote-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66SmokeOnly = args.Contains("--66-revised-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66RegressionSmokeOnly = args.Contains("--66-regression-smoke", StringComparer.OrdinalIgnoreCase);
@@ -189,9 +194,27 @@ if (shopSmokeOnly)
     return;
 }
 
+if (jobAreaDropdownSmokeOnly)
+{
+    RunJobAreaDropdownSmoke(project, tables);
+    return;
+}
+
+if (jobWriteSmokeOnly)
+{
+    RunJobWriteOnlySmoke(project, tables);
+    return;
+}
+
 if (jobStrategyWriteSmokeOnly)
 {
     RunJobStrategyWriteSmoke(project, tables);
+    return;
+}
+
+if (accessoryJobGroupSmokeOnly)
+{
+    RunAccessoryJobGroupSmoke(project, tables);
     return;
 }
 
@@ -273,6 +296,12 @@ if (materialDrivenMapSmokeOnly)
     return;
 }
 
+if (autoTileRegionSmokeOnly)
+{
+    RunAutoTileRegionSmoke();
+    return;
+}
+
 if (battlefieldPreviewSmokeOnly)
 {
     RunBattlefieldPreviewSmoke(project, tables);
@@ -330,6 +359,12 @@ if (exclusiveSetScenarioSmokeOnly)
 if (scenarioTextImportSmokeOnly)
 {
     RunScenarioTextImportSmoke(project, tables);
+    return;
+}
+
+if (scenarioTextWriterSmokeOnly)
+{
+    RunScenarioTextWriterSmoke(project);
     return;
 }
 

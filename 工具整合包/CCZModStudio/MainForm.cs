@@ -254,6 +254,7 @@ public sealed partial class MainForm : Form
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
     private readonly ProjectEquipmentTypeProfileService _equipmentTypeProfileService = new();
+    private readonly AccessoryJobGroupService _accessoryJobGroupService = new();
     private readonly ShopEditorService _shopEditorService = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
     private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
@@ -403,6 +404,8 @@ public sealed partial class MainForm : Form
     private TableReadResult? _jobPierceRead;
     private ProjectEquipmentTypeProfile? _currentEquipmentTypeProfile;
     private IReadOnlyList<JobEquipmentPermissionSlotDefinition> _jobEquipmentPermissionSlots = Array.Empty<JobEquipmentPermissionSlotDefinition>();
+    private AccessoryJobGroupProfile? _currentAccessoryJobGroupProfile;
+    private IReadOnlyDictionary<int, string> _jobSeriesNames = new Dictionary<int, string>();
     private readonly Stack<List<JobEditorCellEdit>> _jobEditorUndoStack = new();
     private readonly Stack<List<JobEditorCellEdit>> _jobEditorRedoStack = new();
     private List<JobEditorCellTarget> _jobEditorSelectionSnapshotTargets = [];
@@ -469,6 +472,11 @@ public sealed partial class MainForm : Form
     private readonly Dictionary<int, MapCellOverride> _mapMakerMapCellOverrideLookup = new();
     private byte[] _mapMakerOriginalTerrainCells = Array.Empty<byte>();
     private Bitmap? _mapViewerRenderedImage;
+    private string _selectedSceneryOverlayId = string.Empty;
+    private MapSceneryOverlay? _sceneryDragOriginalOverlay;
+    private PointF _sceneryDragStartImagePoint;
+    private MapSceneryOverlayHitKind _sceneryDragHitKind = MapSceneryOverlayHitKind.None;
+    private bool _sceneryOverlayDragging;
     private int _mapMakerTerrainChangedCellCount;
     private readonly System.Windows.Forms.Timer _mapMakerDirtyBaseRefreshTimer = new() { Interval = 200 };
     private readonly HashSet<int> _mapMakerDirtyTerrainPreviewIndexes = new();
@@ -476,6 +484,7 @@ public sealed partial class MainForm : Form
     private int _mapMakerBeautifyRequestId;
     private bool _mapMakerBeautifyRunning;
     private bool _mapMakerBeautifyStale;
+    private bool _updatingMapMakerBeautifyFilterSelection;
     private long _mapMakerLastBaseRefreshMs;
     private long _mapMakerLastBeautifyMs;
     private int _mapMakerLastMaterialHitPercent;
@@ -568,6 +577,8 @@ public sealed partial class MainForm : Form
     private readonly TextBox _roleTextDetailInfoBox = new();
     private readonly Button _loadJobEditorButton = new();
     private readonly Button _saveJobEditorButton = new();
+    private readonly Button _editAccessoryJobGroupsButton = new();
+    private readonly Button _replaceJobSImageButton = new();
     private readonly Button _openJobSeriesTableButton = new();
     private readonly Button _openJobEffectTableButton = new();
     private readonly Button _exportJobEditorCsvButton = new();
@@ -738,6 +749,7 @@ public sealed partial class MainForm : Form
     private readonly CheckBox _mapMakerEditTerrainCheckBox = new();
     private readonly CheckBox _mapMakerAutoGenerateCheckBox = new();
     private readonly Button _mapMakerBeautifyCheckBox = new();
+    private readonly ComboBox _mapMakerBeautifyFilterCombo = new();
     private readonly NumericUpDown _mapMakerBeautifyStrengthInput = new();
     private readonly NumericUpDown _mapMakerFeatherRadiusInput = new();
     private readonly TrackBar _mapMakerTerrainOpacityTrackBar = new();
@@ -1070,9 +1082,25 @@ public sealed partial class MainForm : Form
         SceneryBrush
     }
 
+    private enum MapSceneryOverlayHitKind
+    {
+        None,
+        Body,
+        ScaleNorthWest,
+        ScaleNorthEast,
+        ScaleSouthEast,
+        ScaleSouthWest,
+        Rotate
+    }
+
     private sealed record TerrainEditorCellChange(int Index, byte OldValue, byte NewValue);
 
-    private sealed record MapWorkbenchCellChange(int Index, MapCellOverride? OldValue, MapCellOverride? NewValue);
+    private sealed record MapWorkbenchCellChange(
+        int Index,
+        MapCellOverride? OldValue,
+        MapCellOverride? NewValue,
+        MapSceneryOverlay? OldSceneryOverlay = null,
+        MapSceneryOverlay? NewSceneryOverlay = null);
 
     private sealed record RSceneBackgroundComboItem(ImageResourceEntryInfo Entry)
     {
@@ -1099,6 +1127,11 @@ public sealed partial class MainForm : Form
     {
         public required MaterialAsset Asset { get; init; }
         public string DisplayText => $"{Asset.Category}/{Asset.FileName}    HexTag={Asset.HexTag}    {Asset.Description}";
+        public override string ToString() => DisplayText;
+    }
+
+    private sealed record BeautifyFilterComboItem(string Profile, string DisplayText)
+    {
         public override string ToString() => DisplayText;
     }
 
@@ -2487,6 +2520,37 @@ public sealed partial class MainForm : Form
     }
 
     private sealed record JobStrategyComboItem(int Value, string Text);
+
+    private sealed record JobAreaComboItem(int Value, string Text)
+    {
+        public override string ToString() => Text;
+    }
+
+    private static readonly IReadOnlyDictionary<int, string> JobAttackRangeNames = new Dictionary<int, string>
+    {
+        [0] = "四格",
+        [1] = "九宫",
+        [2] = "近中程弓形",
+        [3] = "中程弓形",
+        [4] = "远程弓形",
+        [5] = "原版少见",
+        [6] = "没羽箭",
+        [7] = "一转炮车",
+        [8] = "二三转炮车",
+        [9] = "一转弓骑",
+        [10] = "全屏"
+    };
+
+    private static readonly IReadOnlyDictionary<int, string> JobPierceRangeNames = new Dictionary<int, string>
+    {
+        [0] = "不穿透",
+        [1] = "十字穿透",
+        [2] = "九宫穿透",
+        [3] = "大没羽箭",
+        [4] = "蛇矛",
+        [5] = "长蛇矛/穿六",
+        [6] = "大大没羽箭"
+    };
 
     private sealed record LegacyScriptCommandPasteTarget(
         List<LegacyScenarioCommandNode> Commands,

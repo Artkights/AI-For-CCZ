@@ -148,10 +148,17 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             .ToList();
         if (validIndexes.Count == 0) return Rectangle.Empty;
 
+        var refreshIndexes = validIndexes
+            .SelectMany(ExpandIndexWithNeighbors)
+            .Where(index => CanUpdateCell(draft, index))
+            .Distinct()
+            .OrderBy(index => index)
+            .ToList();
+
         var dirty = Rectangle.Empty;
-        foreach (var index in validIndexes)
+        foreach (var index in refreshIndexes)
         {
-            AddDirtyIndexWithNeighbors(index);
+            _dirtyTerrainIndexes.Add(index);
             if (_baseMapCache != null)
             {
                 DrawBaseMapTile(_baseMapCache, draft, index, null);
@@ -452,7 +459,13 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
             NormalizeFileKey(draft.BaseLayerPath),
             NormalizePathKey(draft.MaterialRoot),
-            materials.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            NormalizeOverlayKey(draft),
+            draft.BeautifyFilterProfile,
+            NormalizeCustomBeautifyFilterKey(draft.CustomBeautifyFilter),
+            draft.BeautifyStrength.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            draft.FeatherRadius.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            materials.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            NormalizeMaterialAutoTileKey(materials));
 
     private static string NormalizePathKey(string path)
     {
@@ -483,6 +496,59 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             return normalized;
         }
     }
+
+    private static string NormalizeOverlayKey(MapWorkbenchDraft draft)
+        => string.Join(";",
+            draft.SceneryOverlays
+                .OrderBy(overlay => overlay.ZOrder)
+                .ThenBy(overlay => overlay.X)
+                .ThenBy(overlay => overlay.Y)
+                .Select(overlay => string.Join(",",
+                    overlay.MaterialRelativePath,
+                    overlay.X.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    overlay.Y.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    overlay.Width.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    overlay.Height.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    overlay.RotationDegrees.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    overlay.ZOrder.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+
+    private static string NormalizeCustomBeautifyFilterKey(BeautifyCustomFilterSettings? settings)
+    {
+        if (settings == null) return string.Empty;
+        return string.Join(",",
+            settings.PhotoR.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.PhotoG.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.PhotoB.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.PhotoDensity.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.BalanceR.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.BalanceG.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.BalanceB.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.Saturation.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.Brightness.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.Contrast.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.HighlightCompression.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.ShadowLift.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.MidtoneGamma.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            settings.PreserveLuminosity.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static string NormalizeMaterialAutoTileKey(IReadOnlyList<MaterialAsset> materials)
+        => string.Join(";",
+            materials
+                .Where(asset => !string.IsNullOrWhiteSpace(asset.AutoTileSetKey))
+                .OrderBy(asset => asset.AutoTileSetKey, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.FilePath, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.SourceX)
+                .Select(asset => string.Join(",",
+                    asset.AutoTileSetKey,
+                    asset.AutoTileMode,
+                    asset.AutoTileRole,
+                    (asset.AutoTileMask ?? MaterialAutoTileMasks.None).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SourceX.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SourceY.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SourceWidth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SourceHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    NormalizeFileKey(asset.FilePath))));
 
     private void RebuildBaseMapCache(MapWorkbenchDraft draft)
     {

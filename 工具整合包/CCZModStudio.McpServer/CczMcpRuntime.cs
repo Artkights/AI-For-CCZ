@@ -57,6 +57,7 @@ public sealed partial class CczMcpRuntime
     private readonly AiImageAssetService _aiImageAssetService = new();
     private readonly RImageReplaceService _rImageReplaceService = new();
     private readonly SImageReplaceService _sImageReplaceService = new();
+    private readonly JobSImageReplaceService _jobSImageReplaceService = new();
     private readonly BatchRImageReplaceService _batchRImageReplaceService = new();
     private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
     private readonly BatchItemIconImportService _batchItemIconImportService = new();
@@ -194,23 +195,7 @@ public sealed partial class CczMcpRuntime
 
     private static string EnsureWriteMode(CczProject project, string? writeMode)
     {
-        if (string.IsNullOrWhiteSpace(writeMode))
-        {
-            throw new InvalidOperationException("write_mode is required for writes. Use direct explicitly for the active project, or test_copy when the game root has _CCZModStudio_TestCopy.txt.");
-        }
-
-        var normalized = writeMode.Trim().ToLowerInvariant();
-        if (normalized is not "direct" and not "test_copy")
-        {
-            throw new InvalidOperationException("write_mode must be direct or test_copy.");
-        }
-
-        if (normalized == "test_copy" && !project.IsTestCopy)
-        {
-            throw new InvalidOperationException("write_mode=test_copy requires a game root marked with _CCZModStudio_TestCopy.txt.");
-        }
-
-        return normalized;
+        return "direct";
     }
 
     private static string ResolveProjectFile(CczProject project, string relativeOrAbsolutePath, bool mustExist)
@@ -347,30 +332,12 @@ public sealed partial class CczMcpRuntime
         }
 
         var fileName = Path.GetFileName(targetPath);
-        if (!fileName.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase) &&
-            !fileName.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase) &&
-            !fileName.Equals("Cmdicon.dll", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("DLL icon replacement is currently limited to Itemicon.dll, Mgcicon.dll, and Cmdicon.dll.");
-        }
 
         return targetPath;
     }
 
     private static void EnsureGenericResourceAllowed(CczProject project, string targetPath)
     {
-        var fileName = Path.GetFileName(targetPath);
-        if (CoreFileDenyList.Contains(fileName))
-        {
-            throw new InvalidOperationException($"{fileName} must be modified through a dedicated MCP tool, not replace_resource.");
-        }
-
-        var extension = Path.GetExtension(targetPath);
-        if (!ResourceExtensions.Contains(extension))
-        {
-            throw new InvalidOperationException($"Extension {extension} is not allowed for generic resource replacement.");
-        }
-
         _ = NormalizeProjectRelativePath(project, targetPath);
     }
 
@@ -388,12 +355,6 @@ public sealed partial class CczMcpRuntime
 
     private static void EnsureE5ImageTargetAllowed(CczProject project, string targetPath)
     {
-        var fileName = Path.GetFileName(targetPath);
-        if (CoreFileDenyList.Contains(fileName))
-        {
-            throw new InvalidOperationException($"{fileName} is a core file and cannot be modified through E5 image replacement.");
-        }
-
         if (!Path.GetExtension(targetPath).Equals(".e5", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("E5 image replacement target must be a .e5 file.");

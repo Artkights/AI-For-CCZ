@@ -34,6 +34,7 @@ public sealed partial class CczMcpRuntime
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
     private readonly ProjectEquipmentTypeProfileService _equipmentTypeProfileService = new();
+    private readonly AccessoryJobGroupService _accessoryJobGroupService = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
     private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
 
@@ -144,6 +145,52 @@ public sealed partial class CczMcpRuntime
             Target = BuildMapResourcePayload(project, target),
             Result = result,
             SafetyNote = "Publish writes a Map/*.jpg only through MapCanvasPublishService with backup, report, and reread validation."
+        };
+    }
+
+    public object PublishMapWorkbenchBundle(string? gameRoot, string draftId, string? mapId)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, "direct");
+        var draft = _mapDraftService.LoadDraft(project, draftId);
+        var target = ResolveMapResource(project, string.IsNullOrWhiteSpace(mapId) ? draft.BoundMapId : mapId);
+        var materials = LoadMaterialsForDraft(project, draft);
+        var mapResult = _mapCanvasPublishService.PublishToMapImage(project, draft, target, materials);
+
+        var terrainLookup = BuildTerrainNameLookup(project);
+        var probe = _hexzmapProbeReader.Read(project, terrainLookup);
+        var block = probe.Blocks.FirstOrDefault(x => x.MapId.Equals(target.Id, StringComparison.OrdinalIgnoreCase) ||
+                                                     x.MapId.Equals("M" + target.Id, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException($"Hexzmap block for map {target.Id} was not found.");
+        if (draft.TerrainCells.Length != block.Width * block.Height)
+        {
+            throw new InvalidOperationException($"Draft terrain cell count {draft.TerrainCells.Length} does not match Hexzmap block {block.MapId} size {block.Width}x{block.Height}.");
+        }
+
+        var currentCells = _hexzmapProbeReader.GetBlockCells(probe, block);
+        object? terrainResult;
+        if (currentCells.SequenceEqual(draft.TerrainCells))
+        {
+            terrainResult = new
+            {
+                Skipped = true,
+                block.MapId,
+                Reason = "Hexzmap terrain cells already match the draft."
+            };
+        }
+        else
+        {
+            terrainResult = _hexzmapEditor.SaveBlock(project, probe, block, draft.TerrainCells, terrainLookup);
+        }
+
+        return new
+        {
+            project.GameRoot,
+            Draft = BuildMapDraftSummary(draft),
+            Target = BuildMapResourcePayload(project, target),
+            MapImageResult = mapResult,
+            TerrainResult = terrainResult,
+            SafetyNote = "Published Map/Mxxx.jpg and the matching Hexzmap.e5 terrain block as one direct-write bundle with independent backups, reports, and reread validation."
         };
     }
 
@@ -441,6 +488,66 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    public object ApplyScenarioTextImport(string? gameRoot, string input, string relativePath, string? scenarioKind)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, "direct");
+        var tables = LoadTables(project);
+        var dictionary = LoadRequiredScenarioCommandDictionary(project);
+        var targetPath = ResolveScenarioFile(project, relativePath);
+        var service = new ScenarioTextImportService(ScenarioTextImportService.LoadPersonNames(project, tables));
+        var parsed = service.Parse(
+            input ?? string.Empty,
+            sceneIndex: 1,
+            sectionIndex: 1,
+            (commandId, sceneIndex, sectionIndex) => CreateScenarioImportPreviewCommand(dictionary, commandId, sceneIndex, sectionIndex));
+        if (!parsed.Success)
+        {
+            return new
+            {
+                project.GameRoot,
+                ScenarioKind = scenarioKind ?? InferScenarioKindFromPath(targetPath),
+                RelativePath = NormalizeProjectRelativePath(project, targetPath),
+                Applied = false,
+                CommandCount = parsed.Commands.Count,
+                parsed.PreviewRows,
+                parsed.Errors,
+                SafetyNote = "Scenario text import was parsed but not written because it contains errors or no commands."
+            };
+        }
+
+        var patch = new ModScenarioPatch
+        {
+            PatchId = Path.GetFileNameWithoutExtension(targetPath) + "-text-import",
+            RelativePath = NormalizeProjectRelativePath(project, targetPath),
+            Note = "Compiled from AI scenario text import markup.",
+            Operations =
+            {
+                new ModScenarioPatchOperation
+                {
+                    Operation = "append_command",
+                    SceneIndex = 1,
+                    SectionIndex = 1,
+                    Commands = parsed.Commands.Select(ConvertLegacyCommandToDraft).ToList(),
+                    Note = "AI scenario text import append."
+                }
+            }
+        };
+        var result = _modPackageService.ApplyScenarioPatchAggressive(project, patch, dictionary, forceOpenScenarioWrites: true);
+        return new
+        {
+            project.GameRoot,
+            ScenarioKind = scenarioKind ?? InferScenarioKindFromPath(targetPath),
+            RelativePath = NormalizeProjectRelativePath(project, targetPath),
+            CommandCount = parsed.Commands.Count,
+            parsed.PreviewRows,
+            parsed.Errors,
+            Patch = patch,
+            Result = result,
+            SafetyNote = "AI scenario text import was compiled to structural R/S commands and written directly through LegacyScenarioWriter backups, reports, and reread validation."
+        };
+    }
+
     public object ReadScenarioTextImportTemplate(string? gameRoot)
     {
         var project = string.IsNullOrWhiteSpace(gameRoot) ? null : LoadProject(gameRoot);
@@ -587,6 +694,64 @@ public sealed partial class CczMcpRuntime
             StorePath = path,
             Draft = _rSceneDraftService.LoadDraft(project, request.ScenarioFileName),
             SafetyNote = "Saved only an R-scene draft JSON under CCZModStudio_Notes; no scenario file was modified."
+        };
+    }
+
+    public object PublishRSceneDraftToScenario(string? gameRoot, string scenarioFileName)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, "direct");
+        var dictionary = LoadRequiredScenarioCommandDictionary(project);
+        var draft = _rSceneDraftService.LoadDraft(project, scenarioFileName);
+        if (string.IsNullOrWhiteSpace(draft.ScenarioFileName))
+        {
+            throw new InvalidOperationException("scenario_file_name is required.");
+        }
+
+        var relativePath = NormalizeRSceneScenarioPath(draft.ScenarioFileName);
+        _ = ResolveScenarioFile(project, relativePath);
+        var commands = new List<ModScenarioCommandDraft>();
+        if (draft.BackgroundImageNumber > 0)
+        {
+            commands.Add(BuildRSceneBackgroundDraft(draft.BackgroundImageNumber));
+        }
+
+        commands.Add(BuildWordCommandDraft(0x1C, 0, "R scene redraw before draft actors."));
+        foreach (var actor in draft.Actors.Where(actor => actor.PersonId >= 0 && actor.GridX >= 0 && actor.GridY >= 0))
+        {
+            commands.Add(BuildRSceneActorAppearDraft(actor));
+        }
+
+        if (commands.Count == 0)
+        {
+            throw new InvalidOperationException("R-scene draft has no background or valid actors to publish.");
+        }
+
+        var patch = new ModScenarioPatch
+        {
+            PatchId = Path.GetFileNameWithoutExtension(relativePath) + "-rscene-draft",
+            RelativePath = relativePath,
+            Note = "Published from R-scene visual draft.",
+            Operations =
+            {
+                new ModScenarioPatchOperation
+                {
+                    Operation = "append_command",
+                    SceneIndex = 1,
+                    SectionIndex = 1,
+                    Commands = commands,
+                    Note = "Append R-scene draft background/redraw/actor placement commands."
+                }
+            }
+        };
+        var result = _modPackageService.ApplyScenarioPatchAggressive(project, patch, dictionary, forceOpenScenarioWrites: true);
+        return new
+        {
+            project.GameRoot,
+            Draft = draft,
+            Patch = patch,
+            Result = result,
+            SafetyNote = "R-scene draft published as 0x27 background, 0x1C redraw, and 0x30 actor appear commands through LegacyScenarioWriter direct-write validation."
         };
     }
 
@@ -757,6 +922,52 @@ public sealed partial class CczMcpRuntime
             project.GameRoot,
             Profile = profile,
             SafetyNote = "Read-only project equipment type profile."
+        };
+    }
+
+    public object ReadAccessoryJobGroups(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var tables = LoadTables(project);
+        var profile = _accessoryJobGroupService.Read(project, tables);
+        return new
+        {
+            project.GameRoot,
+            Profile = profile,
+            SafetyNote = "Read-only accessory equipment multi-job-series grouping from Ekd5.exe:0044C341."
+        };
+    }
+
+    public object PreviewAccessoryJobGroups(string? gameRoot, List<List<int>> groups)
+    {
+        var project = LoadProject(gameRoot);
+        var tables = LoadTables(project);
+        var preview = _accessoryJobGroupService.Preview(project, tables, NormalizeAccessoryJobGroups(groups));
+        return new
+        {
+            project.GameRoot,
+            Preview = preview,
+            SafetyNote = "Preview only; no files were modified."
+        };
+    }
+
+    public object WriteAccessoryJobGroups(string? gameRoot, List<List<int>> groups, string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+
+        var tables = LoadTables(project);
+        var save = _accessoryJobGroupService.Save(project, tables, NormalizeAccessoryJobGroups(groups));
+        return new
+        {
+            project.GameRoot,
+            save.TargetFilePath,
+            save.BackupPath,
+            save.ReportJsonPath,
+            save.BytesWritten,
+            save.ChangedBytes,
+            save.Preview,
+            SafetyNote = "Wrote only Ekd5.exe accessory job grouping bytes at OD address 0044C341 using fixed-length overwrite."
         };
     }
 
@@ -1044,6 +1255,113 @@ public sealed partial class CczMcpRuntime
             .Cast<object>()
             .ToList();
 
+    private static string InferScenarioKindFromPath(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        if (fileName.StartsWith("S_", StringComparison.OrdinalIgnoreCase)) return "S";
+        return "R";
+    }
+
+    private static string NormalizeRSceneScenarioPath(string scenarioFileName)
+    {
+        var fileName = Path.GetFileName(scenarioFileName.Trim());
+        if (string.IsNullOrWhiteSpace(fileName)) throw new InvalidOperationException("scenario_file_name is required.");
+        if (!fileName.EndsWith(".eex", StringComparison.OrdinalIgnoreCase)) fileName += ".eex";
+        if (!fileName.StartsWith("R_", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("R-scene draft publishing targets only RS/R_*.eex files.");
+        }
+
+        return Path.Combine("RS", fileName);
+    }
+
+    private static ModScenarioCommandDraft ConvertLegacyCommandToDraft(LegacyScenarioCommandNode command)
+        => new()
+        {
+            CommandId = command.CommandId,
+            CommandIdHex = command.CommandIdHex,
+            Note = "Compiled from AI scenario text import.",
+            Parameters = command.Parameters.Select(ConvertLegacyParameterToDraft).ToList()
+        };
+
+    private static ModScenarioParameterDraft ConvertLegacyParameterToDraft(LegacyScenarioCommandParameter parameter)
+    {
+        var layoutCode = parameter.Kind == LegacyScenarioParameterKind.Text ? 0x05 : parameter.LayoutCode;
+        return new ModScenarioParameterDraft
+        {
+            LayoutCode = layoutCode,
+            Kind = parameter.Kind switch
+            {
+                LegacyScenarioParameterKind.Text => "text",
+                LegacyScenarioParameterKind.VariableArray => "variable_array",
+                LegacyScenarioParameterKind.Dword32 => "dword32",
+                _ => "word16"
+            },
+            IntValue = parameter.IntValue,
+            Text = parameter.Text,
+            Values = parameter.Values.Count == 0 ? null : parameter.Values.ToList()
+        };
+    }
+
+    private static ModScenarioCommandDraft BuildRSceneBackgroundDraft(int backgroundImageNumber)
+    {
+        var backgroundSlot = Math.Clamp(backgroundImageNumber, 1, 999) - 1;
+        return new ModScenarioCommandDraft
+        {
+            CommandId = 0x27,
+            CommandIdHex = "0x27",
+            Note = "R-scene draft background display.",
+            Parameters =
+            {
+                WordParameter(0),
+                WordParameter(backgroundSlot)
+            }
+        };
+    }
+
+    private static ModScenarioCommandDraft BuildRSceneActorAppearDraft(RScenePlacedActor actor)
+        => new()
+        {
+            CommandId = 0x30,
+            CommandIdHex = "0x30",
+            Note = string.IsNullOrWhiteSpace(actor.ActorNote) ? "R-scene draft actor appear." : actor.ActorNote,
+            Parameters =
+            {
+                WordParameter(actor.PersonId),
+                WordParameter(actor.GridX),
+                WordParameter(actor.GridY),
+                WordParameter(FacingToDirectionValue(actor.Facing)),
+                WordParameter(Math.Clamp(actor.FrameIndex, 0, 999))
+            }
+        };
+
+    private static ModScenarioCommandDraft BuildWordCommandDraft(int commandId, int value, string note)
+        => new()
+        {
+            CommandId = commandId,
+            CommandIdHex = "0x" + commandId.ToString("X2", CultureInfo.InvariantCulture),
+            Note = note,
+            Parameters = { WordParameter(value) }
+        };
+
+    private static ModScenarioParameterDraft WordParameter(int value)
+        => new()
+        {
+            LayoutCode = 0x01,
+            Kind = "word16",
+            IntValue = value
+        };
+
+    private static int FacingToDirectionValue(string? facing)
+        => (facing ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "0" or "up" or "u" or "north" or "n" or "上" or "北" => 0,
+            "1" or "right" or "r" or "east" or "e" or "右" or "东" => 1,
+            "2" or "down" or "d" or "south" or "s" or "下" or "南" => 2,
+            "3" or "left" or "l" or "west" or "w" or "左" or "西" => 3,
+            _ => 2
+        };
+
     private object ApplyShopUpdates(ShopEditorBuildResult build, List<ShopRowUpdate>? updates, bool mutate)
     {
         if (updates == null || updates.Count == 0) throw new InvalidOperationException("updates must contain at least one shop row update.");
@@ -1315,6 +1633,11 @@ public sealed partial class CczMcpRuntime
             SizeBytes = new FileInfo(outputPath).Length,
             SafetyNote = safetyNote
         };
+
+    private static IReadOnlyList<IReadOnlyList<int>> NormalizeAccessoryJobGroups(List<List<int>>? groups)
+        => (groups ?? [])
+            .Select(group => (IReadOnlyList<int>)(group ?? []))
+            .ToArray();
 
     private static string MakeSafeFileNameForMcp(string value)
     {

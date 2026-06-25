@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Drawing;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -30,8 +31,11 @@ public sealed class MapDraftService
 
         try
         {
-            return JsonSerializer.Deserialize<MapWorkbenchSettings>(File.ReadAllText(path, Encoding.UTF8), JsonOptions)
-                   ?? new MapWorkbenchSettings();
+            var settings = JsonSerializer.Deserialize<MapWorkbenchSettings>(File.ReadAllText(path, Encoding.UTF8), JsonOptions)
+                           ?? new MapWorkbenchSettings();
+            settings.DefaultCustomBeautifyFilter = NormalizeCustomBeautifyFilter(settings.DefaultCustomBeautifyFilter);
+            settings.PersistedTerrainMaterialPlans ??= new List<PersistedTerrainMaterialPlan>();
+            return settings;
         }
         catch (JsonException ex)
         {
@@ -166,6 +170,23 @@ public sealed class MapDraftService
             }
         }
 
+        foreach (var overlay in draft.SceneryOverlays)
+        {
+            var path = ResolveMaterialPath(draft.MaterialRoot, overlay.MaterialRelativePath);
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                missing.Add(new MapWorkbenchMissingAsset
+                {
+                    Index = -1,
+                    RelativePath = overlay.MaterialRelativePath,
+                    ExpectedPath = path,
+                    Reason = string.IsNullOrWhiteSpace(draft.MaterialRoot)
+                        ? "Material library root is not set."
+                        : "Scenery overlay material file is missing."
+                });
+            }
+        }
+
         return missing;
     }
 
@@ -221,11 +242,16 @@ public sealed class MapDraftService
         draft.BuildingOverlayCells = NormalizeCells(draft.BuildingOverlayCells, cellCount, MapCellOverrideSources.BuildingOverlay);
         draft.SceneryOverlayCells ??= new List<MapCellOverride>();
         draft.SceneryOverlayCells = NormalizeCells(draft.SceneryOverlayCells, cellCount, MapCellOverrideSources.SceneryOverlay);
+        draft.SceneryOverlays ??= new List<MapSceneryOverlay>();
         MigrateLegacyCellsToMaterialLayers(draft);
+        MigrateLegacySceneryCellsToOverlays(draft);
+        draft.SceneryOverlays = NormalizeSceneryOverlays(draft.SceneryOverlays, draft);
         draft.TerrainMaterialPlan ??= new List<TerrainMaterialPlanItem>();
         draft.TerrainMaterialPlan = NormalizeTerrainMaterialPlan(draft.TerrainMaterialPlan);
         draft.BeautifyStrength = Math.Clamp(draft.BeautifyStrength, 0, 3);
         draft.FeatherRadius = Math.Clamp(draft.FeatherRadius, 0, MapResourceItem.MapTilePixelSize / 2);
+        draft.BeautifyFilterProfile = NormalizeBeautifyFilterProfile(draft.BeautifyFilterProfile);
+        draft.CustomBeautifyFilter = NormalizeCustomBeautifyFilter(draft.CustomBeautifyFilter);
         draft.BoundMapId = draft.BoundMapId?.Trim() ?? string.Empty;
         draft.BaseLayerPath = draft.BaseLayerPath?.Trim() ?? string.Empty;
         draft.MaterialRoot = draft.MaterialRoot?.Trim() ?? string.Empty;
@@ -280,6 +306,41 @@ public sealed class MapDraftService
         }
     }
 
+    private static void MigrateLegacySceneryCellsToOverlays(MapWorkbenchDraft draft)
+    {
+        if (draft.SceneryOverlayCells.Count == 0) return;
+        if (draft.SceneryOverlays.Count > 0)
+        {
+            draft.SceneryOverlayCells.Clear();
+            return;
+        }
+
+        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
+        var z = 0;
+        draft.SceneryOverlays = draft.SceneryOverlayCells
+            .OrderBy(cell => cell.Index)
+            .Select(cell =>
+            {
+                var x = cell.Index % draft.GridWidth;
+                var y = cell.Index / draft.GridWidth;
+                var size = TryReadImageSize(ResolveMaterialPath(draft.MaterialRoot, cell.MaterialRelativePath));
+                return new MapSceneryOverlay
+                {
+                    OverlayId = Guid.NewGuid().ToString("N"),
+                    MaterialRelativePath = cell.MaterialRelativePath,
+                    MaterialCategory = cell.MaterialCategory,
+                    DisplayName = cell.DisplayName,
+                    X = x * tileSize,
+                    Y = y * tileSize,
+                    Width = size.Width > 0 ? size.Width : tileSize,
+                    Height = size.Height > 0 ? size.Height : tileSize,
+                    ZOrder = z++
+                };
+            })
+            .ToList();
+        draft.SceneryOverlayCells.Clear();
+    }
+
     private static List<MapCellOverride> NormalizeCells(IEnumerable<MapCellOverride> cells, int cellCount, string defaultSource)
         => cells
             .Where(cell => cell.Index >= 0 && cell.Index < cellCount && !string.IsNullOrWhiteSpace(cell.MaterialRelativePath))
@@ -295,6 +356,79 @@ public sealed class MapDraftService
             .Select(group => group.Last())
             .OrderBy(cell => cell.Index)
             .ToList();
+
+    private static List<MapSceneryOverlay> NormalizeSceneryOverlays(IEnumerable<MapSceneryOverlay> overlays, MapWorkbenchDraft draft)
+    {
+        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
+        var pixelWidth = Math.Max(tileSize, draft.PixelWidth);
+        var pixelHeight = Math.Max(tileSize, draft.PixelHeight);
+        return overlays
+            .Where(overlay => !string.IsNullOrWhiteSpace(overlay.MaterialRelativePath))
+            .Select((overlay, index) =>
+            {
+                overlay.MaterialRelativePath = overlay.MaterialRelativePath?.Trim() ?? string.Empty;
+                overlay.OverlayId = string.IsNullOrWhiteSpace(overlay.OverlayId)
+                    ? Guid.NewGuid().ToString("N")
+                    : overlay.OverlayId.Trim();
+                overlay.MaterialCategory = overlay.MaterialCategory?.Trim() ?? string.Empty;
+                overlay.DisplayName = overlay.DisplayName?.Trim() ?? string.Empty;
+                overlay.X = Math.Clamp(overlay.X, -pixelWidth, pixelWidth);
+                overlay.Y = Math.Clamp(overlay.Y, -pixelHeight, pixelHeight);
+                if (overlay.Width <= 0 || overlay.Height <= 0)
+                {
+                    var size = TryReadImageSize(ResolveMaterialPath(draft.MaterialRoot, overlay.MaterialRelativePath));
+                    overlay.Width = size.Width > 0 ? size.Width : tileSize;
+                    overlay.Height = size.Height > 0 ? size.Height : tileSize;
+                }
+
+                overlay.Width = Math.Clamp(overlay.Width, 1, pixelWidth * 2);
+                overlay.Height = Math.Clamp(overlay.Height, 1, pixelHeight * 2);
+                overlay.RotationDegrees = NormalizeRotationDegrees(overlay.RotationDegrees);
+                if (overlay.ZOrder == 0 && index > 0)
+                {
+                    overlay.ZOrder = index;
+                }
+
+                return overlay;
+            })
+            .OrderBy(overlay => overlay.ZOrder)
+            .ThenBy(overlay => overlay.Y)
+            .ThenBy(overlay => overlay.X)
+            .ToList();
+    }
+
+    private static float NormalizeRotationDegrees(float value)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value)) return 0;
+        value %= 360f;
+        if (value < 0) value += 360f;
+        return value;
+    }
+
+    public static BeautifyCustomFilterSettings? NormalizeCustomBeautifyFilter(BeautifyCustomFilterSettings? value)
+    {
+        if (value == null) return null;
+        value.PhotoR = ClampFinite(value.PhotoR, 0f, 1f, 0.92f);
+        value.PhotoG = ClampFinite(value.PhotoG, 0f, 1f, 0.82f);
+        value.PhotoB = ClampFinite(value.PhotoB, 0f, 1f, 0.64f);
+        value.PhotoDensity = ClampFinite(value.PhotoDensity, 0f, 1f, 0.12f);
+        value.BalanceR = ClampFinite(value.BalanceR, -1f, 1f, 0.03f);
+        value.BalanceG = ClampFinite(value.BalanceG, -1f, 1f, 0.02f);
+        value.BalanceB = ClampFinite(value.BalanceB, -1f, 1f, -0.03f);
+        value.Saturation = ClampFinite(value.Saturation, 0f, 3f, 1.04f);
+        value.Brightness = ClampFinite(value.Brightness, -1f, 1f, 0.01f);
+        value.Contrast = ClampFinite(value.Contrast, 0f, 3f, 1.04f);
+        value.HighlightCompression = ClampFinite(value.HighlightCompression, -1f, 1f, 0f);
+        value.ShadowLift = ClampFinite(value.ShadowLift, -1f, 1f, 0f);
+        value.MidtoneGamma = ClampFinite(value.MidtoneGamma, 0.2f, 5f, 1f);
+        return value;
+    }
+
+    private static float ClampFinite(float value, float min, float max, float fallback)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value)) return fallback;
+        return Math.Clamp(value, min, max);
+    }
 
     private static MapCellOverride CloneCell(MapCellOverride cell)
         => new()
@@ -328,6 +462,35 @@ public sealed class MapDraftService
             .OrderBy(item => item.TerrainId)
             .ThenBy(item => item.VisualFamilyKey, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static string NormalizeBeautifyFilterProfile(string? profile)
+    {
+        profile = profile?.Trim() ?? string.Empty;
+        return profile switch
+        {
+            TerrainBeautifyFilterProfiles.Natural => TerrainBeautifyFilterProfiles.Natural,
+            TerrainBeautifyFilterProfiles.Night => TerrainBeautifyFilterProfiles.Night,
+            TerrainBeautifyFilterProfiles.Autumn => TerrainBeautifyFilterProfiles.Autumn,
+            TerrainBeautifyFilterProfiles.Winter => TerrainBeautifyFilterProfiles.Winter,
+            TerrainBeautifyFilterProfiles.WarmSun => TerrainBeautifyFilterProfiles.WarmSun,
+            TerrainBeautifyFilterProfiles.Custom => TerrainBeautifyFilterProfiles.Custom,
+            _ => TerrainBeautifyFilterProfiles.Natural
+        };
+    }
+
+    private static Size TryReadImageSize(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return Size.Empty;
+        try
+        {
+            using var image = Image.FromFile(path);
+            return image.Size;
+        }
+        catch
+        {
+            return Size.Empty;
+        }
+    }
 
     private static string GetMapId(MapResourceItem item)
     {

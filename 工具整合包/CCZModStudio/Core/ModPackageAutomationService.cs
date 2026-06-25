@@ -98,7 +98,7 @@ public sealed partial class ModPackageService
             ValidationPlan = new ModValidationPlan
             {
                 RequirePreview = true,
-                RequireTestCopy = true,
+                RequireTestCopy = false,
                 RequireReread = true,
                 RequireRuntimeSmoke = false,
                 SmokeCommands = DefaultSmokeCommands.ToList(),
@@ -130,7 +130,7 @@ public sealed partial class ModPackageService
         package.SlotPlan.SImageIds.AddRange(sImageIds);
         package.SlotPlan.ScenarioIds.AddRange(new[] { rScenario, sScenario });
         package.SlotPlan.Notes["selection"] = "Slots were selected from conservative available-slot scans.";
-        package.SlotPlan.Notes["automation_mode"] = "aggressive_test_copy";
+        package.SlotPlan.Notes["automation_mode"] = "direct";
 
         AddRoleTableUpdates(project, tables, package, engine.TableHints.PersonTable, roles, personIds);
         AddJobTableUpdates(project, tables, package, engine.TableHints.DetailedJobTable, roles, jobIds);
@@ -259,25 +259,44 @@ public sealed partial class ModPackageService
                 PatchId = preview.PatchId,
                 RelativePath = preview.RelativePath,
                 Applied = false,
+                SceneCount = preview.SceneCount,
+                SectionCount = preview.SectionCount,
+                CommandCount = preview.CommandCount,
+                ValidationSummary = "Scenario patch preview failed; no file was written.",
                 Issues = preview.Issues,
                 Changes = preview.Changes
             };
         }
 
-        if (patch.Operations.Any(operation => !WritableScenarioOperations.Contains(operation.Operation)))
+        var document = ReadScenarioDocument(project, patch, dictionary, out var relativePath);
+        foreach (var operation in patch.Operations)
         {
-            preview.Issues.Add(Issue("blocked", "scenario", preview.RelativePath, "Structural scenario append/insert is preview-only in this conservative build."));
-            return new ScenarioPatchApplyResult
-            {
-                PatchId = preview.PatchId,
-                RelativePath = preview.RelativePath,
-                Applied = false,
-                Issues = preview.Issues,
-                Changes = preview.Changes
-            };
+            ApplyScenarioOperation(document, operation);
         }
 
-        return ApplyScenarioPatch(project, patch, dictionary);
+        var save = _scenarioWriter.Save(
+            project,
+            relativePath,
+            document,
+            dictionary,
+            "ModPackage aggressive scenario patch: " + (string.IsNullOrWhiteSpace(patch.PatchId) ? relativePath : patch.PatchId));
+
+        return new ScenarioPatchApplyResult
+        {
+            PatchId = preview.PatchId,
+            RelativePath = relativePath,
+            Applied = true,
+            FilePath = save.FilePath,
+            BackupPath = save.BackupPath,
+            ReportJsonPath = save.ReportJsonPath,
+            ChangedBytes = save.ChangedBytes,
+            SceneCount = save.SceneCount,
+            SectionCount = save.SectionCount,
+            CommandCount = save.CommandCount,
+            ValidationSummary = save.ValidationSummary,
+            Issues = preview.Issues,
+            Changes = preview.Changes
+        };
     }
 
     public ModAutoValidateResult AutoValidate(CczProject project, IReadOnlyList<HexTableDefinition> tables, ModPackage package, SceneStringDocument? dictionary, bool runSmokes, string? smokeProjectPath = null)

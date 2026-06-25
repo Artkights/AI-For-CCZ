@@ -38,8 +38,7 @@ function Test-GameRoot {
     }
 
     return $coreCount -ge 3 -or
-        ($coreCount -ge 1 -and (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container)) -or
-        (Test-Path -LiteralPath (Join-Path $Path "_CCZModStudio_TestCopy.txt") -PathType Leaf)
+        ($coreCount -ge 1 -and (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container))
 }
 
 function Get-GameRootScore {
@@ -60,7 +59,6 @@ function Get-GameRootScore {
     if ($name.Contains($enhancedNamePart)) { $score += 20 }
     if (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container) { $score += 20 }
     if (Test-Path -LiteralPath (Join-Path $Path "Map") -PathType Container) { $score += 10 }
-    if (Test-Path -LiteralPath (Join-Path $Path "_CCZModStudio_TestCopy.txt") -PathType Leaf) { $score -= 100 }
     if ($parentName -eq "CCZModStudio_TestCopies") { $score -= 100 }
 
     $relativeLength = $Path.Length - $WorkspaceRoot.Length

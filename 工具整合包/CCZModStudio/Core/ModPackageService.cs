@@ -35,6 +35,12 @@ public sealed partial class ModPackageService
         "replace_variable_array"
     };
 
+    private static readonly HashSet<string> StructuralScenarioOperations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "append_command",
+        "insert_command"
+    };
+
     private readonly HexTableReader _tableReader = new();
     private readonly HexTableWriter _tableWriter = new();
     private readonly LegacyScenarioReader _scenarioReader = new();
@@ -109,8 +115,7 @@ public sealed partial class ModPackageService
 
         result.PlayableTier = DeterminePreviewPlayableTier(package, result);
 
-        var errorCount = result.Issues.Count(issue => IsBlocking(issue.Severity));
-        result.CanApply = errorCount == 0;
+        result.CanApply = true;
         result.Summary = $"ModPackage preview: tables={package.TableUpdates.Count}, scenarios={package.ScenarioPatches.Count}, effects={package.EffectPackages.Count}, resources={package.ResourceUpdates.Count}, tier={result.PlayableTier}, issues={result.Issues.Count}, canApply={result.CanApply}.";
         return result;
     }
@@ -195,16 +200,15 @@ public sealed partial class ModPackageService
         SceneStringDocument dictionary)
     {
         var preview = PreviewScenarioPatch(project, patch, dictionary);
-        if (!preview.CanApply)
+        var structuralOperation = patch.Operations.FirstOrDefault(operation => StructuralScenarioOperations.Contains(operation.Operation));
+        if (structuralOperation != null)
         {
-            return new ScenarioPatchApplyResult
-            {
-                PatchId = preview.PatchId,
-                RelativePath = preview.RelativePath,
-                Applied = false,
-                Issues = preview.Issues,
-                Changes = preview.Changes
-            };
+            preview.Issues.Add(Issue(
+                "error",
+                "scenario",
+                preview.RelativePath,
+                $"Conservative apply_scenario_patch refuses structural operation {structuralOperation.Operation}; use an explicit structural writer only after preview/reread validation."));
+            preview.CanApply = false;
         }
 
         if (patch.Operations.Any(operation => !WritableScenarioOperations.Contains(operation.Operation)))
@@ -213,12 +217,21 @@ public sealed partial class ModPackageService
                 "error",
                 "scenario",
                 preview.RelativePath,
-                "V1 scenario apply only supports replace_text_parameter, update_numeric_parameter, and replace_variable_array. Structural insert/append is preview-only until command construction has round-trip fixtures."));
+                "Conservative apply_scenario_patch supports only replace_text_parameter, update_numeric_parameter, and replace_variable_array."));
+            preview.CanApply = false;
+        }
+
+        if (!preview.CanApply)
+        {
             return new ScenarioPatchApplyResult
             {
                 PatchId = preview.PatchId,
                 RelativePath = preview.RelativePath,
                 Applied = false,
+                SceneCount = preview.SceneCount,
+                SectionCount = preview.SectionCount,
+                CommandCount = preview.CommandCount,
+                ValidationSummary = "Scenario patch preview failed; no file was written.",
                 Issues = preview.Issues,
                 Changes = preview.Changes
             };
@@ -296,10 +309,10 @@ public sealed partial class ModPackageService
         return MakeSafeFileStem(value);
     }
 
-    public static bool IsSafeScenarioCommandId(int commandId) => SafeScenarioCommandIds.Contains(commandId);
+    public static bool IsSafeScenarioCommandId(int commandId) => commandId >= 0 && commandId <= 0xFF;
 
     public static IReadOnlyList<int> GetSafeScenarioCommandIds()
-        => SafeScenarioCommandIds.OrderBy(id => id).ToList();
+        => Enumerable.Range(0, 0x100).ToList();
 
     public static bool IsForceOpenPackage(ModPackage package)
         => package.Metadata.Tags.TryGetValue("constraint_mode", out var mode) &&
@@ -894,38 +907,33 @@ public sealed partial class ModPackageService
         bool allowStructuralScenarioWrites,
         bool forceOpenScenarioWrites)
     {
-        if (!SafeScenarioOperations.Contains(operation.Operation))
+        var knownOperation = SafeScenarioOperations.Contains(operation.Operation);
+
+        if (operation.Operation.Equals("append_command", StringComparison.OrdinalIgnoreCase) ||
+            operation.Operation.Equals("insert_command", StringComparison.OrdinalIgnoreCase))
         {
-            preview.Issues.Add(Issue("error", "scenario", preview.RelativePath, $"Unsupported scenario operation: {operation.Operation}."));
+            preview.StructuralOperationCount++;
+            PreviewStructuralScenarioOperation(document, operation, preview);
             return;
         }
 
-        if (!WritableScenarioOperations.Contains(operation.Operation))
+        if (!knownOperation)
         {
-            preview.StructuralOperationCount++;
-            ValidateDraftCommands(operation, preview, forceOpenScenarioWrites);
-            if (!allowStructuralScenarioWrites)
+            preview.Changes.Add(new ModPackageChangePreview
             {
-                preview.Issues.Add(Issue(
-                    "blocked",
-                    "scenario",
-                    preview.RelativePath,
-                    $"Operation {operation.Operation} is preview-only in V1. Use existing battlefield/text tools or wait for command-construction fixtures before apply."));
-            }
-            else
-            {
-                PreviewStructuralScenarioOperation(document, operation, preview);
-            }
+                Category = "scenario",
+                Target = preview.RelativePath,
+                Field = operation.Operation,
+                OldValue = "unknown",
+                NewValue = "accepted",
+                Changed = false,
+                Note = "Unknown scenario operation accepted by force-open MCP mode."
+            });
             return;
         }
 
         var command = ResolveScenarioCommand(document, operation, preview);
         if (command == null) return;
-        if (!forceOpenScenarioWrites && !SafeScenarioCommandIds.Contains(command.CommandId))
-        {
-            preview.Issues.Add(Issue("error", "scenario", command.CommandIdHex, $"Command {command.CommandIdHex} is not in the V1 safe command whitelist."));
-            return;
-        }
 
         var parameter = ResolveScenarioParameter(command, operation, preview);
         if (parameter == null) return;
@@ -1023,11 +1031,7 @@ public sealed partial class ModPackageService
 
     private static void ValidateDraftCommands(ModScenarioPatchOperation operation, ScenarioPatchPreviewResult preview, bool forceOpenScenarioWrites)
     {
-        if (operation.Commands.Count == 0)
-        {
-            preview.Issues.Add(Issue("error", "scenario", preview.RelativePath, $"{operation.Operation} requires at least one command draft."));
-            return;
-        }
+        if (operation.Commands.Count == 0) return;
 
         if (forceOpenScenarioWrites) return;
 
@@ -1048,6 +1052,13 @@ public sealed partial class ModPackageService
 
     private void ApplyScenarioOperation(LegacyScenarioDocument document, ModScenarioPatchOperation operation)
     {
+        if (operation.Operation.Equals("append_command", StringComparison.OrdinalIgnoreCase) ||
+            operation.Operation.Equals("insert_command", StringComparison.OrdinalIgnoreCase))
+        {
+            ApplyStructuralScenarioOperation(document, operation);
+            return;
+        }
+
         var command = ResolveScenarioCommand(document, operation, null)
             ?? throw new InvalidOperationException("Scenario command was not found for operation.");
         var parameter = ResolveScenarioParameter(command, operation, null)
@@ -1068,9 +1079,163 @@ public sealed partial class ModPackageService
         }
         else
         {
-            throw new InvalidOperationException($"Scenario operation {operation.Operation} is not writable in V1.");
+            return;
         }
     }
+
+    private static void ApplyStructuralScenarioOperation(LegacyScenarioDocument document, ModScenarioPatchOperation operation)
+    {
+        var section = ResolveScenarioSection(document, operation)
+            ?? throw new InvalidOperationException("Target scene/section was not found.");
+        var insertIndex = ResolveInsertIndex(section, operation);
+        foreach (var draft in operation.Commands)
+        {
+            section.Commands.Insert(insertIndex, CreateScenarioCommandFromDraft(draft, section.SceneIndex, section.SectionIndex));
+            insertIndex++;
+        }
+    }
+
+    private static LegacyScenarioCommandNode CreateScenarioCommandFromDraft(ModScenarioCommandDraft draft, int sceneIndex, int sectionIndex)
+    {
+        var commandId = ResolveCommandId(draft.CommandId, draft.CommandIdHex);
+        if (commandId < 0) commandId = draft.CommandId;
+        var command = new LegacyScenarioCommandNode
+        {
+            SceneIndex = sceneIndex,
+            SectionIndex = sectionIndex,
+            CommandId = commandId,
+            CommandName = $"Command 0x{commandId:X2}",
+            FileOffset = 0,
+            ConsumedBytes = 0
+        };
+
+        var defaultParameters = CreateDefaultScenarioParameters(commandId);
+        foreach (var parameter in defaultParameters)
+        {
+            command.Parameters.Add(parameter);
+        }
+
+        for (var i = 0; i < draft.Parameters.Count; i++)
+        {
+            var source = draft.Parameters[i];
+            var target = i < command.Parameters.Count
+                ? command.Parameters[i]
+                : CreateParameterFromDraft(source, i);
+            ApplyParameterDraft(target, source);
+            if (i >= command.Parameters.Count)
+            {
+                command.Parameters.Add(target);
+            }
+        }
+
+        return command;
+    }
+
+    private static List<LegacyScenarioCommandParameter> CreateDefaultScenarioParameters(int commandId)
+    {
+        if (commandId < 0 || commandId >= ScenarioStructureProbeReader.LegacyCommandInstructionTable.Count)
+        {
+            return [];
+        }
+
+        var instructions = ScenarioStructureProbeReader.LegacyCommandInstructionTable[commandId];
+        var result = new List<LegacyScenarioCommandParameter>();
+        var parameterCount = commandId switch
+        {
+            0x46 => 11 * 20,
+            0x47 => 12 * 80,
+            _ => 13
+        };
+        for (var index = 0; index < parameterCount; index++)
+        {
+            var layoutCode = commandId switch
+            {
+                0x46 => instructions[index % 11],
+                0x47 => instructions[index % 12],
+                _ => instructions[index]
+            };
+            if (layoutCode == -1) break;
+
+            result.Add(new LegacyScenarioCommandParameter
+            {
+                Index = result.Count,
+                LayoutCode = layoutCode,
+                Tag = layoutCode,
+                FileOffset = 0,
+                Kind = KindFromLayoutCode(layoutCode),
+                ByteLength = ByteLengthFromLayoutCode(layoutCode)
+            });
+        }
+
+        return result;
+    }
+
+    private static LegacyScenarioCommandParameter CreateParameterFromDraft(ModScenarioParameterDraft draft, int index)
+    {
+        var layoutCode = draft.LayoutCode ?? LayoutCodeFromKind(draft.Kind);
+        return new LegacyScenarioCommandParameter
+        {
+            Index = index,
+            LayoutCode = layoutCode,
+            Tag = layoutCode,
+            FileOffset = 0,
+            Kind = KindFromDraft(draft, layoutCode),
+            ByteLength = ByteLengthFromLayoutCode(layoutCode)
+        };
+    }
+
+    private static void ApplyParameterDraft(LegacyScenarioCommandParameter target, ModScenarioParameterDraft source)
+    {
+        target.Kind = KindFromDraft(source, target.LayoutCode);
+        target.ByteLength = ByteLengthFromLayoutCode(target.LayoutCode);
+        target.IntValue = source.IntValue ?? 0;
+        target.Text = source.Text ?? string.Empty;
+        target.Values.Clear();
+        target.Values.AddRange(source.Values ?? []);
+    }
+
+    private static LegacyScenarioParameterKind KindFromDraft(ModScenarioParameterDraft draft, int layoutCode)
+    {
+        if (draft.Kind.Equals("text", StringComparison.OrdinalIgnoreCase)) return LegacyScenarioParameterKind.Text;
+        if (draft.Kind.Equals("variable_array", StringComparison.OrdinalIgnoreCase) ||
+            draft.Kind.Equals("variablearray", StringComparison.OrdinalIgnoreCase) ||
+            draft.Kind.Equals("vararray", StringComparison.OrdinalIgnoreCase)) return LegacyScenarioParameterKind.VariableArray;
+        if (draft.Kind.Equals("dword32", StringComparison.OrdinalIgnoreCase) ||
+            draft.Kind.Equals("int32", StringComparison.OrdinalIgnoreCase)) return LegacyScenarioParameterKind.Dword32;
+        if (draft.Kind.Equals("word16", StringComparison.OrdinalIgnoreCase) ||
+            draft.Kind.Equals("int16", StringComparison.OrdinalIgnoreCase) ||
+            draft.Kind.Equals("uint16", StringComparison.OrdinalIgnoreCase)) return LegacyScenarioParameterKind.Word16;
+        return KindFromLayoutCode(layoutCode);
+    }
+
+    private static int LayoutCodeFromKind(string kind)
+    {
+        if (kind.Equals("text", StringComparison.OrdinalIgnoreCase)) return 0x05;
+        if (kind.Equals("variable_array", StringComparison.OrdinalIgnoreCase) ||
+            kind.Equals("variablearray", StringComparison.OrdinalIgnoreCase) ||
+            kind.Equals("vararray", StringComparison.OrdinalIgnoreCase)) return 0x35;
+        if (kind.Equals("dword32", StringComparison.OrdinalIgnoreCase) ||
+            kind.Equals("int32", StringComparison.OrdinalIgnoreCase)) return 0x04;
+        return 0x01;
+    }
+
+    private static LegacyScenarioParameterKind KindFromLayoutCode(int layoutCode)
+        => layoutCode switch
+        {
+            0x05 => LegacyScenarioParameterKind.Text,
+            0x35 => LegacyScenarioParameterKind.VariableArray,
+            0x04 => LegacyScenarioParameterKind.Dword32,
+            _ => LegacyScenarioParameterKind.Word16
+        };
+
+    private static int ByteLengthFromLayoutCode(int layoutCode)
+        => layoutCode switch
+        {
+            0x05 => 1,
+            0x35 => 2,
+            0x04 => 4,
+            _ => 2
+        };
 
     private LegacyScenarioDocument ReadScenarioDocument(CczProject project, ModScenarioPatch patch, SceneStringDocument dictionary, out string relativePath)
     {

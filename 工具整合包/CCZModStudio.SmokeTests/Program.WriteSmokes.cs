@@ -244,6 +244,29 @@ internal partial class Program
         Console.WriteLine($"RS_WRITE_SMOKE OK root={smokeRoot}");
     }
 
+    static void RunJobWriteOnlySmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "JobWriteSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+        Directory.CreateDirectory(smokeRoot);
+        foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Imsg.e5" })
+        {
+            var source = Path.Combine(project.GameRoot, coreFile);
+            if (!File.Exists(source))
+            {
+                throw new FileNotFoundException("详细兵种写入烟测缺少核心文件。", source);
+            }
+
+            File.Copy(source, Path.Combine(smokeRoot, coreFile), overwrite: false);
+        }
+
+        File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+            $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={project.GameRoot}\r\nPurpose=Job write smoke\r\n");
+
+        var testProject = new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+        RunJobWriteSmoke(testProject, tables);
+        Console.WriteLine($"JOB_WRITE_ONLY_SMOKE_OK root={smokeRoot}");
+    }
+
     static void RunBattlefieldUnitStatusWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         _ = tables;

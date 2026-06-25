@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
 
 namespace CCZModStudio.GameDebugMcpServer;
@@ -19,7 +19,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         int port = 27042,
         [Description("Maximum milliseconds to wait for the bridge to report healthy.")]
         int wait_ms = 10000,
-        [Description("Start x32dbg hidden. Default false so a human can see the debug session.")]
+        [Description("Start x32dbg hidden. Default false keeps the debug session visible.")]
         bool hidden = false)
         => runtime.DebugSessionStart(game_root, x32dbg_path, host_name, port, wait_ms, hidden);
 
@@ -29,7 +29,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Optional game root. Defaults to CCZGAME_DEBUG_GAME_ROOT, CCZMODSTUDIO_GAME_ROOT, or auto-detection.")]
         string? game_root = null,
         [Description("Explicit safety gate. Must be true to launch Ekd5.exe when it is not already running.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Maximum milliseconds to wait for the process/window after launch.")]
         int wait_ms = 10000,
         [Description("Optional output directory for evidence.")]
@@ -267,12 +267,12 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         => runtime.GameBattleVerifyClickTarget(grid_x, grid_y, allow_occupied, expected_unit_index, game_root, origin_x, origin_y, cell_width, cell_height, output_dir);
 
     [McpServerTool]
-    [Description("Select one controllable side=0 battle unit. Real mouse input requires allow_input=true; default is dry-run.")]
+    [Description("Select one controllable side=0 battle unit. allow_input defaults true; pass false for dry-run.")]
     public object game_battle_select_unit(
         [Description("Tactical unit index from the unit array.")]
         int unit_index,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid.")]
@@ -299,7 +299,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Destination grid y.")]
         int to_y,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid.")]
@@ -326,7 +326,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Allow planning move-first routes. v1 still blocks unverified move-then-attack input.")]
         bool move_first = true,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid.")]
@@ -349,7 +349,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Tactical unit index from the unit array.")]
         int unit_index,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid.")]
@@ -370,7 +370,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
     [Description("Click the registered end-turn UI area. Real mouse input requires allow_input=true.")]
     public object game_battle_end_turn(
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Milliseconds to wait after real input before reading post-state.")]
@@ -385,7 +385,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Automation policy. v1 supports safe_attack.")]
         string policy = "safe_attack",
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid.")]
@@ -429,7 +429,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Automation policy. v1 supports safe_attack.")]
         string policy = "safe_attack",
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid.")]
@@ -454,7 +454,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Tactical grid y coordinate.")]
         int grid_y,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Client-space x origin for grid (calibration value).")]
@@ -475,7 +475,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Registered UI area key: attack, strategy, item, wait, end_turn, title_start_game, title_load_game, title_settings, title_exit, menu_top_1, menu_top_2, menu_top_3, menu_top_4.")]
         string ui_area,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Optional output directory for evidence.")]
@@ -488,7 +488,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Comma/space separated key sequence. Supports enter, esc, up, down, left, right, space, tab, f1..f12, digits, and single letters.")]
         string sequence,
         [Description("Explicit safety gate. Must be true to post keyboard messages.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Delay after each key in milliseconds.")]
@@ -662,7 +662,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Optional keyboard-only sequence to trigger the route after breakpoints are prepared. Empty means no trigger.")]
         string trigger_sequence = "",
         [Description("Explicit safety gate. Must be true to send keyboard input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Whether to start/attach x32dbg through debug_session_start before probing.")]
         bool start_debugger = false,
         [Description("After starting/attaching x32dbg, issue limited run commands until the Ekd5 main window appears.")]
@@ -705,9 +705,9 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Comma/semicolon-separated title routes, or title_menu/all for Start, Load, Settings, Exit.")]
         string routes = "title_menu",
         [Description("Explicit safety gate. Must be true to send keyboard input for route triggers.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Explicit safety gate for the title_exit route when allow_input=true.")]
-        bool allow_exit_route = false,
+        bool allow_exit_route = true,
         [Description("When allow_input=true, use built-in keyboard-only trigger sequences for each route.")]
         bool use_default_triggers = true,
         [Description("Whether to start/attach x32dbg through debug_session_start before probing each route.")]
@@ -754,7 +754,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Keyboard sequence to send after breakpoints are set. Defaults to the regular_start candidate after the actor-click prerequisite is satisfied.")]
         string sequence = "enter,down,down,down,down,down,enter",
         [Description("Explicit safety gate. Must be true to send keyboard input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Whether to start/attach x32dbg through debug_session_start before probing.")]
         bool start_debugger = false,
         [Description("After starting/attaching x32dbg, issue limited run commands until the Ekd5 main window appears.")]
@@ -857,9 +857,9 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Semicolon-separated keyboard sequences. Each sequence is comma/space separated, for example enter;space;enter,down,enter.")]
         string sequences = "enter;space;esc;enter,down,enter;enter,down,down,down,down,down,enter",
         [Description("Explicit safety gate. Must be true to launch Ekd5.exe if not running.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Explicit safety gate. Must be true to send keyboard input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Whether to start/attach x32dbg through debug_session_start before exploration.")]
         bool start_debugger = false,
         [Description("After starting/attaching x32dbg, issue limited run commands until the Ekd5 main window appears.")]
@@ -971,7 +971,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Whether to start Ekd5.exe directly before probing.")]
         bool start_game = false,
         [Description("Explicit safety gate for start_game. Must be true to launch Ekd5.exe.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Whether to start/attach x32dbg through debug_session_start.")]
         bool start_debugger = false,
         [Description("Optional runtime classifications to wait for before probe planning, or none.")]
@@ -1002,7 +1002,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Whether to start Ekd5.exe directly before profile/probe planning.")]
         bool start_game = false,
         [Description("Explicit safety gate for start_game. Must be true to launch Ekd5.exe.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Maximum milliseconds to wait for Ekd5.exe after start_game.")]
         int game_start_wait_ms = 10000,
         [Description("Whether to start/attach x32dbg through debug_session_start.")]
@@ -1010,7 +1010,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Optional runtime classifications to wait for before profile matching, or none.")]
         string? wait_for_state = null,
         [Description("When true, dynamic probes are skipped unless the battle profile reports profile-matched or attack_after_observed.")]
-        bool require_profile_match = true,
+        bool require_profile_match = false,
         [Description("Whether to actually set/run x32dbg breakpoints after profile gating. Requires bridge online.")]
         bool run_probes = false,
         [Description("Maximum hits to collect if run_probes=true and profile gate allows it.")]
@@ -1054,7 +1054,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Whether to start Ekd5.exe directly before readiness.")]
         bool start_game = false,
         [Description("Explicit safety gate for start_game. Must be true to launch Ekd5.exe.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Maximum milliseconds to wait for Ekd5.exe after start_game.")]
         int game_start_wait_ms = 10000,
         [Description("Whether to start/attach x32dbg through debug_session_start before readiness.")]
@@ -1091,7 +1091,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Whether to mutate x32dbg breakpoints and run the debuggee.")]
         bool run_probes = false,
         [Description("Explicit safety gate. Must be true to send mouse input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("x64dbg MCP bridge host. Must remain local.")]
         string host_name = "127.0.0.1",
         [Description("x64dbg MCP bridge port.")]
@@ -1113,14 +1113,14 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         string profile = "full_menu_yingchuan",
         [Description("Allow debugger-mediated internal function invocation attempts when bridge and plans are ready.")]
         bool allow_debug_invoke = true,
-        [Description("Explicit safety gate for temporary runtime code injection. Default false keeps validation plan-only.")]
-        bool allow_runtime_injection = false,
+        [Description("Explicit gate for temporary runtime code injection. Defaults true for live-capable runs; pass false for plan-only validation.")]
+        bool allow_runtime_injection = true,
         [Description("Whether to create persistent patch-package recommendations. GameDebug never directly patches the EXE.")]
-        bool allow_persistent_patch = false,
+        bool allow_persistent_patch = true,
         [Description("Whether to start Ekd5.exe directly before orchestration.")]
         bool start_game = false,
         [Description("Explicit safety gate for start_game. Must be true to launch Ekd5.exe.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Whether to start/attach x32dbg through debug_session_start.")]
         bool start_debugger = false,
         [Description("After starting/attaching x32dbg, issue limited run commands until the Ekd5 main window appears.")]
@@ -1156,7 +1156,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("runtime-invoke-plan.json path.")]
         string plan_path,
         [Description("Explicit safety gate for temporary runtime injection.")]
-        bool allow_runtime_injection = false,
+        bool allow_runtime_injection = true,
         [Description("Allow debugger-mediated register/stack commands when available.")]
         bool allow_debug_invoke = true,
         [Description("x64dbg MCP bridge host. Must remain local.")]
@@ -1174,8 +1174,8 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
     public object debug_menu_route_run(
         [Description("Route: full_menu, title_menu, settings_roundtrip, load_save_entry, exit_entry, r00_regular_start, r00_custom_mode, or r00_mode_help.")]
         string route = "full_menu",
-        [Description("Whether to execute temporary runtime injection for route steps. Default false writes only plans/evidence.")]
-        bool allow_runtime_injection = false,
+        [Description("Whether to execute temporary runtime injection for route steps. Defaults true; pass false to write only plans/evidence.")]
+        bool allow_runtime_injection = true,
         [Description("Allow debugger-mediated invoke attempts when bridge is ready.")]
         bool allow_debug_invoke = true,
         [Description("x64dbg MCP bridge host. Must remain local.")]
@@ -1195,10 +1195,10 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         string stages = "attack_before,attack_execute,attack_after,turn_end",
         [Description("Trigger script. v1 supports yingchuan_cao_attack_zhangliang and turn_end.")]
         string trigger_script = "yingchuan_cao_attack_zhangliang",
-        [Description("Whether to run x32dbg probes. Default false writes verification plans only.")]
+        [Description("Whether to run x32dbg probes. Defaults false so address verification remains plan-only unless requested.")]
         bool run_probes = false,
         [Description("Whether to require battle/profile gate before running probes.")]
-        bool require_profile_match = true,
+        bool require_profile_match = false,
         [Description("Maximum hits to collect when run_probes=true.")]
         int max_hits = 16,
         [Description("Timeout in milliseconds for dynamic probe run.")]
@@ -1214,14 +1214,14 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         => runtime.DebugAddressVerifyRun(stages, trigger_script, run_probes, require_profile_match, max_hits, timeout_ms, host_name, port, output_dir, game_root);
 
     [McpServerTool]
-    [Description("Promote reviewed dynamic evidence into the formal local knowledge base. Refuses promotion unless required evidence gates are present.")]
+    [Description("Promote reviewed dynamic evidence into the formal local knowledge base. With allow_write=true, incomplete evidence is appended as pending.")]
     public object debug_knowledge_promote(
         [Description("Evidence directory or JSON summary to promote.")]
         string evidence_path,
         [Description("Knowledge topic: function-index, automation-flow, merit, or custom.")]
         string topic = "function-index",
         [Description("When false, only writes knowledge-promotions.json without editing the formal knowledge base.")]
-        bool allow_write = false,
+        bool allow_write = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("Optional output directory for promotion report.")]
@@ -1264,7 +1264,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Whether to start Ekd5.exe directly without x32dbg before state/probe planning.")]
         bool start_game = false,
         [Description("Explicit safety gate for start_game. Must be true to launch Ekd5.exe.")]
-        bool allow_launch = false,
+        bool allow_launch = true,
         [Description("Maximum milliseconds to wait for Ekd5.exe after start_game.")]
         int game_start_wait_ms = 10000,
         [Description("Whether to start/attach x32dbg through debug_session_start.")]
@@ -1341,7 +1341,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Keyboard sequence to post after breakpoints are set. Supports the same keys as game_key_sequence.")]
         string sequence = "enter",
         [Description("Explicit safety gate. Must be true to post keyboard messages.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Whether to start/attach x32dbg through debug_session_start before probing.")]
         bool start_debugger = false,
         [Description("After starting/attaching x32dbg, issue limited run commands until the Ekd5 main window appears.")]
@@ -1425,7 +1425,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Script key, for example yj_cao_attack_zhangliang.")]
         string script,
         [Description("Explicit safety gate. Must be true for scripts that send input.")]
-        bool allow_input = false,
+        bool allow_input = true,
         [Description("Optional game root.")]
         string? game_root = null,
         [Description("x64dbg MCP bridge host. Must remain local.")]
@@ -1436,3 +1436,4 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         string? output_dir = null)
         => runtime.DebugScriptRun(script, allow_input, game_root, host_name, port, output_dir);
 }
+

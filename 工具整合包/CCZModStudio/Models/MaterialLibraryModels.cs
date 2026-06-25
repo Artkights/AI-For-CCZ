@@ -19,6 +19,7 @@ public static class MapWorkbenchLayerSources
 public static class MaterialAutoTileRoles
 {
     public const string Default = "default";
+    public const string Fill = "fill";
     public const string StraightH = "straightH";
     public const string StraightV = "straightV";
     public const string CornerNE = "cornerNE";
@@ -43,6 +44,8 @@ public static class MaterialAutoTileRoles
 public static class MaterialAutoTileModes
 {
     public const string Mask = "mask";
+    public const string LinePath = "linePath";
+    public const string RegionBoundary = "regionBoundary";
     public const string Default = "default";
 }
 
@@ -61,10 +64,10 @@ public static class MaterialAutoTileMasks
     public const int DiagonalMask = NorthEast | SouthEast | SouthWest | NorthWest;
     public const int StraightH = East | West;
     public const int StraightV = North | South;
-    public const int CornerNE = North | East;
-    public const int CornerNW = North | West;
-    public const int CornerSE = South | East;
-    public const int CornerSW = South | West;
+    public const int CornerNE = South | West;
+    public const int CornerNW = South | East;
+    public const int CornerSE = North | West;
+    public const int CornerSW = North | East;
     public const int TeeN = East | South | West;
     public const int TeeE = North | South | West;
     public const int TeeS = North | East | West;

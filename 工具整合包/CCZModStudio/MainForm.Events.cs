@@ -68,6 +68,8 @@ public sealed partial class MainForm
         };
         _loadJobEditorButton.Click += (_, _) => LoadJobEditor();
         _saveJobEditorButton.Click += (_, _) => SaveJobEditor();
+        _editAccessoryJobGroupsButton.Click += (_, _) => EditAccessoryJobGroups();
+        _replaceJobSImageButton.Click += (_, _) => ReplaceSelectedJobSImage();
         _openJobSeriesTableButton.Click += (_, _) => OpenCoreTable("6.5-3 兵种系");
         _openJobEffectTableButton.Click += (_, _) => OpenJobEffectEditor();
         _exportJobEditorCsvButton.Click += (_, _) => ExportJobEditorCsv();
@@ -94,6 +96,15 @@ public sealed partial class MainForm
         };
         _jobEditorGrid.CellBeginEdit += (_, e) => BeginJobEditorCellEdit(e.RowIndex, e.ColumnIndex);
         _jobEditorGrid.CellValidating += (_, e) => ValidateJobEditorCell(e);
+        _jobEditorGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                var columnName = _jobEditorGrid.Columns[e.ColumnIndex].DataPropertyName;
+                _jobEditorInfoBox.Text = $"兵种设定单元格显示失败：{columnName}；{e.Exception?.Message}";
+            }
+        };
         _jobEditorGrid.CellEndEdit += (_, e) =>
         {
             CompleteJobEditorCellEdit(e.RowIndex, e.ColumnIndex);
@@ -574,6 +585,25 @@ public sealed partial class MainForm
         };
         _mapMakerBeautifyCheckBox.Click += (_, _) => _ = BeautifyCurrentGeneratedMapAsync();
         _mapMakerRollbackBeautifyButton.Click += (_, _) => RollbackCurrentMapBeautify();
+        _mapMakerBeautifyFilterCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (_updatingMapMakerBeautifyFilterSelection) return;
+            if (_currentMapWorkbenchDraft != null)
+            {
+                var previousProfile = _currentMapWorkbenchDraft.BeautifyFilterProfile;
+                var selectedProfile = GetSelectedBeautifyFilterProfile();
+                if (selectedProfile.Equals(TerrainBeautifyFilterProfiles.Custom, StringComparison.OrdinalIgnoreCase) &&
+                    !TryConfigureCustomBeautifyFilter(requireDialog: true))
+                {
+                    SetSelectedBeautifyFilterProfile(previousProfile);
+                    return;
+                }
+
+                _currentMapWorkbenchDraft.BeautifyFilterProfile = selectedProfile;
+            }
+            MarkCurrentGeneratedMapNeedsBeautify();
+            RenderMapMakerPreview(force: true);
+        };
         _mapMakerBeautifyStrengthInput.ValueChanged += (_, _) =>
         {
             if (_currentMapWorkbenchDraft != null)
@@ -615,6 +645,15 @@ public sealed partial class MainForm
         _mapViewerBox.MouseDown += (_, e) => BeginMapMakerTerrainPaint(e);
         _mapViewerBox.MouseMove += (_, e) => ContinueMapMakerTerrainPaint(e);
         _mapViewerBox.MouseUp += (_, _) => EndMapMakerTerrainPaint();
+        _mapViewerBox.Paint += (_, e) => PaintMapWorkbenchScenerySelection(e.Graphics);
+        _mapViewerBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.KeyCode is Keys.Up or Keys.Down or Keys.Left or Keys.Right or Keys.Delete or Keys.Oemplus or Keys.Add or Keys.OemMinus or Keys.Subtract or Keys.OemOpenBrackets or Keys.OemCloseBrackets)
+            {
+                e.IsInputKey = true;
+            }
+        };
+        _mapViewerBox.KeyDown += (_, e) => HandleMapWorkbenchSceneryKeyDown(e);
         _mapViewerBox.MouseLeave += (_, _) =>
         {
             EndMapMakerTerrainPaint();

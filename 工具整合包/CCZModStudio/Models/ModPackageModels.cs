@@ -186,7 +186,7 @@ public sealed class StandaloneScenarioPlayabilityChecklist
 public sealed class ModDesignAnalysisResult
 {
     public string ProjectRoot { get; set; } = string.Empty;
-    public string AutomationMode { get; set; } = "aggressive_test_copy";
+    public string AutomationMode { get; set; } = "direct";
     public ModDesign Design { get; set; } = new();
     public List<string> Decisions { get; set; } = [];
     public List<string> MissingInputsAutoFilled { get; set; } = [];
@@ -195,7 +195,7 @@ public sealed class ModDesignAnalysisResult
 public sealed class ModPackageCompileResult
 {
     public string ProjectRoot { get; set; } = string.Empty;
-    public string AutomationMode { get; set; } = "aggressive_test_copy";
+    public string AutomationMode { get; set; } = "direct";
     public ModDesign Design { get; set; } = new();
     public ModAvailableSlotsResult Slots { get; set; } = new();
     public ModPackage Package { get; set; } = new();
@@ -226,7 +226,7 @@ public sealed class ModAutoMakeResult
 {
     public string ProjectRoot { get; set; } = string.Empty;
     public string TestCopyRoot { get; set; } = string.Empty;
-    public string AutomationMode { get; set; } = "aggressive_test_copy";
+    public string AutomationMode { get; set; } = "direct";
     public ModDesign Design { get; set; } = new();
     public ModPackage Package { get; set; } = new();
     public ModPackagePreviewResult? Preview { get; set; }

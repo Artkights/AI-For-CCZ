@@ -170,8 +170,8 @@ public sealed class MapCanvasPublishService
                     OldValue = $"旧大小 {oldBytes.LongLength:N0} 字节；尺寸 {oldWidth}x{oldHeight}；SHA256={oldHash}",
                     NewValue = $"新大小 {newBytes.LongLength:N0} 字节；尺寸 {newWidth}x{newHeight}；SHA256={newHash}；草稿={draft.DraftId}",
                     Annotation = draft.AutoGenerateMapFromTerrain
-                        ? $"地图工作台根据 {draft.TerrainCells.Length} 个地形格自动生成底图，并叠加 {draft.BuildingOverlayCells.Count} 个建筑覆盖格、{draft.MapCellOverrides.Count} 个微调覆盖格。Hexzmap.e5 地形层不会被本底图发布操作修改。"
-                        : $"地图工作台将底稿、{draft.GeneratedMapCells.Count} 个生成格、{draft.BuildingOverlayCells.Count} 个建筑覆盖格和 {draft.MapCellOverrides.Count} 个微调覆盖格合成为 JPEG。Hexzmap.e5 地形层不会被本底图发布操作修改。"
+                        ? $"地图工作台根据 {draft.TerrainCells.Length} 个地形格自动生成底图，并叠加 {draft.BuildingOverlayCells.Count} 个建筑覆盖格、{draft.SceneryOverlays.Count} 个景物整图覆盖、{draft.MapCellOverrides.Count} 个微调覆盖格。Hexzmap.e5 地形层不会被本底图发布操作修改。"
+                        : $"地图工作台将底稿、{draft.GeneratedMapCells.Count} 个生成格、{draft.BuildingOverlayCells.Count} 个建筑覆盖格、{draft.SceneryOverlays.Count} 个景物整图覆盖和 {draft.MapCellOverrides.Count} 个微调覆盖格合成为 JPEG。Hexzmap.e5 地形层不会被本底图发布操作修改。"
                 }
             ],
             Metadata =
@@ -186,11 +186,14 @@ public sealed class MapCanvasPublishService
                 ["MapCellOverrideCount"] = draft.MapCellOverrides.Count.ToString(CultureInfo.InvariantCulture),
                 ["GeneratedMapCellCount"] = draft.GeneratedMapCells.Count.ToString(CultureInfo.InvariantCulture),
                 ["BuildingOverlayCellCount"] = draft.BuildingOverlayCells.Count.ToString(CultureInfo.InvariantCulture),
+                ["SceneryOverlayCount"] = draft.SceneryOverlays.Count.ToString(CultureInfo.InvariantCulture),
                 ["TerrainCellCount"] = draft.TerrainCells.Length.ToString(CultureInfo.InvariantCulture),
                 ["AutoGenerateMapFromTerrain"] = draft.AutoGenerateMapFromTerrain.ToString(CultureInfo.InvariantCulture),
                 ["BeautifyGeneratedMap"] = draft.BeautifyGeneratedMap.ToString(CultureInfo.InvariantCulture),
                 ["BeautifyStrength"] = draft.BeautifyStrength.ToString(CultureInfo.InvariantCulture),
                 ["FeatherRadius"] = draft.FeatherRadius.ToString(CultureInfo.InvariantCulture),
+                ["BeautifyFilterProfile"] = draft.BeautifyFilterProfile,
+                ["CustomBeautifyFilter"] = draft.CustomBeautifyFilter == null ? string.Empty : "enabled",
                 ["Warning"] = warning
             }
         };

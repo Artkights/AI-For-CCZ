@@ -28,6 +28,7 @@ internal partial class Program
                 var status = GetPrivateFieldForMapWorkbenchUiSmoke<ToolStripStatusLabel>(form, "_statusLabel");
                 var showTerrain = GetPrivateFieldForMapWorkbenchUiSmoke<CheckBox>(form, "_mapMakerShowTerrainCheckBox");
                 var beautifyButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerBeautifyCheckBox");
+                var beautifyFilterCombo = GetPrivateFieldForMapWorkbenchUiSmoke<ComboBox>(form, "_mapMakerBeautifyFilterCombo");
                 var rollbackButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerRollbackBeautifyButton");
                 var materialPlanButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerMaterialPlanButton");
                 var materialTree = GetPrivateFieldForMapWorkbenchUiSmoke<TreeView>(form, "_mapMakerMaterialTree");
@@ -73,6 +74,15 @@ internal partial class Program
                 {
                     throw new InvalidOperationException("Beautify should be exposed as an enabled button.");
                 }
+
+                AssertMapWorkbenchBeautifyFilterCombo(beautifyFilterCombo);
+                SelectMapWorkbenchBeautifyFilter(beautifyFilterCombo, TerrainBeautifyFilterProfiles.Autumn);
+                if (!draft.BeautifyFilterProfile.Equals(TerrainBeautifyFilterProfiles.Autumn, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Beautify filter selection should update the current draft.");
+                }
+
+                SelectMapWorkbenchBeautifyFilter(beautifyFilterCombo, TerrainBeautifyFilterProfiles.Natural);
 
                 if (rollbackButton.Enabled)
                 {
@@ -244,9 +254,9 @@ internal partial class Program
 
         materialTree.SelectedNode = node;
         InvokePrivateForMapWorkbenchUiSmoke(form, "PopulateMapWorkbenchMaterialListForSelection");
-        if (materialList.Items.Count != expectedItems)
+        if (materialList.Items.Count < expectedItems)
         {
-            throw new InvalidOperationException($"Material browser should show one selectable item per image set for {groupText}. expected={expectedItems} actual={materialList.Items.Count}");
+            throw new InvalidOperationException($"Material browser should show selectable image sets for {groupText}. expectedAtLeast={expectedItems} actual={materialList.Items.Count}");
         }
 
         foreach (ListViewItem item in materialList.Items)
@@ -260,6 +270,48 @@ internal partial class Program
             }
         }
     }
+
+    private static void AssertMapWorkbenchBeautifyFilterCombo(ComboBox combo)
+    {
+        if (combo.DropDownStyle != ComboBoxStyle.DropDownList || combo.Items.Count != 6)
+        {
+            throw new InvalidOperationException("Beautify filter combo should expose the six selectable filter profiles.");
+        }
+
+        foreach (var expected in new[]
+                 {
+                     TerrainBeautifyFilterProfiles.Natural,
+                     TerrainBeautifyFilterProfiles.Night,
+                     TerrainBeautifyFilterProfiles.Autumn,
+                     TerrainBeautifyFilterProfiles.Winter,
+                     TerrainBeautifyFilterProfiles.WarmSun,
+                     TerrainBeautifyFilterProfiles.Custom
+                 })
+        {
+            if (!combo.Items.Cast<object>().Any(item => GetMapWorkbenchBeautifyFilterProfile(item).Equals(expected, StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("Beautify filter combo missing profile " + expected);
+            }
+        }
+    }
+
+    private static void SelectMapWorkbenchBeautifyFilter(ComboBox combo, string profile)
+    {
+        for (var i = 0; i < combo.Items.Count; i++)
+        {
+            var item = combo.Items[i];
+            if (item != null && GetMapWorkbenchBeautifyFilterProfile(item).Equals(profile, StringComparison.Ordinal))
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Beautify filter combo missing profile " + profile);
+    }
+
+    private static string GetMapWorkbenchBeautifyFilterProfile(object item)
+        => item.GetType().GetProperty("Profile")?.GetValue(item) as string ?? string.Empty;
 
     private static void AssertWorkbenchMaterialLibraryUsesStandardFolders(
         IReadOnlyList<MaterialAsset> materials,

@@ -186,16 +186,18 @@ Claude Desktop 可使用同形态 JSON：
 
 ## 可用工具分组
 
-- 项目流程：`detect_project`、`audit_project`、`create_test_copy`、`diff_test_copy`、`create_release_copy`、`list_workflow_guide`、`list_project_evidence`、`read_project_evidence`、`write_project_delivery_report`
+- 项目识别：`detect_project`
 - 数据表：`list_tables`、`read_table`、`write_table_rows`
 - R/S 剧本：`list_scenario_files`、`read_scenario_commands`、`search_scenario_scripts`、`read_scenario_texts`、`write_scenario_texts`
 - 指令模板与知识库：`list_scenario_command_templates`、`read_scenario_command_template`、`list_knowledge_entries`、`search_knowledge_entries`、`read_knowledge_entry`
-- 地图和资源：`list_project_resources`、`run_resource_diagnostics`、`list_hexzmap_blocks`、`read_hexzmap_block`、`write_hexzmap_block`、`replace_map_image`、`preview_resource_replace`、`replace_resource`
+- 整包制作：`analyze_mod_request`、`compile_mod_package`、`analyze_standalone_scenario_request`、`compile_standalone_scenario_package`、`preview_mod_package`、`apply_mod_package`、`auto_make_mod`、`auto_validate_mod`、`validate_mod_package`、`export_mod_report`
+- R/S 结构写回：`compile_scenario_patch`、`preview_scenario_patch`、`apply_scenario_patch`、`apply_scenario_patch_aggressive`、`parse_scenario_text_import`、`apply_scenario_text_import`、`read_scenario_text_import_template`、`read_rscene_draft`、`save_rscene_draft`、`publish_rscene_draft_to_scenario`
+- 地图和资源：`list_hexzmap_blocks`、`read_hexzmap_block`、`write_hexzmap_block`、`preview_map_image`、`replace_map_image`、`preview_resource_replace`、`replace_resource`
+- 地图工作台：`list_map_drafts`、`read_map_draft`、`save_map_draft`、`preview_map_canvas`、`export_map_canvas_jpeg`、`publish_map_canvas_to_map_image`、`publish_map_workbench_bundle`
 - 图片资源目录/预览：`list_image_resources`、`list_image_resource_entries`、`export_image_resource_preview`
-- AI 绘图素材：`list_ccz_image_asset_presets`、`build_ccz_image_prompt`、`prepare_ccz_generated_image`、`draw_ccz_image_asset`
+- AI 绘图素材：`list_ccz_image_asset_presets`、`build_ccz_image_prompt`、`prepare_ccz_generated_image`、`draw_ccz_image_asset`、`draw_and_replace_ccz_image_asset`
 - E5 图片条目：`list_e5_image_entries`、`preview_e5_image_replace`、`replace_e5_image_entry`、`preview_e5_image_batch_replace`、`replace_e5_image_batch`
 - DLL 图标：`preview_dll_icon_replace`、`replace_dll_icon`、`preview_clear_dll_icon`、`clear_dll_icon`
-- 制作留痕：`list_creator_notes`、`upsert_creator_note`、`delete_creator_note`、`export_creator_notes_csv`
 - x32dbg/x64dbg 动态调试（独立 MCP）：断点、寄存器、内存、反汇编、搜索、trace 和调试命令；不替代 CCZModStudio 的写入护栏。
 
 ## 验证
@@ -215,7 +217,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置
 应输出：
 
 ```text
-MCP_VALIDATE_OK server=CCZModStudio.McpServer protocol=2025-06-18 tools=62
+MCP_VALIDATE_OK server=CCZModStudio.McpServer protocol=2025-06-18 tools=<当前工具数>
 ```
 
 客户端重启后可继续调用：
@@ -231,16 +233,15 @@ list_tables
 ## 安全边界
 
 - MCP Server 只通过 stdout 输出 JSON-RPC，普通日志不得写 stdout。
-- `replace_resource` 禁止覆盖 `Ekd5.exe`、`Data.e5`、`Imsg.e5`、`Star.e5`、`Hexzmap.e5` 等核心文件。
-- E5 图片写入只开放可读取 `110` 索引表的图片载荷资源；批量写入使用单次备份和逐条复读校验。
-- DLL 图标写入只开放 `Itemicon.dll`、`Mgcicon.dll`、`Cmdicon.dll` 的 RT_BITMAP 位图资源。
-- AI 绘图素材只写 `CCZModStudio_Exports\AiImageAssets`，并调用 E5/DLL 预览工具，不直接写入游戏资源；上游 API Key 只能通过本机环境变量或非提交配置提供。
+- `replace_resource` 已开放核心文件整文件替换，仍会走备份、结构化报告和写后校验。
+- E5 图片写入开放可读取 `110` 索引表的图片载荷资源；批量写入使用单次备份和逐条复读校验。
+- DLL 图标写入开放 DLL RT_BITMAP 位图资源，不再限定在固定 DLL 文件名。
+- AI 绘图素材默认先写 `CCZModStudio_Exports\AiImageAssets`；`draw_and_replace_ccz_image_asset` 可把生成、预处理和 E5/DLL 替换串成一次直接写回，仍生成备份、报告和复读校验。上游 API Key 只能通过本机环境变量或非提交配置提供。
 - `export_image_resource_preview` 只写 `CCZModStudio_Exports\ImagePreviews`，不修改游戏文件。
-- `list_workflow_guide`、`list_project_evidence`、`read_project_evidence` 只读工作流状态和已生成证据；`read_project_evidence` 可用 `latest_delivery_report` 读取最新综合报告，避免中文路径在非 UTF-8 脚本客户端里乱码；`write_project_delivery_report` 只写 `CCZModStudio_Reports` 下的 Markdown 综合报告，不修改游戏文件。
 - 写入工具继续走备份、结构化报告、写后复读/哈希校验和版本护栏。
-- `write_mode=test_copy` 要求目标目录存在 `_CCZModStudio_TestCopy.txt`。
+- `write_mode` 默认 `direct`；参数仅为旧客户端兼容，测试副本语义会被忽略并按 direct 写入当前检测项目。
 - `CCZMODSTUDIO_GAME_ROOT` 用于固定游戏目录；未设置时按工作区自动检测。
-- x64dbg MCP 插件应只监听 `127.0.0.1`；不要开放到局域网或公网。动态调试允许启动游戏和设置断点，但 EXE 字节写入仍必须走测试副本、预览、备份和复读流程。
+- x64dbg MCP 插件应只监听 `127.0.0.1`；不要开放到局域网或公网。动态调试允许启动游戏、设置断点和执行已启用的运行时调用；持久 EXE 字节写入走对应写入工具的备份、预览和复读流程。
 
 ## Game Debug MCP add-on
 

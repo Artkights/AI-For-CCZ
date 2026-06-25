@@ -2,7 +2,7 @@
 
 ## 结论速览
 
-- 自动化 MOD 制作必须走“设计定稿 -> 槽位复读 -> 预览包 -> 测试副本写入 -> 写后复读 -> 实机/烟测 -> 推广”的闭环，不能从自然语言直接硬写正式基底。
+- 自动化 MOD 制作必须走“设计定稿 -> 槽位复读 -> 预览包 -> direct 写入当前项目 -> 写后复读 -> 实机/烟测 -> 归档报告”的闭环，不能绕过专用写入器裸改文件。
 - 独立单关或新工程适合采用“复制独立基底、归档旧 R/S、清空无关定长表行、低位重占用”的路线；定长表和核心文件只清空/覆盖行，不物理删行、不缩短文件。
 - 《三英战龙帝》案例沉淀的低位方案为：`R_00/S_00` 正式首关，人物 `0-8`，兵种系 `6.5-3:0-8`，详细职业/详细兵种按每系三行使用 `6.5-4:0/3/6/9/12/15/18/21/24`，武器 `0-8`，防具 `70-78`，辅助 `109-117`，奖励 `118-122`。该方案只适用于独立落实基底，不得直接套到原 6.5 基底。曾试行的 `R_00 -> R_01 -> S_01` 已因剧情跳段、人物显示和末尾路由问题降级为失败尝试。
 - R/S 设计必须先查 `08-剧本与战场/剧本设计语义命令映射表.md`，把“单挑、奖励、坐标触发、阶段推进、胜败判定”落到真实命令号、参数槽、变量和写回风险。
@@ -17,8 +17,8 @@
 
 ## 已确认事实
 
-- 当前 MCP / CCZModStudio 自动化主线具备 `auto_make_mod`、`preview_mod_package`、`apply_mod_package(write_mode=test_copy)`、`validate_mod_package`、`export_mod_report` 等整包流程入口。
-- `ModPackage` 适合写人物、职业、物品、资源、特效和部分安全剧本命令；复杂 R/S 结构仍以旧版完整树写入器、force-open 预览、测试副本和复读为准。
+- 当前 MCP / CCZModStudio 自动化主线具备 `auto_make_mod`、`preview_mod_package`、`apply_mod_package(automation_mode=direct)`、`apply_scenario_text_import`、`publish_rscene_draft_to_scenario`、`publish_map_workbench_bundle`、`draw_and_replace_ccz_image_asset`、`validate_mod_package`、`export_mod_report` 等整包流程入口。
+- `ModPackage` 适合写人物、职业、物品、资源、特效和 R/S 结构命令；复杂 R/S 结构以 `apply_scenario_patch_aggressive` / `LegacyScenarioWriter` 写入、备份、复读和报告为准。
 - 独立基底清理时，`Data.e5`、`Star.e5`、`Imsg.e5`、`Ekd5.exe` 等表结构保持原长度；无关行写成“空 / 预留 / 禁用”，不能物理删除行。
 - R/S active 目录可以只保留当前流程需要的 `R_00.eex / S_00.eex`，旧样本和失败尝试进入归档目录；若保留 `R_01/S_01/M001`，应明确标记为参考副本，不作为实机入口。
 - `R_00.eex` 在 6.5 原版中是开局启动容器。独立精简基底实测后，不保留原版启动、历史情报、菜单、随机和配置分支；但也不再把正式剧情迁到 `R_01`。当前可靠路线是将 `R_00` 做成纯净首关 R：剧情、人物出场、停顿、入队、装备、初始物品和出战设置在正文 Scene 内，另起玩家切换 Scene 承接出战测试。
@@ -52,10 +52,10 @@
 | 5. 命令蓝图 | 将 R/S 文案拆成文本宏和完整树命令蓝图，标注命令号、参数槽、变量和风险 | 可导入文本 + 完整树蓝图 | 不能只保留自然语言事件 |
 | 6. 只读复读 | 复读人物、职业、物品、R/S、地图、Hexzmap、资源槽 | 写前报告 | 冲突则回改设计稿 |
 | 7. 预览包 | 运行 `preview_mod_package` 或对应预览工具 | 预览报告 | 只修复明确错误，不放宽护栏 |
-| 8. 测试副本写入 | 运行 `apply_mod_package(write_mode=test_copy)` 或完整树测试副本写入 | 测试副本和写入报告 | 禁止直接写正式基底 |
-| 9. 写后复读 | 复读表、文本、资源、R/S 命令树、地图地形 | 写后报告 | 不一致则回滚测试副本或修包 |
+| 8. direct 写入 | 运行 `apply_mod_package(automation_mode=direct)`、`apply_scenario_patch_aggressive` 或专用发布工具 | 写入报告、备份和复读结果 | 禁止绕过专用写入器裸改文件 |
+| 9. 写后复读 | 复读表、文本、资源、R/S 命令树、地图地形 | 写后报告 | 不一致则按备份恢复或修包重写 |
 | 10. 烟测/实机 | 验证 R 打开、R 跳 S、S 载图、部署、事件、胜败、奖励 | 验证报告 | 失败项回设计或回包修复 |
-| 11. 推广 | 只在测试副本通过后使用 `promote_test_copy_mod(confirm_promote=true)` | 正式推广记录 | 未通过不得推广 |
+| 11. 归档 | 导出 `auto_validate_mod` / `export_mod_report` 报告，记录备份路径和剩余风险 | 正式创作记录 | 未验证项必须留在报告中 |
 
 ### 独立基底清理与低位编号
 
@@ -107,7 +107,7 @@
 | 辅助 / 道具 | 6.5 中 `装备特效号=2/3` 多数是类别标记；实际显示差异优先看 `类型` 字段，宝物页解释应写入项目侧 `CCZModStudio_Notes/*_ItemEffectCatalog.json` |
 | 奖励道具 | 奖励也要拆开图标和类型；不要让不同奖励都保持 `icon=0/effect=0/type=60` 这种不可读状态 |
 | 中文写入 | `Data.e5 / Star.e5 / Imsg.e5` 表内中文按 GBK 定长写入；项目侧 JSON 用 UTF-8。写入后必须复读中文，若出现 `???` 说明管道或脚本编码已损坏，必须立刻重写文本 |
-| 受控二进制写入 | MCP/表写入器不可用时，允许按已确认 `HexTable.xml` 偏移受控写入，但只限独立基底或测试副本，并且必须写前备份、写后复读、输出报告 |
+| 受控二进制写入 | MCP/表写入器不可用时，允许按已确认 `HexTable.xml` 偏移受控写入，但只限当前明确目标项目，并且必须写前备份、写后复读、输出报告 |
 
 ### R/S 结构写回要点
 
@@ -116,7 +116,7 @@ R/S 自动化分两条输出线：
 | 输出线 | 内容 | 写入方式 |
 | --- | --- | --- |
 | 文本导入宏 | `@dialog/@narration/@text/@appear/@move/@turn/@action/@battle-turn/@battle-action` | CCZModStudio 文本导入；只处理已定稿文本和轻量演出 |
-| 完整树蓝图 | Scene/Section、`27/1C/24/44/45/46/47/4B/07/06/0D/5A`、触发、胜败、变量和跳转 | 旧版完整树写入器；必须备份、测试副本、复读和实机 |
+| 完整树蓝图 | Scene/Section、`27/1C/24/44/45/46/47/4B/07/06/0D/5A`、触发、胜败、变量和跳转 | `apply_scenario_patch_aggressive` / 旧版完整树写入器；必须备份、复读和实机 |
 
 从自然语言直接生成 `.eex` 是禁用路径。任何战场机制都必须先落到命令号、参数槽、变量、防重复和写回风险。
 
@@ -150,20 +150,20 @@ R/S 自动化分两条输出线：
 | 视觉底图 | `replace_map_image`、`Map/Mxxx.JPG` | 尺寸必须匹配地图槽，例如 M056 为 `1776x1440`、`37x30` 格 |
 | 地形逻辑 | `write_hexzmap_block`、`Hexzmap.e5` | 必经格、触发格、Boss 八邻格必须可通行；墙、河、建筑只放在非必经区域 |
 
-地图写入顺序：先预览底图尺寸，再写测试副本底图，再写 Hexzmap 地形格，最后复读关键坐标。不要新增没有 Hexzmap 绑定的新地图号。
+地图写入顺序：先预览底图尺寸，再用 `publish_map_workbench_bundle` 同步发布 `Map/Mxxx.jpg` 与 `Hexzmap.e5` 地形格，最后复读关键坐标。不要新增没有 Hexzmap 绑定的新地图号。
 
 归档路线 `R_01/S_01` 地图特别规则：若未来另行验证并启用 `R_01/S_01`，必须复读并使用 `M001`。历史案例为 `Map/M001.JPG=960x960`、`20x20`、Hexzmap `M001=400` 格；`0x44` 不提供地图号参数，不能靠 S 命令把 `S_01` 临时切到 `M056`。当前默认首关仍是 `R_00/S_00/M000`；如果确实要使用 `M056` 这类大图，应先确认脚本编号、启动路由或引擎地图映射，而不是只改设计稿坐标。
 
-资源写入顺序：先生成或导入素材，再 `preview_e5_image_replace / preview_e5_image_batch_replace`，确认尺寸、索引和调色板，再写测试副本。没有素材时，不写形象编号。
+资源写入顺序：先生成或导入素材，再 `preview_e5_image_replace / preview_e5_image_batch_replace`，确认尺寸、索引和调色板，再 direct 写入。AI 绘图到替换可用 `draw_and_replace_ccz_image_asset` 串联完成。没有素材时，不写形象编号。
 
 ## 风险与边界
 
 - 本页总结的是 6.5 未加密基底和《三英战龙帝》实施经验，不自动适用于 6.6/6.6x。
 - “清旧信息”不是删除表行或缩短文件，而是保留定长结构并写成空/预留。
-- `ModPackage V1` 的安全命令白名单不覆盖所有真实剧本命令；非白名单命令可以写入设计映射，但落盘必须走完整树、测试副本、复读和实机验证。
+- `ModPackage V1` 的安全命令白名单不覆盖所有真实剧本命令；非白名单命令可以写入设计映射，但落盘必须走完整树写入器、备份、复读和实机验证。
 - `0x76`、跨 Section 跳转、复杂子事件重排和完整单挑命令族属于高风险，不得手填偏移。
 - 自定义特技名只有显示价值时，必须明确“由 R/S 事件实现”或“由已验证装备特效实现”；不能写成未验证引擎能力。
-- 正式基底推广只能从通过验证的测试副本提升，不允许跳过测试副本。
+- 当前 MCP 正式工具面不再提供测试副本推广入口；正式创作以 direct 写入当前目标项目为准，同时保留备份、复读、报告、路径边界和格式长度护栏。
 
 ## 证据来源
 
@@ -184,3 +184,66 @@ R/S 自动化分两条输出线：
 - 独立基底低位清表的批量工具应继续补写“写前 / 写后差异报告”，避免误覆盖非目标行。
 - 地图底图合成、Hexzmap 批量地形和实机寻路之间仍需更多案例，特别是桥、河、墙、Boss 邻接格和增援出场点。首关大图替换时还需继续验证“脚本编号到 Mxxx 地图槽”的绑定规则。
 - 原创头像、R 形象、S 形象、物品图标资源仍需素材生成、预览、索引复读和实机显示验证。
+
+## 《安西军传》Data ModPackage 执行记录（2026-06-22）
+
+本次执行目标是把人物与兵种 Data 从 Markdown 设计稿落实到 `基底\安西军传`。流程采用“ModPackage -> 测试副本 -> 复读/烟测 -> promote 正式基底”，不直接裸写正式目录。
+
+关键文件：
+
+- 包：`基底\安西军传\anxi_data_modpackage.json`
+- 清单：`基底\安西军传\data落表清单.md`
+- 生成脚本：`_codex_tmp\anxi_generate_data_package.py`
+- 执行记录：`基底\安西军传\落表执行记录\01_preview.json` 至 `06_biography_fix_updates.json`
+- runner：`工具整合包\CCZModStudio.ModPackageRunner`
+
+本次包统计：
+
+- `tableUpdates=1005`
+- `effectPackages=0`
+- `resourceUpdates=0`
+- `scenarioPatches=0`
+- 人物 260 行、兵种系 40 行、详细职业 80 行
+
+验证结论：
+
+- `preview`：`CanApply=True`，表更新无 blocking issue。
+- `apply-test-copy`：已写入测试副本 `CCZModStudio_TestCopies\20260622_154032_安西军传`。
+- 核心写表烟测：`ROLE_WRITE_SMOKE_OK`、`JOB_WRITE_SMOKE_OK`、`JOB_TERRAIN_WRITE_SMOKE_OK`、`JOB_MATRIX_WRITE_SMOKE_OK`、`JOB_EFFECT_WRITE_SMOKE_OK`、`JOB_STRATEGY_WRITE_SMOKE_OK` 均在 `--write` 前段输出。
+- `--effect-package-smoke` 通过，证明特效包导入/清除链路可用；但本次包未写特技分配。
+- `--mod-package-smoke` 通过。
+- 已执行 `promote`，正式 `基底\安西军传` 生成 Data/Imsg/Ekd5 备份和写入报告。
+
+工具链注意事项：
+
+- `auto_validate_mod(run_smokes=true)` 可能找不到 SmokeTests DLL，因为 `ProjectDetector` 对游戏根目录推断的 `WorkspaceRoot` 是大项目根，而 SmokeTests DLL 在 `工具整合包\CCZModStudio.SmokeTests\bin\Debug\net8.0-windows`。可手动设置 `CCZMODSTUDIO_GAME_ROOT` 后直接运行该 DLL，或给 runner 增加显式 smoke DLL 路径参数。
+- runner 构建输出需要 `ConfigTable\HexTable.xml`；若缺失，会导致表读取失败。
+- JSON 报告很大，且部分输出经 PowerShell 重定向时可能出现编码/显示问题。不要用终端乱码判断文件损坏，应用 UTF-8 直接读取文件本体复核。
+- `--e5-image-replace-smoke` 在本次环境会长时间卡在资源替换探针；因本包 `resourceUpdates=0`，该失败不应阻塞人物/兵种 Data 推广，但要作为资源工具链待修复项记录。
+- `--write` 最末段 `RunMapWorkbenchSmoke` 失败于 `Map workbench draft save/reload smoke failed`；前面人物、兵种、策略、R/S 基础写入 smoke 均已 OK。因本包不改地图，该问题不阻塞本轮 Data 推广，但地图工作台仍需单独修复。
+- ModPackage 预览里的 playability evidence 会因没有 R/S 跳转、部署、胜败事件而标记 scenario missing；对“纯 Data 包”应看 `CanApply`、表写入复读和本包声明的 smoke，而不是要求它达到可玩关卡级别。
+
+执行边界：
+
+- 不在同一包里混写人物/兵种基础表、特技分配和资源替换。特技表槽位有限，资源替换需预览，二者应分别建包。
+- direct 写入前后至少保留 preview、validate/apply 报告、备份路径和代表行复读结果。
+- 若推广后发现游戏内文案含制作语汇，可用 `write_table_rows` 小范围修正对应表；本次已对 `6.5-0-1 人物列传` 重新写入 260 行并生成 `Imsg.e5` 备份。
+
+## 《安西军传》台词小包执行规则（2026-06-22）
+
+暴击/撤退台词可独立于人物、兵种全量包执行，避免为了文本修正重刷 1000+ 行 Data。
+
+- 台词小包只写：`6.5-0 人物` 的 `暴击台词` 字段、`6.5-0-2 暴击台词`、`6.5-0-3 撤退台词`。
+- 特殊暴击人物表不属于 HexTable 文本表，需另用 `domain=patch` EffectPackage 写 `Ekd5.exe @ 0x89C30` 的 84 字节，并带 `expectedOldBytesHex`。
+- 执行顺序：生成台词小包和清单 -> 静态检查 -> `validate_mod_package` -> `apply_mod_package(automation_mode=direct)` -> 用 `domain=patch` EffectPackage 写 EXE patch -> 复读三项：暴击表、撤退表、`0x89C30` -> 导出报告。
+- EXE patch 严禁裸写未知目录；正式写入必须有备份和复读报告。
+- 若后续重跑全量 `anxi_data_modpackage.json`，生成脚本中的台词常量必须保持同步，否则会把旧泛用台词重新覆盖回来。
+
+本轮实际执行结果：
+
+- 台词小包 `anxi_quote_modpackage.json` 静态检查通过：撤退 49 行全覆盖且无重复，特殊暴击 21 行，普通暴击 8 组三句，禁词扫描为 0。
+- `apply-test-copy` 写入测试副本 `CCZModStudio_TestCopies\20260622_165730_安西军传`，表操作 3 项，备份 3 项，issues=0。
+- 测试副本与正式基底均已复读：`6.5-0-2`、`6.5-0-3` 文本行正确，`Ekd5.exe @ 0x89C30` 为 `0,1,2,3,4,5,6,8,9,10,11,12,13,14,18,23,24,37,40,88,94`。
+- `auto_validate_mod(run_smokes=false)` 可作为静态检查，但会把未运行的 required smoke 列为 warning；纯台词小包验收时应另跑相关 smoke，例如 `--mod-package-smoke`。
+- ModPackage 模型中的 `slotPlan.notes` 是字符串字典，不能写数组；需要把 ID 列表序列化为逗号分隔字符串。
+- 若脚本同时写 EXE patch 和读 EXE patch，不能并行执行；读操作可能抢在写入前完成，造成假阴性。

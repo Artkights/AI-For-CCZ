@@ -1,4 +1,4 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -10,7 +10,7 @@ namespace CCZModStudio.Formats;
 public sealed class MaterialLibraryIndexer
 {
     private static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg", ".bmp" };
-    private static readonly Regex TypedFolderPattern = new(@"^\s*(?<id>\d+)\s*[：:]\s*(?<name>.+?)\s*$", RegexOptions.Compiled);
+    private static readonly Regex TypedFolderPattern = new(@"^\s*(?<id>\d+)\s*[:：]\s*(?<name>.+?)\s*$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -188,6 +188,13 @@ public sealed class MaterialLibraryIndexer
                 .OrderBy(path => SortKey(Path.GetFileNameWithoutExtension(path)))
                 .ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
+            variants = RebuildCanonicalStripVariants(images, variants);
+            var canonicalStripFiles = images
+                .Where(IsCanonicalStripImage)
+                .Select(Path.GetFileName)
+                .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
+                .Select(fileName => fileName!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var groupKey = $"{assetType}:{id}:{name}";
             if (variants.Count > 0)
             {
@@ -220,6 +227,30 @@ public sealed class MaterialLibraryIndexer
                 foreach (var imagePath in images.Where(path => !variantFiles.Contains(Path.GetFileName(path))))
                 {
                     var dimensions = GetImageDimensions(imagePath);
+                    if (IsCanonicalStripImage(dimensions.Width, dimensions.Height))
+                    {
+                        foreach (var variant in new MaterialAutoTileMetadataService().BuildVariantsForImage(imagePath))
+                        {
+                            var generatedVariantRect = NormalizeSourceRect(variant, dimensions.Width, dimensions.Height);
+                            result.Add(CreateAsset(
+                                assetType,
+                                folderName,
+                                imagePath,
+                                id,
+                                name,
+                                groupKey,
+                                BuildAutoTileSetKey(assetType, id, name, variant.FileName),
+                                result.Count(asset => asset.GroupKey.Equals(groupKey, StringComparison.OrdinalIgnoreCase)),
+                                variant.Role,
+                                variant.Mask,
+                                variant.Mode,
+                                variant.Priority,
+                                generatedVariantRect));
+                        }
+
+                        continue;
+                    }
+
                     var rect = new Rectangle(0, 0, Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Width)), Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Height)));
                     result.Add(CreateAsset(
                         assetType,
@@ -244,6 +275,30 @@ public sealed class MaterialLibraryIndexer
             {
                 var imagePath = images[i];
                 var dimensions = GetImageDimensions(imagePath);
+                if (IsCanonicalStripImage(dimensions.Width, dimensions.Height))
+                {
+                    foreach (var variant in new MaterialAutoTileMetadataService().BuildVariantsForImage(imagePath))
+                    {
+                        var generatedVariantRect = NormalizeSourceRect(variant, dimensions.Width, dimensions.Height);
+                        result.Add(CreateAsset(
+                            assetType,
+                            folderName,
+                            imagePath,
+                            id,
+                            name,
+                            groupKey,
+                            BuildAutoTileSetKey(assetType, id, name, variant.FileName),
+                            result.Count(asset => asset.GroupKey.Equals(groupKey, StringComparison.OrdinalIgnoreCase)),
+                            variant.Role,
+                            variant.Mask,
+                            variant.Mode,
+                            variant.Priority,
+                            generatedVariantRect));
+                    }
+
+                    continue;
+                }
+
                 var rect = new Rectangle(0, 0, Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Width)), Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Height)));
                 result.Add(CreateAsset(
                     assetType,
@@ -413,7 +468,14 @@ public sealed class MaterialLibraryIndexer
                     v.Role = string.IsNullOrWhiteSpace(v.Role) ? MaterialAutoTileRoles.Default : v.Role.Trim();
                     v.Mask ??= RoleToMask(v.Role);
                     v.Mode = string.IsNullOrWhiteSpace(v.Mode) ? MaterialAutoTileModes.Mask : v.Mode.Trim();
-                    NormalizeLegacyCanonicalCornerVariant(v);
+                    var imagePath = Path.Combine(groupDir, v.FileName);
+                    if (File.Exists(imagePath) && IsImageFile(imagePath))
+                    {
+                        var dimensions = GetImageDimensions(imagePath);
+                        NormalizeCanonicalStripVariant(v, dimensions.Width, dimensions.Height, groupDir);
+                    }
+                    v.Mode = NormalizeVariantMode(v.Mode, groupDir);
+
                     return v;
                 })
                 .ToList() ?? new List<MaterialAutoTileVariant>();
@@ -424,9 +486,42 @@ public sealed class MaterialLibraryIndexer
         }
     }
 
+    private static List<MaterialAutoTileVariant> RebuildCanonicalStripVariants(
+        IReadOnlyList<string> images,
+        List<MaterialAutoTileVariant> variants)
+    {
+        var canonicalStripImages = images
+            .Where(IsCanonicalStripImage)
+            .ToList();
+        if (canonicalStripImages.Count == 0)
+        {
+            return variants
+                .Where(variant => !variant.Role.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        var canonicalStripFiles = canonicalStripImages
+            .Select(Path.GetFileName)
+            .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
+            .Select(fileName => fileName!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var rebuilt = variants
+            .Where(variant => !variant.Role.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase))
+            .Where(variant => !canonicalStripFiles.Contains(variant.FileName))
+            .ToList();
+        var metadataService = new MaterialAutoTileMetadataService();
+        foreach (var imagePath in canonicalStripImages)
+        {
+            rebuilt.AddRange(metadataService.BuildVariantsForImage(imagePath));
+        }
+
+        return rebuilt;
+    }
+
     public static int RoleToMask(string role)
         => role switch
         {
+            MaterialAutoTileRoles.Fill => MaterialAutoTileMasks.None,
             MaterialAutoTileRoles.StraightH => MaterialAutoTileMasks.StraightH,
             MaterialAutoTileRoles.StraightV => MaterialAutoTileMasks.StraightV,
             MaterialAutoTileRoles.CornerNE => MaterialAutoTileMasks.CornerNE,
@@ -449,28 +544,58 @@ public sealed class MaterialLibraryIndexer
             _ => MaterialAutoTileMasks.None
         };
 
-    private static void NormalizeLegacyCanonicalCornerVariant(MaterialAutoTileVariant variant)
+    private static void NormalizeCanonicalStripVariant(MaterialAutoTileVariant variant, int imageWidth, int imageHeight, string groupDir)
     {
-        if (variant.Y != 0 ||
-            variant.Width != MapResourceItem.MapTilePixelSize ||
-            variant.Height != MapResourceItem.MapTilePixelSize)
+        var tile = MapResourceItem.MapTilePixelSize;
+        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder();
+        if (imageWidth < tile * order.Length || imageHeight > tile)
         {
             return;
         }
 
-        if (variant.X == MapResourceItem.MapTilePixelSize * 2 &&
-            variant.Mask == MaterialAutoTileMasks.CornerNW)
+        if (variant.Y != 0 ||
+            variant.Width != tile ||
+            variant.Height != tile)
         {
-            variant.Role = MaterialAutoTileRoles.CornerNE;
-            variant.Mask = MaterialAutoTileMasks.CornerNE;
+            return;
         }
-        else if (variant.X == MapResourceItem.MapTilePixelSize * 3 &&
-                 variant.Mask == MaterialAutoTileMasks.CornerNE)
-        {
-            variant.Role = MaterialAutoTileRoles.CornerNW;
-            variant.Mask = MaterialAutoTileMasks.CornerNW;
-        }
+
+        var frameIndex = variant.X / tile;
+        if (frameIndex < 0 || frameIndex >= order.Length) return;
+
+        var (role, mask) = order[frameIndex];
+        variant.Role = role;
+        variant.Mask = mask;
+        variant.Mode = MaterialAutoTileMetadataService.NormalizeAutoTileMode(MaterialAutoTileMetadataService.InferAutoTileModeFromPath(groupDir));
+        variant.Priority = frameIndex;
     }
+
+    private static string NormalizeVariantMode(string? mode, string groupDir)
+    {
+        var normalized = MaterialAutoTileMetadataService.NormalizeAutoTileMode(mode);
+        if (!normalized.Equals(MaterialAutoTileModes.LinePath, StringComparison.OrdinalIgnoreCase) &&
+            !normalized.Equals(MaterialAutoTileModes.RegionBoundary, StringComparison.OrdinalIgnoreCase))
+        {
+            return normalized;
+        }
+
+        if (!string.IsNullOrWhiteSpace(mode) &&
+            !mode.Equals(MaterialAutoTileModes.Mask, StringComparison.OrdinalIgnoreCase))
+        {
+            return normalized;
+        }
+
+        return MaterialAutoTileMetadataService.NormalizeAutoTileMode(MaterialAutoTileMetadataService.InferAutoTileModeFromPath(groupDir));
+    }
+
+    private static bool IsCanonicalStripImage(string path)
+    {
+        var dimensions = GetImageDimensions(path);
+        return IsCanonicalStripImage(dimensions.Width, dimensions.Height);
+    }
+
+    private static bool IsCanonicalStripImage(int width, int height)
+        => width >= MapResourceItem.MapTilePixelSize * 15 && height <= MapResourceItem.MapTilePixelSize;
 
     private static Rectangle NormalizeSourceRect(MaterialAutoTileVariant variant, int imageWidth, int imageHeight)
     {

@@ -74,7 +74,7 @@ public sealed partial class CczMcpRuntime
         var tables = LoadTables(project);
         var dictionary = TryLoadScenarioDictionaryForModPackage(project, package);
         var normalizedAutomation = NormalizeAutomationMode(automationMode);
-        var allowStructuralScenarioWrites = normalizedAutomation is "aggressive_test_copy" or "force_preview_report" or "force_open" or "strict_playable_preview";
+        var allowStructuralScenarioWrites = true;
         var strictPlayablePreview = normalizedAutomation == "strict_playable_preview";
         return new
         {
@@ -82,10 +82,8 @@ public sealed partial class CczMcpRuntime
             Preview = _modPackageService.Preview(project, tables, package, dictionary, allowStructuralScenarioWrites, strictPlayablePreview),
             AutomationMode = normalizedAutomation,
             SafetyNote = strictPlayablePreview
-                ? "preview_mod_package is read-only. strict_playable_preview reports blocking evidence that prevents playable/runtime tier claims."
-                : allowStructuralScenarioWrites
-                ? "preview_mod_package is read-only. force/aggressive automation allows structural scenario append/insert in preview."
-                : "preview_mod_package is read-only. apply_mod_package refuses to write unless this preview has no blocking issues."
+                ? "preview_mod_package is read-only. strict_playable_preview reports playable/runtime evidence without blocking direct apply."
+                : "preview_mod_package is read-only. Direct automation previews structural scenario append/insert as writable."
         };
     }
 
@@ -109,16 +107,9 @@ public sealed partial class CczMcpRuntime
             };
         }
 
-        if (normalizedAutomation == "aggressive_test_copy" && !project.IsTestCopy)
-        {
-            var testCopyRoot = _backupManager.CreateTestCopy(project);
-            project = LoadProject(testCopyRoot);
-            writeMode = "test_copy";
-        }
-
-        EnsureWriteMode(project, writeMode);
-        var allowStructuralScenarioWrites = normalizedAutomation is "aggressive_test_copy" or "force_open";
-        return ApplyModPackageCore(project, package, writeMode, allowStructuralScenarioWrites, normalizedAutomation);
+        var normalizedWriteMode = EnsureWriteMode(project, writeMode);
+        var allowStructuralScenarioWrites = true;
+        return ApplyModPackageCore(project, package, normalizedWriteMode, allowStructuralScenarioWrites, normalizedAutomation);
     }
 
     private object ApplyModPackageCore(
@@ -131,17 +122,6 @@ public sealed partial class CczMcpRuntime
         var tables = LoadTables(project);
         var dictionary = TryLoadScenarioDictionaryForModPackage(project, package);
         var preview = _modPackageService.Preview(project, tables, package, dictionary, allowStructuralScenarioWrites);
-        if (!preview.CanApply)
-        {
-            return new
-            {
-                project.GameRoot,
-                Applied = false,
-                Preview = preview,
-                AutomationMode = automationMode,
-                SafetyNote = "ModPackage was not applied because preview reported blocking issues."
-            };
-        }
 
         var result = new ModPackageApplyResult
         {
@@ -241,7 +221,7 @@ public sealed partial class CczMcpRuntime
             Report = report,
             AutomationMode = automationMode,
             SafetyNote = allowStructuralScenarioWrites
-                ? "Aggressive ModPackage apply runs preview first, then writes the test copy with structural scenario append/insert enabled for whitelisted commands."
+                ? "Aggressive ModPackage apply runs preview first, then writes the selected project directly with structural scenario append/insert enabled."
                 : "ModPackage apply runs preview first, then uses dedicated table/scenario/effect/resource writers with backups and reports."
         };
     }
@@ -250,9 +230,9 @@ public sealed partial class CczMcpRuntime
     {
         var project = LoadProject(gameRoot);
         var normalizedAutomation = NormalizeAutomationMode(automationMode);
-        if (normalizedAutomation is not "aggressive_test_copy" and not "force_open")
+        if (normalizedAutomation is "strict_playable_preview")
         {
-            normalizedAutomation = "aggressive_test_copy";
+            normalizedAutomation = "direct";
         }
 
         var sourceTables = LoadTables(project);
@@ -268,17 +248,16 @@ public sealed partial class CczMcpRuntime
             ? _modPackageService.CompileStandaloneScenarioPackage(project, sourceTables, standaloneAnalysis!.Design, 64)
             : null;
         var package = standalone ? standaloneCompile!.Package : compile!.Package;
-        var testCopyRoot = _backupManager.CreateTestCopy(project);
-        var testProject = LoadProject(testCopyRoot);
-        var testTables = LoadTables(testProject);
-        var dictionary = TryLoadScenarioDictionaryForModPackage(testProject, package);
+        var writeProject = project;
+        var writeTables = LoadTables(writeProject);
+        var dictionary = TryLoadScenarioDictionaryForModPackage(writeProject, package);
         var attempts = new List<ModAutomationAttempt>();
         ModPackagePreviewResult? preview = null;
         var repairLimit = Math.Clamp(maxRepairAttempts <= 0 ? 3 : maxRepairAttempts, 1, 10);
 
         for (var attempt = 1; attempt <= repairLimit; attempt++)
         {
-            preview = _modPackageService.Preview(testProject, testTables, package, dictionary, allowStructuralScenarioWrites: true);
+            preview = _modPackageService.Preview(writeProject, writeTables, package, dictionary, allowStructuralScenarioWrites: true);
             attempts.Add(new ModAutomationAttempt
             {
                 Attempt = attempt,
@@ -289,7 +268,7 @@ public sealed partial class CczMcpRuntime
             });
             if (preview.CanApply) break;
 
-            var repair = _modPackageService.RepairPackage(testProject, testTables, package, preview, standalone ? standaloneCompile!.Slots : compile!.Slots, dictionary);
+            var repair = _modPackageService.RepairPackage(writeProject, writeTables, package, preview, standalone ? standaloneCompile!.Slots : compile!.Slots, dictionary);
             attempts.Add(new ModAutomationAttempt
             {
                 Attempt = attempt,
@@ -305,7 +284,7 @@ public sealed partial class CczMcpRuntime
         var result = new ModAutoMakeResult
         {
             ProjectRoot = project.GameRoot,
-            TestCopyRoot = testCopyRoot,
+            TestCopyRoot = string.Empty,
             AutomationMode = normalizedAutomation,
             Design = standalone ? new ModDesign
             {
@@ -331,19 +310,19 @@ public sealed partial class CczMcpRuntime
 
         if (preview?.CanApply == true)
         {
-            var applyObject = ApplyModPackageCore(testProject, package, "test_copy", allowStructuralScenarioWrites: true, standalone ? "force_open" : normalizedAutomation);
+            var applyObject = ApplyModPackageCore(writeProject, package, "direct", allowStructuralScenarioWrites: true, standalone ? "force_open" : normalizedAutomation);
             var applyPayload = JsonSerializer.Deserialize<JsonElement>(JsonSerializer.Serialize(applyObject));
             if (applyPayload.TryGetProperty("Result", out var applyElement))
             {
                 result.Apply = applyElement.Deserialize<ModPackageApplyResult>();
             }
 
-            var autoValidation = _modPackageService.AutoValidate(testProject, testTables, package, dictionary, runSmokes: false);
+            var autoValidation = _modPackageService.AutoValidate(writeProject, writeTables, package, dictionary, runSmokes: false);
             if (autoValidation.Preview != null)
             {
                 result.Validation = new ModPackageValidationResult
                 {
-                    ProjectRoot = testProject.GameRoot,
+                    ProjectRoot = writeProject.GameRoot,
                     PackageId = ModPackageService.NormalizePackageId(package),
                     Passed = autoValidation.Passed,
                     Preview = autoValidation.Preview,
@@ -358,8 +337,8 @@ public sealed partial class CczMcpRuntime
             result.Completed = result.Apply?.Applied == true && result.Validation?.Passed == true;
         }
 
-        result.Summary = $"auto_make_mod: completed={result.Completed}, mode={(standalone ? "standalone_single_stage" : "legacy_mod_package")}, testCopy={testCopyRoot}, attempts={attempts.Count}, previewCanApply={preview?.CanApply}.";
-        var report = _modPackageService.ExportReport(testProject, package, "auto-make", result);
+        result.Summary = $"auto_make_mod: completed={result.Completed}, mode={(standalone ? "standalone_single_stage" : "legacy_mod_package")}, target={writeProject.GameRoot}, attempts={attempts.Count}, previewCanApply={preview?.CanApply}.";
+        var report = _modPackageService.ExportReport(writeProject, package, "auto-make", result);
         result.ReportPaths.Add(report.JsonPath);
         result.ReportPaths.Add(report.MarkdownPath);
 
@@ -368,7 +347,7 @@ public sealed partial class CczMcpRuntime
             project.GameRoot,
             Result = result,
             Report = report,
-            AutomationNote = "auto_make_mod creates and writes a test copy automatically. Formal base promotion is handled only by promote_test_copy_mod with confirm_promote=true."
+            AutomationNote = "auto_make_mod writes the detected project directly by default. Backups, rereads, and reports are still generated by the dedicated writers."
         };
     }
 
@@ -388,21 +367,12 @@ public sealed partial class CczMcpRuntime
     public object PromoteTestCopyMod(string? gameRoot, ModPackage package, bool confirmPromote)
     {
         var project = LoadProject(gameRoot);
-        if (!confirmPromote)
-        {
-            return new
-            {
-                project.GameRoot,
-                Promoted = false,
-                Message = "confirm_promote=true is required before applying a ModPackage to the formal base."
-            };
-        }
 
-        var apply = ApplyModPackageCore(project, package, "direct", allowStructuralScenarioWrites: true, "promote_confirmed");
+        var apply = ApplyModPackageCore(project, package, "direct", allowStructuralScenarioWrites: true, "direct");
         return new
         {
             project.GameRoot,
-            Promoted = true,
+            Applied = true,
             Apply = apply
         };
     }
@@ -485,7 +455,7 @@ public sealed partial class CczMcpRuntime
             project.GameRoot,
             Preview = _modPackageService.PreviewScenarioPatch(project, patch, dictionary),
             SafeCommandIds = ModPackageService.GetSafeScenarioCommandIds().Select(id => CCZModStudio.Core.HexDisplayFormatter.Format(id, 2)),
-            SafetyNote = "V1 applies only parameter replacement on existing whitelisted commands. Insert/append operations are preview-only."
+            SafetyNote = "Scenario patch preview is read-only. Use apply_scenario_patch_aggressive to write parameter replacement plus append/insert operations."
         };
     }
 
@@ -511,7 +481,7 @@ public sealed partial class CczMcpRuntime
         {
             project.GameRoot,
             Result = _modPackageService.CompileScenarioPatch(project, request, dictionary),
-            AutomationNote = "compile_scenario_patch emits a whitelisted template flow block. Use apply_scenario_patch_aggressive on a test copy to write append/insert operations."
+            AutomationNote = "compile_scenario_patch emits a template flow block. Use apply_scenario_patch_aggressive to write append/insert operations directly with backups and reports."
         };
     }
 
@@ -525,7 +495,7 @@ public sealed partial class CczMcpRuntime
         {
             project.GameRoot,
             Result = result,
-            SafetyNote = "Aggressive scenario patch allows append/insert only for whitelisted commands and still writes through LegacyScenarioWriter round-trip validation."
+            SafetyNote = "Aggressive scenario patch writes append/insert operations directly through LegacyScenarioWriter round-trip validation."
         };
     }
 
@@ -537,10 +507,12 @@ public sealed partial class CczMcpRuntime
 
     private static string NormalizeAutomationMode(string? automationMode)
     {
-        var normalized = string.IsNullOrWhiteSpace(automationMode) ? "safe" : automationMode.Trim().ToLowerInvariant();
-        return normalized is "safe" or "aggressive_test_copy" or "force_preview_report" or "promote_confirmed" or "force_open" or "strict_playable_preview"
+        var normalized = string.IsNullOrWhiteSpace(automationMode) ? "direct" : automationMode.Trim().ToLowerInvariant();
+        return normalized is "force_preview_report" or "force_open" or "strict_playable_preview"
             ? normalized
-            : "safe";
+            : normalized is "direct" or "safe" or "test_copy" or "aggressive_test_copy" or "promote_confirmed"
+                ? "direct"
+            : "force_open";
     }
 
     private static bool IsForceOpenAutomation(string automationMode, ModPackage package)

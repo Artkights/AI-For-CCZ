@@ -188,6 +188,41 @@ public sealed partial class CczMcpRuntime
         return BuildSImageRawReplaceResultPayload(_sImageReplaceService.Replace(project, request));
     }
 
+    public object PreviewJobSImageRawReplace(
+        string? gameRoot,
+        int jobId,
+        string materialFolder,
+        List<int>? factionSlots)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new JobSImageReplaceRequest
+        {
+            JobId = jobId,
+            MaterialFolder = ResolveExternalDirectory(project, materialFolder),
+            FactionSlots = factionSlots ?? []
+        };
+        return BuildJobSImageRawReplacePreviewPayload(_jobSImageReplaceService.Preview(project, request));
+    }
+
+    public object ReplaceJobSImageRaw(
+        string? gameRoot,
+        int jobId,
+        string materialFolder,
+        List<int>? factionSlots,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new JobSImageReplaceRequest
+        {
+            JobId = jobId,
+            MaterialFolder = ResolveExternalDirectory(project, materialFolder),
+            FactionSlots = factionSlots ?? [],
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildJobSImageRawReplaceResultPayload(_jobSImageReplaceService.Replace(project, request));
+    }
+
     public object PreviewSImageRawBatchReplace(
         string? gameRoot,
         string materialRoot,
@@ -513,6 +548,63 @@ public sealed partial class CczMcpRuntime
                 file.WriteResult.BackupPath,
                 file.WriteResult.ReportPath,
                 file.WriteResult.ReportJsonPath
+            })
+        };
+
+    private static object BuildJobSImageRawReplacePreviewPayload(JobSImageReplacePreviewResult preview)
+        => new
+        {
+            preview.Request.JobId,
+            preview.Request.MaterialFolder,
+            FactionSlots = preview.Request.FactionSlots,
+            preview.TotalOperationCount,
+            preview.Warnings,
+            Factions = preview.Factions.Select(faction => new
+            {
+                faction.FactionSlot,
+                faction.FactionName,
+                Mapping = faction.Preview.Mapping,
+                faction.Preview.TotalOperationCount,
+                Files = faction.Preview.Files.Select(file => new
+                {
+                    file.ActionName,
+                    file.TargetFileName,
+                    file.TargetPath,
+                    file.SourcePath,
+                    Encode = BuildE5RawEncodePayload(file.Encode),
+                    BatchPreview = BuildE5ImageBatchReplacePayload(file.BatchPreview)
+                })
+            }),
+            SafetyNote = "Preview only. Job S image RAW replacement fixes S=0 and maps job_id + selected faction_slots to default Unit image numbers."
+        };
+
+    private static object BuildJobSImageRawReplaceResultPayload(JobSImageReplaceResult result)
+        => new
+        {
+            result.Request.JobId,
+            result.Request.MaterialFolder,
+            FactionSlots = result.Request.FactionSlots,
+            result.TotalOperationCount,
+            result.Warnings,
+            Factions = result.Factions.Select(faction => new
+            {
+                faction.FactionSlot,
+                faction.FactionName,
+                Mapping = faction.Result.Mapping,
+                faction.Result.TotalOperationCount,
+                faction.Result.AggregateReportPath,
+                Files = faction.Result.Files.Select(file => new
+                {
+                    file.ActionName,
+                    file.TargetFileName,
+                    file.TargetPath,
+                    file.SourcePath,
+                    Encode = BuildE5RawEncodePayload(file.Encode),
+                    WriteResult = BuildE5ImageBatchReplacePayload(file.WriteResult),
+                    file.WriteResult.BackupPath,
+                    file.WriteResult.ReportPath,
+                    file.WriteResult.ReportJsonPath
+                })
             })
         };
 

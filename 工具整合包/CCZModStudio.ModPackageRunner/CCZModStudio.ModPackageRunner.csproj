@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="CCZModStudio.McpServer">
+      <HintPath>..\CCZModStudio.McpServer\bin\Debug\net8.0-windows\CCZModStudio.McpServer.dll</HintPath>
+    </Reference>
+    <Reference Include="CCZModStudio.Runtime">
+      <HintPath>..\CCZModStudio.McpServer\bin\Debug\net8.0-windows\CCZModStudio.Runtime.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

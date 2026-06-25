@@ -27,8 +27,7 @@ function Test-GameRoot {
     }
 
     return $coreCount -ge 3 -or
-        ($coreCount -ge 1 -and (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container)) -or
-        (Test-Path -LiteralPath (Join-Path $Path "_CCZModStudio_TestCopy.txt") -PathType Leaf)
+        ($coreCount -ge 1 -and (Test-Path -LiteralPath (Join-Path $Path "RS") -PathType Container))
 }
 
 function Find-DefaultGameRoot {
@@ -190,6 +189,7 @@ try {
         "build_ccz_image_prompt",
         "prepare_ccz_generated_image",
         "draw_ccz_image_asset",
+        "draw_and_replace_ccz_image_asset",
         "list_e5_image_entries",
         "preview_e5_image_replace",
         "preview_e5_image_batch_replace",
@@ -219,13 +219,14 @@ try {
         "apply_mod_package",
         "auto_make_mod",
         "auto_validate_mod",
-        "promote_test_copy_mod",
         "validate_mod_package",
         "export_mod_report",
         "compile_scenario_patch",
         "preview_scenario_patch",
         "apply_scenario_patch",
         "apply_scenario_patch_aggressive",
+        "apply_scenario_text_import",
+        "publish_rscene_draft_to_scenario",
         "list_effect_templates",
         "build_effect_package_from_template",
         "preview_effect_patch",
@@ -236,6 +237,7 @@ try {
         "preview_map_canvas",
         "export_map_canvas_jpeg",
         "publish_map_canvas_to_map_image",
+        "publish_map_workbench_bundle",
         "list_material_assets",
         "migrate_material_library_preview",
         "migrate_material_library",
@@ -266,6 +268,12 @@ try {
         "list_item_effect_catalog",
         "save_item_effect_catalog",
         "read_equipment_type_profile",
+        "read_job_settings",
+        "preview_job_settings",
+        "write_job_settings",
+        "read_accessory_job_groups",
+        "preview_accessory_job_groups",
+        "write_accessory_job_groups",
         "preview_attack_area",
         "preview_strategy_animation",
         "read_effect_resource",
@@ -274,6 +282,17 @@ try {
     $missing = @($requiredTools | Where-Object { $toolNames -notcontains $_ })
     if ($missing.Count -gt 0) {
         throw "Missing required tools: $($missing -join ', ')"
+    }
+
+    $forbiddenTools = @(
+        "promote_test_copy_mod",
+        "create_test_copy",
+        "diff_test_copy",
+        "create_release_copy"
+    )
+    $presentForbiddenTools = @($forbiddenTools | Where-Object { $toolNames -contains $_ })
+    if ($presentForbiddenTools.Count -gt 0) {
+        throw "Obsolete production tools are still exposed: $($presentForbiddenTools -join ', ')"
     }
 
     $resourceUris = @($resources.result.resources | ForEach-Object { $_.uri })

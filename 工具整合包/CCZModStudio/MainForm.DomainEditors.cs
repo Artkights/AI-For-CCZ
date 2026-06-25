@@ -1976,6 +1976,8 @@ public sealed partial class MainForm
             ConfigureJobEditorGrid();
             ResetJobEditorHistory();
             _saveJobEditorButton.Enabled = true;
+            _editAccessoryJobGroupsButton.Enabled = _currentAccessoryJobGroupProfile != null;
+            _replaceJobSImageButton.Enabled = true;
             _exportJobEditorCsvButton.Enabled = true;
             _importJobEditorCsvButton.Enabled = true;
             _jobEditorInfoBox.Text = BuildJobEditorSummary(_currentJobEditorData);
@@ -2007,6 +2009,8 @@ public sealed partial class MainForm
 
         _currentEquipmentTypeProfile = _equipmentTypeProfileService.Build(project, tables, ResolveJobEquipmentStorageColumns());
         _jobEquipmentPermissionSlots = _currentEquipmentTypeProfile.JobPermissionSlots;
+        _jobSeriesNames = BuildIdNameLookup(project, tables, "6.5-3 兵种系");
+        _currentAccessoryJobGroupProfile = _accessoryJobGroupService.Read(project, tables);
 
         var output = new DataTable("兵种设定");
         output.Columns.Add("ID", typeof(int));
@@ -2046,6 +2050,8 @@ public sealed partial class MainForm
     {
         if (_currentJobEditorData == null) return;
         _jobEditorGrid.ReadOnly = false;
+        ConfigureJobAreaComboColumn("攻击范围", BuildJobAreaComboItems("攻击范围"));
+        ConfigureJobAreaComboColumn("穿透", BuildJobAreaComboItems("穿透"));
         foreach (DataGridViewColumn column in _jobEditorGrid.Columns)
         {
             column.ReadOnly = column.DataPropertyName == "ID" || column.DataPropertyName == JobEquipmentSummaryColumn;
@@ -2064,6 +2070,72 @@ public sealed partial class MainForm
         }
 
         RefreshJobEditorRowStyles();
+    }
+
+    private void ConfigureJobAreaComboColumn(string columnName, IReadOnlyList<JobAreaComboItem> items)
+    {
+        if (_currentJobEditorData == null || !_jobEditorGrid.Columns.Contains(columnName)) return;
+        var existing = _jobEditorGrid.Columns[columnName];
+        if (existing is DataGridViewComboBoxColumn comboColumn)
+        {
+            comboColumn.DataSource = items;
+            return;
+        }
+
+        var index = existing.Index;
+        var width = existing.Width;
+        var readOnly = existing.ReadOnly;
+        var visible = existing.Visible;
+        _jobEditorGrid.Columns.Remove(existing);
+
+        var combo = new DataGridViewComboBoxColumn
+        {
+            Name = columnName,
+            DataPropertyName = columnName,
+            HeaderText = BuildJobColumnHeader(columnName),
+            ToolTipText = BuildJobColumnAnnotation(columnName),
+            DataSource = items,
+            ValueMember = nameof(JobAreaComboItem.Value),
+            DisplayMember = nameof(JobAreaComboItem.Text),
+            FlatStyle = FlatStyle.Flat,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.DropDownButton,
+            ReadOnly = readOnly,
+            Visible = visible,
+            Width = Math.Max(width, 140)
+        };
+        _jobEditorGrid.Columns.Insert(index, combo);
+    }
+
+    private IReadOnlyList<JobAreaComboItem> BuildJobAreaComboItems(string columnName)
+    {
+        var known = columnName switch
+        {
+            "攻击范围" => JobAttackRangeNames,
+            "穿透" => JobPierceRangeNames,
+            _ => new Dictionary<int, string>()
+        };
+
+        var values = known.Keys
+            .Concat(_currentJobEditorData?.Rows.Cast<DataRow>()
+                .Where(row => row.Table.Columns.Contains(columnName) && row.RowState != DataRowState.Deleted)
+                .Select(row => Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture)) ?? Enumerable.Empty<int>())
+            .Distinct()
+            .OrderBy(static value => value)
+            .Select(value => new JobAreaComboItem(value, FormatJobAreaComboText(value, known, columnName)))
+            .ToList();
+
+        return values;
+    }
+
+    private static string FormatJobAreaComboText(int value, IReadOnlyDictionary<int, string> known, string columnName)
+    {
+        if (known.TryGetValue(value, out var text))
+        {
+            return $"{value}：{text}";
+        }
+
+        var fallback = columnName == "穿透" ? "扩展穿透/需实测" : "扩展范围/需实测";
+        return $"{value}：{fallback}";
     }
 
     private string BuildJobColumnHeader(string columnName)
@@ -2088,8 +2160,8 @@ public sealed partial class MainForm
         if (columnName == "ID") return "详细兵种编号，用于人物职业、兵种说明、成长、穿透等表按 ID 对齐。";
         if (columnName == "介绍") return "兵种说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。";
         if (columnName == JobEquipmentSummaryColumn) return "当前详细兵种可装备的装备类别摘要。双击该兵种行可打开复选框窗口编辑；底层写入 6.5-4-2 兵种成长行内的 26 个装备类别字节。";
-        if (columnName == "攻击范围") return "兵种普通攻击距离/目标选择范围，写入 6.5-4-2 兵种成长；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。建议修改后进战场验证可选格。";
-        if (columnName == "穿透") return "兵种普通攻击穿透模板，写入 6.5-4-3 兵种穿透；选择该字段会按字段值+1 从 E5\\Effarea.e5 预览穿透图。0 通常是不穿透，扩展值需实机验证。";
+        if (columnName == "攻击范围") return "兵种普通攻击距离/目标选择范围，写入 6.5-4-2 兵种成长；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。下拉说明来自旧资料和当前资源预览口径，扩展值需进战场实测。";
+        if (columnName == "穿透") return "兵种普通攻击穿透模板，写入 6.5-4-3 兵种穿透；选择该字段会按字段值+1 从 E5\\Effarea.e5 预览穿透图。下拉说明来自旧资料和当前资源预览口径，0 通常是不穿透，扩展值需进战场实测。";
         if (FindJobEquipmentSlot(columnName) is { } slot)
         {
             var sample = string.IsNullOrWhiteSpace(slot.SampleText) ? "暂无当前项目样例" : $"样例：{slot.SampleText}";
@@ -2213,11 +2285,16 @@ public sealed partial class MainForm
         var profileLine = _currentEquipmentTypeProfile == null
             ? "装备类别显示：未读取项目化 profile，使用旧内置列名兜底。"
             : $"装备类别显示：按当前项目物品类型 profile 解析，人工校正文件：{_currentEquipmentTypeProfile.NotesPath}";
+        var accessoryGroupLine = _currentAccessoryJobGroupProfile == null
+            ? "辅助多兵种分组：未读取。"
+            : _currentAccessoryJobGroupProfile.SummaryText;
         return
             $"兵种设定已读取：总行 {data.Rows.Count}，已命名 {named}。\r\n" +
             "来源表：6.5-4 详细兵种、6.5-4-1 兵种说明、6.5-4-2 兵种成长、6.5-4-3 兵种穿透。\r\n" +
             "可装备类别来自 6.5-4-2 兵种成长每行后 26 个字节；双击兵种行可用复选框编辑。\r\n" +
+            "辅助多兵种分组来自 Ekd5.exe:0044C341，使用 6.5-3 兵种系编号；它不属于物品表字段。\r\n" +
             profileLine + "\r\n" +
+            accessoryGroupLine + "\r\n" +
             "保存会写回 Ekd5.exe、Data.e5、Imsg.e5，保存前自动备份，保存后重新读取校验。";
     }
 
@@ -2287,6 +2364,81 @@ public sealed partial class MainForm
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         ApplyJobEquipmentAttributeDialogChanges(row, dialog.EquipmentValues);
+    }
+
+    private void EditAccessoryJobGroups()
+    {
+        if (_project == null) return;
+        if (_currentAccessoryJobGroupProfile == null)
+        {
+            try
+            {
+                _currentAccessoryJobGroupProfile = _accessoryJobGroupService.Read(_project, _tables);
+                _editAccessoryJobGroupsButton.Enabled = true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "读取辅助分组失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+        }
+
+        using var dialog = new AccessoryJobGroupDialog(_currentAccessoryJobGroupProfile, _jobSeriesNames);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        AccessoryJobGroupPreview preview;
+        try
+        {
+            preview = _accessoryJobGroupService.Preview(_project, _tables, dialog.Groups);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "辅助分组预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, string.Join("\r\n", preview.Diagnostics), "辅助分组格式错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var groupSummary = preview.Groups.Count == 0
+            ? "无"
+            : string.Join("\r\n", preview.Groups.Select(group => group.SummaryText));
+        if (MessageBox.Show(this,
+                $"即将保存辅助装备多兵种分组到 Ekd5.exe。\r\n\r\n地址：0x{AccessoryJobGroupService.StartVirtualAddress:X8} -> {preview.FileOffsetHex}\r\n写入长度：{preview.PaddedBytes.Count}/{preview.WritableLength} 字节\r\n原始字节：{preview.PayloadBytesHex}\r\n\r\n{groupSummary}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
+                "确认保存辅助分组",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var save = _accessoryJobGroupService.Save(_project, _tables, dialog.Groups);
+            _currentAccessoryJobGroupProfile = _accessoryJobGroupService.Read(_project, _tables);
+            _jobEditorInfoBox.Text = _currentJobEditorData == null
+                ? _currentAccessoryJobGroupProfile.SummaryText
+                : BuildJobEditorSummary(_currentJobEditorData);
+            ShowSelectedJobEditorCell();
+            SetStatus($"辅助装备多兵种分组保存完成：变化 {save.ChangedBytes} 字节");
+            MessageBox.Show(this,
+                $"保存完成并已重新读取校验。\r\n变化字节：{save.ChangedBytes}\r\n备份：{save.BackupPath}\r\n报告：{save.ReportJsonPath}",
+                "保存完成",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "辅助分组保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
     }
 
     private void ApplyJobEquipmentAttributeDialogChanges(DataRow row, IReadOnlyDictionary<string, int> values)
@@ -2770,6 +2922,7 @@ public sealed partial class MainForm
     private bool TryValidateJobEditorCellText(string columnName, string value, out string error)
     {
         error = string.Empty;
+        value = NormalizeJobAreaComboInput(columnName, value);
         if (columnName == "名称")
         {
             var bytes = EncodingService.GetGbkByteCount(value);
@@ -2782,7 +2935,7 @@ public sealed partial class MainForm
         }
         else if (columnName != "ID")
         {
-            error = TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked) ?? string.Empty;
+            error = TryParseInteger(value, 0, byte.MaxValue, columnName, ShouldUseHexForJobEditorColumn(columnName)) ?? string.Empty;
         }
 
         return string.IsNullOrEmpty(error);
@@ -2790,13 +2943,14 @@ public sealed partial class MainForm
 
     private object? ConvertJobEditorValueForColumn(string columnName, string text)
     {
+        text = NormalizeJobAreaComboInput(columnName, text);
         if (_currentJobEditorData == null || !_currentJobEditorData.Columns.Contains(columnName)) return text;
         var dataColumn = _currentJobEditorData.Columns[columnName];
         if (dataColumn == null) return text;
         var targetType = dataColumn.DataType;
         if (targetType == typeof(string)) return text;
         if (IsSupportedIntegerType(targetType) &&
-            TryParseIntegerInput(text, _currentPageHexButton.Checked, out var parsed) &&
+            TryParseIntegerInput(text, ShouldUseHexForJobEditorColumn(columnName), out var parsed) &&
             TryConvertParsedIntegerToType(parsed, targetType, out var converted))
         {
             return converted;
@@ -2804,6 +2958,17 @@ public sealed partial class MainForm
 
         return Convert.ChangeType(text, targetType, CultureInfo.InvariantCulture);
     }
+
+    private static string NormalizeJobAreaComboInput(string columnName, string text)
+    {
+        if (columnName is not ("攻击范围" or "穿透")) return text;
+        var index = text.IndexOf('：', StringComparison.Ordinal);
+        if (index < 0) index = text.IndexOf(':', StringComparison.Ordinal);
+        return index > 0 ? text[..index].Trim() : text.Trim();
+    }
+
+    private bool ShouldUseHexForJobEditorColumn(string columnName)
+        => _currentPageHexButton.Checked && columnName is not ("攻击范围" or "穿透");
 
     private static object? NormalizeGridCellValue(object? value)
         => value == DBNull.Value ? null : value;
@@ -2932,6 +3097,12 @@ public sealed partial class MainForm
 
         if (columnName is not ("攻击范围" or "穿透"))
         {
+            if (columnName == "名称")
+            {
+                UpdateJobSImagePreview(row);
+                return;
+            }
+
             ClearJobAreaPreview(BuildJobEquipmentPreviewText(row));
             return;
         }
@@ -2960,6 +3131,7 @@ public sealed partial class MainForm
     {
         var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var groupText = BuildAccessoryJobGroupPreviewText(id);
         var enabled = GetJobEquipmentPermissionSlots()
             .Where(slot => row.DataGridView?.Columns.Contains(slot.StorageColumnName) == true &&
                            Convert.ToInt32(row.Cells[slot.StorageColumnName].Value, CultureInfo.InvariantCulture) != 0)
@@ -2978,8 +3150,203 @@ public sealed partial class MainForm
             probe + "\r\n" +
             "可装备类别：\r\n" +
             enabledText +
+            "\r\n\r\n辅助装备多兵种分组：\r\n" +
+            groupText +
             diagnostics +
             "\r\n\r\n单击兵种行预览；双击该兵种行可打开复选框窗口编辑。";
+    }
+
+    private void UpdateJobSImagePreview(DataGridViewRow row)
+    {
+        if (_project == null)
+        {
+            ClearJobAreaPreview("请先打开 MOD 项目。");
+            return;
+        }
+
+        if (!TryGetJobEditorRowIdentity(row, out var jobId, out var name))
+        {
+            ClearJobAreaPreview("当前兵种行无法解析 ID。");
+            return;
+        }
+
+        try
+        {
+            SetPictureBoxImage(_jobAreaPreviewBox,
+                _imageAssignmentPreviewService.TryRenderCharacterResourceImage(
+                    _project,
+                    "S",
+                    0,
+                    jobId,
+                    CharacterImageResourceService.DefaultSPreviewFactionSlot));
+            _jobAreaPreviewInfoBox.Text =
+                $"兵种 ID={jobId:D2}  名称={name}\r\n" +
+                "默认 S 形象：S=0 + 当前详细兵种 ID。\r\n" +
+                BuildJobSImageMappingText(jobId) +
+                "\r\n\r\n点击“一键替换兵种形象”可选择 mov.bmp / atk.bmp / spc.bmp 素材目录，并勾选要替换的我军、友军、敌军槽。";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("兵种 S 形象预览失败：" + ex);
+            ClearJobAreaPreview("兵种 S 形象预览失败：" + ex.Message);
+        }
+    }
+
+    private static string BuildJobSImageMappingText(int jobId)
+        => string.Join("\r\n", Enumerable.Range(1, 3).Select(slot =>
+        {
+            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(0, jobId, slot);
+            return $"  {CharacterImageResourceService.BuildSPreviewFactionText(slot)}：Unit 图号 {string.Join("/", mapping.ImageNumbers.Select(x => "#" + x.ToString(CultureInfo.InvariantCulture)))}";
+        }));
+
+    private bool TryGetJobEditorRowIdentity(DataGridViewRow row, out int jobId, out string name)
+    {
+        jobId = -1;
+        name = string.Empty;
+        if (row.Cells["ID"].Value == null ||
+            !int.TryParse(Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out jobId))
+        {
+            return false;
+        }
+
+        name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        return true;
+    }
+
+    private void ReplaceSelectedJobSImage()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentJobEditorData == null)
+        {
+            MessageBox.Show(this, "请先读取兵种。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_jobEditorGrid.CurrentCell == null)
+        {
+            MessageBox.Show(this, "请先选择一个详细兵种。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var row = _jobEditorGrid.Rows[_jobEditorGrid.CurrentCell.RowIndex];
+        if (!TryGetJobEditorRowIdentity(row, out var jobId, out var name))
+        {
+            MessageBox.Show(this, "当前兵种行无法解析 ID。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        using var dialog = new JobSImageReplaceDialog(jobId, name);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var request = new JobSImageReplaceRequest
+        {
+            JobId = jobId,
+            MaterialFolder = dialog.MaterialFolder,
+            FactionSlots = dialog.FactionSlots,
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        var service = new JobSImageReplaceService();
+        JobSImageReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = service.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键替换兵种 S 形象预览失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键替换兵种形象预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildJobSImageReplacePreviewText(preview, name);
+        _jobAreaPreviewInfoBox.Text = previewText;
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会把素材转为 RAW，并只写入已勾选的阵营槽；写入前自动备份。是否继续？",
+                "确认一键替换兵种形象",
+                MessageBoxButtons.YesNo,
+                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = service.Replace(_project, request);
+            _imageAssignmentPreviewService.ClearCache();
+            UpdateJobSImagePreview(row);
+            _jobAreaPreviewInfoBox.AppendText("\r\n\r\n" + BuildJobSImageReplaceResultText(result, name));
+            SetStatus($"一键替换兵种形象完成：写入 {result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键替换兵种 S 形象写入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键替换兵种形象写入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static string BuildJobSImageReplacePreviewText(JobSImageReplacePreviewResult preview, string jobName)
+        => "一键替换兵种形象预览\r\n" +
+           $"兵种：ID={preview.Request.JobId:D2}  名称={jobName}\r\n" +
+           $"素材目录：{preview.Request.MaterialFolder}\r\n" +
+           $"选择阵营：{string.Join("、", preview.Factions.Select(faction => faction.FactionName))}\r\n" +
+           $"写入条目：{preview.TotalOperationCount} 条\r\n" +
+           string.Join("\r\n", preview.Factions.Select(faction =>
+               $"- {faction.FactionName}: {faction.Preview.Mapping.Detail}; " +
+               string.Join("；", faction.Preview.Files.Select(file =>
+                   $"{file.TargetFileName} <- {Path.GetFileName(file.SourcePath)} 图号 {string.Join(", ", file.BatchPreview.Operations.Select(op => "#" + op.ImageNumber.ToString(CultureInfo.InvariantCulture)))}")))) +
+           "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
+
+    private static string BuildJobSImageReplaceResultText(JobSImageReplaceResult result, string jobName)
+        => "一键替换兵种形象完成\r\n" +
+           $"兵种：ID={result.Request.JobId:D2}  名称={jobName}\r\n" +
+           $"写入条目：{result.TotalOperationCount} 条\r\n" +
+           string.Join("\r\n", result.Factions.Select(faction =>
+               $"- {faction.FactionName}: Unit 图号 {string.Join("/", faction.Result.Mapping.ImageNumbers.Select(x => "#" + x.ToString(CultureInfo.InvariantCulture)))}；" +
+               $"{faction.Result.TotalOperationCount} 条；报告 {faction.Result.AggregateReportPath}")) +
+           "\r\n" +
+           string.Join("\r\n", result.Factions.SelectMany(faction =>
+               faction.Result.Files.Select(file => $"  {faction.FactionName} {file.TargetFileName}: 备份 {file.WriteResult.BackupPath}")));
+
+    private string BuildAccessoryJobGroupPreviewText(string detailedJobIdText)
+    {
+        if (_currentAccessoryJobGroupProfile == null) return "  未读取。";
+        if (!int.TryParse(detailedJobIdText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var detailedJobId))
+        {
+            return "  当前兵种 ID 无法解析。";
+        }
+
+        var seriesId = detailedJobId / 2;
+        var matched = _currentAccessoryJobGroupProfile.Groups
+            .Where(group => group.JobSeriesIds.Contains(seriesId))
+            .Select(group =>
+            {
+                var role = group.PrimaryJobSeriesId == seriesId ? "主兵种系" : $"跟随主兵种系 {group.PrimaryJobSeriesId:D2}";
+                return "  " + group.SummaryText + $"（当前详细兵种按 ID/2 推定为兵种系 {seriesId:D2}，{role}）";
+            })
+            .ToList();
+        if (matched.Count == 0)
+        {
+            var name = _jobSeriesNames.TryGetValue(seriesId, out var seriesName) ? seriesName : string.Empty;
+            return $"  当前详细兵种按 ID/2 推定为兵种系 {seriesId:D2} {name}，未命中辅助分组。";
+        }
+
+        return string.Join("\r\n", matched);
     }
 
     private void ClearJobAreaPreview(string message)
@@ -2994,7 +3361,7 @@ public sealed partial class MainForm
         var column = _jobEditorGrid.Columns[e.ColumnIndex];
         if (column.ReadOnly) return;
         var columnName = column.DataPropertyName;
-        var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        var value = NormalizeJobAreaComboInput(columnName, Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty);
         string? error = null;
         if (columnName == "名称")
         {
@@ -3008,7 +3375,7 @@ public sealed partial class MainForm
         }
         else if (columnName != "ID")
         {
-            error = TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
+            error = TryParseInteger(value, 0, byte.MaxValue, columnName, ShouldUseHexForJobEditorColumn(columnName));
         }
 
         _jobEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;

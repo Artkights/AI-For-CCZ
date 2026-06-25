@@ -180,6 +180,51 @@ public sealed class GlobalSettingsUpdate
     public Dictionary<int, string> DetailedJobNames { get; init; } = new();
 }
 
+public sealed class JobSettingsUpdate
+{
+    [JsonPropertyName("job_series_names")]
+    public Dictionary<int, string> JobSeriesNames { get; init; } = new();
+
+    [JsonPropertyName("detailed_jobs")]
+    public List<DetailedJobUpdate> DetailedJobs { get; init; } = [];
+
+    [JsonPropertyName("restraint_matrix")]
+    public List<JobMatrixCellUpdate> RestraintMatrix { get; init; } = [];
+
+    [JsonPropertyName("attribute_matrix")]
+    public List<JobMatrixCellUpdate> AttributeMatrix { get; init; } = [];
+}
+
+public sealed class DetailedJobUpdate
+{
+    [JsonPropertyName("job_id")]
+    public int JobId { get; init; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; init; }
+
+    [JsonPropertyName("growth_values")]
+    public Dictionary<string, JsonElement> GrowthValues { get; init; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("pierce")]
+    public int? Pierce { get; init; }
+}
+
+public sealed class JobMatrixCellUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("column_id")]
+    public int ColumnId { get; init; }
+
+    [JsonPropertyName("value")]
+    public int Value { get; init; }
+}
+
 public sealed class RSceneDraftSaveRequest
 {
     [JsonPropertyName("scenario_file_name")]

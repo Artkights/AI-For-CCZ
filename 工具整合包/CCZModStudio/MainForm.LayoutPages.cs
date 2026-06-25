@@ -176,6 +176,18 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerBeautifyCheckBox.Text = "美化当前地图";
         _mapMakerBeautifyCheckBox.AutoSize = true;
         _mapMakerBeautifyCheckBox.Enabled = false;
+        _mapMakerBeautifyFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mapMakerBeautifyFilterCombo.Width = 110;
+        _mapMakerBeautifyFilterCombo.Items.AddRange(new object[]
+        {
+            new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.Natural, "自然融合"),
+            new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.Night, "黑夜"),
+            new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.Autumn, "秋天"),
+            new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.Winter, "冬天"),
+            new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.WarmSun, "暖阳"),
+            new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.Custom, "自定义")
+        });
+        _mapMakerBeautifyFilterCombo.SelectedIndex = 0;
         _mapMakerRollbackBeautifyButton.Text = "回退美化";
         _mapMakerRollbackBeautifyButton.AutoSize = true;
         _mapMakerRollbackBeautifyButton.Enabled = false;
@@ -260,6 +272,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             new Label { Text = "缩放：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _mapZoomTrackBar,
             _mapMakerShowGridCheckBox,
+            _mapMakerBeautifyFilterCombo,
             _mapMakerBeautifyCheckBox,
             _mapMakerRollbackBeautifyButton,
             _mapMakerBrushNameLabel,
@@ -692,6 +705,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobEditorButton.Text = "保存兵种";
         _saveJobEditorButton.AutoSize = true;
         _saveJobEditorButton.Enabled = false;
+        _editAccessoryJobGroupsButton.Text = "辅助分组";
+        _editAccessoryJobGroupsButton.AutoSize = true;
+        _editAccessoryJobGroupsButton.Enabled = false;
+        _replaceJobSImageButton.Text = "一键替换兵种形象";
+        _replaceJobSImageButton.AutoSize = true;
+        _replaceJobSImageButton.Enabled = false;
         _openJobSeriesTableButton.Text = "通用兵种系表";
         _openJobSeriesTableButton.AutoSize = true;
         _openJobEffectTableButton.Text = "兵种特效页";
@@ -724,6 +743,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         {
             _loadJobEditorButton,
             _saveJobEditorButton,
+            _editAccessoryJobGroupsButton,
+            _replaceJobSImageButton,
             _openJobEffectTableButton,
             _exportJobEditorCsvButton,
             _importJobEditorCsvButton,
@@ -758,7 +779,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         };
         previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        previewPanel.Controls.Add(new Label { Text = "范围预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
+        previewPanel.Controls.Add(new Label { Text = "预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
         _jobAreaPreviewBox.Dock = DockStyle.Fill;
         _jobAreaPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _jobAreaPreviewBox.BackColor = Color.White;
@@ -768,8 +789,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobAreaPreviewInfoBox.ReadOnly = true;
         _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobAreaPreviewInfoBox.WordWrap = true;
-        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种行显示可装备类别；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。双击兵种行可编辑可装备类别。";
-        AddCollapsibleSplitPanel(detailBody, 2, "范围预览", previewPanel, "BuildJobEditorPage.DetailGridPreview.Preview");
+        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种名称显示默认 S 形象；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。双击兵种行可编辑可装备类别。";
+        AddCollapsibleSplitPanel(detailBody, 2, "预览", previewPanel, "BuildJobEditorPage.DetailGridPreview.Preview");
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
         _jobEditorInfoBox.Multiline = true;

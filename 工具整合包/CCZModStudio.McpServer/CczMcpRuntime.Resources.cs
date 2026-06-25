@@ -314,6 +314,41 @@ public sealed partial class CczMcpRuntime
         return BuildAiImageDrawPayload(result);
     }
 
+    public object DrawAndReplaceCczImageAsset(
+        string? gameRoot,
+        string preset,
+        string description,
+        string? targetRelativePath,
+        int? imageNumber,
+        int? rImageId,
+        int? sImageId,
+        int? faceId,
+        int? jobId,
+        int factionSlot,
+        string? outputFormat,
+        int? width,
+        int? height)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, "direct");
+        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height);
+        var draw = _aiImageAssetService.DrawAsync(project, plan, dryRun: false, (itemPlan, outputPath) => BuildAiImageReplacementPreview(project, itemPlan, outputPath)).GetAwaiter().GetResult();
+        if (draw.Prepared == null)
+        {
+            throw new InvalidOperationException("AI image draw did not produce prepared files.");
+        }
+
+        var replacements = draw.Prepared.PreparedFiles.Select(file => ApplyPreparedAiImageFile(project, file)).ToList();
+        return new
+        {
+            project.GameRoot,
+            Draw = BuildAiImageDrawPayload(draw),
+            ReplacementCount = replacements.Count,
+            Replacements = replacements,
+            SafetyNote = "AI image was generated, post-processed, and written directly to the target E5/DLL resource through dedicated backup/report/reread replacement services."
+        };
+    }
+
     public object ListE5ImageEntries(string? gameRoot, string targetRelativePath, int limit)
     {
         var project = LoadProject(gameRoot);
@@ -481,6 +516,67 @@ public sealed partial class CczMcpRuntime
             result.FormatWarnings,
             result.RiskSummary
         };
+    }
+
+    private object ApplyPreparedAiImageFile(CczProject project, AiImagePreparedFile file)
+    {
+        var targetPath = ResolveProjectFile(project, file.TargetRelativePath, mustExist: true);
+        if (Path.GetExtension(targetPath).Equals(".dll", StringComparison.OrdinalIgnoreCase))
+        {
+            var dllPath = ResolveDllIconTarget(project, file.TargetRelativePath);
+            var results = file.TargetImageNumbers.Select(iconIndex =>
+            {
+                var replace = _iconResourceReplace.ReplaceBitmapIcon(project, dllPath, iconIndex, file.OutputPath);
+                return new
+                {
+                    Kind = "dll_icon",
+                    IconIndex = iconIndex,
+                    replace.BackupPath,
+                    replace.ReportPath,
+                    replace.ReportJsonPath,
+                    Preview = BuildDllIconReplacePayload(replace),
+                    replace.NewFileSizeBytes,
+                    replace.ChangedBytesEstimate,
+                    replace.NewFileSha256
+                };
+            }).ToList();
+            return new
+            {
+                file.Role,
+                file.TargetRelativePath,
+                file.OutputPath,
+                Results = results
+            };
+        }
+
+        if (Path.GetExtension(targetPath).Equals(".e5", StringComparison.OrdinalIgnoreCase))
+        {
+            EnsureE5ImageTargetAllowed(project, targetPath);
+            var requests = file.TargetImageNumbers
+                .Select(imageNumber => new E5ImageBatchReplaceRequest
+                {
+                    ImageNumber = imageNumber,
+                    SourcePath = file.OutputPath,
+                    SourceLabel = file.OutputPath,
+                    OperationKind = "AI image direct replacement"
+                })
+                .ToList();
+            var replace = _e5ImageReplace.ReplaceBatch(project, targetPath, requests);
+            return new
+            {
+                Kind = "e5_image_batch",
+                file.Role,
+                file.TargetRelativePath,
+                file.OutputPath,
+                file.TargetImageNumbers,
+                replace.BackupPath,
+                replace.ReportPath,
+                replace.ReportJsonPath,
+                Preview = BuildE5ImageBatchReplacePayload(replace)
+            };
+        }
+
+        throw new InvalidOperationException("AI image direct replacement supports only E5 image resources and DLL bitmap icons.");
     }
 
 }

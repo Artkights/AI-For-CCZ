@@ -28,9 +28,7 @@ public sealed class MaterialAutoTileMetadataService
         var outputPath = Path.Combine(groupDir, "_variants.json");
         if (!overwrite && File.Exists(outputPath)) return 0;
 
-        var variants = images
-            .SelectMany(BuildVariantsForImage)
-            .ToList();
+        var variants = BuildVariantsForGroup(groupDir, images);
         if (variants.Count == 0) return 0;
 
         File.WriteAllText(outputPath, JsonSerializer.Serialize(variants, JsonOptions));
@@ -41,21 +39,33 @@ public sealed class MaterialAutoTileMetadataService
     {
         if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath)) return Array.Empty<MaterialAutoTileVariant>();
 
+        return BuildVariantsForImage(imagePath, InferAutoTileModeFromPath(imagePath));
+    }
+
+    private static IReadOnlyList<MaterialAutoTileVariant> BuildVariantsForImage(string imagePath, string autoTileMode)
+    {
         var fileName = Path.GetFileName(imagePath);
         using var image = Image.FromFile(imagePath);
         var tile = MapResourceItem.MapTilePixelSize;
         var columns = Math.Max(1, image.Width / tile);
-        var rows = Math.Max(1, image.Height / tile);
 
         if (image.Width >= tile * 15 && image.Height <= tile)
         {
-            return BuildCanonicalStripVariants(fileName, columns, image.Width, image.Height);
+            return BuildCanonicalStripVariants(fileName, columns, image.Width, image.Height, NormalizeAutoTileMode(autoTileMode));
         }
 
         return new[] { BuildVariant(fileName, MaterialAutoTileRoles.Default, MaterialAutoTileMasks.None, MaterialAutoTileModes.Default, 0, 0, 0, image.Width, image.Height) };
     }
 
-    private static IReadOnlyList<MaterialAutoTileVariant> BuildCanonicalStripVariants(string fileName, int columns, int imageWidth, int imageHeight)
+    private static List<MaterialAutoTileVariant> BuildVariantsForGroup(string groupDir, IReadOnlyList<string> images)
+    {
+        var mode = InferAutoTileModeFromPath(groupDir);
+        return images
+            .SelectMany(path => BuildVariantsForImage(path, mode))
+            .ToList();
+    }
+
+    private static IReadOnlyList<MaterialAutoTileVariant> BuildCanonicalStripVariants(string fileName, int columns, int imageWidth, int imageHeight, string autoTileMode)
     {
         var variants = new List<MaterialAutoTileVariant>();
         var order = GetCanonicalMaskOrder();
@@ -64,7 +74,7 @@ public sealed class MaterialAutoTileMetadataService
         {
             var x = i * tile;
             var (role, mask) = order[i];
-            variants.Add(BuildVariant(fileName, role, mask, MaterialAutoTileModes.Mask, i, x, 0, imageWidth, imageHeight));
+            variants.Add(BuildVariant(fileName, role, mask, autoTileMode, i, x, 0, imageWidth, imageHeight));
         }
 
         return variants;
@@ -101,8 +111,8 @@ public sealed class MaterialAutoTileMetadataService
         [
             (MaterialAutoTileRoles.StraightH, MaterialAutoTileMasks.StraightH),
             (MaterialAutoTileRoles.StraightV, MaterialAutoTileMasks.StraightV),
-            (MaterialAutoTileRoles.CornerNE, MaterialAutoTileMasks.CornerNE),
             (MaterialAutoTileRoles.CornerNW, MaterialAutoTileMasks.CornerNW),
+            (MaterialAutoTileRoles.CornerNE, MaterialAutoTileMasks.CornerNE),
             (MaterialAutoTileRoles.CornerSW, MaterialAutoTileMasks.CornerSW),
             (MaterialAutoTileRoles.CornerSE, MaterialAutoTileMasks.CornerSE),
             (MaterialAutoTileRoles.EndN, MaterialAutoTileMasks.North),
@@ -110,9 +120,9 @@ public sealed class MaterialAutoTileMetadataService
             (MaterialAutoTileRoles.EndS, MaterialAutoTileMasks.South),
             (MaterialAutoTileRoles.EndW, MaterialAutoTileMasks.West),
             (MaterialAutoTileRoles.TeeN, MaterialAutoTileMasks.TeeN),
-            (MaterialAutoTileRoles.TeeE, MaterialAutoTileMasks.TeeE),
             (MaterialAutoTileRoles.TeeS, MaterialAutoTileMasks.TeeS),
             (MaterialAutoTileRoles.TeeW, MaterialAutoTileMasks.TeeW),
+            (MaterialAutoTileRoles.TeeE, MaterialAutoTileMasks.TeeE),
             (MaterialAutoTileRoles.Cross, MaterialAutoTileMasks.Cross)
         ];
 
@@ -141,10 +151,81 @@ public sealed class MaterialAutoTileMetadataService
             _ => MaterialAutoTileRoles.Default
         };
 
+    public static string InferAutoTileModeFromPath(string path)
+    {
+        var id = TryGetTypedMaterialId(path);
+        if (id is 14 or 15)
+        {
+            return MaterialAutoTileModes.LinePath;
+        }
+
+        if (id.HasValue)
+        {
+            return MaterialAutoTileModes.RegionBoundary;
+        }
+
+        var text = path ?? string.Empty;
+        if (ContainsAny(text, "fence", "wall"))
+        {
+            return MaterialAutoTileModes.LinePath;
+        }
+
+        return MaterialAutoTileModes.RegionBoundary;
+    }
+
+    public static string NormalizeAutoTileMode(string? mode)
+    {
+        mode = mode?.Trim() ?? string.Empty;
+        return mode switch
+        {
+            MaterialAutoTileModes.LinePath => MaterialAutoTileModes.LinePath,
+            MaterialAutoTileModes.RegionBoundary => MaterialAutoTileModes.RegionBoundary,
+            MaterialAutoTileModes.Mask => MaterialAutoTileModes.LinePath,
+            MaterialAutoTileModes.Default => MaterialAutoTileModes.Default,
+            _ => MaterialAutoTileModes.RegionBoundary
+        };
+    }
+
+    private static bool ContainsAny(string text, params string[] values)
+        => values.Any(value => text.Contains(value, StringComparison.CurrentCultureIgnoreCase));
+
+    private static int? TryGetTypedMaterialId(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        foreach (var part in path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+        {
+            var text = part.AsSpan().Trim();
+            var digitCount = 0;
+            while (digitCount < text.Length && char.IsDigit(text[digitCount]))
+            {
+                digitCount++;
+            }
+
+            if (digitCount == 0) continue;
+            var separatorIndex = digitCount;
+            while (separatorIndex < text.Length && char.IsWhiteSpace(text[separatorIndex]))
+            {
+                separatorIndex++;
+            }
+
+            if (separatorIndex >= text.Length ||
+                (text[separatorIndex] != ':' && text[separatorIndex] != '：'))
+            {
+                continue;
+            }
+
+            if (int.TryParse(text[..digitCount], out var id))
+            {
+                return id;
+            }
+        }
+
+        return null;
+    }
+
     private static bool IsImageFile(string path)
         => ImageExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 
     private static int SortKey(string name)
         => int.TryParse(name, out var value) ? value : int.MaxValue;
-
 }

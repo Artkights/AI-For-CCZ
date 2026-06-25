@@ -42,6 +42,36 @@ public sealed class TerrainMapBeautifyService
         }
     }
 
+    public Bitmap ApplyFilter(
+        MapWorkbenchDraft draft,
+        Bitmap sourceImage,
+        BeautifyCustomFilterSettings? defaultCustomFilter = null)
+    {
+        var output = new Bitmap(sourceImage);
+        if (!draft.BeautifyGeneratedMap || draft.BeautifyStrength <= 0)
+        {
+            return output;
+        }
+
+        var profile = string.IsNullOrWhiteSpace(draft.BeautifyFilterProfile)
+            ? TerrainBeautifyFilterProfiles.Natural
+            : draft.BeautifyFilterProfile.Trim();
+        var parameters = GetFilterParameters(profile, draft.BeautifyStrength, draft.CustomBeautifyFilter, defaultCustomFilter);
+        if (parameters.IsNeutral) return output;
+
+        var pixels = BitmapBuffer.FromBitmap(output);
+        try
+        {
+            ApplyFilterToPixels(pixels.Bytes, output.Width, output.Height, parameters);
+            pixels.CopyBack();
+            return output;
+        }
+        finally
+        {
+            pixels.Dispose();
+        }
+    }
+
     private static void ApplyPhotoshopStyleTerrainFeather(
         MapWorkbenchDraft draft,
         byte[] source,
@@ -294,6 +324,222 @@ public sealed class TerrainMapBeautifyService
         }
     }
 
+    private static void ApplyFilterToPixels(byte[] pixels, int width, int height, FilterParameters parameters)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var offset = (y * width + x) * 4;
+                if (pixels[offset + 3] == 0) continue;
+
+                var b = pixels[offset] / 255f;
+                var g = pixels[offset + 1] / 255f;
+                var r = pixels[offset + 2] / 255f;
+                var luminance = GetLuminance(r, g, b);
+
+                r = Mix(r, parameters.PhotoR, parameters.PhotoDensity);
+                g = Mix(g, parameters.PhotoG, parameters.PhotoDensity);
+                b = Mix(b, parameters.PhotoB, parameters.PhotoDensity);
+
+                r += parameters.BalanceR;
+                g += parameters.BalanceG;
+                b += parameters.BalanceB;
+
+                var saturation = parameters.Saturation;
+                r = luminance + (r - luminance) * saturation;
+                g = luminance + (g - luminance) * saturation;
+                b = luminance + (b - luminance) * saturation;
+
+                if (parameters.PreserveLuminosity)
+                {
+                    var adjustedLuminance = GetLuminance(r, g, b);
+                    var delta = luminance - adjustedLuminance;
+                    r += delta;
+                    g += delta;
+                    b += delta;
+                }
+
+                r = ApplyCurve(r, parameters);
+                g = ApplyCurve(g, parameters);
+                b = ApplyCurve(b, parameters);
+
+                pixels[offset] = FloatToByte(b);
+                pixels[offset + 1] = FloatToByte(g);
+                pixels[offset + 2] = FloatToByte(r);
+            }
+        }
+    }
+
+    public Bitmap ApplyCustomFilterPreview(Bitmap sourceImage, BeautifyCustomFilterSettings settings, int strength)
+    {
+        var output = new Bitmap(sourceImage);
+        var parameters = BuildCustomFilterParameters(settings, strength);
+        if (parameters.IsNeutral) return output;
+
+        var pixels = BitmapBuffer.FromBitmap(output);
+        try
+        {
+            ApplyFilterToPixels(pixels.Bytes, output.Width, output.Height, parameters);
+            pixels.CopyBack();
+            return output;
+        }
+        finally
+        {
+            pixels.Dispose();
+        }
+    }
+
+    private static FilterParameters GetFilterParameters(
+        string profile,
+        int strength,
+        BeautifyCustomFilterSettings? customFilter = null,
+        BeautifyCustomFilterSettings? defaultCustomFilter = null)
+    {
+        var amount = Math.Clamp(strength, 0, 3) / 3f;
+        if (amount <= 0f) return FilterParameters.Neutral;
+
+        return profile switch
+        {
+            TerrainBeautifyFilterProfiles.Night => new FilterParameters(
+                PhotoR: 0.10f,
+                PhotoG: 0.18f,
+                PhotoB: 0.92f,
+                PhotoDensity: 0.44f * amount,
+                BalanceR: -0.16f * amount,
+                BalanceG: -0.10f * amount,
+                BalanceB: 0.24f * amount,
+                Saturation: 1f - 0.18f * amount,
+                Brightness: -0.16f * amount,
+                Contrast: 1f - 0.12f * amount,
+                HighlightCompression: 0.24f * amount,
+                ShadowLift: 0f,
+                MidtoneGamma: 1f,
+                PreserveLuminosity: false),
+            TerrainBeautifyFilterProfiles.Autumn => new FilterParameters(
+                PhotoR: 0.92f,
+                PhotoG: 0.54f,
+                PhotoB: 0.18f,
+                PhotoDensity: 0.22f * amount,
+                BalanceR: 0.09f * amount,
+                BalanceG: 0.02f * amount,
+                BalanceB: -0.09f * amount,
+                Saturation: 1f + 0.12f * amount,
+                Brightness: 0.02f * amount,
+                Contrast: 1f + 0.06f * amount,
+                HighlightCompression: 0.04f * amount,
+                ShadowLift: 0f,
+                MidtoneGamma: 1f,
+                PreserveLuminosity: true),
+            TerrainBeautifyFilterProfiles.Winter => new FilterParameters(
+                PhotoR: 0.70f,
+                PhotoG: 0.86f,
+                PhotoB: 1.00f,
+                PhotoDensity: 0.22f * amount,
+                BalanceR: -0.06f * amount,
+                BalanceG: 0.02f * amount,
+                BalanceB: 0.10f * amount,
+                Saturation: 1f - 0.30f * amount,
+                Brightness: 0.08f * amount,
+                Contrast: 1f - 0.04f * amount,
+                HighlightCompression: -0.08f * amount,
+                ShadowLift: 0f,
+                MidtoneGamma: 1f,
+                PreserveLuminosity: true),
+            TerrainBeautifyFilterProfiles.WarmSun => new FilterParameters(
+                PhotoR: 1.00f,
+                PhotoG: 0.72f,
+                PhotoB: 0.38f,
+                PhotoDensity: 0.20f * amount,
+                BalanceR: 0.07f * amount,
+                BalanceG: 0.04f * amount,
+                BalanceB: -0.07f * amount,
+                Saturation: 1f + 0.08f * amount,
+                Brightness: 0.04f * amount,
+                Contrast: 1f + 0.10f * amount,
+                HighlightCompression: -0.04f * amount,
+                ShadowLift: 0f,
+                MidtoneGamma: 1f,
+                PreserveLuminosity: true),
+            TerrainBeautifyFilterProfiles.Custom => BuildCustomFilterParameters(customFilter ?? defaultCustomFilter ?? BeautifyCustomFilterSettings.CreateDefault(), strength),
+            _ => new FilterParameters(
+                PhotoR: 0.90f,
+                PhotoG: 0.84f,
+                PhotoB: 0.72f,
+                PhotoDensity: 0.08f * amount,
+                BalanceR: 0.02f * amount,
+                BalanceG: 0.01f * amount,
+                BalanceB: -0.02f * amount,
+                Saturation: 1f + 0.03f * amount,
+                Brightness: 0f,
+                Contrast: 1f + 0.03f * amount,
+                HighlightCompression: 0.02f * amount,
+                ShadowLift: 0f,
+                MidtoneGamma: 1f,
+                PreserveLuminosity: true)
+        };
+    }
+
+    private static FilterParameters BuildCustomFilterParameters(BeautifyCustomFilterSettings settings, int strength)
+    {
+        settings = MapDraftService.NormalizeCustomBeautifyFilter(settings.Clone()) ?? BeautifyCustomFilterSettings.CreateDefault();
+        var amount = Math.Clamp(strength, 0, 3) / 3f;
+        if (amount <= 0f) return FilterParameters.Neutral;
+        return new FilterParameters(
+            PhotoR: settings.PhotoR,
+            PhotoG: settings.PhotoG,
+            PhotoB: settings.PhotoB,
+            PhotoDensity: settings.PhotoDensity * amount,
+            BalanceR: settings.BalanceR * amount,
+            BalanceG: settings.BalanceG * amount,
+            BalanceB: settings.BalanceB * amount,
+            Saturation: 1f + (settings.Saturation - 1f) * amount,
+            Brightness: settings.Brightness * amount,
+            Contrast: 1f + (settings.Contrast - 1f) * amount,
+            HighlightCompression: settings.HighlightCompression * amount,
+            ShadowLift: settings.ShadowLift * amount,
+            MidtoneGamma: 1f + (settings.MidtoneGamma - 1f) * amount,
+            PreserveLuminosity: settings.PreserveLuminosity);
+    }
+
+    private static float ApplyCurve(float value, FilterParameters parameters)
+    {
+        value = Math.Clamp(value + parameters.Brightness, 0f, 1f);
+        value = Math.Clamp((value - 0.5f) * parameters.Contrast + 0.5f, 0f, 1f);
+        if (Math.Abs(parameters.ShadowLift) > 0.0001f)
+        {
+            var shadow = (1f - value) * (1f - value);
+            value += shadow * parameters.ShadowLift;
+        }
+
+        if (Math.Abs(parameters.MidtoneGamma - 1f) > 0.0001f)
+        {
+            value = MathF.Pow(Math.Clamp(value, 0f, 1f), 1f / Math.Max(0.01f, parameters.MidtoneGamma));
+        }
+
+        if (parameters.HighlightCompression > 0f)
+        {
+            var highlight = value * value;
+            value -= highlight * parameters.HighlightCompression;
+        }
+        else if (parameters.HighlightCompression < 0f)
+        {
+            var lift = (1f - value) * (1f - value);
+            value += lift * -parameters.HighlightCompression;
+        }
+
+        return Math.Clamp(value, 0f, 1f);
+    }
+
+    private static float GetLuminance(float r, float g, float b)
+        => r * 0.299f + g * 0.587f + b * 0.114f;
+
+    private static float Mix(float left, float right, float amount)
+        => left * (1f - amount) + right * amount;
+
+    private static byte FloatToByte(float value)
+        => (byte)Math.Clamp((int)MathF.Round(value * 255f), 0, 255);
+
     private static ShapeInfo AnalyzeShape(MapWorkbenchDraft draft, int x, int y, byte terrain)
     {
         var sameLeft = IsSame(draft, x - 1, y, terrain);
@@ -393,6 +639,34 @@ public sealed class TerrainMapBeautifyService
 
     private readonly record struct Direction(int Dx, int Dy);
     private readonly record struct ShapeInfo(bool IsNarrow, bool IsIsland, int CornerWeight);
+    private readonly record struct FilterParameters(
+        float PhotoR,
+        float PhotoG,
+        float PhotoB,
+        float PhotoDensity,
+        float BalanceR,
+        float BalanceG,
+        float BalanceB,
+        float Saturation,
+        float Brightness,
+        float Contrast,
+        float HighlightCompression,
+        float ShadowLift,
+        float MidtoneGamma,
+        bool PreserveLuminosity)
+    {
+        public static readonly FilterParameters Neutral = new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 1f, 0f, 0f, 1f, true);
+        public bool IsNeutral => PhotoDensity == 0f &&
+                                 BalanceR == 0f &&
+                                 BalanceG == 0f &&
+                                 BalanceB == 0f &&
+                                 Saturation == 1f &&
+                                 Brightness == 0f &&
+                                 Contrast == 1f &&
+                                 HighlightCompression == 0f &&
+                                 ShadowLift == 0f &&
+                                 MidtoneGamma == 1f;
+    }
 
     private sealed class BitmapBuffer : IDisposable
     {

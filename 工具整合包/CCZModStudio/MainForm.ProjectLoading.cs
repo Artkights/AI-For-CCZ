@@ -183,6 +183,10 @@ public sealed partial class MainForm
         _currentJobEditorData = null;
         _jobEditorGrid.DataSource = null;
         _saveJobEditorButton.Enabled = false;
+        _editAccessoryJobGroupsButton.Enabled = false;
+        _replaceJobSImageButton.Enabled = false;
+        _currentAccessoryJobGroupProfile = null;
+        _jobSeriesNames = new Dictionary<int, string>();
 
         _currentJobStrategyData = null;
         _jobStrategyEditorGrid.DataSource = null;

@@ -19,6 +19,44 @@ public sealed class BatchSImageReplaceRequest
 
 public sealed record BatchSImageUsage(int SImageId, int? JobId, int FactionSlot);
 
+public sealed class JobSImageReplaceRequest
+{
+    public int JobId { get; init; }
+    public string MaterialFolder { get; init; } = string.Empty;
+    public IReadOnlyList<int> FactionSlots { get; init; } = Array.Empty<int>();
+    public string WriteMode { get; init; } = "direct";
+}
+
+public sealed class JobSImageFactionPreview
+{
+    public int FactionSlot { get; init; }
+    public string FactionName { get; init; } = string.Empty;
+    public SImageReplacePreviewResult Preview { get; init; } = new();
+}
+
+public class JobSImageReplacePreviewResult
+{
+    public JobSImageReplaceRequest Request { get; init; } = new();
+    public IReadOnlyList<JobSImageFactionPreview> Factions { get; init; } = Array.Empty<JobSImageFactionPreview>();
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+    public int TotalOperationCount => Factions.Sum(faction => faction.Preview.TotalOperationCount);
+}
+
+public sealed class JobSImageFactionResult
+{
+    public int FactionSlot { get; init; }
+    public string FactionName { get; init; } = string.Empty;
+    public SImageReplaceResult Result { get; init; } = new();
+}
+
+public sealed class JobSImageReplaceResult
+{
+    public JobSImageReplaceRequest Request { get; init; } = new();
+    public IReadOnlyList<JobSImageFactionResult> Factions { get; init; } = Array.Empty<JobSImageFactionResult>();
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+    public int TotalOperationCount => Factions.Sum(faction => faction.Result.TotalOperationCount);
+}
+
 public sealed class BatchItemIconImportRequest
 {
     public IReadOnlyList<string> SourceFiles { get; init; } = Array.Empty<string>();

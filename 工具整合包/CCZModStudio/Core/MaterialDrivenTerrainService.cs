@@ -114,6 +114,12 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         }
 
         DrawOverlays(g, draft, materials, drawScenery: true);
+        if (beautifyTerrain)
+        {
+            using var filtered = new TerrainMapBeautifyService().ApplyFilter(draft, bitmap);
+            g.DrawImage(filtered, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+        }
+
         return bitmap;
     }
 
@@ -145,11 +151,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
         if (includeScenery)
         {
-            var scenery = draft.SceneryOverlayCells.LastOrDefault(cell => cell.Index == index);
-            if (scenery != null)
-            {
-                DrawOverlayCell(g, draft, scenery, materialLookup, materials, draft.SceneryOverlayCells);
-            }
+            DrawSceneryOverlaysIntersecting(g, draft, index);
         }
     }
 
@@ -161,10 +163,9 @@ public sealed class MaterialDrivenTerrainService : IDisposable
             DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.BuildingOverlayCells);
         }
 
-        if (!drawScenery) return;
-        foreach (var cell in draft.SceneryOverlayCells.OrderBy(cell => cell.Index))
+        if (drawScenery)
         {
-            DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.SceneryOverlayCells);
+            DrawSceneryOverlays(g, draft);
         }
     }
 
@@ -229,7 +230,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
             .ToList();
         if (groupAssets.Count <= 1) return current;
 
-        var mask = BuildConnectionMask(draft, current, index, materialLookup, layerCells);
+        var mask = BuildLinePathMask(draft, current, index, materialLookup, layerCells);
         return SelectAutoTileAssetForMask(groupAssets, mask) ?? current;
     }
 
@@ -250,6 +251,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
     private static MaterialAsset? SelectAutoTileAssetByMask(IEnumerable<MaterialAsset> assets, int mask)
         => assets
+            .Where(asset => !asset.AutoTileRole.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase))
             .Where(asset => NormalizeEightWayMask(GetAssetMask(asset)) == mask)
             .OrderBy(asset => asset.AutoTilePriority)
             .ThenBy(asset => asset.VariantIndex)
@@ -257,7 +259,8 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
     private static MaterialAsset? SelectAutoTileDefaultAsset(IEnumerable<MaterialAsset> assets)
         => assets
-               .Where(asset => GetAssetMask(asset) == MaterialAutoTileMasks.None)
+               .Where(asset => GetAssetMask(asset) == MaterialAutoTileMasks.None &&
+                               !asset.AutoTileRole.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase))
                .OrderBy(asset => asset.AutoTilePriority)
                .ThenBy(asset => asset.VariantIndex)
                .FirstOrDefault() ??
@@ -299,20 +302,20 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         }
         else if (BitCount(cardinal) == 2)
         {
-            if (cardinal is MaterialAutoTileMasks.CornerNE or MaterialAutoTileMasks.CornerNW)
+            if (cardinal is MaterialAutoTileMasks.CornerSE or MaterialAutoTileMasks.CornerSW)
             {
                 yield return MaterialAutoTileMasks.North;
             }
-            else if (cardinal is MaterialAutoTileMasks.CornerSE or MaterialAutoTileMasks.CornerSW)
+            else if (cardinal is MaterialAutoTileMasks.CornerNE or MaterialAutoTileMasks.CornerNW)
             {
                 yield return MaterialAutoTileMasks.South;
             }
 
-            if (cardinal is MaterialAutoTileMasks.CornerNE or MaterialAutoTileMasks.CornerSE)
+            if (cardinal is MaterialAutoTileMasks.CornerNW or MaterialAutoTileMasks.CornerSW)
             {
                 yield return MaterialAutoTileMasks.East;
             }
-            else if (cardinal is MaterialAutoTileMasks.CornerNW or MaterialAutoTileMasks.CornerSW)
+            else if (cardinal is MaterialAutoTileMasks.CornerNE or MaterialAutoTileMasks.CornerSE)
             {
                 yield return MaterialAutoTileMasks.West;
             }
@@ -371,7 +374,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         if (!HasDiagonal(mask, MaterialAutoTileMasks.NorthWest)) yield return filled & ~MaterialAutoTileMasks.NorthWest;
     }
 
-    private static int BuildConnectionMask(
+    private static int BuildLinePathMask(
         MapWorkbenchDraft draft,
         MaterialAsset current,
         int index,
@@ -453,6 +456,88 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         if (source == null) return;
         var sourceRect = BuildSourceRect(asset, source);
         g.DrawImage(source, target, sourceRect, GraphicsUnit.Pixel);
+    }
+
+    private void DrawSceneryOverlays(Graphics g, MapWorkbenchDraft draft)
+    {
+        foreach (var overlay in draft.SceneryOverlays
+                     .OrderBy(overlay => overlay.ZOrder)
+                     .ThenBy(overlay => overlay.Y)
+                     .ThenBy(overlay => overlay.X))
+        {
+            DrawSceneryOverlay(g, draft, overlay);
+        }
+    }
+
+    private void DrawSceneryOverlaysIntersecting(Graphics g, MapWorkbenchDraft draft, int index)
+    {
+        var rect = GetTileRectangle(draft, index);
+        foreach (var overlay in draft.SceneryOverlays
+                     .OrderBy(overlay => overlay.ZOrder)
+                     .ThenBy(overlay => overlay.Y)
+                     .ThenBy(overlay => overlay.X))
+        {
+            if (!GetSceneryBounds(overlay).IntersectsWith(rect)) continue;
+            DrawSceneryOverlay(g, draft, overlay);
+        }
+    }
+
+    private void DrawSceneryOverlay(Graphics g, MapWorkbenchDraft draft, MapSceneryOverlay overlay)
+    {
+        var image = GetCachedImage(MapDraftService.ResolveMaterialPath(draft.MaterialRoot, overlay.MaterialRelativePath));
+        if (image == null) return;
+        var target = GetSceneryTargetRectangle(overlay);
+        var canvas = new Rectangle(0, 0, draft.PixelWidth, draft.PixelHeight);
+        var bounds = Rectangle.Intersect(GetSceneryBounds(overlay), canvas);
+        if (bounds.IsEmpty) return;
+
+        var state = g.Save();
+        try
+        {
+            g.SetClip(canvas);
+            var centerX = target.Left + target.Width / 2f;
+            var centerY = target.Top + target.Height / 2f;
+            g.TranslateTransform(centerX, centerY);
+            if (Math.Abs(overlay.RotationDegrees) > 0.001f)
+            {
+                g.RotateTransform(overlay.RotationDegrees);
+            }
+
+            g.DrawImage(
+                image,
+                new RectangleF(-target.Width / 2f, -target.Height / 2f, target.Width, target.Height),
+                new RectangleF(0, 0, image.Width, image.Height),
+                GraphicsUnit.Pixel);
+        }
+        finally
+        {
+            g.Restore(state);
+        }
+    }
+
+    private static Rectangle GetSceneryTargetRectangle(MapSceneryOverlay overlay)
+        => new(
+            overlay.X,
+            overlay.Y,
+            overlay.Width <= 0 ? MapResourceItem.MapTilePixelSize : overlay.Width,
+            overlay.Height <= 0 ? MapResourceItem.MapTilePixelSize : overlay.Height);
+
+    private static Rectangle GetSceneryBounds(MapSceneryOverlay overlay)
+    {
+        var rect = GetSceneryTargetRectangle(overlay);
+        if (Math.Abs(overlay.RotationDegrees % 360f) < 0.001f) return rect;
+        var radians = overlay.RotationDegrees * MathF.PI / 180f;
+        var cos = MathF.Abs(MathF.Cos(radians));
+        var sin = MathF.Abs(MathF.Sin(radians));
+        var width = rect.Width * cos + rect.Height * sin;
+        var height = rect.Width * sin + rect.Height * cos;
+        var centerX = rect.Left + rect.Width / 2f;
+        var centerY = rect.Top + rect.Height / 2f;
+        return Rectangle.FromLTRB(
+            (int)MathF.Floor(centerX - width / 2f),
+            (int)MathF.Floor(centerY - height / 2f),
+            (int)MathF.Ceiling(centerX + width / 2f),
+            (int)MathF.Ceiling(centerY + height / 2f));
     }
 
     private void DrawBaseLayer(Graphics g, MapWorkbenchDraft draft, int width, int height, bool checkerboardBlank)

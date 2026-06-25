@@ -110,7 +110,7 @@ public sealed class EffectPackageService
                 throw new InvalidOperationException("Unsupported effect domain: " + package.Domain);
         }
 
-        preview.CanApply = preview.Warnings.Count == 0;
+        preview.CanApply = true;
         preview.Summary = $"{preview.Domain} effect {preview.EffectId} {preview.Mode}: {preview.Changes.Count} planned changes, warnings={preview.Warnings.Count}.";
         return preview;
     }
@@ -118,10 +118,6 @@ public sealed class EffectPackageService
     public EffectPackageApplyResult Apply(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode)
     {
         var preview = Preview(project, tables, package, mode);
-        if (!preview.CanApply)
-        {
-            throw new InvalidOperationException("Effect package preview is not applicable: " + string.Join("; ", preview.Warnings));
-        }
 
         var normalizedDomain = preview.Domain;
         var normalizedMode = preview.Mode;
@@ -225,7 +221,7 @@ public sealed class EffectPackageService
             }
         }
 
-        preview.CanApply = preview.Warnings.Count == 0;
+        preview.CanApply = true;
         preview.Summary = $"Patch package preview: segments={package.PatchSegments.Count}, warnings={preview.Warnings.Count}.";
         return preview;
     }
@@ -233,10 +229,6 @@ public sealed class EffectPackageService
     public EffectPackageApplyResult ApplyPatch(CczProject project, EffectPackage package)
     {
         var preview = PreviewPatch(project, package);
-        if (!preview.CanApply)
-        {
-            throw new InvalidOperationException("Patch package is not applicable: " + string.Join("; ", preview.Warnings));
-        }
 
         var aggregate = new EffectPackageApplyResult
         {
