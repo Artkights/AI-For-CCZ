@@ -36,6 +36,7 @@ public sealed partial class MainForm
         _saveRoleEditorButton.Click += (_, _) => SaveRoleEditor();
         _importRoleFaceButton.Click += (_, _) => ImportSelectedRoleFace();
         _batchImportRoleFaceButton.Click += (_, _) => BatchImportSelectedRoleFaces();
+        _exportRoleFaceBmpButton.Click += (_, _) => ExportSelectedRoleFacesBmp();
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
         _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
@@ -70,6 +71,8 @@ public sealed partial class MainForm
         _saveJobEditorButton.Click += (_, _) => SaveJobEditor();
         _editAccessoryJobGroupsButton.Click += (_, _) => EditAccessoryJobGroups();
         _replaceJobSImageButton.Click += (_, _) => ReplaceSelectedJobSImage();
+        _batchReplaceJobSImageButton.Click += (_, _) => BatchReplaceSelectedJobSImages();
+        _exportJobSImageBmpButton.Click += (_, _) => ExportSelectedJobSImagesBmp();
         _openJobSeriesTableButton.Click += (_, _) => OpenCoreTable("6.5-3 兵种系");
         _openJobEffectTableButton.Click += (_, _) => OpenJobEffectEditor();
         _exportJobEditorCsvButton.Click += (_, _) => ExportJobEditorCsv();
@@ -121,6 +124,7 @@ public sealed partial class MainForm
         _batchFillItemEditorColumnButton.Click += (_, _) => FillItemEditorSelectionWithCurrentValue();
         _batchImportItemIconButton.Click += (_, _) => BatchImportSelectedItemIcons();
         _editItemIconButton.Click += (_, _) => EditSelectedItemIcon();
+        _exportItemIconBmpButton.Click += (_, _) => ExportSelectedItemIconsBmp();
         _undoItemEditorButton.Click += (_, _) => UndoItemEditorChange();
         _redoItemEditorButton.Click += (_, _) => RedoItemEditorChange();
         _filterItemEditorButton.Click += (_, _) => ApplyItemEditorFilter();
@@ -205,6 +209,7 @@ public sealed partial class MainForm
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
         _importJobStrategyIconButton.Click += (_, _) => ImportSelectedJobStrategyIcons();
         _editJobStrategyIconButton.Click += (_, _) => EditSelectedJobStrategyIcon();
+        _exportJobStrategyIconBmpButton.Click += (_, _) => ExportSelectedJobStrategyIconsBmp();
         _openJobStrategyTableButton.Click += (_, _) => OpenCoreTable("6.5-5 策略");
         _filterJobStrategyEditorButton.Click += (_, _) => ApplyJobStrategyFilter();
         _clearJobStrategyEditorFilterButton.Click += (_, _) => ClearJobStrategyFilter();
@@ -342,6 +347,9 @@ public sealed partial class MainForm
         _batchReplaceSImageSetButton.Click += (_, _) => BatchReplaceSImageSets();
         _importImageAssignmentFaceButton.Click += (_, _) => ImportSelectedImageAssignmentFace();
         _batchImportImageAssignmentFaceButton.Click += (_, _) => BatchImportSelectedImageAssignmentFaces();
+        _exportRImageBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind.R);
+        _exportSImageBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind.S);
+        _exportImageAssignmentFaceBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind.Face);
         _restoreImageResourceButton.Click += (_, _) => ImportOrReplaceSelectedImageResource(restoreMode: true);
         _exportMissingImageResourcesButton.Click += (_, _) => ExportMissingImageResourceReport();
         _imageAssignmentGrid.CellValidating += (_, e) => ValidateImageAssignmentCell(e);
@@ -484,7 +492,7 @@ public sealed partial class MainForm
         _rSceneCanvasScrollPanel.MouseEnter += (_, _) => _rSceneCanvasScrollPanel.Focus();
         _rSceneZoomResetButton.Click += (_, _) => ResetRSceneCanvasZoom();
         _rScenePreviewLockButton.Click += (_, _) => ToggleRScenePreviewLock();
-        _rSceneBackgroundCombo.SelectedIndexChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
+        _rSceneBackgroundCombo.SelectedIndexChanged += (_, _) => HandleRSceneBackgroundSelectionChanged();
         _rSceneGridSizeInput.ValueChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
         _rSceneShowGridCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
         _rSceneDialoguePreviewCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
@@ -508,6 +516,7 @@ public sealed partial class MainForm
         _showScriptVariablesButton.Click += (_, _) => ShowScriptVariableUsageDialog(LegacyScriptEditorScope.Script);
         _locateScriptCommandButton.Click += (_, _) => LocateSelectedScriptCommandInTree();
         _copyScriptCommandButton.Click += (_, _) => CopySelectedScriptCommandSummary();
+        _cutScriptCommandButton.Click += (_, _) => CutSelectedLegacyScriptCommand();
         _previewPasteScriptCommandButton.Click += (_, _) => PreviewPasteScriptCommandCandidate();
         _scriptNewCommandCombo.SelectedIndexChanged += (_, _) => UpdateScriptStructureEditButtons();
         _appendScriptCommandToSectionButton.Click += (_, _) => AppendLegacyScriptCommandToSection();
@@ -635,6 +644,7 @@ public sealed partial class MainForm
         _mapMakerReplaceMapImageButton.Click += (_, _) => ReplaceCurrentMapImage();
         _mapMakerExportPreviewButton.Click += (_, _) => ExportCurrentMapMakerPreviewPng();
         _mapMakerExportJpgButton.Click += (_, _) => ExportCurrentMapWorkbenchJpg();
+        _mapMakerExtractMaterialButton.Click += (_, _) => OpenMapMaterialExtractionDialogFromSelection();
         _mapMakerMaterialPlanButton.Click += (_, _) => OpenMapWorkbenchMaterialPlanDialog();
         _mapMakerPublishAllButton.Click += (_, _) => PublishCurrentMapWorkbenchMapAndTerrain();
         _mapMakerPublishMapButton.Click += (_, _) => PublishCurrentMapWorkbenchMapImage();
@@ -642,6 +652,7 @@ public sealed partial class MainForm
         _mapMakerMaterialSearchBox.TextChanged += (_, _) => PopulateMapWorkbenchMaterialBrowser();
         _mapMakerMaterialTree.AfterSelect += (_, _) => PopulateMapWorkbenchMaterialListForSelection();
         _mapMakerMaterialListView.SelectedIndexChanged += (_, _) => SelectMapWorkbenchMaterialFromListView();
+        ConfigureMapViewerContextMenu();
         _mapViewerBox.MouseDown += (_, e) => BeginMapMakerTerrainPaint(e);
         _mapViewerBox.MouseMove += (_, e) => ContinueMapMakerTerrainPaint(e);
         _mapViewerBox.MouseUp += (_, _) => EndMapMakerTerrainPaint();

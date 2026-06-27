@@ -324,7 +324,12 @@ public sealed class LegacyScenarioReader
 
                         var byteLength = cursor - stringStart + 1;
                         parameter.Kind = LegacyScenarioParameterKind.Text;
-                        parameter.Text = DecodeString(bytes, stringStart, byteLength);
+                        var decoded = DecodeString(bytes, stringStart, byteLength);
+                        parameter.Text = decoded.Text;
+                        parameter.TextEncodingName = decoded.EncodingName;
+                        parameter.TextDecodeConfidence = decoded.Confidence;
+                        parameter.TextDecodeWarning = decoded.WarningText;
+                        parameter.RawTextBytes = decoded.RawBytes;
                         parameter.ByteLength = byteLength;
                         cursor++;
                         break;
@@ -458,12 +463,10 @@ public sealed class LegacyScenarioReader
     private static string ResolveCommandName(SceneStringDocument dictionary, int id)
         => dictionary.Commands.FirstOrDefault(command => command.Id == id)?.Name ?? $"Command 0x{id:X2}";
 
-    private static string DecodeString(byte[] bytes, int offset, int byteLength)
+    private static LegacyTextDecodeResult DecodeString(byte[] bytes, int offset, int byteLength)
     {
-        var text = EncodingService.Gbk.GetString(bytes, offset, byteLength);
-        var terminator = text.IndexOf('\0', StringComparison.Ordinal);
-        if (terminator >= 0) text = text[..terminator];
-        return text;
+        var result = LegacyTextDecoder.DecodeGbk(bytes, offset, byteLength, trimAtNull: true);
+        return result with { Text = LegacyTextDecoder.NormalizeNewLines(result.Text) };
     }
 
     private static int ReadUInt16(byte[] bytes, int offset)

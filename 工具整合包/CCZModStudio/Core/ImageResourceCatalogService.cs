@@ -13,7 +13,11 @@ public sealed class ImageResourceCatalogService
     private readonly ItemIconPreviewService _iconPreviewService = new();
     private readonly Dictionary<string, IReadOnlyList<E5ImageEntryInfo>> _indexCache = new(StringComparer.OrdinalIgnoreCase);
 
-    public void ClearCache() => _indexCache.Clear();
+    public void ClearCache()
+    {
+        _indexCache.Clear();
+        _iconPreviewService.ClearCache();
+    }
 
     public IReadOnlyList<ImageResourceFileInfo> BuildCatalog(CczProject project)
     {
@@ -31,7 +35,8 @@ public sealed class ImageResourceCatalogService
             var externalIconCount = exists && resource.Kind == ImageResourceKind.ExternalIcon
                 ? GetExternalIconCount(project, resource)
                 : 0;
-            var lsInfo = exists && resource.Kind == ImageResourceKind.LsStatusOnly
+            var lsInfo = exists && (resource.Kind == ImageResourceKind.LsStatusOnly ||
+                                    (resource.Kind == ImageResourceKind.E5Indexed && entries.Count == 0 && IsLegacyLsImagePackage(resource)))
                 ? TryReadLsResource(path, resource.Category)
                 : null;
             var entryCount = resource.Kind == ImageResourceKind.ExternalIcon ? externalIconCount : entries.Count;
@@ -292,6 +297,13 @@ public sealed class ImageResourceCatalogService
         LsResourceInfo? lsInfo)
     {
         if (!exists) return "未找到";
+        if (resource.Kind == ImageResourceKind.E5Indexed &&
+            e5EntryCount == 0 &&
+            IsLegacyLsImagePackage(resource) &&
+            lsInfo?.MagicValid == true)
+        {
+            return $"{resource.FileName} 是旧式 LS 大图封包（{lsInfo.Magic}，payload={lsInfo.PayloadLength:N0} 字节），当前不按 0x110 E5 图片索引解析；脚本引用仍会显示类别和图号。";
+        }
 
         return resource.Kind switch
         {
@@ -307,6 +319,10 @@ public sealed class ImageResourceCatalogService
             _ => "文件存在"
         };
     }
+
+    private static bool IsLegacyLsImagePackage(ImageResourceDefinition resource)
+        => resource.FileName.Equals("Mmap.e5", StringComparison.OrdinalIgnoreCase) ||
+           resource.FileName.Equals("Hexzmap.e5", StringComparison.OrdinalIgnoreCase);
 
     private static LsResourceInfo? TryReadLsResource(string path, string category)
     {

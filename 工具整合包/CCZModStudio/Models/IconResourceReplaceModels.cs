@@ -8,6 +8,7 @@ public class IconResourceReplacePreviewResult
     public string TargetRelativePath { get; init; } = string.Empty;
     public int IconIndex { get; init; }
     public IReadOnlyList<int> ResourceIds { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<string> ResourceDetails { get; init; } = Array.Empty<string>();
     public string SourcePath { get; init; } = string.Empty;
     public string OperationKind { get; init; } = string.Empty;
     public long OldFileSizeBytes { get; init; }
@@ -43,14 +44,56 @@ public sealed class IconResourceBitmapReplaceRequest
 {
     public int IconIndex { get; init; }
     public Bitmap Bitmap { get; init; } = new(1, 1);
+    public Bitmap? SmallBitmap { get; init; }
     public string SourceLabel { get; init; } = string.Empty;
     public string OperationKind { get; init; } = "像素编辑";
+}
+
+public sealed class IconResourceStorageReplaceRequest
+{
+    public int IconIndex { get; init; }
+    public byte[] SmallDibBytes { get; init; } = Array.Empty<byte>();
+    public byte[] LargeDibBytes { get; init; } = Array.Empty<byte>();
+    public string SourcePath { get; init; } = string.Empty;
+    public string SourceLabel { get; init; } = string.Empty;
+    public int SourceWidth { get; init; }
+    public int SourceHeight { get; init; }
+    public string OperationKind { get; init; } = "batch item icon import";
+    public string StorageSummary { get; init; } = string.Empty;
+}
+
+public sealed class IconResourcePreparedDibReplaceRequest
+{
+    public int IconIndex { get; init; }
+    public string SourcePath { get; init; } = string.Empty;
+    public string SourceLabel { get; init; } = string.Empty;
+    public int SourceWidth { get; init; }
+    public int SourceHeight { get; init; }
+    public string OperationKind { get; init; } = "batch item icon import";
+    public string ResourceFormatSummary { get; init; } = string.Empty;
+    public IReadOnlyList<string> Diagnostics { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<IconResourcePreparedDibUpdate> Updates { get; init; } = Array.Empty<IconResourcePreparedDibUpdate>();
+    public IReadOnlyList<IconResourcePreparedDibDelete> Deletes { get; init; } = Array.Empty<IconResourcePreparedDibDelete>();
+}
+
+public sealed class IconResourcePreparedDibUpdate
+{
+    public int ResourceId { get; init; }
+    public ushort LanguageId { get; init; }
+    public byte[] DibBytes { get; init; } = Array.Empty<byte>();
+}
+
+public sealed class IconResourcePreparedDibDelete
+{
+    public int ResourceId { get; init; }
+    public ushort LanguageId { get; init; }
 }
 
 public sealed class IconResourceBatchReplacePreviewItem
 {
     public int IconIndex { get; init; }
     public IReadOnlyList<int> ResourceIds { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<string> ResourceDetails { get; init; } = Array.Empty<string>();
     public string SourcePath { get; init; } = string.Empty;
     public string SourceLabel { get; init; } = string.Empty;
     public long SourceSizeBytes { get; init; }

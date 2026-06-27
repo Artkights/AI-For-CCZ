@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 60000,
-    [int]$MainMinimumToolCount = 117,
+    [int]$MainMinimumToolCount = 124,
     [int]$GameDebugMinimumToolCount = 65,
     [switch]$SkipProductionToolSmoke,
     [switch]$RunStrictGameDebugSmoke

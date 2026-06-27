@@ -31,6 +31,7 @@ internal partial class Program
                 var beautifyFilterCombo = GetPrivateFieldForMapWorkbenchUiSmoke<ComboBox>(form, "_mapMakerBeautifyFilterCombo");
                 var rollbackButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerRollbackBeautifyButton");
                 var materialPlanButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerMaterialPlanButton");
+                var extractMaterialButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerExtractMaterialButton");
                 var materialTree = GetPrivateFieldForMapWorkbenchUiSmoke<TreeView>(form, "_mapMakerMaterialTree");
                 var materialList = GetPrivateFieldForMapWorkbenchUiSmoke<ListView>(form, "_mapMakerMaterialListView");
                 var materials = GetPrivateFieldForMapWorkbenchUiSmoke<IReadOnlyList<MaterialAsset>>(form, "_currentMaterialAssets");
@@ -73,6 +74,11 @@ internal partial class Program
                 if (!beautifyButton.Enabled || !beautifyButton.Text.Contains("美化", StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException("Beautify should be exposed as an enabled button.");
+                }
+
+                if (!extractMaterialButton.Text.Contains("提取", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Map workbench should expose the material extraction entry.");
                 }
 
                 AssertMapWorkbenchBeautifyFilterCombo(beautifyFilterCombo);
@@ -120,6 +126,50 @@ internal partial class Program
                 AssertMapWorkbenchAutoTileBrowserGroup(form, materialTree, materialList, "15：城墙", expectedItems: 3);
                 AssertMapWorkbenchAutoTileBrowserGroup(form, materialTree, materialList, "23：民居", expectedItems: 7);
                 AssertMapWorkbenchAutoTileBrowserGroup(form, materialTree, materialList, "25：水池", expectedItems: 1);
+
+                var terrainBeforeExtraction = draft.TerrainCells.ToArray();
+                var terrainBaseBeforeExtraction = draft.TerrainBaseCells.Count;
+                var buildingBeforeExtraction = draft.BuildingOverlayCells.Count;
+                var sceneryBeforeExtraction = draft.SceneryOverlays.Count;
+                var mapUndoBeforeExtraction = GetPrivateStackCountForMapWorkbenchUiSmoke(form, "_mapMakerMapUndoStack");
+                var terrainUndoBeforeExtraction = GetPrivateStackCountForMapWorkbenchUiSmoke(form, "_mapMakerTerrainUndoStack");
+                var materialCountBeforeExtraction = materials.Count;
+                SetPrivateFieldForMapWorkbenchUiSmoke(form, "_mapMakerSelectedCellRange", new Rectangle(0, 0, 1, 1));
+                InvokePrivateForMapWorkbenchUiSmoke(form, "UpdateMapMakerEditingButtons");
+                if (!extractMaterialButton.Enabled)
+                {
+                    throw new InvalidOperationException("Material extraction button should enable when a map cell range is selected.");
+                }
+
+                var extraction = InvokePrivateForMapWorkbenchUiSmokeResult(
+                    form,
+                    "ExtractMapMaterialSelectionDirect",
+                    MapMaterialExtractionTargetType.Terrain,
+                    (byte)12) as MapMaterialExtractionResult;
+                if (extraction == null || extraction.Files.Count != 1 || !File.Exists(extraction.Files[0].Path))
+                {
+                    throw new InvalidOperationException("Material extraction did not write the expected UI smoke file.");
+                }
+
+                materials = GetPrivateFieldForMapWorkbenchUiSmoke<IReadOnlyList<MaterialAsset>>(form, "_currentMaterialAssets");
+                if (materials.Count <= materialCountBeforeExtraction)
+                {
+                    throw new InvalidOperationException("Material extraction should refresh indexed material assets.");
+                }
+
+                if (!draft.TerrainCells.SequenceEqual(terrainBeforeExtraction) ||
+                    draft.TerrainBaseCells.Count != terrainBaseBeforeExtraction ||
+                    draft.BuildingOverlayCells.Count != buildingBeforeExtraction ||
+                    draft.SceneryOverlays.Count != sceneryBeforeExtraction)
+                {
+                    throw new InvalidOperationException("Material extraction should not mutate the current map draft layers.");
+                }
+
+                if (GetPrivateStackCountForMapWorkbenchUiSmoke(form, "_mapMakerMapUndoStack") != mapUndoBeforeExtraction ||
+                    GetPrivateStackCountForMapWorkbenchUiSmoke(form, "_mapMakerTerrainUndoStack") != terrainUndoBeforeExtraction)
+                {
+                    throw new InvalidOperationException("Material extraction should not enter the map paint undo stacks.");
+                }
 
                 InvokePrivateForMapWorkbenchUiSmoke(form, "RenderMapMakerPreview", true);
                 rendered = GetPrivateFieldForMapWorkbenchUiSmoke<Bitmap?>(form, "_mapViewerRenderedImage");
@@ -406,5 +456,18 @@ internal partial class Program
         var method = typeof(MainForm).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("Method not found: " + methodName);
         method.Invoke(form, args);
+    }
+
+    private static object? InvokePrivateForMapWorkbenchUiSmokeResult(MainForm form, string methodName, params object?[] args)
+    {
+        var method = typeof(MainForm).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Method not found: " + methodName);
+        return method.Invoke(form, args);
+    }
+
+    private static int GetPrivateStackCountForMapWorkbenchUiSmoke(MainForm form, string fieldName)
+    {
+        var value = GetPrivateFieldForMapWorkbenchUiSmoke<object>(form, fieldName);
+        return value.GetType().GetProperty("Count")?.GetValue(value) is int count ? count : 0;
     }
 }

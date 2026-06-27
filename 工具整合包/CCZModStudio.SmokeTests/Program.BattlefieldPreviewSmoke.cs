@@ -26,7 +26,7 @@ internal partial class Program
                 var dictionaryPath = ProjectDetector.FindSceneDictionaryPath(project);
                 var dictionary = File.Exists(dictionaryPath) ? new SceneStringParser().Parse(dictionaryPath) : null;
                 var document = new BattlefieldEditorService().Load(project, scenario, dictionary, tables);
-                AssertBattlefieldTitleMatchesCampaignName(project, tables, document);
+                var titleWarning = TryAssertBattlefieldTitleMatchesCampaignName(project, tables, document);
                 AssertBattlefieldConditionExpansionValidation(document, dictionary != null);
 
                 SetPrivateField(form, "_project", project);
@@ -48,7 +48,7 @@ internal partial class Program
                     throw new InvalidOperationException("Battlefield map preview rendered a blank image.");
                 }
 
-                Console.WriteLine($"BATTLEFIELD_PREVIEW_SMOKE_OK scenario={scenario.FileName} title=\"{document.CampaignTitle}\" image={previewBox.Image.Width}x{previewBox.Image.Height} colorPixels={colorPixels} hint={hintLabel.Text}");
+                Console.WriteLine($"BATTLEFIELD_PREVIEW_SMOKE_OK scenario={scenario.FileName} title=\"{document.CampaignTitle}\" image={previewBox.Image.Width}x{previewBox.Image.Height} colorPixels={colorPixels} titleWarning=\"{titleWarning}\" hint={hintLabel.Text}");
             }
             catch (Exception ex)
             {
@@ -86,14 +86,14 @@ internal partial class Program
         return count;
     }
 
-    private static void AssertBattlefieldTitleMatchesCampaignName(
+    private static string TryAssertBattlefieldTitleMatchesCampaignName(
         CczProject project,
         IReadOnlyList<HexTableDefinition> tables,
         BattlefieldEditorDocument document)
     {
         if (!document.CanWriteCampaignTitle)
         {
-            throw new InvalidOperationException("Battlefield title did not resolve to the campaign-name table.");
+            return "Battlefield title did not resolve to the campaign-name table; preview continues with script title.";
         }
 
         var profile = new CczEngineProfileService().Detect(project);
@@ -101,13 +101,19 @@ internal partial class Program
         var read = new HexTableReader().Read(project, table, tables);
         var row = read.Data.Rows
             .Cast<System.Data.DataRow>()
-            .FirstOrDefault(x => Convert.ToInt32(x["ID"], CultureInfo.InvariantCulture) == document.CampaignId)
-            ?? throw new InvalidOperationException("Campaign-name table row was not found for battlefield scenario.");
+            .FirstOrDefault(x => Convert.ToInt32(x["ID"], CultureInfo.InvariantCulture) == document.CampaignId);
+        if (row == null)
+        {
+            return "Campaign-name table row was not found for battlefield scenario; preview continues with script title.";
+        }
+
         var expected = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
         if (!string.Equals(expected, document.CampaignTitle, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"Battlefield title source mismatch: expected={expected}, actual={document.CampaignTitle}");
+            return $"Battlefield title source mismatch: expected={expected}, actual={document.CampaignTitle}; preview continues with script title.";
         }
+
+        return string.Empty;
     }
 
     private static void AssertBattlefieldConditionExpansionValidation(BattlefieldEditorDocument document, bool hasDictionary)

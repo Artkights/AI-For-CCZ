@@ -55,7 +55,7 @@ function Test-IsIgnoredPath {
         [string]$KnowledgeRoot = ""
     )
 
-    if ($Path -match '\\bin\\|\\obj\\|\\.git\\|\\.vs\\|\\90-[^\\]*\\') {
+    if ($Path -match '\\bin\\|\\obj\\|\\.git\\|\\.vs\\|\\.dotnet_home\\|\\.codex\\|\\_codex_tmp\\|\\_BuildCheck\\|\\CCZModStudio_TestCopies\\|\\CCZModStudio_Exports\\|\\CCZModStudio_Reports\\|\\CCZModStudio_Releases\\|\\CCZModStudio_Notes\\|\\90-[^\\]*\\') {
         return $true
     }
 
@@ -243,7 +243,7 @@ function Assert-RuntimeBoundary {
         (Join-Path $ToolRoot "CCZModStudio\Formats"),
         (Join-Path $ToolRoot "CCZModStudio\Models")
     )
-    $forbiddenPattern = 'System\.Windows\.Forms|Windows\.Forms|MessageBox|Control\.DefaultFont|Application\.|Form\b|DataGridView\b|TreeView\b|ListView\b|ComboBox\b|OpenFileDialog\b|SaveFileDialog\b|FolderBrowserDialog\b|Clipboard\b'
+    $forbiddenPattern = 'System\.Windows\.Forms|Windows\.Forms|MessageBox|Control\.DefaultFont|Application\.|\bForm\b|DataGridView\b|TreeView\b|ListView\b|ComboBox\b|OpenFileDialog\b|SaveFileDialog\b|FolderBrowserDialog\b|Clipboard\b'
     $matches = foreach ($root in $sourceRoots) {
         Get-ChildItem -LiteralPath $root -Recurse -File -Filter "*.cs" |
             Select-String -Pattern $forbiddenPattern -Encoding UTF8 -ErrorAction SilentlyContinue

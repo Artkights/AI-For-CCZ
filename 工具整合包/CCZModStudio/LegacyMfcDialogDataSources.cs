@@ -371,7 +371,7 @@ internal sealed class LegacyMfcDialogDataSources
 
         try
         {
-            var lines = File.ReadAllLines(path, EncodingService.Gbk)
+            var lines = LegacyTextDecoder.ReadAllLines(path)
                 .Select(line => line.Trim())
                 .Where(line => line.Length > 0)
                 .Select(line => line.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList())

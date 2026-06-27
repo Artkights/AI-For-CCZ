@@ -186,7 +186,7 @@ public sealed partial class MainForm
             var tableName = _currentTableResult.Table.TableName;
             items.Add(new UnsavedEditorItem
             {
-                Page = "鏁版嵁琛ㄧ紪杈?",
+                Page = "数据表编辑",
                 Target = tableName,
                 Summary = BuildDataTableChangeSummary(_currentTableResult.Data),
                 SaveAsync = () => SaveCurrentTableSilentlyAsync(),
@@ -194,16 +194,16 @@ public sealed partial class MainForm
             });
         }
 
-        AddDataTableItem(items, "瑙掕壊璁惧畾", "浜虹墿/R/S", _currentRoleEditorData, () => SaveRoleEditorSilentlyAsync(), () => LoadRoleEditor());
-        AddDataTableItem(items, "瑙掕壊璁惧畾", "鍒椾紶/鍙拌瘝", GetRoleTextCombinedChanges(), () => SaveRoleTextDetailsSilentlyAsync(), () => { LoadRoleTextTables(); if (_roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } row) ShowRoleTextDetails(row); });
-        AddDataTableItem(items, "鍏电璁惧畾", "璇︾粏鍏电", _currentJobEditorData, () => SaveJobEditorSilentlyAsync(), () => LoadJobEditor());
-        AddDataTableItem(items, "鍏电璁惧畾", "鍏电绯?鍦板舰", _currentJobTerrainData, () => SaveJobTerrainEditorSilentlyAsync(), () => LoadJobTerrainEditor());
-        AddDataTableItem(items, "鍏电璁惧畾", "鍏电鐩稿厠鐭╅樀", _jobRestraintRead?.Data, () => SaveJobMatrixEditorSilentlyAsync(), () => LoadJobMatrixEditor());
-        AddDataTableItem(items, "鍏电璁惧畾", "绛栫暐", _currentJobStrategyData, () => SaveJobStrategyEditorSilentlyAsync(), () => LoadJobStrategyEditor());
-        AddDataTableItem(items, "鍏电璁惧畾", "鍏电鐗规晥", _currentJobEffectData, () => SaveJobEffectEditorSilentlyAsync(), () => LoadJobEffectEditor());
-        AddDataTableItem(items, "瀹濈墿璁惧畾", "瀹濈墿/鐗╁搧", _currentItemEditorData, () => SaveItemEditorSilentlyAsync(), () => LoadItemEditor());
-        AddDataTableItem(items, "鍟嗗簵缂栬緫", "鍟嗗簵", _currentShopEditorData, () => SaveShopEditorSilentlyAsync(), () => LoadShopEditor());
-        AddDataTableItem(items, "鍥剧墖璁惧畾", "浜虹墿R/S鎸囧畾", _currentImageAssignments, () => SaveImageAssignmentsSilentlyAsync(), () => LoadImageAssignments());
+        AddDataTableItem(items, "角色设定", "人物/R/S", _currentRoleEditorData, () => SaveRoleEditorSilentlyAsync(), () => LoadRoleEditor());
+        AddDataTableItem(items, "角色设定", "列传/台词", GetRoleTextCombinedChanges(), () => SaveRoleTextDetailsSilentlyAsync(), () => { LoadRoleTextTables(); if (_roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } row) ShowRoleTextDetails(row); });
+        AddDataTableItem(items, "兵种设定", "详细兵种", _currentJobEditorData, () => SaveJobEditorSilentlyAsync(), () => LoadJobEditor());
+        AddDataTableItem(items, "兵种设定", "兵种系/地形", _currentJobTerrainData, () => SaveJobTerrainEditorSilentlyAsync(), () => LoadJobTerrainEditor());
+        AddDataTableItem(items, "兵种设定", "兵种相克矩阵", _jobRestraintRead?.Data, () => SaveJobMatrixEditorSilentlyAsync(), () => LoadJobMatrixEditor());
+        AddDataTableItem(items, "兵种设定", "策略", _currentJobStrategyData, () => SaveJobStrategyEditorSilentlyAsync(), () => LoadJobStrategyEditor());
+        AddDataTableItem(items, "兵种设定", "兵种特效", _currentJobEffectData, () => SaveJobEffectEditorSilentlyAsync(), () => LoadJobEffectEditor());
+        AddDataTableItem(items, "宝物设定", "宝物/物品", _currentItemEditorData, () => SaveItemEditorSilentlyAsync(), () => LoadItemEditor());
+        AddDataTableItem(items, "商店编辑", "商店", _currentShopEditorData, () => SaveShopEditorSilentlyAsync(), () => LoadShopEditor());
+        AddDataTableItem(items, "图片设定", "人物R/S指定", _currentImageAssignments, () => SaveImageAssignmentsSilentlyAsync(), () => LoadImageAssignments());
     }
 
     private void AddDataTableItem(
@@ -230,7 +230,7 @@ public sealed partial class MainForm
     private static string BuildDataTableChangeSummary(DataTable table)
     {
         var changed = table.Rows.Cast<DataRow>().Count(row => row.RowState is not DataRowState.Unchanged and not DataRowState.Detached);
-        return changed <= 0 ? "鏈夋湭淇濆瓨鏀瑰姩" : $"{changed} 琛屾敼鍔?";
+        return changed <= 0 ? "有未保存改动" : $"{changed} 行改动";
     }
 
     private DataTable? GetRoleTextCombinedChanges()
@@ -251,12 +251,12 @@ public sealed partial class MainForm
         if (_project == null || _currentScenarioTextEntries.Count == 0) return;
         var changed = _currentScenarioTextEntries.Where(IsScenarioTextChanged).ToList();
         if (changed.Count == 0) return;
-        var target = GetSelectedScenarioFileItem()?.FileName ?? "R/S 鏂囨湰";
+        var target = GetSelectedScenarioFileItem()?.FileName ?? "R/S 文本";
         items.Add(new UnsavedEditorItem
         {
-            Page = "楂樼骇鎺㈤拡",
+            Page = "高级探针",
             Target = target,
-            Summary = $"{changed.Count} 鏉℃枃鏈敼鍔?",
+            Summary = $"{changed.Count} 条文本改动",
             SaveAsync = () => SaveScenarioTextsSilentlyAsync(),
             Discard = () => ProbeSelectedScenarioTexts()
         });
@@ -267,9 +267,9 @@ public sealed partial class MainForm
         if (_project == null || _currentMapWorkbenchDraft == null || !IsCurrentMapWorkbenchDraftDirty()) return;
         items.Add(new UnsavedEditorItem
         {
-            Page = "鍦板浘缂栬緫",
+            Page = "地图编辑",
             Target = string.IsNullOrWhiteSpace(_currentMapWorkbenchDraft.BoundMapId) ? _currentMapWorkbenchDraft.DraftId : _currentMapWorkbenchDraft.BoundMapId,
-            Summary = "鍦板浘宸ヤ綔鍙拌崏绋挎湭淇濆瓨",
+            Summary = "地图工作台草稿未保存",
             SaveAsync = () => SaveMapWorkbenchDraftSilentlyAsync(),
             Discard = () => LoadLastMapWorkbenchDraft()
         });
@@ -289,7 +289,7 @@ public sealed partial class MainForm
         {
             items.Add(new UnsavedEditorItem
             {
-                Page = "鍓ф湰缂栬緫",
+                Page = "剧本编辑",
                 Target = session.Scenario.FileName,
                 Summary = BuildScriptSessionSummary(session),
                 SaveAsync = async () =>
@@ -309,7 +309,7 @@ public sealed partial class MainForm
         {
             items.Add(new UnsavedEditorItem
             {
-                Page = "鎴樺満缂栬緫",
+                Page = "战场编辑",
                 Target = session.Scenario.FileName,
                 Summary = BuildBattlefieldSessionSummary(session),
                 SaveAsync = async () =>
@@ -329,7 +329,7 @@ public sealed partial class MainForm
         {
             items.Add(new UnsavedEditorItem
             {
-                Page = "鍦烘櫙缂栬緫",
+                Page = "场景编辑",
                 Target = session.Scenario.FileName,
                 Summary = BuildRSceneSessionSummary(session),
                 SaveAsync = async () =>
@@ -350,27 +350,27 @@ public sealed partial class MainForm
     private static string BuildScriptSessionSummary(ScriptEditorSession session)
     {
         var parts = new List<string>();
-        if (session.StructureDirty) parts.Add("缁撴瀯鏀瑰姩");
-        if (session.TextDirty) parts.Add("鏂囨湰鏀瑰姩");
-        return parts.Count == 0 ? "鏈夋湭淇濆瓨鏀瑰姩" : string.Join("銆?, parts");
+        if (session.StructureDirty) parts.Add("结构改动");
+        if (session.TextDirty) parts.Add("文本改动");
+        return parts.Count == 0 ? "有未保存改动" : string.Join("、", parts);
     }
 
     private static string BuildBattlefieldSessionSummary(BattlefieldEditorSession session)
     {
         var parts = new List<string>();
-        if (session.TextDirty) parts.Add("鏍囬/鑳滆触鏉′欢");
-        if (session.ScriptTextDirty) parts.Add("S鍓ф湰鏂囨湰");
-        if (session.StructureDirty) parts.Add("S鍓ф湰缁撴瀯");
-        if (session.PlacementDirty) parts.Add("甯冮樀鑽夌");
-        return parts.Count == 0 ? "鏈夋湭淇濆瓨鏀瑰姩" : string.Join("銆?, parts");
+        if (session.TextDirty) parts.Add("标题/胜败条件");
+        if (session.ScriptTextDirty) parts.Add("S剧本文本");
+        if (session.StructureDirty) parts.Add("S剧本结构");
+        if (session.PlacementDirty) parts.Add("布阵草稿");
+        return parts.Count == 0 ? "有未保存改动" : string.Join("、", parts);
     }
 
     private static string BuildRSceneSessionSummary(RSceneEditorSession session)
     {
         var parts = new List<string>();
-        if (session.StructureDirty) parts.Add("R鍓ф湰缁撴瀯");
-        if (session.DraftDirty) parts.Add("鍦烘櫙鑽夌");
-        return parts.Count == 0 ? "鏈夋湭淇濆瓨鏀瑰姩" : string.Join("銆?, parts");
+        if (session.StructureDirty) parts.Add("R剧本结构");
+        if (session.DraftDirty) parts.Add("场景草稿");
+        return parts.Count == 0 ? "有未保存改动" : string.Join("、", parts);
     }
 
     private async Task<(bool Success, string? FailedItem, string? Error)> SaveAllUnsavedItemsAsync(IReadOnlyList<UnsavedEditorItem> items)
@@ -436,8 +436,8 @@ public sealed partial class MainForm
                 if (result.Success) return true;
                 MessageBox.Show(
                     this,
-                    $"涓€閿繚瀛樺け璐ワ紝绐楀彛宸蹭繚鎸佹墦寮€銆俓r\n\r\n澶辫触椤癸細{result.FailedItem}\r\n閿欒锛歿result.Error}}",
-                    "鏈繚瀛樺唴瀹逛繚瀛樺け璐?",
+                    $"一键保存失败，窗口已保持打开。\r\n\r\n失败项：{result.FailedItem}\r\n错误：{result.Error}",
+                    "未保存内容保存失败",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return false;
@@ -450,7 +450,7 @@ public sealed partial class MainForm
     {
         using var dialog = new Form
         {
-            Text = "瀛樺湪鏈繚瀛樺唴瀹?",
+            Text = "存在未保存内容",
             StartPosition = FormStartPosition.CenterParent,
             MinimizeBox = false,
             MaximizeBox = false,
@@ -477,7 +477,7 @@ public sealed partial class MainForm
         {
             AutoSize = true,
             Dock = DockStyle.Fill,
-            Text = $"妫€娴嬪埌 {items.Count} 椤规湭淇濆瓨鍐呭銆傝閫夋嫨鍏抽棴鍓嶇殑澶勭悊鏂瑰紡銆?",
+            Text = $"检测到 {items.Count} 项未保存内容。请选择关闭前的处理方式。",
             Padding = new Padding(0, 0, 0, 8)
         }, 0, 0);
 
@@ -500,13 +500,13 @@ public sealed partial class MainForm
         root.Controls.Add(buttons, 0, 2);
 #if false
 
-        var cancelCloseButton = new Button { Text = "鍙栨秷鍏抽棴", AutoSize = true, DialogResult = DialogResult.Cancel };
-        var discardButton = new Button { Text = "涓€閿彇娑?, AutoSize = true, DialogResult = DialogResult.No }";
-        var saveButton = new Button { Text = "涓€閿繚瀛?, AutoSize = true, DialogResult = DialogResult.Yes }";
+        var cancelCloseButton = new Button { Text = "取消关闭", AutoSize = true, DialogResult = DialogResult.Cancel };
+        var discardButton = new Button { Text = "放弃改动", AutoSize = true, DialogResult = DialogResult.No };
+        var saveButton = new Button { Text = "保存全部", AutoSize = true, DialogResult = DialogResult.Yes };
 #endif
-        var cancelCloseButton = new Button { Text = "Cancel", AutoSize = true, DialogResult = DialogResult.Cancel };
-        var discardButton = new Button { Text = "Discard", AutoSize = true, DialogResult = DialogResult.No };
-        var saveButton = new Button { Text = "Save", AutoSize = true, DialogResult = DialogResult.Yes };
+        var cancelCloseButton = new Button { Text = "取消关闭", AutoSize = true, DialogResult = DialogResult.Cancel };
+        var discardButton = new Button { Text = "放弃改动", AutoSize = true, DialogResult = DialogResult.No };
+        var saveButton = new Button { Text = "保存全部", AutoSize = true, DialogResult = DialogResult.Yes };
         buttons.Controls.AddRange(new Control[] { cancelCloseButton, discardButton, saveButton });
         dialog.AcceptButton = saveButton;
         dialog.CancelButton = cancelCloseButton;
@@ -547,22 +547,23 @@ public sealed partial class MainForm
     private Task SaveCurrentTableSilentlyAsync()
     {
         if (_project == null || _currentTableResult == null) return Task.CompletedTask;
-        if (!CanEditTable(_currentTableResult)) throw new InvalidOperationException("褰撳墠琛ㄤ笉鍏佽鐩存帴淇濆瓨銆?");
+        if (!CanEditTable(_currentTableResult)) throw new InvalidOperationException("当前表不允许直接保存。");
         if (!HasChanges(_currentTableResult.Data)) return Task.CompletedTask;
 
         var savedTable = _currentTableResult.Table;
-        var result = _tableWriter.Save(_project, savedTable, _currentTableResult.Data);
+        var savedData = _currentTableResult.Data;
+        var changedRows = GetChangedRows(savedData);
+        var result = _tableWriter.Save(_project, savedTable, savedData);
         var verifyRead = _tableReader.Read(_project, savedTable, _tables);
         if (!verifyRead.Validation.IsUsable)
         {
-            throw new InvalidOperationException("淇濆瓨鍚庨噸鏂拌鍙栧け璐ワ紝璇锋煡鐪嬭瘖鏂拰澶囦唤銆?");
+            throw new InvalidOperationException("保存后重新读取失败，请查看诊断和备份。");
         }
 
-        _currentTableResult = verifyRead;
-        _dataGrid.DataSource = verifyRead.Data;
-        ConfigureDataGrid(verifyRead);
-        ConfigureChartColumns(verifyRead.Data);
-        SetStatus($"鏁版嵁琛ㄥ凡淇濆瓨锛歿savedTable.TableName}}锛屽彉鍖?{result.ChangedBytes} 瀛楄妭");
+        VerifySavedTableMatchesCurrentData(savedTable, savedData, verifyRead.Data, changedRows);
+        AcceptSavedDataTable(savedData, RefreshDataGridRowStyles);
+        ConfigureChartColumns(savedData);
+        SetStatus($"数据表已保存：{savedTable.TableName}，变化 {result.ChangedBytes} 字节");
         return Task.CompletedTask;
     }
 
@@ -570,21 +571,18 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentRoleEditorData == null || !HasChanges(_currentRoleEditorData)) return Task.CompletedTask;
         var saves = SaveRoleEditorData(_project, _tables, _currentRoleEditorData);
-        LoadRoleEditor();
-        SetStatus($"瑙掕壊璁惧畾宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentRoleEditorData, RefreshRoleEditorRowStyles);
+        ShowSelectedRoleEditorCell();
+        SetStatus($"角色设定已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
     private Task SaveRoleTextDetailsSilentlyAsync()
     {
         if (_project == null || _roleBiographyRead == null || _roleCriticalQuoteRead == null || _roleRetreatQuoteRead == null) return Task.CompletedTask;
-        var saves = new List<TableSaveResult>();
-        if (HasChanges(_roleBiographyRead.Data)) saves.Add(_tableWriter.Save(_project, _roleBiographyRead.Table, _roleBiographyRead.Data));
-        if (HasChanges(_roleCriticalQuoteRead.Data)) saves.Add(_tableWriter.Save(_project, _roleCriticalQuoteRead.Table, _roleCriticalQuoteRead.Data));
-        if (HasChanges(_roleRetreatQuoteRead.Data)) saves.Add(_tableWriter.Save(_project, _roleRetreatQuoteRead.Table, _roleRetreatQuoteRead.Data));
-        LoadRoleTextTables();
+        var saves = SaveRoleTextDetailsCore();
         if (_roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } roleRow) ShowRoleTextDetails(roleRow);
-        SetStatus($"瑙掕壊鏂囨湰宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        SetStatus($"角色文本已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -592,8 +590,9 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentJobEditorData == null || !HasChanges(_currentJobEditorData)) return Task.CompletedTask;
         var saves = SaveJobEditorData(_project, _currentJobEditorData);
-        LoadJobEditor();
-        SetStatus($"鍏电璁惧畾宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentJobEditorData, RefreshJobEditorRowStyles);
+        ShowSelectedJobEditorCell();
+        SetStatus($"兵种设定已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -601,28 +600,31 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentJobTerrainData == null || !HasChanges(_currentJobTerrainData)) return Task.CompletedTask;
         var saves = SaveJobTerrainEditorData(_project, _currentJobTerrainData);
-        LoadJobTerrainEditor();
-        SetStatus($"鍏电绯?鍦板舰宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentJobTerrainData, RefreshJobTerrainRowStyles);
+        ShowSelectedJobTerrainCell();
+        SetStatus($"兵种系/地形已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
     private Task SaveJobMatrixEditorSilentlyAsync()
     {
         if (_project == null || _jobRestraintRead == null || !HasChanges(_jobRestraintRead.Data)) return Task.CompletedTask;
-        var result = _tableWriter.Save(_project, _jobRestraintRead.Table, _jobRestraintRead.Data);
-        LoadJobMatrixEditor();
-        SetStatus($"鍏电鐩稿厠鐭╅樀宸蹭繚瀛橈細{result.ChangedBytes} 瀛楄妭鍙樺寲");
+        var result = SaveChangedTableAndVerify(_jobRestraintRead)!;
+        RefreshJobMatrixRowStyles(_jobRestraintGrid);
+        ShowSelectedJobMatrixCell(_jobRestraintGrid, "兵种相克矩阵");
+        SetStatus($"兵种相克矩阵已保存：{result.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }
 
     private Task SaveJobStrategyEditorSilentlyAsync()
     {
         if (_project == null || _currentJobStrategyData == null) return Task.CompletedTask;
-        if (!CommitJobStrategyLearningDialogs()) throw new InvalidOperationException("绛栫暐瀛︿範寮圭獥浠嶆湁鏃犳晥鏀瑰姩锛屾棤娉曟壒閲忎繚瀛樸€?");
+        if (!CommitJobStrategyLearningDialogs()) throw new InvalidOperationException("策略学习弹窗仍有无效改动，无法批量保存。");
         if (!HasChanges(_currentJobStrategyData)) return Task.CompletedTask;
         var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);
-        LoadJobStrategyEditor();
-        SetStatus($"绛栫暐璁惧畾宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentJobStrategyData, RefreshJobStrategyRowStyles);
+        ShowSelectedJobStrategyCell();
+        SetStatus($"策略设定已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -630,8 +632,9 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentJobEffectData == null || !HasChanges(_currentJobEffectData)) return Task.CompletedTask;
         var saves = SaveJobEffectEditorData(_project, _currentJobEffectData);
-        LoadJobEffectEditor();
-        SetStatus($"鍏电鐗规晥宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentJobEffectData, RefreshJobEffectRowStyles);
+        ShowSelectedJobEffectCell();
+        SetStatus($"兵种特效已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -639,8 +642,9 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentItemEditorData == null || !HasChanges(_currentItemEditorData)) return Task.CompletedTask;
         var saves = SaveItemEditorData(_project, _currentItemEditorData);
-        LoadItemEditor();
-        SetStatus($"瀹濈墿/鐗╁搧宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentItemEditorData, RefreshItemEditorRowStyles);
+        ShowSelectedItemEditorCell();
+        SetStatus($"宝物/物品已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -648,8 +652,9 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentShopEditorData == null || !HasChanges(_currentShopEditorData)) return Task.CompletedTask;
         var saves = SaveShopEditorData(_project, _currentShopEditorData);
-        LoadShopEditor();
-        SetStatus($"鍟嗗簵宸蹭繚瀛橈細{saves.Sum(x => x.ChangedBytes)} 瀛楄妭鍙樺寲");
+        AcceptSavedDataTable(_currentShopEditorData, RefreshShopEditorRowStyles);
+        ShowSelectedShopEditorCell();
+        SetStatus($"商店已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -657,11 +662,9 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentImageAssignments == null || !HasChanges(_currentImageAssignments)) return Task.CompletedTask;
         var result = _imageAssignmentService.Save(_project, _tables, _currentImageAssignments);
-        _currentImageAssignments = _imageAssignmentService.Load(_project, _tables);
-        _imageAssignmentGrid.DataSource = _currentImageAssignments;
         ColorImageAssignmentResourceRows();
         ShowSelectedImageAssignmentDetail();
-        SetStatus($"浜虹墿R/S宸蹭繚瀛橈細{result.ChangedBytes} 瀛楄妭鍙樺寲");
+        SetStatus($"人物R/S已保存：{result.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -676,14 +679,14 @@ public sealed partial class MainForm
         PersistCurrentTerrainMaterialPlan();
         SaveMapWorkbenchSettings();
         ResetMapWorkbenchHistory();
-        SetStatus("鍦板浘宸ヤ綔鍙拌崏绋垮凡淇濆瓨");
+        SetStatus("地图工作台草稿已保存");
         return Task.CompletedTask;
     }
 
     private Task SaveScenarioTextsSilentlyAsync()
     {
         if (_project == null) return Task.CompletedTask;
-        var item = GetSelectedScenarioFileItem() ?? throw new InvalidOperationException("娌℃湁閫変腑鐨?R/S eex 鏂囦欢銆?");
+        var item = GetSelectedScenarioFileItem() ?? throw new InvalidOperationException("没有选中的 R/S eex 文件。");
         var changed = GetScenarioTextEntriesFromGrid()
             .Where(IsScenarioTextChanged)
             .ToList();
@@ -697,21 +700,21 @@ public sealed partial class MainForm
             .ToList();
         if (validationErrors.Count > 0)
         {
-            throw new InvalidOperationException("瀛樺湪鏃犳硶淇濆瓨鐨勬枃鏈細" + string.Join("; ", validationErrors));
+            throw new InvalidOperationException("存在无法保存的文本：" + string.Join("; ", validationErrors));
         }
 
         var relativePath = Path.Combine("RS", item.FileName);
-        var result = _scenarioTextWriter.SaveInPlace(_project, relativePath, changed, "R/S eex 鏂囨湰鎵归噺淇濆瓨鍓嶈嚜鍔ㄥ浠?");
+        var result = _scenarioTextWriter.SaveInPlace(_project, relativePath, changed, "R/S eex 文本批量保存前自动备份");
         var reread = _scenarioTextReader.Read(result.FilePath);
         VerifyScenarioTextSave(changed, reread);
-        _currentScenarioTextEntries = reread;
-        BindScenarioTextEntries(_currentScenarioTextEntries);
+        MarkScenarioTextEntriesSaved(changed);
+        RefreshScenarioTextRows(changed);
         _exportScenarioTextsButton.Enabled = _currentScenarioTextEntries.Count > 0;
         _saveScenarioTextsButton.Enabled = true;
         _scenarioTextFilterButton.Enabled = _currentScenarioTextEntries.Count > 0;
         _scenarioTextFilterClearButton.Enabled = _currentScenarioTextEntries.Count > 0;
         _scenarioTextChangedOnly.Enabled = _currentScenarioTextEntries.Count > 0;
-        SetStatus($"鍓ф湰鏂囨湰宸蹭繚瀛橈細{result.ChangedBytes} 瀛楄妭鍙樺寲");
+        SetStatus($"剧本文本已保存：{result.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }
 }

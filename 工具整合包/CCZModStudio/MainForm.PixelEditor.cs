@@ -38,7 +38,7 @@ public sealed partial class MainForm
         try
         {
             var target = BuildItemIconEditableTarget(iconIndex);
-            OpenPixelEditor(target, _itemIconPreviewInfoBox, () =>
+            OpenPixelEditor(target, _itemEditorInfoBox, () =>
             {
                 _itemIconPreviewService.ClearCache();
                 UpdateItemIconPreview(_itemEditorGrid.CurrentRow);
@@ -276,12 +276,16 @@ public sealed partial class MainForm
         var targetPath = Ccz66RevisedLayout.ResolveResourcePath(_project, resourceFile);
         if (Ccz66RevisedLayout.IsE5IconResource(resourceFile))
         {
+            var (small, large) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(iconIndex);
             return new EditableImageTarget
             {
                 Kind = EditableImageTargetKind.E5Standard,
                 DisplayName = $"宝物图标 字段={iconIndex}",
                 TargetPath = targetPath,
-                ImageNumber = Ccz66RevisedLayout.ResolveItemIconPreviewImageNumber(iconIndex),
+                ImageNumber = large,
+                IsItemIconPair = true,
+                SmallImageNumber = small,
+                LargeImageNumber = large,
                 ResourceFormat = "E5 图标",
                 OperationKind = "宝物图标像素编辑"
             };

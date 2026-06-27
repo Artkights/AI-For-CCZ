@@ -135,6 +135,12 @@ public sealed partial class MainForm
             return;
         }
 
+        if (UseAlignedBatchImageImportDialogs())
+        {
+            BatchImportSelectedRoleFacesAligned(selectedRows);
+            return;
+        }
+
         using var dialog = new OpenFileDialog
         {
             Title = "选择要导入到所选角色头像的图片",
@@ -216,6 +222,94 @@ public sealed partial class MainForm
         }
     }
 
+    private void BatchImportSelectedRoleFacesAligned(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        if (_project == null) return;
+
+        var sourceSelection = SelectBatchImageImportSources("选择要导入到所选角色头像的图片或导出根目录");
+        if (sourceSelection == null) return;
+
+        BatchRoleFaceImportRequest request;
+        try
+        {
+            request = new BatchRoleFaceImportRequest
+            {
+                SourceFiles = sourceSelection.SourceFiles,
+                SourceRoot = sourceSelection.SourceRoot,
+                TargetRows = BuildRoleFaceImportTargetRows(selectedRows),
+                MatchMode = "auto",
+                WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+            };
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "批量导入头像", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        ExecuteRoleFaceImport(request, singleMode: false);
+    }
+
+    private void ExecuteRoleFaceImport(BatchRoleFaceImportRequest request, bool singleMode)
+    {
+        if (_project == null) return;
+
+        BatchRoleFaceImportPreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchRoleFaceImportService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("角色头像导入预览失败: " + ex);
+            MessageBox.Show(this, ex.Message, singleMode ? "头像导入预览失败" : "头像批量导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchRoleFaceImportPreviewText(preview);
+        _roleEditorInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, singleMode ? "头像导入存在阻断项" : "头像批量导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(
+                this,
+                previewText + "\r\n\r\n确认后会写入头像资源，并自动备份；不会修改角色表“头像”字段。是否继续？",
+                singleMode ? "确认导入头像" : "确认批量导入头像",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchRoleFaceImportService.Replace(_project, request);
+            _imageResourceCatalogService.ClearCache();
+            _imageAssignmentPreviewService.ClearCache();
+            ShowSelectedRoleEditorCell();
+            _roleEditorInfoBox.Text = BuildBatchRoleFaceImportResultText(result);
+            SetStatus($"角色头像导入完成：{result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("角色头像导入失败: " + ex);
+            MessageBox.Show(this, ex.Message, singleMode ? "头像导入失败" : "头像批量导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
     private void ImportSelectedImageAssignmentFace()
     {
         if (_project == null)
@@ -278,6 +372,12 @@ public sealed partial class MainForm
             return;
         }
 
+        if (UseAlignedBatchImageImportDialogs())
+        {
+            BatchImportSelectedImageAssignmentFacesAligned(selectedRows);
+            return;
+        }
+
         using var dialog = new OpenFileDialog
         {
             Title = "选择要导入到所选人物头像的图片",
@@ -293,6 +393,34 @@ public sealed partial class MainForm
             request = new BatchRoleFaceImportRequest
             {
                 SourceFiles = dialog.FileNames.OrderBy(Path.GetFileName, StringComparer.CurrentCultureIgnoreCase).ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase).ToArray(),
+                TargetRows = BuildImageAssignmentFaceImportTargetRows(selectedRows),
+                MatchMode = "auto",
+                WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+            };
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "批量导入头像", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        ExecuteImageAssignmentFaceImport(request, singleMode: false);
+    }
+
+    private void BatchImportSelectedImageAssignmentFacesAligned(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        if (_project == null) return;
+
+        var sourceSelection = SelectBatchImageImportSources("选择要导入到所选人物头像的图片或导出根目录");
+        if (sourceSelection == null) return;
+
+        BatchRoleFaceImportRequest request;
+        try
+        {
+            request = new BatchRoleFaceImportRequest
+            {
+                SourceFiles = sourceSelection.SourceFiles,
+                SourceRoot = sourceSelection.SourceRoot,
                 TargetRows = BuildImageAssignmentFaceImportTargetRows(selectedRows),
                 MatchMode = "auto",
                 WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
@@ -368,14 +496,20 @@ public sealed partial class MainForm
 
     private IReadOnlyList<DataGridViewRow> GetSelectedRoleRowsForFaceImport()
     {
-        return _roleEditorGrid.SelectedCells
+        var rows = _roleEditorGrid.SelectedCells
             .Cast<DataGridViewCell>()
             .Where(cell => cell.RowIndex >= 0)
             .Select(cell => _roleEditorGrid.Rows[cell.RowIndex])
             .Where(row => !row.IsNewRow)
             .Distinct()
             .OrderBy(row => row.Index)
-            .ToArray();
+            .ToList();
+        if (rows.Count == 0 && _roleEditorGrid.CurrentRow is { IsNewRow: false } current)
+        {
+            rows.Add(current);
+        }
+
+        return rows;
     }
 
     private IReadOnlyList<DataGridViewRow> GetSelectedImageAssignmentRowsForFaceImport()
@@ -390,12 +524,18 @@ public sealed partial class MainForm
             .ToArray();
         if (rows.Length > 0) return rows;
 
-        return _imageAssignmentGrid.SelectedRows
+        var selectedRows = _imageAssignmentGrid.SelectedRows
             .Cast<DataGridViewRow>()
             .Where(row => !row.IsNewRow)
             .Distinct()
             .OrderBy(row => row.Index)
-            .ToArray();
+            .ToList();
+        if (selectedRows.Count == 0 && _imageAssignmentGrid.CurrentRow is { IsNewRow: false } current)
+        {
+            selectedRows.Add(current);
+        }
+
+        return selectedRows;
     }
 
     private static IReadOnlyList<BatchRoleFaceTargetRow> BuildRoleFaceImportTargetRows(IReadOnlyList<DataGridViewRow> selectedRows)

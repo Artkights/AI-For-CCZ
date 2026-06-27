@@ -60,6 +60,7 @@ public sealed class JobSImageReplaceResult
 public sealed class BatchItemIconImportRequest
 {
     public IReadOnlyList<string> SourceFiles { get; init; } = Array.Empty<string>();
+    public string SourceRoot { get; init; } = string.Empty;
     public IReadOnlyList<BatchItemIconTargetRow> TargetRows { get; init; } = Array.Empty<BatchItemIconTargetRow>();
     public string MatchMode { get; init; } = "auto";
     public string WriteMode { get; init; } = "direct";
@@ -70,12 +71,33 @@ public sealed record BatchItemIconTargetRow(int RowId, string DisplayName, int I
 public sealed class BatchRoleFaceImportRequest
 {
     public IReadOnlyList<string> SourceFiles { get; init; } = Array.Empty<string>();
+    public string SourceRoot { get; init; } = string.Empty;
     public IReadOnlyList<BatchRoleFaceTargetRow> TargetRows { get; init; } = Array.Empty<BatchRoleFaceTargetRow>();
     public string MatchMode { get; init; } = "auto";
     public string WriteMode { get; init; } = "direct";
 }
 
 public sealed record BatchRoleFaceTargetRow(int RowId, string DisplayName, int FaceId);
+
+public sealed class BatchStrategyIconImportRequest
+{
+    public IReadOnlyList<string> SourceFiles { get; init; } = Array.Empty<string>();
+    public string SourceRoot { get; init; } = string.Empty;
+    public IReadOnlyList<BatchStrategyIconTargetRow> TargetRows { get; init; } = Array.Empty<BatchStrategyIconTargetRow>();
+    public string MatchMode { get; init; } = "auto";
+    public string WriteMode { get; init; } = "direct";
+}
+
+public sealed record BatchStrategyIconTargetRow(int RowId, string DisplayName, int IconIndex);
+
+public sealed class BatchJobSImageReplaceRequest
+{
+    public string MaterialRoot { get; init; } = string.Empty;
+    public IReadOnlySet<int> AllowedJobIds { get; init; } = new HashSet<int>();
+    public bool IncludeOnlySelectedOrFiltered { get; init; } = true;
+    public IReadOnlyList<int> FactionSlots { get; init; } = Array.Empty<int>();
+    public string WriteMode { get; init; } = "direct";
+}
 
 public sealed class BatchImageImportSkippedItem
 {
@@ -152,6 +174,15 @@ public sealed class BatchItemIconImportItemPreview
     public string DisplayName { get; init; } = string.Empty;
     public int IconIndex { get; init; }
     public string SourcePath { get; init; } = string.Empty;
+    public string SmallSourcePath { get; init; } = string.Empty;
+    public string LargeSourcePath { get; init; } = string.Empty;
+    public int? SourceWidth { get; init; }
+    public int? SourceHeight { get; init; }
+    public int? SmallWidth { get; init; }
+    public int? SmallHeight { get; init; }
+    public int? LargeWidth { get; init; }
+    public int? LargeHeight { get; init; }
+    public string NormalizeSummary { get; init; } = string.Empty;
     public IReadOnlyList<int> TargetImageNumbers { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> ResourceIds { get; init; } = Array.Empty<int>();
 }
@@ -217,6 +248,68 @@ public sealed class BatchRoleFaceImportResult : BatchRoleFaceImportPreviewResult
 {
     public E5ImageBatchReplaceResult? E5Result { get; init; }
     public string AggregateReportPath { get; init; } = string.Empty;
+}
+
+public sealed class BatchStrategyIconImportItemPreview
+{
+    public int RowId { get; init; }
+    public string DisplayName { get; init; } = string.Empty;
+    public int IconIndex { get; init; }
+    public string SourcePath { get; init; } = string.Empty;
+    public IReadOnlyList<int> TargetImageNumbers { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<int> ResourceIds { get; init; } = Array.Empty<int>();
+}
+
+public class BatchStrategyIconImportPreviewResult
+{
+    public BatchStrategyIconImportRequest Request { get; init; } = new();
+    public string TargetPath { get; init; } = string.Empty;
+    public string TargetRelativePath { get; init; } = string.Empty;
+    public string ResourceKind { get; init; } = string.Empty;
+    public IReadOnlyList<BatchStrategyIconImportItemPreview> Items { get; init; } = Array.Empty<BatchStrategyIconImportItemPreview>();
+    public IReadOnlyList<BatchImageImportSkippedItem> SkippedItems { get; init; } = Array.Empty<BatchImageImportSkippedItem>();
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+    public IconResourceBatchReplacePreviewResult? DllPreview { get; init; }
+    public E5ImageBatchReplacePreviewResult? E5Preview { get; init; }
+    public bool CanWrite => Items.Count > 0 && SkippedItems.All(item =>
+        !BatchImageImportSkipReasons.IsBlocking(item.Reason) &&
+        !item.Reason.StartsWith(BatchImageImportSkipReasons.InvalidName, StringComparison.Ordinal));
+    public int TotalOperationCount => DllPreview?.Items.Count ?? E5Preview?.OperationCount ?? 0;
+}
+
+public sealed class BatchStrategyIconImportResult : BatchStrategyIconImportPreviewResult
+{
+    public IconResourceBatchReplaceResult? DllResult { get; init; }
+    public E5ImageBatchReplaceResult? E5Result { get; init; }
+}
+
+public sealed class BatchJobSImageReplaceItemPreview
+{
+    public int JobId { get; init; }
+    public string MaterialFolder { get; init; } = string.Empty;
+    public JobSImageReplacePreviewResult Preview { get; init; } = new();
+}
+
+public class BatchJobSImageReplacePreviewResult
+{
+    public BatchJobSImageReplaceRequest Request { get; init; } = new();
+    public IReadOnlyList<BatchJobSImageReplaceItemPreview> Items { get; init; } = Array.Empty<BatchJobSImageReplaceItemPreview>();
+    public IReadOnlyList<BatchImageImportSkippedItem> SkippedItems { get; init; } = Array.Empty<BatchImageImportSkippedItem>();
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+    public bool CanWrite => Items.Count > 0 && SkippedItems.All(item => !BatchImageImportSkipReasons.IsBlocking(item.Reason));
+    public int TotalOperationCount => Items.Sum(item => item.Preview.TotalOperationCount);
+}
+
+public sealed class BatchJobSImageReplaceItemResult
+{
+    public int JobId { get; init; }
+    public string MaterialFolder { get; init; } = string.Empty;
+    public JobSImageReplaceResult Result { get; init; } = new();
+}
+
+public sealed class BatchJobSImageReplaceResult : BatchJobSImageReplacePreviewResult
+{
+    public IReadOnlyList<BatchJobSImageReplaceItemResult> Results { get; init; } = Array.Empty<BatchJobSImageReplaceItemResult>();
 }
 
 public static class BatchImageImportSkipReasons

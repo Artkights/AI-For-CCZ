@@ -286,6 +286,7 @@ public sealed partial class MainForm
         var pasteSectionCount = GetLegacyScriptClipboardSectionsForPaste().Count;
         var pasteCommandCount = GetLegacyScriptClipboardCommandsForPaste().Count;
         var selectedTree = GetLegacyScriptTree(scope);
+        var canCut = CanCutLegacyScriptSelection(scope, out var cutSelection, out _);
 
         var editItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextEditItem, LegacyScriptContextMenuRole.Edit);
         var addBeforeItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextAddBeforeItem, LegacyScriptContextMenuRole.AddBefore);
@@ -380,7 +381,10 @@ public sealed partial class MainForm
 
         if (cutItem != null)
         {
-            cutItem.Enabled = checkedCommands.Count == 0 && canCopy && canDelete && deleteCommands.Count <= 1;
+            cutItem.Enabled = canCut;
+            cutItem.Text = canCut
+                ? BuildLegacyScriptCutMenuText(cutSelection)
+                : "剪切(&T)\tCtrl+X";
         }
 
         if (copyItem != null)
@@ -1289,35 +1293,343 @@ public sealed partial class MainForm
         return true;
     }
 
+    private enum LegacyScriptCutSelectionKind
+    {
+        CommandBatch,
+        Scene,
+        Section
+    }
+
+    private sealed record LegacyScriptCutSelection(
+        LegacyScriptCutSelectionKind Kind,
+        IReadOnlyList<LegacyScenarioCommandNode> Commands,
+        LegacyScenarioScene? Scene,
+        LegacyScenarioSection? Section);
+
+    private sealed record LegacyScriptCutClipboardResult(
+        string DetailText,
+        string StatusText);
+
     private void CutSelectedLegacyScriptCommand()
         => CutSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
 
     private void CutSelectedLegacyScriptCommand(LegacyScriptEditorScope scope)
     {
-        if (GetCheckedLegacyScriptCommands(scope).Count > 0)
-        {
-            MessageBox.Show(this,
-                "批量剪切会同时修改结构和剪贴板，当前只开放批量复制/粘贴。请先 Ctrl+C 批量复制，确认粘贴成功后再逐条删除来源命令。",
-                "批量剪切暂未开放",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
-        }
-
-        if (!TryGetSelectedLegacyScriptCommand(scope, out var command))
-        {
-            MessageBox.Show(this, "请先选择要剪切的指令。", "无法剪切", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        if (!CanCopyLegacyScriptCommand(command, out var reason) || !CanDeleteLegacyScriptCommand(scope, command, out reason))
+        if (!CanCutLegacyScriptSelection(scope, out var selection, out var reason))
         {
             MessageBox.Show(this, reason, "无法剪切", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        CopySelectedScriptCommandSummary(scope);
-        DeleteSelectedLegacyScriptCommand(scope);
+        if (!TryCopyLegacyScriptCutSelectionToClipboard(scope, selection, out var clipboardResult))
+        {
+            return;
+        }
+
+        var document = GetCurrentLegacyScriptDocument(scope);
+        if (document == null)
+        {
+            MessageBox.Show(this, "当前没有可编辑的旧版完整剧本树。", "无法剪切", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        switch (selection.Kind)
+        {
+            case LegacyScriptCutSelectionKind.CommandBatch:
+                DeleteLegacyScriptCommandBatch(scope, document, selection.Commands);
+                break;
+            case LegacyScriptCutSelectionKind.Scene when selection.Scene != null:
+                DeleteSelectedLegacyScriptScene(scope, document, selection.Scene);
+                break;
+            case LegacyScriptCutSelectionKind.Section when selection.Section != null:
+                DeleteSelectedLegacyScriptSection(scope, document, selection.Section);
+                break;
+        }
+
+        SetLegacyScriptDetailText(scope, clipboardResult.DetailText);
+        SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：{clipboardResult.StatusText}");
+        if (scope == LegacyScriptEditorScope.Script)
+        {
+            UpdateScriptStructureEditButtons();
+        }
+    }
+
+    private bool CanCutLegacyScriptSelection(
+        LegacyScriptEditorScope scope,
+        out LegacyScriptCutSelection selection,
+        out string reason)
+        => TryGetLegacyScriptCutSelection(scope, out selection, out reason);
+
+    private bool TryGetLegacyScriptCutSelection(
+        LegacyScriptEditorScope scope,
+        out LegacyScriptCutSelection selection,
+        out string reason)
+    {
+        selection = null!;
+        var document = GetCurrentLegacyScriptDocument(scope);
+        if (document == null)
+        {
+            reason = "当前没有可编辑的旧版完整剧本树。";
+            return false;
+        }
+
+        var commands = GetLegacyScriptCommandDeleteSelection(scope);
+        if (commands.Count > 0)
+        {
+            foreach (var command in commands)
+            {
+                if (!CanCopyLegacyScriptCommand(command, out reason))
+                {
+                    reason = $"选中列表中包含不能剪切的命令：\r\n{command.CommandIndex:000} {command.CommandIdHex} {command.CommandName}\r\n\r\n{reason}";
+                    return false;
+                }
+            }
+
+            if (!CanDeleteLegacyScriptCommandBatch(scope, out reason))
+            {
+                return false;
+            }
+
+            selection = new LegacyScriptCutSelection(
+                LegacyScriptCutSelectionKind.CommandBatch,
+                commands,
+                null,
+                null);
+            reason = string.Empty;
+            return true;
+        }
+
+        if (TryGetSelectedLegacyScriptSceneNode(scope, out var scene))
+        {
+            if (!CanDeleteLegacyScriptScene(document, scene, out reason))
+            {
+                return false;
+            }
+
+            selection = new LegacyScriptCutSelection(
+                LegacyScriptCutSelectionKind.Scene,
+                Array.Empty<LegacyScenarioCommandNode>(),
+                scene,
+                null);
+            reason = string.Empty;
+            return true;
+        }
+
+        if (TryGetSelectedLegacyScriptSectionNode(scope, out var section))
+        {
+            if (!CanDeleteLegacyScriptSection(document, section, out reason))
+            {
+                return false;
+            }
+
+            selection = new LegacyScriptCutSelection(
+                LegacyScriptCutSelectionKind.Section,
+                Array.Empty<LegacyScenarioCommandNode>(),
+                null,
+                section);
+            reason = string.Empty;
+            return true;
+        }
+
+        reason = "请先选择要剪切的命令、Section 或 Scene，也可以勾选多条命令后批量剪切。";
+        return false;
+    }
+
+    private static string BuildLegacyScriptCutMenuText(LegacyScriptCutSelection selection)
+        => selection.Kind switch
+        {
+            LegacyScriptCutSelectionKind.CommandBatch when selection.Commands.Count > 1 => $"剪切选中 {selection.Commands.Count} 条命令(&T)\tCtrl+X",
+            LegacyScriptCutSelectionKind.CommandBatch => "剪切命令(&T)\tCtrl+X",
+            LegacyScriptCutSelectionKind.Scene => "剪切 Scene(&T)\tCtrl+X",
+            LegacyScriptCutSelectionKind.Section => "剪切 Section(&T)\tCtrl+X",
+            _ => "剪切(&T)\tCtrl+X"
+        };
+
+    private bool TryCopyLegacyScriptCutSelectionToClipboard(
+        LegacyScriptEditorScope scope,
+        LegacyScriptCutSelection selection,
+        out LegacyScriptCutClipboardResult result)
+    {
+        result = null!;
+        return selection.Kind switch
+        {
+            LegacyScriptCutSelectionKind.CommandBatch => TryCopyLegacyScriptCommandsForCut(scope, selection.Commands, out result),
+            LegacyScriptCutSelectionKind.Scene when selection.Scene != null => TryCopyLegacyScriptScenesForCut(scope, new[] { selection.Scene! }, out result),
+            LegacyScriptCutSelectionKind.Section when selection.Section != null => TryCopyLegacyScriptSectionsForCut(scope, new[] { selection.Section! }, out result),
+            _ => false
+        };
+    }
+
+    private bool TryCopyLegacyScriptCommandsForCut(
+        LegacyScriptEditorScope scope,
+        IReadOnlyList<LegacyScenarioCommandNode> commands,
+        out LegacyScriptCutClipboardResult result)
+    {
+        result = null!;
+        if (commands.Count == 0)
+        {
+            return false;
+        }
+
+        var scenarioName = GetLegacyScriptClipboardScenarioName(scope);
+        var text = BuildLegacyScriptCommandBatchCopyText(scenarioName, commands);
+        var clipboardText = BuildLegacyScriptCommandClipboardText(text, scenarioName, commands);
+        if (!TrySetLegacyScriptClipboardTextForCut(scope, clipboardText, text))
+        {
+            return false;
+        }
+
+        _scriptCommandClipboardItem = null;
+        if (scope == LegacyScriptEditorScope.Script)
+        {
+            var first = commands[0];
+            if (_legacyScriptRowByKey.TryGetValue(BuildLegacyCommandKey(first), out var firstRow))
+            {
+                _scriptCommandClipboardItem = _scenarioCommandClipboardService.CreateClipboardItem(
+                    scenarioName,
+                    firstRow,
+                    BuildLegacyScriptParameterRows(first));
+            }
+        }
+
+        var clipboardItems = commands
+            .Select(command => CloneLegacyScriptCommandForPaste(command, command.SceneIndex, command.SectionIndex))
+            .ToList();
+        _legacyScriptCommandClipboardItems = clipboardItems;
+        _legacyScriptCommandClipboard = clipboardItems[0];
+        _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
+        _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+        _legacyScriptCommandClipboardScenarioName = scenarioName;
+        _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
+        _previewPasteScriptCommandButton.Enabled = true;
+        if (scope == LegacyScriptEditorScope.Script)
+        {
+            UpdateScriptStructureEditButtons();
+        }
+
+        result = new LegacyScriptCutClipboardResult(
+            text + "\r\n\r\n已剪切到剪贴板并删除来源。",
+            commands.Count == 1
+                ? $"已剪切命令：{commands[0].CommandIdHex} {commands[0].CommandName}"
+                : $"已剪切 {commands.Count} 条命令到剪贴板并删除来源");
+        return true;
+    }
+
+    private bool TryCopyLegacyScriptSectionsForCut(
+        LegacyScriptEditorScope scope,
+        IReadOnlyList<LegacyScenarioSection> sections,
+        out LegacyScriptCutClipboardResult result)
+    {
+        result = null!;
+        if (sections.Count == 0)
+        {
+            return false;
+        }
+
+        var scenarioName = GetLegacyScriptClipboardScenarioName(scope);
+        var text = BuildLegacyScriptSectionBatchCopyText(scenarioName, sections);
+        var clipboardText = BuildLegacyScriptSectionClipboardText(text, scenarioName, sections);
+        if (!TrySetLegacyScriptClipboardTextForCut(scope, clipboardText, text))
+        {
+            return false;
+        }
+
+        _scriptCommandClipboardItem = null;
+        _legacyScriptCommandClipboard = null;
+        _legacyScriptCommandClipboardItems = Array.Empty<LegacyScenarioCommandNode>();
+        _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
+        _legacyScriptSectionClipboardItems = sections
+            .Select(section => CloneLegacyScriptSectionForPaste(section, section.SceneIndex, section.SectionIndex))
+            .ToList();
+        _legacyScriptCommandClipboardScenarioName = scenarioName;
+        _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
+        _previewPasteScriptCommandButton.Enabled = true;
+        if (scope == LegacyScriptEditorScope.Script)
+        {
+            UpdateScriptStructureEditButtons();
+        }
+
+        result = new LegacyScriptCutClipboardResult(
+            text + "\r\n\r\n已剪切到剪贴板并删除来源。",
+            sections.Count == 1
+                ? $"已剪切 Scene {sections[0].SceneIndex} / Section {sections[0].SectionIndex} 到剪贴板并删除来源"
+                : $"已剪切 {sections.Count} 个 Section 到剪贴板并删除来源");
+        return true;
+    }
+
+    private bool TryCopyLegacyScriptScenesForCut(
+        LegacyScriptEditorScope scope,
+        IReadOnlyList<LegacyScenarioScene> scenes,
+        out LegacyScriptCutClipboardResult result)
+    {
+        result = null!;
+        if (scenes.Count == 0)
+        {
+            return false;
+        }
+
+        var scenarioName = GetLegacyScriptClipboardScenarioName(scope);
+        var text = BuildLegacyScriptSceneBatchCopyText(scenarioName, scenes);
+        var clipboardText = BuildLegacyScriptSceneClipboardText(text, scenarioName, scenes);
+        if (!TrySetLegacyScriptClipboardTextForCut(scope, clipboardText, text))
+        {
+            return false;
+        }
+
+        _scriptCommandClipboardItem = null;
+        _legacyScriptCommandClipboard = null;
+        _legacyScriptCommandClipboardItems = Array.Empty<LegacyScenarioCommandNode>();
+        _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+        _legacyScriptSceneClipboardItems = scenes
+            .Select(CloneLegacyScriptSceneForPaste)
+            .ToList();
+        _legacyScriptCommandClipboardScenarioName = scenarioName;
+        _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
+        _previewPasteScriptCommandButton.Enabled = true;
+        if (scope == LegacyScriptEditorScope.Script)
+        {
+            UpdateScriptStructureEditButtons();
+        }
+
+        result = new LegacyScriptCutClipboardResult(
+            text + "\r\n\r\n已剪切到剪贴板并删除来源。",
+            scenes.Count == 1
+                ? $"已剪切 Scene {scenes[0].SceneIndex} 到剪贴板并删除来源"
+                : $"已剪切 {scenes.Count} 个 Scene 到剪贴板并删除来源");
+        return true;
+    }
+
+    private string GetLegacyScriptClipboardScenarioName(LegacyScriptEditorScope scope)
+    {
+        var scenarioName = scope == LegacyScriptEditorScope.Script
+            ? _currentScriptScenario?.FileName ?? "RS"
+            : GetLegacyScriptScenarioName(scope);
+        return string.IsNullOrWhiteSpace(scenarioName)
+            ? GetLegacyScriptScopeStatusPrefix(scope)
+            : scenarioName;
+    }
+
+    private bool TrySetLegacyScriptClipboardTextForCut(
+        LegacyScriptEditorScope scope,
+        string clipboardText,
+        string detailText)
+    {
+        try
+        {
+            Clipboard.SetText(clipboardText);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLegacyScriptDetailText(scope, detailText + "\r\n\r\n剪贴板写入失败，已取消剪切，来源未删除。\r\n" + ex.Message);
+            SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：剪贴板写入失败，已取消剪切");
+            MessageBox.Show(this,
+                "剪贴板写入失败，已取消剪切，来源未删除。\r\n\r\n" + ex.Message,
+                "无法剪切",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return false;
+        }
     }
 
     private void ExpandSelectedLegacyScriptTreeNode()

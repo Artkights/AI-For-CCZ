@@ -10,6 +10,7 @@ using System.Windows.Forms;
 
 var enableWriteTest = args.Contains("--write", StringComparer.OrdinalIgnoreCase);
 var rsSmokeOnly = args.Contains("--rs-smoke", StringComparer.OrdinalIgnoreCase);
+var rsMojibakeSmokeOnly = args.Contains("--rs-mojibake-smoke", StringComparer.OrdinalIgnoreCase);
 var rsWriteSmokeOnly = args.Contains("--rs-write-smoke", StringComparer.OrdinalIgnoreCase);
 var rsTextWriteSmokeOnly = args.Contains("--rs-text-write-smoke", StringComparer.OrdinalIgnoreCase);
 var rsDeploymentWriteSmokeOnly = args.Contains("--rs-deployment-write-smoke", StringComparer.OrdinalIgnoreCase);
@@ -23,6 +24,7 @@ var rSceneDialogPreviewSmokeOnly = args.Contains("--rscene-dialog-preview-smoke"
 var rSceneFramePreviewSmokeOnly = args.Contains("--rscene-frame-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var pixelEditorCodecSmokeOnly = args.Contains("--pixel-editor-codec-smoke", StringComparer.OrdinalIgnoreCase);
+var bmpExportSmokeOnly = args.Contains("--bmp-export-smoke", StringComparer.OrdinalIgnoreCase);
 var rImageRawReplaceSmokeOnly = args.Contains("--r-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var batchImageImportSmokeOnly = args.Contains("--batch-image-import-smoke", StringComparer.OrdinalIgnoreCase);
@@ -45,6 +47,7 @@ var mapCanvasPreviewSmokeOnly = args.Contains("--map-canvas-preview-smoke", Stri
 var mapWorkbenchUiSmokeOnly = args.Contains("--map-workbench-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var terrainDrivenMapSmokeOnly = args.Contains("--terrain-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
 var materialDrivenMapSmokeOnly = args.Contains("--material-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
+var mapMaterialExtractionSmokeOnly = args.Contains("--map-material-extraction-smoke", StringComparer.OrdinalIgnoreCase);
 var autoTileRegionSmokeOnly = args.Contains("--autotile-region-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldPreviewSmokeOnly = args.Contains("--battlefield-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldUnitStatusWriteSmokeOnly = args.Contains("--battlefield-unit-status-write-smoke", StringComparer.OrdinalIgnoreCase);
@@ -60,6 +63,7 @@ var scenarioTextWriterSmokeOnly = args.Contains("--scenario-text-writer-smoke", 
 var roleCriticalQuoteUiSmokeOnly = args.Contains("--role-critical-quote-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66SmokeOnly = args.Contains("--66-revised-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66RegressionSmokeOnly = args.Contains("--66-regression-smoke", StringComparer.OrdinalIgnoreCase);
+var dongwuLegacyLayoutSmokeOnly = args.Contains("--dongwu-legacy-layout-smoke", StringComparer.OrdinalIgnoreCase);
 
 var detector = new ProjectDetector();
 var envGameRoot = Environment.GetEnvironmentVariable("CCZMODSTUDIO_GAME_ROOT");
@@ -83,6 +87,12 @@ Console.WriteLine($"TABLE_COUNT={tables.Count}");
 if (rsSmokeOnly)
 {
     RunRsSmoke(project, tables);
+    return;
+}
+
+if (rsMojibakeSmokeOnly)
+{
+    RunRsMojibakeSmoke(project, tables);
     return;
 }
 
@@ -161,6 +171,12 @@ if (e5ImageReplaceSmokeOnly)
 if (pixelEditorCodecSmokeOnly)
 {
     RunPixelEditorCodecSmoke(project);
+    return;
+}
+
+if (bmpExportSmokeOnly)
+{
+    RunBmpExportSmoke(project);
     return;
 }
 
@@ -296,6 +312,12 @@ if (materialDrivenMapSmokeOnly)
     return;
 }
 
+if (mapMaterialExtractionSmokeOnly)
+{
+    RunMapMaterialExtractionSmoke();
+    return;
+}
+
 if (autoTileRegionSmokeOnly)
 {
     RunAutoTileRegionSmoke();
@@ -305,6 +327,12 @@ if (autoTileRegionSmokeOnly)
 if (battlefieldPreviewSmokeOnly)
 {
     RunBattlefieldPreviewSmoke(project, tables);
+    return;
+}
+
+if (dongwuLegacyLayoutSmokeOnly)
+{
+    RunDongwuLegacyLayoutSmoke(project, tables);
     return;
 }
 

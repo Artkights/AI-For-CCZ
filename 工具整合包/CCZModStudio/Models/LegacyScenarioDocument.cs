@@ -126,6 +126,10 @@ public sealed class LegacyScenarioCommandParameter
     public LegacyScenarioParameterKind Kind { get; set; }
     public int IntValue { get; set; }
     public string Text { get; set; } = string.Empty;
+    public string TextEncodingName { get; set; } = string.Empty;
+    public string TextDecodeConfidence { get; set; } = string.Empty;
+    public string TextDecodeWarning { get; set; } = string.Empty;
+    public byte[] RawTextBytes { get; set; } = Array.Empty<byte>();
     public List<int> Values { get; } = [];
     public int ByteLength { get; set; }
 

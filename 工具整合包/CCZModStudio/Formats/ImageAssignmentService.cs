@@ -78,8 +78,7 @@ public sealed class ImageAssignmentService
         EnsureImageTablesMatchBImageAssigner(rTable, sTable);
         var rRead = _reader.Read(project, rTable, tables);
         var sRead = _reader.Read(project, sTable, tables);
-        var rChanged = false;
-        var sChanged = false;
+        var changedRows = new List<DataRow>();
 
         foreach (DataRow row in assignments.Rows)
         {
@@ -93,19 +92,32 @@ public sealed class ImageAssignmentService
             if (originalR != currentR)
             {
                 rRead.Data.Rows[index]["R形象编号"] = currentR;
-                rChanged = true;
             }
 
             if (originalS != currentS)
             {
                 sRead.Data.Rows[index]["S形象编号"] = currentS;
-                sChanged = true;
+            }
+
+            if (originalR != currentR || originalS != currentS)
+            {
+                changedRows.Add(row);
             }
         }
 
         var saves = new List<TableSaveResult>();
-        if (rChanged) saves.Add(_writer.Save(project, rTable, rRead.Data));
-        if (sChanged) saves.Add(_writer.Save(project, sTable, sRead.Data));
+        if (rRead.Data.GetChanges() != null)
+        {
+            saves.Add(_writer.Save(project, rTable, rRead.Data));
+            VerifyImageAssignmentSave(project, tables, rTable, rRead.Data, changedRows, "R形象编号");
+        }
+
+        if (sRead.Data.GetChanges() != null)
+        {
+            saves.Add(_writer.Save(project, sTable, sRead.Data));
+            VerifyImageAssignmentSave(project, tables, sTable, sRead.Data, changedRows, "S形象编号");
+        }
+
         assignments.AcceptChanges();
 
         return new ImageAssignmentSaveResult { Saves = saves };
@@ -113,6 +125,52 @@ public sealed class ImageAssignmentService
 
     private static HexTableDefinition Find(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName) =>
         HexTableNameResolver.ResolveForProject(project, tables, tableName);
+
+    private void VerifyImageAssignmentSave(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        HexTableDefinition table,
+        DataTable expected,
+        IReadOnlyList<DataRow> changedRows,
+        string columnName)
+    {
+        var reread = _reader.Read(project, table, tables);
+        if (!reread.Validation.IsUsable)
+        {
+            throw new InvalidOperationException("人物 R/S 形象保存后重新读取失败，请查看诊断和备份。");
+        }
+
+        foreach (var row in changedRows)
+        {
+            var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+            var expectedRow = FindRowById(expected, id);
+            var actualRow = FindRowById(reread.Data, id);
+            if (expectedRow == null || actualRow == null)
+            {
+                throw new InvalidOperationException($"人物 R/S 形象保存后复读校验失败：找不到 ID={id}。");
+            }
+
+            var expectedValue = Convert.ToString(expectedRow[columnName], CultureInfo.InvariantCulture) ?? string.Empty;
+            var actualValue = Convert.ToString(actualRow[columnName], CultureInfo.InvariantCulture) ?? string.Empty;
+            if (!string.Equals(expectedValue, actualValue, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"人物 R/S 形象保存后复读校验失败：ID={id} {columnName} 期望 {expectedValue}，实际 {actualValue}。");
+            }
+        }
+    }
+
+    private static DataRow? FindRowById(DataTable table, int id)
+    {
+        foreach (DataRow row in table.Rows)
+        {
+            if (Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) == id)
+            {
+                return row;
+            }
+        }
+
+        return null;
+    }
 
     private static IReadOnlyDictionary<int, string> BuildJobNameLookup(DataTable jobs)
     {

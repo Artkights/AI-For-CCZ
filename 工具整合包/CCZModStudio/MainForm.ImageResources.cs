@@ -887,6 +887,9 @@ public sealed partial class MainForm
             _saveImageAssignmentsButton.Enabled = canEdit;
             _importImageAssignmentFaceButton.Enabled = true;
             _batchImportImageAssignmentFaceButton.Enabled = true;
+            _exportRImageBmpButton.Enabled = true;
+            _exportSImageBmpButton.Enabled = true;
+            _exportImageAssignmentFaceBmpButton.Enabled = true;
             foreach (DataGridViewColumn column in _imageAssignmentGrid.Columns)
             {
                 column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "头像编号" or "职业" or "职业名称" or "R资源状态" or "S资源状态";
@@ -2274,8 +2277,6 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _imageAssignmentService.Save(_project, _tables, _currentImageAssignments);
-            _currentImageAssignments = _imageAssignmentService.Load(_project, _tables);
-            _imageAssignmentGrid.DataSource = _currentImageAssignments;
             ColorImageAssignmentResourceRows();
             ShowSelectedImageAssignmentDetail();
             System.Diagnostics.Debug.WriteLine($"已保存人物 R/S 形象：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");

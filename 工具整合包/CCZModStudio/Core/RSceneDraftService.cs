@@ -100,6 +100,7 @@ public sealed class RSceneDraftService
             var values = FlattenValues(command).ToList();
             var displayName = commandDisplayText?.Invoke(command);
             var displayParameters = parameterDisplayText?.Invoke(command);
+            var backgroundReference = TryGetBackgroundReference(command.CommandId, values);
             var candidate = new RSceneCommandCandidate
             {
                 Index = result.Count + 1,
@@ -115,7 +116,8 @@ public sealed class RSceneDraftService
                 PersonId = TryGetPersonId(command.CommandId, values, command, personResolver),
                 X = TryGetCoordinate(command.CommandId, values, xSlot: true),
                 Y = TryGetCoordinate(command.CommandId, values, xSlot: false),
-                BackgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values),
+                BackgroundImageNumber = backgroundReference?.ResolvedImageNumber,
+                BackgroundReference = backgroundReference,
                 Annotation = BuildAnnotation(command.CommandId)
             };
             result.Add(candidate);
@@ -140,9 +142,10 @@ public sealed class RSceneDraftService
                 var nextStart = FindNextRSceneBackgroundCommand(commands, i + 1);
                 var endCommandIndex = nextStart?.CommandIndex - 1;
                 var snapshot = BuildSceneStartSnapshot(section, command);
-                var backgroundText = snapshot.BackgroundImageNumber.HasValue
-                    ? "背景 " + snapshot.BackgroundImageNumber.Value.ToString(CultureInfo.InvariantCulture)
-                    : "背景未识别";
+                var backgroundText = snapshot.BackgroundReference?.DisplayText
+                                     ?? (snapshot.BackgroundImageNumber.HasValue
+                                         ? "背景 " + snapshot.BackgroundImageNumber.Value.ToString(CultureInfo.InvariantCulture)
+                                         : "背景未识别");
                 result.Add(new RSceneStateCandidate
                 {
                     Index = result.Count + 1,
@@ -155,6 +158,7 @@ public sealed class RSceneDraftService
                     EndCommandIndex = endCommandIndex ?? commands.LastOrDefault()?.CommandIndex ?? command.CommandIndex,
                     OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset),
                     BackgroundImageNumber = snapshot.BackgroundImageNumber,
+                    BackgroundReference = snapshot.BackgroundReference,
                     ActorCount = snapshot.Actors.Count,
                     MapFaceCount = snapshot.MapFaces.Count,
                     Summary = $"{backgroundText}；人物 {snapshot.Actors.Count}；地图头像 {snapshot.MapFaces.Count}；Section {command.SectionIndex}；Command {command.CommandIndex}-{(endCommandIndex?.ToString(CultureInfo.InvariantCulture) ?? "末尾")}"
@@ -182,13 +186,15 @@ public sealed class RSceneDraftService
         LegacyScenarioCommandNode command)
     {
         var values = FlattenValues(command).ToList();
+        var backgroundReference = TryGetBackgroundReference(command.CommandId, values);
         return new RSceneStateSnapshot
         {
             SceneIndex = section.SceneIndex,
             SectionIndex = section.SectionIndex,
             StartCommandIndex = command.CommandIndex,
             CurrentCommandIndex = command.CommandIndex,
-            BackgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values),
+            BackgroundImageNumber = backgroundReference?.ResolvedImageNumber,
+            BackgroundReference = backgroundReference,
             Actors = [],
             MapFaces = []
         };
@@ -202,6 +208,7 @@ public sealed class RSceneDraftService
         var actors = new Dictionary<int, MutableActorState>();
         var mapFaces = new Dictionary<int, MutableMapFaceState>();
         int? backgroundImageNumber = null;
+        RSceneBackgroundReference? backgroundReference = null;
         int? startCommandIndex = null;
 
         foreach (var command in section.EnumerateCommands().Where(command => command.CommandIndex <= currentCommandIndex))
@@ -211,7 +218,8 @@ public sealed class RSceneDraftService
             switch (command.CommandId)
             {
                 case 0x27:
-                    backgroundImageNumber = TryGetBackgroundImageNumber(command.CommandId, values);
+                    backgroundReference = TryGetBackgroundReference(command.CommandId, values);
+                    backgroundImageNumber = backgroundReference?.ResolvedImageNumber;
                     startCommandIndex = command.CommandIndex;
                     actors.Clear();
                     mapFaces.Clear();
@@ -253,6 +261,7 @@ public sealed class RSceneDraftService
             StartCommandIndex = startCommandIndex,
             CurrentCommandIndex = currentCommandIndex,
             BackgroundImageNumber = backgroundImageNumber,
+            BackgroundReference = backgroundReference,
             Actors = actors.Values
                 .OrderBy(actor => actor.GridY)
                 .ThenBy(actor => actor.GridX)
@@ -339,24 +348,57 @@ public sealed class RSceneDraftService
     }
 
     private static int? TryGetBackgroundImageNumber(int commandId, IReadOnlyList<int> values)
+        => TryGetBackgroundReference(commandId, values)?.ResolvedImageNumber;
+
+    private static RSceneBackgroundReference? TryGetBackgroundReference(int commandId, IReadOnlyList<int> values)
     {
         if (commandId != 0x27 || values.Count == 0) return null;
         var category = values[0];
         var valueIndex = category + 1;
         if (valueIndex < 0 || valueIndex >= values.Count) return null;
 
-        var imageNumber = values[valueIndex];
-        if (category == 0)
+        var rawValue = values[valueIndex];
+        var categoryName = category switch
         {
-            imageNumber += 1;
-        }
-        else if (category == 2)
+            0 => "外场景",
+            1 => "中国地图",
+            2 => "内场景",
+            3 => "战场地图",
+            _ => "未知背景类别"
+        };
+        var targetKind = category switch
         {
-            imageNumber += 41;
-        }
+            0 or 2 => "Mmap",
+            1 => "WorldMap",
+            3 => "BattlefieldMap",
+            _ => "Unknown"
+        };
+        var resolved = category switch
+        {
+            0 => rawValue + 1,
+            2 => rawValue + 41,
+            1 or 3 => rawValue,
+            _ => rawValue
+        };
+        if (rawValue < 0 || resolved < 0 || resolved > 999) return null;
 
-        if (imageNumber < 0 || imageNumber > 999) return null;
-        return Math.Max(1, imageNumber);
+        var warning = category switch
+        {
+            0 or 2 => string.Empty,
+            1 => "中国地图不应从 Mmap.e5 背景候选强行选择",
+            3 => "战场地图应走 Map\\Mxxx.jpg 或 HmNN.e5 战场底图解析",
+            _ => "未知 0x27 背景类别，暂不自动绑定资源"
+        };
+
+        return new RSceneBackgroundReference
+        {
+            Category = category,
+            CategoryName = categoryName,
+            RawValue = rawValue,
+            ResolvedImageNumber = resolved == 0 && category is 0 or 2 ? 1 : resolved,
+            TargetResourceKind = targetKind,
+            Warning = warning
+        };
     }
 
     private static int? TryGetPersonId(

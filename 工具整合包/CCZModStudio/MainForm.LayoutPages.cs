@@ -244,6 +244,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerExportJpgButton.Text = "导出美化JPG";
         _mapMakerExportJpgButton.AutoSize = true;
         _mapMakerExportJpgButton.Enabled = false;
+        _mapMakerExtractMaterialButton.Text = "提取素材";
+        _mapMakerExtractMaterialButton.AutoSize = true;
+        _mapMakerExtractMaterialButton.Enabled = false;
         _mapMakerMaterialPlanButton.Text = "主素材设置";
         _mapMakerMaterialPlanButton.AutoSize = true;
         _mapMakerMaterialPlanButton.Enabled = false;
@@ -340,15 +343,17 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var materialBrowserPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 5,
+            RowCount = 6,
             ColumnCount = 1,
             Padding = new Padding(6, 0, 0, 0)
         };
+        materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
         materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
         materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         materialBrowserPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 24));
+        _mapMakerExtractMaterialButton.Dock = DockStyle.Fill;
         _mapMakerMaterialSearchBox.Dock = DockStyle.Fill;
         _mapMakerMaterialSearchBox.PlaceholderText = "搜索编号 / 名称 / 文件";
         _mapMakerMaterialTree.Dock = DockStyle.Fill;
@@ -370,11 +375,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerMaterialInfoBox.ReadOnly = true;
         _mapMakerMaterialInfoBox.ScrollBars = ScrollBars.Vertical;
         _mapMakerMaterialInfoBox.WordWrap = true;
-        materialBrowserPanel.Controls.Add(_mapMakerMaterialSearchBox, 0, 0);
-        materialBrowserPanel.Controls.Add(_mapMakerMaterialTree, 0, 1);
-        materialBrowserPanel.Controls.Add(_mapMakerMaterialListView, 0, 2);
-        materialBrowserPanel.Controls.Add(_mapMakerMaterialPreview, 0, 3);
-        materialBrowserPanel.Controls.Add(_mapMakerMaterialInfoBox, 0, 4);
+        materialBrowserPanel.Controls.Add(_mapMakerExtractMaterialButton, 0, 0);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialSearchBox, 0, 1);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialTree, 0, 2);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialListView, 0, 3);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialPreview, 0, 4);
+        materialBrowserPanel.Controls.Add(_mapMakerMaterialInfoBox, 0, 5);
         mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
         mapEditorSplit.Panel2.Controls.Add(materialBrowserPanel);
         AddCollapsibleSplitPanel(mapSplit, 1, "地图列表", _mapImageList, "BuildMapEditorPage.MapListEditor.MapList");
@@ -416,6 +422,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _openRoleEffectButton.AutoSize = true;
         _openGlobalSettingsButton.Text = "全局设定";
         _openGlobalSettingsButton.AutoSize = true;
+        _importRoleFaceButton.Text = "\u4e00\u952e\u5bfc\u5165\u5934\u50cf";
+        _importRoleFaceButton.AutoSize = true;
+        _importRoleFaceButton.Enabled = false;
+        _batchImportRoleFaceButton.Text = "\u6279\u91cf\u5bfc\u5165\u5934\u50cf";
+        _batchImportRoleFaceButton.AutoSize = true;
+        _batchImportRoleFaceButton.Enabled = false;
+        _exportRoleFaceBmpButton.Text = "\u5bfc\u51fa\u5934\u50cfBMP";
+        _exportRoleFaceBmpButton.AutoSize = true;
+        _exportRoleFaceBmpButton.Enabled = false;
         _exportRoleEditorCsvButton.Text = "导出CSV";
         _exportRoleEditorCsvButton.AutoSize = true;
         _exportRoleEditorCsvButton.Enabled = false;
@@ -441,6 +456,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _openRolePersonalEffectButton,
             _openRoleEffectButton,
             _openGlobalSettingsButton,
+            _importRoleFaceButton,
+            _batchImportRoleFaceButton,
+            _exportRoleFaceBmpButton,
             _exportRoleEditorCsvButton,
             _importRoleEditorCsvButton,
             _copyRoleEditorSelectionButton,
@@ -598,6 +616,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _redoItemEditorButton.Text = "前进";
         _redoItemEditorButton.AutoSize = true;
         _redoItemEditorButton.Enabled = false;
+        _batchImportItemIconButton.Text = "\u6279\u91cf\u5bfc\u5165\u56fe\u6807";
+        _batchImportItemIconButton.AutoSize = true;
+        _batchImportItemIconButton.Enabled = false;
+        _editItemIconButton.Text = "\u7f16\u8f91\u56fe\u6807";
+        _editItemIconButton.AutoSize = true;
+        _editItemIconButton.Enabled = false;
+        _exportItemIconBmpButton.Text = "\u5bfc\u51faBMP";
+        _exportItemIconBmpButton.AutoSize = true;
+        _exportItemIconBmpButton.Enabled = false;
         _itemEditorSearchBox.Width = 210;
         _itemEditorSearchBox.PlaceholderText = "名称/ID/类型/特效/说明";
         _filterItemEditorButton.Text = "筛选";
@@ -614,6 +641,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _copyItemEditorSelectionButton,
             _pasteItemEditorSelectionButton,
             _batchFillItemEditorColumnButton,
+            _batchImportItemIconButton,
+            _editItemIconButton,
+            _exportItemIconBmpButton,
             _undoItemEditorButton,
             _redoItemEditorButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
@@ -660,6 +690,86 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _itemIconPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _itemIconPreviewInfoBox.WordWrap = true;
         _itemIconPreviewInfoBox.Text = "读取宝物/物品后，选择某行会按“图标”字段从 Itemicon.dll 显示候选图标。";
+        previewPanel.SuspendLayout();
+        previewPanel.Controls.Clear();
+        previewPanel.RowStyles.Clear();
+        previewPanel.ColumnStyles.Clear();
+        previewPanel.RowCount = 1;
+        previewPanel.ColumnCount = 1;
+        previewPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        _itemIconPreviewSplit.Dock = DockStyle.Fill;
+        _itemIconPreviewSplit.Orientation = Orientation.Horizontal;
+        _itemIconPreviewSplit.SplitterWidth = 6;
+        _itemIconPreviewSplit.Panel1MinSize = 80;
+        _itemIconPreviewSplit.Panel2MinSize = 80;
+        _itemIconPreviewSplit.FixedPanel = FixedPanel.None;
+        previewPanel.Controls.Add(_itemIconPreviewSplit, 0, 0);
+
+        var largePreviewPane = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 0, 0, 3) };
+        _itemIconLargePreviewTitle.Text = "大图";
+        _itemIconLargePreviewTitle.Dock = DockStyle.Top;
+        _itemIconLargePreviewTitle.Height = 24;
+        _itemIconLargePreviewTitle.Font = new Font(Font, FontStyle.Bold);
+        _itemIconLargePreviewTitle.TextAlign = ContentAlignment.MiddleLeft;
+        _itemIconLargePreviewScrollPanel.Dock = DockStyle.Fill;
+        _itemIconLargePreviewScrollPanel.AutoScroll = true;
+        _itemIconLargePreviewScrollPanel.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconLargePreviewScrollPanel.BorderStyle = BorderStyle.FixedSingle;
+        _itemIconLargePreviewScrollPanel.TabStop = true;
+        _itemIconPreviewBox.Dock = DockStyle.None;
+        _itemIconPreviewBox.Location = Point.Empty;
+        _itemIconPreviewBox.SizeMode = PictureBoxSizeMode.Normal;
+        _itemIconPreviewBox.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconPreviewBox.BorderStyle = BorderStyle.None;
+        _itemIconLargePreviewScrollPanel.Controls.Add(_itemIconPreviewBox);
+        largePreviewPane.Controls.Add(_itemIconLargePreviewScrollPanel);
+        largePreviewPane.Controls.Add(_itemIconLargePreviewTitle);
+        _itemIconPreviewSplit.Panel1.Controls.Add(largePreviewPane);
+
+        var smallPreviewPane = new Panel { Dock = DockStyle.Fill, Padding = new Padding(0, 3, 0, 0) };
+        _itemIconSmallPreviewTitle.Text = "小图";
+        _itemIconSmallPreviewTitle.Dock = DockStyle.Top;
+        _itemIconSmallPreviewTitle.Height = 24;
+        _itemIconSmallPreviewTitle.Font = new Font(Font, FontStyle.Bold);
+        _itemIconSmallPreviewTitle.TextAlign = ContentAlignment.MiddleLeft;
+        _itemIconSmallPreviewScrollPanel.Dock = DockStyle.Fill;
+        _itemIconSmallPreviewScrollPanel.AutoScroll = true;
+        _itemIconSmallPreviewScrollPanel.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconSmallPreviewScrollPanel.BorderStyle = BorderStyle.FixedSingle;
+        _itemIconSmallPreviewScrollPanel.TabStop = true;
+        _itemIconSmallPreviewBox.Dock = DockStyle.None;
+        _itemIconSmallPreviewBox.Location = Point.Empty;
+        _itemIconSmallPreviewBox.SizeMode = PictureBoxSizeMode.Normal;
+        _itemIconSmallPreviewBox.BackColor = Color.FromArgb(44, 44, 48);
+        _itemIconSmallPreviewBox.BorderStyle = BorderStyle.None;
+        _itemIconSmallPreviewScrollPanel.Controls.Add(_itemIconSmallPreviewBox);
+        smallPreviewPane.Controls.Add(_itemIconSmallPreviewScrollPanel);
+        smallPreviewPane.Controls.Add(_itemIconSmallPreviewTitle);
+        _itemIconPreviewSplit.Panel2.Controls.Add(smallPreviewPane);
+
+        _itemIconLargePreviewScrollPanel.MouseEnter += (_, _) => _itemIconLargePreviewScrollPanel.Focus();
+        _itemIconSmallPreviewScrollPanel.MouseEnter += (_, _) => _itemIconSmallPreviewScrollPanel.Focus();
+        _itemIconPreviewBox.MouseEnter += (_, _) => _itemIconLargePreviewScrollPanel.Focus();
+        _itemIconSmallPreviewBox.MouseEnter += (_, _) => _itemIconSmallPreviewScrollPanel.Focus();
+        _itemIconLargePreviewScrollPanel.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Large, e);
+        _itemIconSmallPreviewScrollPanel.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Small, e);
+        _itemIconPreviewBox.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Large, e);
+        _itemIconSmallPreviewBox.MouseWheel += (_, e) => HandleItemIconPreviewMouseWheel(ItemIconPreviewRole.Small, e);
+        _itemIconPreviewBox.DoubleClick += (_, _) => ResetItemIconPreviewZoom(ItemIconPreviewRole.Large);
+        _itemIconSmallPreviewBox.DoubleClick += (_, _) => ResetItemIconPreviewZoom(ItemIconPreviewRole.Small);
+        _itemIconLargePreviewScrollPanel.Resize += (_, _) =>
+        {
+            if (_itemIconLargeZoomPercent == 0) RenderItemIconPreview(ItemIconPreviewRole.Large);
+        };
+        _itemIconSmallPreviewScrollPanel.Resize += (_, _) =>
+        {
+            if (_itemIconSmallZoomPercent == 0) RenderItemIconPreview(ItemIconPreviewRole.Small);
+        };
+        _itemIconPreviewInfoBox.Visible = false;
+        previewPanel.ResumeLayout();
+
         _itemEditorInfoBox.Dock = DockStyle.Fill;
         _itemEditorInfoBox.Multiline = true;
         _itemEditorInfoBox.ReadOnly = true;
@@ -711,6 +821,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _replaceJobSImageButton.Text = "一键替换兵种形象";
         _replaceJobSImageButton.AutoSize = true;
         _replaceJobSImageButton.Enabled = false;
+        _batchReplaceJobSImageButton.Text = "批量导入S形象";
+        _batchReplaceJobSImageButton.AutoSize = true;
+        _batchReplaceJobSImageButton.Enabled = false;
+        _exportJobSImageBmpButton.Text = "\u5bfc\u51faS BMP";
+        _exportJobSImageBmpButton.AutoSize = true;
+        _exportJobSImageBmpButton.Enabled = false;
         _openJobSeriesTableButton.Text = "通用兵种系表";
         _openJobSeriesTableButton.AutoSize = true;
         _openJobEffectTableButton.Text = "兵种特效页";
@@ -745,6 +861,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _saveJobEditorButton,
             _editAccessoryJobGroupsButton,
             _replaceJobSImageButton,
+            _batchReplaceJobSImageButton,
+            _exportJobSImageBmpButton,
             _openJobEffectTableButton,
             _exportJobEditorCsvButton,
             _importJobEditorCsvButton,
@@ -789,7 +907,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobAreaPreviewInfoBox.ReadOnly = true;
         _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobAreaPreviewInfoBox.WordWrap = true;
-        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种名称显示默认 S 形象；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。双击兵种行可编辑可装备类别。";
+        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种名称按我军/友军/敌军显示默认 S 形象；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。双击兵种行可编辑可装备类别。";
         AddCollapsibleSplitPanel(detailBody, 2, "预览", previewPanel, "BuildJobEditorPage.DetailGridPreview.Preview");
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
@@ -938,6 +1056,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _importJobStrategyIconButton.Text = "导入策略图标";
         _importJobStrategyIconButton.AutoSize = true;
         _importJobStrategyIconButton.Enabled = false;
+        _editJobStrategyIconButton.Text = "\u7f16\u8f91\u56fe\u6807";
+        _editJobStrategyIconButton.AutoSize = true;
+        _editJobStrategyIconButton.Enabled = false;
+        _exportJobStrategyIconBmpButton.Text = "\u5bfc\u51faBMP";
+        _exportJobStrategyIconBmpButton.AutoSize = true;
+        _exportJobStrategyIconBmpButton.Enabled = false;
         _openJobStrategyTableButton.Text = "通用策略表";
         _openJobStrategyTableButton.AutoSize = true;
         _jobStrategyEditorSearchBox.Width = 220;
@@ -951,6 +1075,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _loadJobStrategyEditorButton,
             _saveJobStrategyEditorButton,
             _importJobStrategyIconButton,
+            _editJobStrategyIconButton,
+            _exportJobStrategyIconBmpButton,
             new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
             _jobStrategyEditorSearchBox,
             _filterJobStrategyEditorButton,
@@ -963,6 +1089,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobStrategyEditorGrid.AllowUserToDeleteRows = false;
         _jobStrategyEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobStrategyEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        _jobStrategyEditorGrid.MultiSelect = true;
 
         var strategyBody = CreateResizableSplit("BuildJobEditorPage.StrategyGridPreview", Orientation.Vertical, 760);
         AddCollapsibleSplitPanel(strategyBody, 1, "策略表", _jobStrategyEditorGrid, "BuildJobEditorPage.StrategyGridPreview.Grid");
@@ -1747,6 +1874,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _copyScriptCommandButton.Text = "复制";
         _copyScriptCommandButton.AutoSize = true;
         _copyScriptCommandButton.Enabled = false;
+        _cutScriptCommandButton.Text = "剪切";
+        _cutScriptCommandButton.AutoSize = true;
+        _cutScriptCommandButton.Enabled = false;
         _previewPasteScriptCommandButton.Text = "粘贴预览";
         _previewPasteScriptCommandButton.AutoSize = true;
         _previewPasteScriptCommandButton.Enabled = false;
@@ -1800,6 +1930,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _showScriptVariablesButton,
             _locateScriptCommandButton,
             _copyScriptCommandButton,
+            _cutScriptCommandButton,
+            _deleteScriptCommandButton,
             _previewPasteScriptCommandButton,
             _pasteScriptCommandBeforeButton,
             _pasteScriptCommandAfterButton,
@@ -1870,8 +2002,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _appendScriptCommandToSectionButton,
             _insertScriptCommandBeforeButton,
             _insertScriptCommandAfterButton,
-            _appendScriptCommandToChildBlockButton,
-            _deleteScriptCommandButton
+            _appendScriptCommandToChildBlockButton
         });
         structureToolbar.Visible = false;
         treePanel.Controls.Add(structureToolbar, 0, 1);

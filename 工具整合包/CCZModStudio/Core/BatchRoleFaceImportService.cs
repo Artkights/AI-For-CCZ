@@ -26,7 +26,7 @@ public sealed class BatchRoleFaceImportService
 
     public BatchRoleFaceImportPreviewResult Preview(CczProject project, BatchRoleFaceImportRequest request)
     {
-        if (request.SourceFiles.Count == 0)
+        if (request.SourceFiles.Count == 0 && string.IsNullOrWhiteSpace(request.SourceRoot))
         {
             throw new InvalidOperationException("No role face source files were selected.");
         }
@@ -177,29 +177,27 @@ public sealed class BatchRoleFaceImportService
         BatchRoleFaceImportRequest request,
         List<BatchImageImportSkippedItem> skipped)
     {
-        var sourceFiles = request.SourceFiles
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(Path.GetFullPath)
-            .OrderBy(path => Path.GetFileName(path), StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
+        var sourceCandidates = BatchImageSourceResolver.Resolve(
+            BatchImageSourceKind.Face,
+            request.SourceFiles,
+            request.SourceRoot);
 
-        foreach (var sourceFile in sourceFiles.Where(path => !File.Exists(path)))
+        foreach (var sourceFile in sourceCandidates.Select(candidate => candidate.SourcePath).Where(path => !File.Exists(path)))
         {
             skipped.Add(Skip(Path.GetFileName(sourceFile), sourceFile, BatchImageImportSkipReasons.MissingFile));
         }
 
-        sourceFiles = sourceFiles.Where(File.Exists).ToArray();
+        sourceCandidates = sourceCandidates.Where(candidate => File.Exists(candidate.SourcePath)).ToArray();
         var targetRows = request.TargetRows.ToArray();
         var strictRowOrder = request.MatchMode.Equals("selected-row-order", StringComparison.OrdinalIgnoreCase);
-        if (targetRows.Length > 0 && sourceFiles.Length == targetRows.Length)
+        if (strictRowOrder && targetRows.Length > 0 && sourceCandidates.Count == targetRows.Length)
         {
-            return targetRows.Zip(sourceFiles, (row, sourcePath) => (row, sourcePath)).ToArray();
+            return targetRows.Zip(sourceCandidates, (row, source) => (row, source.SourcePath)).ToArray();
         }
 
-        if (strictRowOrder && targetRows.Length > 0 && sourceFiles.Length != targetRows.Length)
+        if (strictRowOrder && targetRows.Length > 0 && sourceCandidates.Count != targetRows.Length)
         {
-            skipped.Add(Skip("selected rows", string.Empty, BatchImageImportSkipReasons.CountMismatch, $"rows={targetRows.Length}, files={sourceFiles.Length}"));
+            skipped.Add(Skip("selected rows", string.Empty, BatchImageImportSkipReasons.CountMismatch, $"rows={targetRows.Length}, files={sourceCandidates.Count}"));
             return Array.Empty<(BatchRoleFaceTargetRow Target, string SourcePath)>();
         }
 
@@ -207,32 +205,57 @@ public sealed class BatchRoleFaceImportService
             .GroupBy(row => row.FaceId)
             .ToDictionary(group => group.Key, group => group.First());
         var matched = new List<(BatchRoleFaceTargetRow Target, string SourcePath)>();
-        foreach (var sourceFile in sourceFiles)
+        if (targetByFace.Count > 0)
         {
-            var faceId = ExtractLastNumber(Path.GetFileNameWithoutExtension(sourceFile));
-            if (!faceId.HasValue)
+            var unresolved = new List<BatchImageSourceCandidate>();
+            foreach (var source in sourceCandidates)
             {
-                skipped.Add(Skip(Path.GetFileName(sourceFile), sourceFile, BatchImageImportSkipReasons.InvalidName));
-                continue;
-            }
-
-            BatchRoleFaceTargetRow target;
-            if (targetByFace.Count > 0)
-            {
-                if (!targetByFace.TryGetValue(faceId.Value, out var mappedTarget))
+                var faceId = source.FieldValue ?? ExtractLastNumber(Path.GetFileNameWithoutExtension(source.SourcePath));
+                if (!faceId.HasValue)
                 {
-                    skipped.Add(Skip(faceId.Value.ToString(CultureInfo.InvariantCulture), sourceFile, BatchImageImportSkipReasons.UnmatchedFile));
+                    unresolved.Add(source);
                     continue;
                 }
 
-                target = mappedTarget;
-            }
-            else
-            {
-                target = new BatchRoleFaceTargetRow(faceId.Value, $"face #{faceId.Value}", faceId.Value);
+                if (!targetByFace.TryGetValue(faceId.Value, out var mappedTarget))
+                {
+                    skipped.Add(Skip(faceId.Value.ToString(CultureInfo.InvariantCulture), source.SourcePath, BatchImageImportSkipReasons.UnmatchedFile));
+                    continue;
+                }
+
+                matched.Add((mappedTarget, source.SourcePath));
             }
 
-            matched.Add((target, sourceFile));
+            if (matched.Count > 0)
+            {
+                foreach (var source in unresolved)
+                {
+                    skipped.Add(Skip(Path.GetFileName(source.SourcePath), source.SourcePath, BatchImageImportSkipReasons.InvalidName));
+                }
+
+                return matched;
+            }
+
+            if (sourceCandidates.Count == targetRows.Length)
+            {
+                return targetRows.Zip(sourceCandidates, (row, source) => (row, source.SourcePath)).ToArray();
+            }
+
+            skipped.Add(Skip("selected rows", string.Empty, BatchImageImportSkipReasons.CountMismatch, $"rows={targetRows.Length}, files={sourceCandidates.Count}"));
+            return Array.Empty<(BatchRoleFaceTargetRow Target, string SourcePath)>();
+        }
+
+        foreach (var source in sourceCandidates)
+        {
+            var faceId = source.FieldValue ?? ExtractLastNumber(Path.GetFileNameWithoutExtension(source.SourcePath));
+            if (!faceId.HasValue)
+            {
+                skipped.Add(Skip(Path.GetFileName(source.SourcePath), source.SourcePath, BatchImageImportSkipReasons.InvalidName));
+                continue;
+            }
+
+            var target = new BatchRoleFaceTargetRow(faceId.Value, $"face #{faceId.Value}", faceId.Value);
+            matched.Add((target, source.SourcePath));
         }
 
         return matched;

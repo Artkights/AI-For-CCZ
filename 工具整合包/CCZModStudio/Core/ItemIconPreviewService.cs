@@ -7,9 +7,10 @@ namespace CCZModStudio.Core;
 
 public sealed class ItemIconPreviewService
 {
-    private readonly Dictionary<string, IReadOnlyList<BitmapResource>> _bitmapResourceCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<DllBitmapResourceRecord>> _bitmapResourceCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly E5ImageReplaceService _e5ImageService = new();
     private readonly E5ImageRenderService _e5ImageRenderService = new();
+    private readonly DllBitmapIconCodecService _dllCodec = new();
 
     public void ClearCache() => _bitmapResourceCache.Clear();
 
@@ -37,6 +38,11 @@ public sealed class ItemIconPreviewService
                 0,
                 null,
                 $"未找到 {resourceFileName}，暂无法显示{displayName}。");
+        }
+
+        if (IsGameIconResourceFile(Path.GetFileName(resourceFileName)))
+        {
+            return BuildDllBitmapPreview(sourcePath, iconIndex, resourceFileName, displayName, canvasSize);
         }
 
         var extractIconCount = GetIconCount(sourcePath);
@@ -111,6 +117,91 @@ public sealed class ItemIconPreviewService
                 : GetIconCount(sourcePath);
     }
 
+    private ItemIconPreviewResult BuildDllBitmapPreview(
+        string sourcePath,
+        int iconIndex,
+        string resourceFileName,
+        string displayName,
+        int canvasSize)
+    {
+        var bitmapResources = GetBitmapResources(sourcePath);
+        var bitmapIconCount = EstimateBitmapIconCount(bitmapResources);
+        if (bitmapIconCount <= 0)
+        {
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                0,
+                null,
+                $"{resourceFileName} 未解析到 RT_BITMAP 图标资源。",
+                RenderMode: "DLL RT_BITMAP");
+        }
+
+        if (iconIndex < 0 || iconIndex >= bitmapIconCount)
+        {
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                bitmapIconCount,
+                null,
+                $"{displayName}编号 {iconIndex} 超出 {resourceFileName} RT_BITMAP 范围 0-{bitmapIconCount - 1}。",
+                RenderMode: "DLL RT_BITMAP");
+        }
+
+        var pair = _dllCodec.ResolveBitmapResourcePair(bitmapResources, iconIndex);
+        var smallResource = _dllCodec.SelectDisplayVariant(pair.SmallVariants);
+        var largeResource = _dllCodec.SelectDisplayVariant(pair.LargeVariants);
+        var nativeResource = largeResource ?? smallResource;
+        if (nativeResource == null)
+        {
+            return new ItemIconPreviewResult(
+                sourcePath,
+                iconIndex,
+                bitmapIconCount,
+                null,
+                $"{displayName}编号 {iconIndex} 没有匹配的 {resourceFileName} RT_BITMAP small/large 资源。",
+                RenderMode: "DLL RT_BITMAP");
+        }
+
+        using var smallDecoded = smallResource == null ? null : DllBitmapIconCodecService.DecodeStorageDib(smallResource.DibBytes);
+        using var largeDecoded = largeResource == null ? null : DllBitmapIconCodecService.DecodeStorageDib(largeResource.DibBytes);
+        var smallRaw = smallDecoded?.Bitmap;
+        var largeRaw = largeDecoded?.Bitmap;
+        var displayRaw = largeRaw ?? smallRaw;
+        var previewBitmap = displayRaw == null ? null : RenderBitmapToCanvas(displayRaw, canvasSize);
+        var smallBitmap = smallRaw == null ? null : new Bitmap(smallRaw);
+        var largeBitmap = largeRaw == null ? null : new Bitmap(largeRaw);
+        var nativeBitmap = displayRaw == null ? null : new Bitmap(displayRaw);
+        var smallVariant = smallResource == null ? null : ToVariantInfo(smallResource);
+        var largeVariant = largeResource == null ? null : ToVariantInfo(largeResource);
+        var variants = bitmapResources.Select(ToVariantInfo).ToArray();
+        var warnings = pair.AllVariants
+            .GroupBy(x => x.Id)
+            .Where(group => group.Select(x => x.LanguageId).Distinct().Count() > 1 ||
+                            group.Select(x => $"{x.Width}x{x.Height}/{x.BitCount}").Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(group => $"RT_BITMAP ID={group.Key} has multiple language/format variants; re-import to normalize them.")
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var message =
+            $"来源 {resourceFileName}；字段图标={iconIndex}；RT_BITMAP small={smallResource?.Id.ToString() ?? "无"} large={largeResource?.Id.ToString() ?? "无"}；候选图标数={bitmapIconCount}。";
+
+        return new ItemIconPreviewResult(
+            sourcePath,
+            iconIndex,
+            bitmapIconCount,
+            previewBitmap,
+            message,
+            NativeBitmap: nativeBitmap,
+            SmallBitmap: smallBitmap,
+            LargeBitmap: largeBitmap,
+            ResourceVariants: variants,
+            RenderMode: "DLL RT_BITMAP",
+            SmallVariant: smallVariant,
+            LargeVariant: largeVariant,
+            SelectionMode: "RT_BITMAP small/large pair",
+            Warnings: warnings);
+    }
+
     private ItemIconPreviewResult BuildE5Preview(
         CczProject project,
         int iconIndex,
@@ -169,23 +260,93 @@ public sealed class ItemIconPreviewService
         }
 
         Bitmap? bitmap = null;
+        Bitmap? smallBitmap = null;
+        Bitmap? largeBitmap = null;
+        IconResourceVariantInfo? smallVariant = null;
+        IconResourceVariantInfo? largeVariant = null;
         try
         {
-            var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
-            bitmap = _e5ImageRenderService.RenderEntry(project, Path.GetFileName(sourcePath), bytes, canvasSize, canvasSize, out _);
+            if (isItemE5)
+            {
+                var (smallNumber, largeNumber) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(iconIndex);
+                smallBitmap = DecodeE5IconBitmap(sourcePath, smallNumber, out var smallBytes);
+                largeBitmap = DecodeE5IconBitmap(sourcePath, largeNumber, out var largeBytes);
+                smallVariant = smallBitmap == null ? null : new IconResourceVariantInfo
+                {
+                    ResourceId = smallNumber,
+                    Width = smallBitmap.Width,
+                    Height = smallBitmap.Height,
+                    BitCount = Image.GetPixelFormatSize(smallBitmap.PixelFormat),
+                    SizeBytes = smallBytes
+                };
+                largeVariant = largeBitmap == null ? null : new IconResourceVariantInfo
+                {
+                    ResourceId = largeNumber,
+                    Width = largeBitmap.Width,
+                    Height = largeBitmap.Height,
+                    BitCount = Image.GetPixelFormatSize(largeBitmap.PixelFormat),
+                    SizeBytes = largeBytes
+                };
+                bitmap = largeBitmap == null ? null : _e5ImageRenderService.RenderToCanvas(largeBitmap, canvasSize, canvasSize);
+            }
+            else
+            {
+                var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
+                using var decoded = _e5ImageRenderService.TryDecodeStandardImage(bytes);
+                if (decoded != null)
+                {
+                    largeBitmap = new Bitmap(decoded);
+                    largeVariant = new IconResourceVariantInfo
+                    {
+                        ResourceId = imageNumber,
+                        Width = decoded.Width,
+                        Height = decoded.Height,
+                        BitCount = Image.GetPixelFormatSize(decoded.PixelFormat),
+                        SizeBytes = bytes.Length
+                    };
+                    bitmap = _e5ImageRenderService.RenderToCanvas(decoded, canvasSize, canvasSize);
+                }
+                else
+                {
+                    bitmap = _e5ImageRenderService.RenderEntry(project, Path.GetFileName(sourcePath), bytes, canvasSize, canvasSize, out _);
+                }
+            }
         }
         catch
         {
             bitmap = null;
         }
 
+        var warnings = new List<string>();
         var note = Path.GetFileName(sourcePath).Equals("Item.e5", StringComparison.OrdinalIgnoreCase)
             ? "6.6 修正版道具图标资源；字段编号按 E5 1-based 图号减 1 预览，#1/#2 常作为空白小/大图标。"
             : "6.6 修正版策略图标资源；字段编号按 E5 1-based 图号减 1 预览，策略四系图标通常间隔 6。";
         if (isItemE5)
         {
             var (small, large) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(iconIndex);
-            note = $"6.6 revised Item.e5 item icon: field={iconIndex}, small=#{small}, large=#{large}; treasure/item preview uses the large image by default.";
+            var smallKind = small > 0 && small <= entries.Count ? entries[small - 1].Kind : "missing";
+            var largeKind = large > 0 && large <= entries.Count ? entries[large - 1].Kind : "missing";
+            var smallText = smallVariant == null
+                ? $"#{small} {smallKind} decode failed"
+                : $"#{small} {smallVariant.Width}x{smallVariant.Height} {smallKind} {smallVariant.BitCount}bpp {smallVariant.SizeBytes} bytes";
+            var largeText = largeVariant == null
+                ? $"#{large} {largeKind} decode failed"
+                : $"#{large} {largeVariant.Width}x{largeVariant.Height} {largeKind} {largeVariant.BitCount}bpp {largeVariant.SizeBytes} bytes";
+            if (smallVariant == null ||
+                smallVariant.Width != ItemIconRasterNormalizeService.SmallIconSize ||
+                smallVariant.Height != ItemIconRasterNormalizeService.SmallIconSize)
+            {
+                warnings.Add($"尺寸异常，建议重新规范化导入: Item.e5 small #{small} is {smallText}; expected 16x16 BMP.");
+            }
+
+            if (largeVariant == null ||
+                largeVariant.Width != ItemIconRasterNormalizeService.LargeIconSize ||
+                largeVariant.Height != ItemIconRasterNormalizeService.LargeIconSize)
+            {
+                warnings.Add($"尺寸异常，建议重新规范化导入: Item.e5 large #{large} is {largeText}; expected 32x32 BMP.");
+            }
+
+            note = $"6.6 revised Item.e5 item icon: field={iconIndex}, small=#{small}, large=#{large}; current small={smallText}; current large={largeText}; treasure/item preview uses the large image by default.";
         }
         else
         {
@@ -200,7 +361,16 @@ public sealed class ItemIconPreviewService
                 iconIndex,
                 entries.Count,
                 bitmap,
-                previewMessage);
+                previewMessage,
+                NativeBitmap: largeBitmap == null ? null : new Bitmap(largeBitmap),
+                SmallBitmap: smallBitmap,
+                LargeBitmap: largeBitmap,
+                ResourceVariants: new[] { smallVariant, largeVariant }.Where(x => x != null).Cast<IconResourceVariantInfo>().ToArray(),
+                RenderMode: isItemE5 ? "E5 item small/large" : "E5 icon",
+                SmallVariant: smallVariant,
+                LargeVariant: largeVariant,
+                SelectionMode: isItemE5 ? "E5 small/large pair" : "E5 single image",
+                Warnings: warnings.ToArray());
         }
 
         return new ItemIconPreviewResult(
@@ -211,8 +381,23 @@ public sealed class ItemIconPreviewService
             $"来源 {Path.GetFileName(sourcePath)}；字段图标={iconIndex}；E5图号=#{imageNumber}；候选图标数={entries.Count}。{note}");
     }
 
+    private Bitmap? DecodeE5IconBitmap(string sourcePath, int imageNumber, out int byteCount)
+    {
+        var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
+        byteCount = bytes.Length;
+        return _e5ImageRenderService.TryDecodeStandardImage(bytes);
+    }
+
     private static string ResolveItemIconDll(CczProject project)
         => ResolveIconDll(project, "Itemicon.dll");
+
+    private static bool IsGameIconResourceFile(string resourceFileName)
+    {
+        var name = Path.GetFileName(resourceFileName);
+        return name.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("Cmdicon.dll", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string ResolveIconDll(CczProject project, string resourceFileName)
     {
@@ -273,28 +458,18 @@ public sealed class ItemIconPreviewService
         }
     }
 
-    private IReadOnlyList<BitmapResource> GetBitmapResources(string sourcePath)
+    private IReadOnlyList<DllBitmapResourceRecord> GetBitmapResources(string sourcePath)
     {
         if (_bitmapResourceCache.TryGetValue(sourcePath, out var cached)) return cached;
-        var parsed = ParseBitmapResources(sourcePath);
+        var parsed = _dllCodec.ParseBitmapResources(sourcePath);
         _bitmapResourceCache[sourcePath] = parsed;
         return parsed;
     }
 
-    private static int EstimateBitmapIconCount(IReadOnlyList<BitmapResource> resources)
-    {
-        if (resources.Count == 0) return 0;
-        var minId = resources.Min(x => x.Id);
-        var maxId = resources.Max(x => x.Id);
-        if (minId >= 100 && resources.Count >= 2)
-        {
-            return ((maxId - minId) / 2) + 1;
-        }
+    private int EstimateBitmapIconCount(IReadOnlyList<DllBitmapResourceRecord> resources)
+        => _dllCodec.EstimateBitmapIconCount(resources);
 
-        return resources.Count;
-    }
-
-    private static BitmapResource? ResolveBitmapResource(IReadOnlyList<BitmapResource> resources, int iconIndex)
+    private DllBitmapResourceRecord? ResolveBitmapResource(IReadOnlyList<DllBitmapResourceRecord> resources, int iconIndex)
     {
         if (resources.Count == 0) return null;
         var minId = resources.Min(x => x.Id);
@@ -302,12 +477,26 @@ public sealed class ItemIconPreviewService
         {
             var preferredLargeId = minId + iconIndex * 2 + 1;
             var preferredSmallId = minId + iconIndex * 2;
-            return resources.FirstOrDefault(x => x.Id == preferredLargeId)
-                   ?? resources.FirstOrDefault(x => x.Id == preferredSmallId);
+            return _dllCodec.SelectDisplayVariant(resources.Where(x => x.Id == preferredLargeId))
+                   ?? _dllCodec.SelectDisplayVariant(resources.Where(x => x.Id == preferredSmallId));
         }
 
-        return iconIndex < resources.Count ? resources[iconIndex] : null;
+        var id = resources.Select(x => x.Id).Distinct().OrderBy(x => x).ElementAtOrDefault(iconIndex);
+        return id == 0 && iconIndex >= resources.Select(x => x.Id).Distinct().Count()
+            ? null
+            : _dllCodec.SelectDisplayVariant(resources.Where(x => x.Id == id));
     }
+
+    private static IconResourceVariantInfo ToVariantInfo(DllBitmapResourceRecord resource)
+        => new()
+        {
+            ResourceId = resource.Id,
+            LanguageId = resource.LanguageId,
+            Width = resource.Width,
+            Height = resource.Height,
+            BitCount = resource.BitCount,
+            SizeBytes = resource.SizeBytes
+        };
 
     internal static Bitmap? RenderDibForSmoke(byte[] dibBytes, int canvasSize)
         => RenderDib(dibBytes, canvasSize);
@@ -315,12 +504,12 @@ public sealed class ItemIconPreviewService
     private static Bitmap? RenderDib(byte[] dibBytes, int canvasSize)
     {
         if (dibBytes.Length < 40) return null;
-        var gameBitmap = DecodeBitmapDib(dibBytes, CczBitmapDibRowOrder.Auto);
-        if (gameBitmap != null)
+        var decoded = DllBitmapIconCodecService.DecodeStorageDib(dibBytes);
+        if (decoded != null)
         {
-            using (gameBitmap)
+            using (decoded)
             {
-                return RenderBitmapToCanvas(gameBitmap, canvasSize);
+                return RenderBitmapToCanvas(decoded.Bitmap, canvasSize);
             }
         }
 
@@ -428,23 +617,7 @@ public sealed class ItemIconPreviewService
     }
 
     private static Bitmap RenderBitmapToCanvas(Bitmap raw, int canvasSize)
-    {
-        var targetSize = Math.Max(32, canvasSize);
-        var canvas = new Bitmap(targetSize, targetSize);
-        using var g = Graphics.FromImage(canvas);
-        g.Clear(Color.Transparent);
-        g.InterpolationMode = InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.CompositingQuality = CompositingQuality.HighSpeed;
-        var scale = Math.Min((targetSize - 12) / (float)raw.Width, (targetSize - 12) / (float)raw.Height);
-        if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0) scale = 1;
-        var width = Math.Max(1, (int)Math.Round(raw.Width * scale));
-        var height = Math.Max(1, (int)Math.Round(raw.Height * scale));
-        var x = (targetSize - width) / 2;
-        var y = (targetSize - height) / 2;
-        g.DrawImage(raw, new Rectangle(x, y, width, height));
-        return canvas;
-    }
+        => DllBitmapIconCodecService.RenderPixelPerfectPreview(raw, Math.Max(32, canvasSize));
 
     private static IReadOnlyList<BitmapResource> ParseBitmapResources(string sourcePath)
     {
@@ -476,8 +649,9 @@ public sealed class ItemIconPreviewService
             var result = new List<BitmapResource>();
             ReadResourceDirectory(data, sections, resourceBaseOffset, resourceBaseOffset, 0, new List<int>(), result);
             return result
-                .Where(x => IsLikelyBitmapDib(x.DibBytes))
                 .OrderBy(x => x.Id)
+                .ThenByDescending(x => x.BitCount)
+                .ThenByDescending(x => x.SizeBytes)
                 .ToList();
         }
         catch
@@ -528,23 +702,35 @@ public sealed class ItemIconPreviewService
             if (fileOffset < 0 || size <= 0 || fileOffset + size > data.Length) continue;
             var bytes = new byte[size];
             Buffer.BlockCopy(data, fileOffset, bytes, 0, size);
-            output.Add(new BitmapResource(path[1], bytes));
+            if (!TryReadBitmapDibInfo(bytes, out var width, out var height, out var bitCount)) continue;
+            output.Add(new BitmapResource(path[1], bytes, width, height, bitCount, size));
         }
     }
 
-    private static bool IsLikelyBitmapDib(byte[] bytes)
+    private static bool TryReadBitmapDibInfo(byte[] bytes, out int width, out int height, out int bitCount)
     {
-        if (bytes.Length < 40) return false;
+        width = 0;
+        height = 0;
+        bitCount = 0;
+        if (bytes.Length < 16) return false;
         var headerSize = BitConverter.ToInt32(bytes, 0);
-        var width = BitConverter.ToInt32(bytes, 4);
-        var height = BitConverter.ToInt32(bytes, 8);
+        if (headerSize == 12)
+        {
+            width = BitConverter.ToUInt16(bytes, 4);
+            height = Math.Abs(BitConverter.ToInt16(bytes, 6));
+            bitCount = BitConverter.ToUInt16(bytes, 10);
+            return width > 0 && height > 0 && bitCount is 1 or 4 or 8 or 16 or 24 or 32;
+        }
+
+        if (bytes.Length < 40 || headerSize is not (40 or 108 or 124)) return false;
+        width = BitConverter.ToInt32(bytes, 4);
+        height = Math.Abs(BitConverter.ToInt32(bytes, 8));
         var planes = BitConverter.ToUInt16(bytes, 12);
-        var bitCount = BitConverter.ToUInt16(bytes, 14);
-        return headerSize is 12 or 40 or 108 or 124
-               && width > 0
-               && height > 0
-               && planes == 1
-               && bitCount is 1 or 4 or 8 or 16 or 24 or 32;
+        bitCount = BitConverter.ToUInt16(bytes, 14);
+        return width > 0 &&
+               height > 0 &&
+               planes == 1 &&
+               bitCount is 1 or 4 or 8 or 16 or 24 or 32;
     }
 
     private static int RvaToFileOffset(int rva, IReadOnlyList<PeSection> sections)
@@ -569,7 +755,13 @@ public sealed class ItemIconPreviewService
 
 internal sealed record PeSection(int VirtualAddress, int Size, int RawPointer);
 
-internal sealed record BitmapResource(int Id, byte[] DibBytes);
+internal sealed record BitmapResource(
+    int Id,
+    byte[] DibBytes,
+    int Width,
+    int Height,
+    int BitCount,
+    int SizeBytes);
 
 internal enum CczBitmapDibRowOrder
 {
@@ -583,4 +775,26 @@ public sealed record ItemIconPreviewResult(
     int IconIndex,
     int AvailableIconCount,
     Bitmap? Bitmap,
-    string Message);
+    string Message,
+    Bitmap? NativeBitmap = null,
+    Bitmap? SmallBitmap = null,
+    Bitmap? LargeBitmap = null,
+    IReadOnlyList<IconResourceVariantInfo>? ResourceVariants = null,
+    string RenderMode = "",
+    IconResourceVariantInfo? SmallVariant = null,
+    IconResourceVariantInfo? LargeVariant = null,
+    string SelectionMode = "",
+    IReadOnlyList<string>? Warnings = null);
+
+public sealed class IconResourceVariantInfo
+{
+    public int ResourceId { get; init; }
+    public ushort LanguageId { get; init; }
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public int BitCount { get; init; }
+    public int SizeBytes { get; init; }
+
+    public string DisplayLabel =>
+        $"ID={ResourceId} Lang={LanguageId} {Width}x{Height} {BitCount}bpp";
+}

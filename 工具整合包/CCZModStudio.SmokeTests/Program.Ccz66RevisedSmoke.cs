@@ -1,7 +1,9 @@
 using CCZModStudio.Core;
 using CCZModStudio.Formats;
+using CCZModStudio.Models;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 
 internal partial class Program
 {
@@ -110,6 +112,11 @@ internal partial class Program
                 ", mapping=" + aiPlan.MappingSummary);
         }
         Assert66AiItemIconPreparedFiles(project, aiPlan);
+        Assert66ItemIconRasterNormalize();
+        var itemIconSmokeProject = Create66ItemIconWriteSmokeProject(defaultProject, gameRoot);
+        Run66ItemE5BatchImportSmoke(itemIconSmokeProject);
+        Run66ItemIconPixelEditorSmoke(itemIconSmokeProject);
+        Run66ItemIconBmpExportSmoke(itemIconSmokeProject);
 
         var uSelect = catalog.Single(item => item.FileName.Equals("U_select.e5", StringComparison.OrdinalIgnoreCase));
         var entries = catalogService.ReadEntries(uSelect).ToDictionary(entry => entry.ImageNumber);
@@ -158,6 +165,299 @@ internal partial class Program
             $"exeSize={engine.ExeSize} " +
             "resources=Item.e5:512,Mtem.e5:176,DT.e5:60,Fb.e5:673,U_select.e5:32,Pmap.e5:477,Cmdicon.dll:29 " +
             $"hexFallback=CrossVersionFallback actualPrefixes={string.Join(",", actualPrefixes)}");
+    }
+
+    private static CczProject Create66ItemIconWriteSmokeProject(CczProject defaultProject, string baselineRoot)
+    {
+        var smokeRoot = Path.Combine(
+            defaultProject.WorkspaceRoot,
+            "CCZModStudio_TestCopies",
+            "Ccz66ItemIconSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(smokeRoot);
+
+        foreach (var fileName in new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5" })
+        {
+            var source = Path.Combine(baselineRoot, fileName);
+            if (File.Exists(source))
+            {
+                File.Copy(source, Path.Combine(smokeRoot, fileName), overwrite: false);
+            }
+        }
+
+        var e5Root = Path.Combine(smokeRoot, "E5");
+        Directory.CreateDirectory(e5Root);
+        File.Copy(Path.Combine(baselineRoot, "E5", "Item.e5"), Path.Combine(e5Root, "Item.e5"), overwrite: false);
+        File.WriteAllText(Path.Combine(smokeRoot, "_CCZModStudio_TestCopy.txt"),
+            $"CreatedAt={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\nSource={baselineRoot}\r\nPurpose=6.6 Item.e5 item icon smoke\r\n");
+        return new ProjectDetector().CreateProjectFromGameRoot(smokeRoot);
+    }
+
+    private static void Assert66ItemIconRasterNormalize()
+    {
+        var normalizer = new ItemIconRasterNormalizeService();
+        using (var source = new Bitmap(2, 1, PixelFormat.Format32bppArgb))
+        {
+            source.SetPixel(0, 0, ItemIconRasterNormalizeService.GameMagentaKey);
+            source.SetPixel(1, 0, Color.FromArgb(255, 255, 0, 255));
+            var pair = normalizer.NormalizePair(source, "magenta-key-smoke");
+            var info = ItemIconRasterNormalizeService.ReadBmpInfo(pair.Large.BmpBytes);
+            if (info.Width != 32 || info.Height != 32 ||
+                info.TopLeftR != 247 || info.TopLeftG != 0 || info.TopLeftB != 255)
+            {
+                throw new InvalidOperationException("Item icon magenta-key normalization did not write #F700FF BMP output.");
+            }
+        }
+
+        using (var source = new Bitmap(56, 64, PixelFormat.Format32bppArgb))
+        using (var graphics = Graphics.FromImage(source))
+        using (var brush = new SolidBrush(Color.FromArgb(255, 40, 120, 220)))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.FillRectangle(brush, 14, 8, 28, 48);
+            var pair = normalizer.NormalizePair(source, "non-square-smoke");
+            using var large = pair.Large.CreateTransparentBitmap();
+            var bounds = FindVisibleBoundsForSmoke(large);
+            if (large.Width != 32 || large.Height != 32 || bounds.Width >= bounds.Height)
+            {
+                throw new InvalidOperationException($"Item icon non-square normalization appears stretched: bounds={bounds}.");
+            }
+        }
+
+        using (var source = new Bitmap(64, 64, PixelFormat.Format32bppArgb))
+        using (var graphics = Graphics.FromImage(source))
+        using (var brush = new SolidBrush(Color.FromArgb(255, 220, 80, 40)))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.FillRectangle(brush, 48, 4, 8, 8);
+            var pair = normalizer.NormalizePair(source, "asymmetric-border-smoke");
+            using var large = pair.Large.CreateTransparentBitmap();
+            var bounds = FindVisibleBoundsForSmoke(large);
+            var centerX = bounds.Left + (bounds.Width - 1) / 2.0;
+            var centerY = bounds.Top + (bounds.Height - 1) / 2.0;
+            if (Math.Abs(centerX - 15.5) > 1.5 || Math.Abs(centerY - 15.5) > 1.5)
+            {
+                throw new InvalidOperationException($"Item icon asymmetric transparent border was not recentered: bounds={bounds}.");
+            }
+        }
+
+        using (var source = new Bitmap(40, 40, PixelFormat.Format32bppArgb))
+        using (var graphics = Graphics.FromImage(source))
+        using (var background = new SolidBrush(Color.FromArgb(255, 20, 80, 180)))
+        using (var foreground = new SolidBrush(Color.FromArgb(255, 220, 60, 40)))
+        {
+            graphics.FillRectangle(background, 0, 0, 40, 40);
+            graphics.FillRectangle(foreground, 12, 12, 16, 16);
+            var pair = normalizer.NormalizePair(source, "colored-background-smoke");
+            using var large = pair.Large.CreateTransparentBitmap();
+            var pixel = large.GetPixel(0, 0);
+            if (pixel.A == 0 || pixel.R != 20 || pixel.G != 80 || pixel.B != 180)
+            {
+                throw new InvalidOperationException("Item icon normalization incorrectly removed an ordinary colored background.");
+            }
+        }
+    }
+
+    private static void Run66ItemE5BatchImportSmoke(CczProject project)
+    {
+        var materialRoot = Path.Combine(project.GameRoot, "_ItemIconImportMaterials");
+        Directory.CreateDirectory(materialRoot);
+        var icon0 = Path.Combine(materialRoot, "item_icon_0.png");
+        var icon1 = Path.Combine(materialRoot, "item_icon_1.png");
+        var icon2 = Path.Combine(materialRoot, "item_icon_2.png");
+        CreateTransparentIconPng(icon0, 64, 64, new Rectangle(10, 18, 44, 28), Color.FromArgb(255, 220, 60, 40));
+        CreateTransparentIconPng(icon1, 56, 64, new Rectangle(8, 12, 36, 40), Color.FromArgb(255, 40, 140, 220));
+        CreateTransparentIconPng(icon2, 32, 32, new Rectangle(6, 5, 20, 22), Color.FromArgb(255, 80, 190, 90));
+
+        var service = new BatchItemIconImportService();
+        var request = new BatchItemIconImportRequest
+        {
+            SourceFiles = new[] { icon0, icon1, icon2 },
+            TargetRows = new[]
+            {
+                new BatchItemIconTargetRow(0, "Item Icon 0", 0),
+                new BatchItemIconTargetRow(1, "Item Icon 1", 1),
+                new BatchItemIconTargetRow(2, "Item Icon 2", 2)
+            },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        };
+
+        var preview = service.Preview(project, request);
+        if (!preview.CanWrite ||
+            !preview.ResourceKind.Equals("E5", StringComparison.OrdinalIgnoreCase) ||
+            preview.TotalOperationCount != 6 ||
+            preview.Items.Count != 3 ||
+            preview.Items.Any(item => item.SmallWidth != 16 || item.SmallHeight != 16 || item.LargeWidth != 32 || item.LargeHeight != 32) ||
+            preview.Items.Any(item => item.TargetImageNumbers.Count != 2))
+        {
+            throw new InvalidOperationException("6.6 Item.e5 batch item icon preview did not normalize to small/large pairs.");
+        }
+
+        var result = service.Replace(project, request);
+        if (result.E5Result == null ||
+            result.E5Result.OperationCount != 6 ||
+            !File.Exists(result.E5Result.BackupPath) ||
+            !File.Exists(result.AggregateReportPath))
+        {
+            throw new InvalidOperationException("6.6 Item.e5 batch item icon write did not create the expected E5 batch result.");
+        }
+
+        var itemPath = Ccz66RevisedLayout.ResolveResourcePath(project, "E5\\Item.e5");
+        var e5 = new E5ImageReplaceService();
+        for (var field = 0; field <= 2; field++)
+        {
+            var (small, large) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(field);
+            AssertItemIconBmpEntry(e5, itemPath, small, 16, $"field {field} small");
+            AssertItemIconBmpEntry(e5, itemPath, large, 32, $"field {field} large");
+        }
+    }
+
+    private static void Run66ItemIconPixelEditorSmoke(CczProject project)
+    {
+        var itemPath = Ccz66RevisedLayout.ResolveResourcePath(project, "E5\\Item.e5");
+        var codec = new EditableImageCodecService();
+        var e5 = new E5ImageReplaceService();
+        var target = new EditableImageTarget
+        {
+            Kind = EditableImageTargetKind.E5Standard,
+            DisplayName = "Smoke Item.e5 field 1",
+            TargetPath = itemPath,
+            ImageNumber = 4,
+            IsItemIconPair = true,
+            SmallImageNumber = 3,
+            LargeImageNumber = 4,
+            OperationKind = "6.6 item icon pixel editor smoke"
+        };
+
+        using (var document = codec.Load(project, target))
+        {
+            if (document.Bitmap.Width != 32 || document.Bitmap.Height != 32)
+            {
+                throw new InvalidOperationException($"6.6 Item.e5 pixel editor should open a 32x32 large canvas, actual={document.Bitmap.Width}x{document.Bitmap.Height}.");
+            }
+
+            using (var graphics = Graphics.FromImage(document.Bitmap))
+            using (var brush = new SolidBrush(Color.FromArgb(255, 12, 34, 56)))
+            {
+                graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+                graphics.Clear(Color.Transparent);
+                graphics.FillRectangle(brush, 10, 8, 12, 16);
+            }
+
+            var preview = codec.PreviewWrite(project, target, document.Bitmap);
+            if (preview.E5Preview == null || preview.E5Preview.OperationCount != 2 ||
+                !preview.E5Preview.Operations.Select(operation => operation.ImageNumber).SequenceEqual(new[] { 3, 4 }))
+            {
+                throw new InvalidOperationException("6.6 Item.e5 pixel editor preview should write small #3 and large #4 together.");
+            }
+
+            var result = codec.Write(project, target, document.Bitmap);
+            if (result.E5Result == null || result.E5Result.OperationCount != 2 ||
+                !File.Exists(result.BackupPath) || !File.Exists(result.ReportPath))
+            {
+                throw new InvalidOperationException("6.6 Item.e5 pixel editor writeback result is missing backup or report.");
+            }
+        }
+
+        AssertItemIconBmpEntry(e5, itemPath, 3, 16, "pixel editor small");
+        AssertItemIconBmpEntry(e5, itemPath, 4, 32, "pixel editor large");
+        using var smallBitmap = ItemIconRasterNormalizeService.DecodeGameIconBmp(e5.ReadEntryBytes(itemPath, 3));
+        using var largeBitmap = ItemIconRasterNormalizeService.DecodeGameIconBmp(e5.ReadEntryBytes(itemPath, 4));
+        var smallBounds = FindVisibleBoundsForSmoke(smallBitmap);
+        var largeBounds = FindVisibleBoundsForSmoke(largeBitmap);
+        var smallCenterX = smallBounds.Left + (smallBounds.Width - 1) / 2.0;
+        var smallCenterY = smallBounds.Top + (smallBounds.Height - 1) / 2.0;
+        var largeCenterX = largeBounds.Left + (largeBounds.Width - 1) / 2.0;
+        var largeCenterY = largeBounds.Top + (largeBounds.Height - 1) / 2.0;
+        if (Math.Abs(smallCenterX - largeCenterX / 2.0) > 1.0 ||
+            Math.Abs(smallCenterY - largeCenterY / 2.0) > 1.0)
+        {
+            throw new InvalidOperationException($"6.6 Item.e5 pixel editor small/large anchors diverged: small={smallBounds}, large={largeBounds}.");
+        }
+    }
+
+    private static void Run66ItemIconBmpExportSmoke(CczProject project)
+    {
+        var output = Path.Combine(project.GameRoot, "_ItemIconBmpExport");
+        var result = new BmpImageExportService().Export(project, new BmpExportRequest
+        {
+            Kind = BmpExportKind.ItemIcon,
+            OutputRoot = output,
+            SingleMode = true,
+            OverwriteExisting = true,
+            Targets = new[]
+            {
+                new BmpExportTarget { RowId = 0, DisplayName = "Item0", FieldValue = 0 }
+            }
+        });
+
+        if (result.Files.Count != 1 || result.SkippedItems.Count != 0)
+        {
+            throw new InvalidOperationException($"6.6 item icon BMP export mismatch: files={result.Files.Count}, skipped={result.SkippedItems.Count}.");
+        }
+
+        var path = Path.Combine(output, "item_icon_0.bmp");
+        using var bitmap = new Bitmap(path);
+        var topLeft = bitmap.GetPixel(0, 0);
+        if (bitmap.Width != 32 || bitmap.Height != 32 ||
+            topLeft.R != 247 || topLeft.G != 0 || topLeft.B != 255)
+        {
+            throw new InvalidOperationException($"6.6 item_icon_0.bmp export should be 32x32 with #F700FF transparent key, actual={bitmap.Width}x{bitmap.Height} topLeft={topLeft}.");
+        }
+    }
+
+    private static void CreateTransparentIconPng(string path, int width, int height, Rectangle visibleBounds, Color color)
+    {
+        using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        using var brush = new SolidBrush(color);
+        graphics.Clear(Color.Transparent);
+        graphics.FillEllipse(brush, visibleBounds);
+        bitmap.Save(path, ImageFormat.Png);
+    }
+
+    private static void AssertItemIconBmpEntry(E5ImageReplaceService e5, string itemPath, int imageNumber, int expectedSize, string label)
+    {
+        var bytes = e5.ReadEntryBytes(itemPath, imageNumber);
+        if (bytes.Length < 2 || bytes[0] != (byte)'B' || bytes[1] != (byte)'M')
+        {
+            throw new InvalidOperationException($"{label}: Item.e5 #{imageNumber} was not written as BMP.");
+        }
+
+        var info = ItemIconRasterNormalizeService.ReadBmpInfo(bytes);
+        if (info.Width != expectedSize || info.Height != expectedSize || info.BitCount != 24 ||
+            info.TopLeftR != 247 || info.TopLeftG != 0 || info.TopLeftB != 255)
+        {
+            throw new InvalidOperationException(
+                $"{label}: Item.e5 #{imageNumber} expected {expectedSize}x{expectedSize} 24bpp BMP with #F700FF key, " +
+                $"actual={info.Width}x{info.Height} {info.BitCount}bpp topLeft=({info.TopLeftR},{info.TopLeftG},{info.TopLeftB}).");
+        }
+    }
+
+    private static Rectangle FindVisibleBoundsForSmoke(Bitmap bitmap)
+    {
+        var minX = bitmap.Width;
+        var minY = bitmap.Height;
+        var maxX = -1;
+        var maxY = -1;
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                if (bitmap.GetPixel(x, y).A == 0) continue;
+                minX = Math.Min(minX, x);
+                minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x);
+                maxY = Math.Max(maxY, y);
+            }
+        }
+
+        if (maxX < 0)
+        {
+            throw new InvalidOperationException("Smoke bitmap has no visible pixels.");
+        }
+
+        return new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
     private static void Assert66AiItemIconPreparedFiles(CCZModStudio.Models.CczProject project, CCZModStudio.Models.AiImagePromptPlan plan)

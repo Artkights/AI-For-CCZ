@@ -131,6 +131,32 @@ public sealed class ImageAssignmentPreviewService
         return TryLoadMappedE5Image(project, prefix, id, jobId, sFactionSlot, out _);
     }
 
+    public Bitmap? TryRenderSImageFactionStackPreview(CczProject project, int sImageId, int? jobId, out string detail)
+    {
+        var rows = new List<SImageFactionPreviewRow>();
+        var detailLines = new List<string>();
+        try
+        {
+            foreach (var slot in Enumerable.Range(1, 3))
+            {
+                var factionText = CharacterImageResourceService.BuildSPreviewFactionText(slot);
+                var preview = TryRenderSImage(project, sImageId, jobId, slot, out var caption);
+                rows.Add(new SImageFactionPreviewRow(factionText, slot, preview, caption));
+                detailLines.Add($"{factionText}：{caption}");
+            }
+
+            detail = string.Join("\r\n", detailLines);
+            return ComposeSImageFactionStackPreview(rows);
+        }
+        finally
+        {
+            foreach (var row in rows)
+            {
+                row.Image?.Dispose();
+            }
+        }
+    }
+
     public Bitmap? TryRenderRSceneFrame(CczProject project, int rImageId, string facing, int stanceGroup, out string detail)
     {
         detail = string.Empty;
@@ -986,6 +1012,76 @@ public sealed class ImageAssignmentPreviewService
         return bitmap;
     }
 
+    private static Bitmap ComposeSImageFactionStackPreview(IReadOnlyList<SImageFactionPreviewRow> rows)
+    {
+        const int outerPadding = 8;
+        const int labelWidth = 70;
+        const int minPreviewWidth = 276;
+        const int minRowHeight = 92;
+        const int rowGap = 10;
+
+        if (rows.Count == 0)
+        {
+            return new Bitmap(outerPadding * 2 + labelWidth + minPreviewWidth, outerPadding * 2 + minRowHeight, PixelFormat.Format32bppArgb);
+        }
+
+        var previewWidth = Math.Max(minPreviewWidth, rows.Max(row => row.Image?.Width ?? minPreviewWidth));
+        var rowHeights = rows
+            .Select(row => Math.Max(minRowHeight, row.Image?.Height ?? minRowHeight))
+            .ToArray();
+        var width = outerPadding * 2 + labelWidth + previewWidth;
+        var height = outerPadding * 2 + rowHeights.Sum() + Math.Max(0, rows.Count - 1) * rowGap;
+        var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bitmap);
+        g.Clear(Color.FromArgb(24, 26, 28));
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        using var borderPen = new Pen(Color.FromArgb(95, 105, 112));
+        using var rowBrush = new SolidBrush(Color.FromArgb(31, 34, 38));
+        using var labelBrush = new SolidBrush(Color.FromArgb(229, 234, 240));
+        using var placeholderBrush = new SolidBrush(Color.FromArgb(175, 183, 191));
+        using var labelFont = new Font(SystemFonts.DefaultFont, FontStyle.Bold);
+        using var labelFormat = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center
+        };
+        using var placeholderFormat = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.EllipsisWord
+        };
+
+        var top = outerPadding;
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowHeight = rowHeights[i];
+            var rowRect = new Rectangle(outerPadding, top, labelWidth + previewWidth, rowHeight);
+            var labelRect = new Rectangle(outerPadding, top, labelWidth, rowHeight);
+            var imageRect = new Rectangle(outerPadding + labelWidth, top, previewWidth, rowHeight);
+
+            g.FillRectangle(rowBrush, rowRect);
+            g.DrawRectangle(borderPen, rowRect);
+            g.DrawString(row.FactionText, labelFont, labelBrush, labelRect, labelFormat);
+
+            if (row.Image != null)
+            {
+                DrawCenteredImage(g, row.Image, imageRect, borderPen);
+            }
+            else
+            {
+                g.DrawRectangle(borderPen, imageRect);
+                g.DrawString("未能读取\r\n" + row.Caption, SystemFonts.DefaultFont, placeholderBrush, imageRect, placeholderFormat);
+            }
+
+            top += rowHeight + rowGap;
+        }
+
+        return bitmap;
+    }
+
     public string BuildResourceInfo(CczProject project, string prefix, int id, string personName, int? faceId = null, int? jobId = null, int sFactionSlot = CharacterImageResourceService.DefaultSPreviewFactionSlot)
     {
         prefix = NormalizePrefix(prefix);
@@ -1423,6 +1519,8 @@ public sealed class ImageAssignmentPreviewService
     private sealed record UnitFramePreview(string Label, Bitmap Image);
 
     private sealed record UnitImagePreviewGroup(int ImageNumber, IReadOnlyList<UnitFramePreview> Frames);
+
+    private sealed record SImageFactionPreviewRow(string FactionText, int FactionSlot, Bitmap? Image, string Caption);
 
     private sealed record RSceneFrameMapping(int ImageNumber, int FrameIndex, bool FlipHorizontal);
 

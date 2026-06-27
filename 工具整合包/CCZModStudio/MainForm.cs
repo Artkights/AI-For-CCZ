@@ -30,6 +30,12 @@ public sealed partial class MainForm : Form
     private sealed record JobStrategyIconImportTarget(int StrategyId, string StrategyName, int IconIndex, string SourcePath);
     private sealed record BattlefieldCommand25Marker(int GridX, int GridY, LegacyScenarioCommandNode Command, int Count);
 
+    private enum ItemIconPreviewRole
+    {
+        Large,
+        Small
+    }
+
     private const int DefaultWindowWidth = 1280;
     private const int DefaultWindowHeight = 820;
     private const int MinimumWindowWidth = 900;
@@ -206,8 +212,11 @@ public sealed partial class MainForm : Form
     private readonly SImageReplaceService _sImageReplaceService = new();
     private readonly BatchRImageReplaceService _batchRImageReplaceService = new();
     private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
+    private readonly BmpImageExportService _bmpImageExportService = new();
     private readonly BatchItemIconImportService _batchItemIconImportService = new();
     private readonly BatchRoleFaceImportService _batchRoleFaceImportService = new();
+    private readonly BatchStrategyIconImportService _batchStrategyIconImportService = new();
+    private readonly BatchJobSImageReplaceService _batchJobSImageReplaceService = new();
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
@@ -221,6 +230,7 @@ public sealed partial class MainForm : Form
     private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
     private readonly MaterialDrivenTerrainService _materialDrivenTerrainService = new();
+    private readonly MapMaterialExtractionService _mapMaterialExtractionService = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
     private readonly ImageResourceCatalogService _imageResourceCatalogService = new();    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
     private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
@@ -243,6 +253,7 @@ public sealed partial class MainForm : Form
     private readonly LsResourceReader _lsResourceReader = new();
     private readonly HexzmapProbeReader _hexzmapProbeReader = new();
     private readonly HexzmapTerrainRenderService _hexzmapTerrainRenderService = new();
+    private readonly LegacyHmMapReader _legacyHmMapReader = new();
     private readonly HexzmapEditorService _hexzmapEditorService = new();    private readonly BattlefieldEditorService _battlefieldEditorService = new();
     private readonly BattlefieldUnitReviewService _battlefieldUnitReviewService = new();
     private readonly BattlefieldDeploymentWriteService _battlefieldDeploymentWriteService = new();
@@ -366,6 +377,7 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<RSceneCommandCandidate> _currentRSceneCommandCandidates = Array.Empty<RSceneCommandCandidate>();
     private IReadOnlyList<RSceneStateCandidate> _currentRSceneStateCandidates = Array.Empty<RSceneStateCandidate>();
     private IReadOnlyList<ImageResourceEntryInfo> _currentRSceneBackgroundEntries = Array.Empty<ImageResourceEntryInfo>();
+    private RSceneBackgroundReference? _currentRSceneBackgroundReference;
     private IReadOnlyList<RSceneActorPaletteItem> _rSceneActorPaletteItems = Array.Empty<RSceneActorPaletteItem>();
     private bool _bindingRSceneScriptTree;
     private LegacyScenarioCommandNode? _currentRSceneDialoguePreviewCommand;
@@ -472,6 +484,11 @@ public sealed partial class MainForm : Form
     private readonly Dictionary<int, MapCellOverride> _mapMakerMapCellOverrideLookup = new();
     private byte[] _mapMakerOriginalTerrainCells = Array.Empty<byte>();
     private Bitmap? _mapViewerRenderedImage;
+    private Point? _mapMakerSelectionStartCell;
+    private Point? _mapMakerSelectionEndCell;
+    private Rectangle _mapMakerSelectedCellRange = Rectangle.Empty;
+    private bool _mapMakerSelectingCells;
+    private Point _mapViewerContextMenuCell = new(-1, -1);
     private string _selectedSceneryOverlayId = string.Empty;
     private MapSceneryOverlay? _sceneryDragOriginalOverlay;
     private PointF _sceneryDragStartImagePoint;
@@ -555,6 +572,7 @@ public sealed partial class MainForm : Form
     private readonly Button _saveRoleEditorButton = new();
     private readonly Button _importRoleFaceButton = new();
     private readonly Button _batchImportRoleFaceButton = new();
+    private readonly Button _exportRoleFaceBmpButton = new();
     private readonly Button _openRoleInTableEditorButton = new();
     private readonly Button _openRolePersonalEffectButton = new();
     private readonly Button _openRoleEffectButton = new();
@@ -579,6 +597,8 @@ public sealed partial class MainForm : Form
     private readonly Button _saveJobEditorButton = new();
     private readonly Button _editAccessoryJobGroupsButton = new();
     private readonly Button _replaceJobSImageButton = new();
+    private readonly Button _batchReplaceJobSImageButton = new();
+    private readonly Button _exportJobSImageBmpButton = new();
     private readonly Button _openJobSeriesTableButton = new();
     private readonly Button _openJobEffectTableButton = new();
     private readonly Button _exportJobEditorCsvButton = new();
@@ -612,6 +632,7 @@ public sealed partial class MainForm : Form
     private readonly Button _saveJobStrategyEditorButton = new();
     private readonly Button _importJobStrategyIconButton = new();
     private readonly Button _editJobStrategyIconButton = new();
+    private readonly Button _exportJobStrategyIconBmpButton = new();
     private readonly Button _openJobStrategyTableButton = new();
     private readonly Button _filterJobStrategyEditorButton = new();
     private readonly Button _clearJobStrategyEditorFilterButton = new();
@@ -638,6 +659,7 @@ public sealed partial class MainForm : Form
     private readonly Button _batchFillItemEditorColumnButton = new();
     private readonly Button _batchImportItemIconButton = new();
     private readonly Button _editItemIconButton = new();
+    private readonly Button _exportItemIconBmpButton = new();
     private readonly Button _undoItemEditorButton = new();
     private readonly Button _redoItemEditorButton = new();
     private readonly Button _filterItemEditorButton = new();
@@ -645,8 +667,18 @@ public sealed partial class MainForm : Form
     private readonly TextBox _itemEditorSearchBox = new();
     private readonly DataGridView _itemEditorGrid = new();
     private readonly TextBox _itemEditorInfoBox = new();
+    private readonly SplitContainer _itemIconPreviewSplit = new();
+    private readonly Panel _itemIconLargePreviewScrollPanel = new();
+    private readonly Panel _itemIconSmallPreviewScrollPanel = new();
+    private readonly Label _itemIconLargePreviewTitle = new();
+    private readonly Label _itemIconSmallPreviewTitle = new();
     private readonly PictureBox _itemIconPreviewBox = new();
+    private readonly PictureBox _itemIconSmallPreviewBox = new();
     private readonly TextBox _itemIconPreviewInfoBox = new();
+    private Bitmap? _itemIconLargeSourceBitmap;
+    private Bitmap? _itemIconSmallSourceBitmap;
+    private int _itemIconLargeZoomPercent;
+    private int _itemIconSmallZoomPercent;
     private readonly Button _loadShopEditorButton = new();
     private readonly Button _saveShopEditorButton = new();
     private readonly Button _exportShopEditorCsvButton = new();
@@ -763,10 +795,12 @@ public sealed partial class MainForm : Form
     private readonly Button _mapMakerReplaceMapImageButton = new();
     private readonly Button _mapMakerExportPreviewButton = new();
     private readonly Button _mapMakerExportJpgButton = new();
+    private readonly Button _mapMakerExtractMaterialButton = new();
     private readonly Button _mapMakerMaterialPlanButton = new();
     private readonly Button _mapMakerPublishMapButton = new();
     private readonly Button _mapMakerPublishTerrainButton = new();
     private readonly Button _mapMakerPublishAllButton = new();
+    private readonly ContextMenuStrip _mapViewerContextMenu = new();
     private readonly Button _loadImageResourcesButton = new();
     private readonly Button _openImageResourceButton = new();
     private readonly Button _replaceImageResourceEntryButton = new();
@@ -802,6 +836,9 @@ public sealed partial class MainForm : Form
     private readonly Button _batchReplaceSImageSetButton = new();
     private readonly Button _importImageAssignmentFaceButton = new();
     private readonly Button _batchImportImageAssignmentFaceButton = new();
+    private readonly Button _exportRImageBmpButton = new();
+    private readonly Button _exportSImageBmpButton = new();
+    private readonly Button _exportImageAssignmentFaceBmpButton = new();
     private readonly Button _restoreImageResourceButton = new();
     private readonly Button _exportMissingImageResourcesButton = new();
     private readonly DataGridView _imageAssignmentGrid = new();
@@ -958,6 +995,7 @@ public sealed partial class MainForm : Form
     private readonly Button _showScriptVariablesButton = new();
     private readonly Button _locateScriptCommandButton = new();
     private readonly Button _copyScriptCommandButton = new();
+    private readonly Button _cutScriptCommandButton = new();
     private readonly Button _previewPasteScriptCommandButton = new();
     private readonly ComboBox _scriptNewCommandCombo = new();
     private readonly Button _appendScriptCommandToSectionButton = new();
@@ -1101,6 +1139,11 @@ public sealed partial class MainForm : Form
         MapCellOverride? NewValue,
         MapSceneryOverlay? OldSceneryOverlay = null,
         MapSceneryOverlay? NewSceneryOverlay = null);
+
+    private sealed record MapMaterialExtractionTargetComboItem(MapMaterialExtractionTargetType TargetType, string DisplayText)
+    {
+        public override string ToString() => DisplayText;
+    }
 
     private sealed record RSceneBackgroundComboItem(ImageResourceEntryInfo Entry)
     {
@@ -1743,6 +1786,15 @@ public sealed partial class MainForm : Form
         _batchImportImageAssignmentFaceButton.Text = "批量导入头像";
         _batchImportImageAssignmentFaceButton.AutoSize = true;
         _batchImportImageAssignmentFaceButton.Enabled = false;
+        _exportRImageBmpButton.Text = "\u5bfc\u51faR BMP";
+        _exportRImageBmpButton.AutoSize = true;
+        _exportRImageBmpButton.Enabled = false;
+        _exportSImageBmpButton.Text = "\u5bfc\u51faS BMP";
+        _exportSImageBmpButton.AutoSize = true;
+        _exportSImageBmpButton.Enabled = false;
+        _exportImageAssignmentFaceBmpButton.Text = "\u5bfc\u51fa\u5934\u50cfBMP";
+        _exportImageAssignmentFaceBmpButton.AutoSize = true;
+        _exportImageAssignmentFaceBmpButton.Enabled = false;
         _restoreImageResourceButton.Text = "还原E5条目";
         _restoreImageResourceButton.AutoSize = true;
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
@@ -1768,6 +1820,9 @@ public sealed partial class MainForm : Form
             _batchReplaceSImageSetButton,
             _importImageAssignmentFaceButton,
             _batchImportImageAssignmentFaceButton,
+            _exportRImageBmpButton,
+            _exportSImageBmpButton,
+            _exportImageAssignmentFaceBmpButton,
             _restoreImageResourceButton,
             _exportMissingImageResourcesButton
         });
@@ -1790,6 +1845,7 @@ public sealed partial class MainForm : Form
         _imageAssignmentGrid.AllowUserToDeleteRows = false;
         _imageAssignmentGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _imageAssignmentGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        _imageAssignmentGrid.MultiSelect = true;
         AddCollapsibleSplitPanel(imageSplit, 1, "人物R/S表", _imageAssignmentGrid, "BuildImageAssignmentPage.GridPreview.Grid");
 
         var imagePreviewLayout = new TableLayoutPanel

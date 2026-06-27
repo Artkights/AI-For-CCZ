@@ -616,6 +616,7 @@ public sealed partial class MainForm
                                                         selectedCommand &&
                                                         command.ChildBlock != null;
         _deleteScriptCommandButton.Enabled = canDelete;
+        _cutScriptCommandButton.Enabled = CanCutLegacyScriptSelection(LegacyScriptEditorScope.Script, out _, out _);
         _copyScriptCommandButton.Enabled = hasCopySource;
         _previewPasteScriptCommandButton.Enabled = hasPasteTarget &&
                                                    (_scriptCommandClipboardItem != null ||
@@ -4377,6 +4378,8 @@ public sealed partial class MainForm
             {
                 var capacity = Math.Max(0, parameter.ByteLength - 1);
                 var offsetText = FormatLegacyScriptOffset(parameter.FileOffset, index);
+                var decodeWarning = parameter.TextDecodeWarning;
+                var confidence = string.IsNullOrWhiteSpace(parameter.TextDecodeConfidence) ? "高" : parameter.TextDecodeConfidence;
                 var entry = new ScenarioTextEntry
                 {
                     Index = index++,
@@ -4389,7 +4392,12 @@ public sealed partial class MainForm
                     Preview = parameter.Text.Length > 60 ? parameter.Text[..60] : parameter.Text,
                     Text = parameter.Text,
                     OriginalText = parameter.Text,
-                    Annotation = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex} {command.CommandName} 参数槽 {parameter.Index}。完整保存会随命令树重建，不走原地短写。"
+                    SourceKind = "旧版完整树文本参数",
+                    EncodingName = string.IsNullOrWhiteSpace(parameter.TextEncodingName) ? "GBK" : parameter.TextEncodingName,
+                    DecodeConfidence = confidence,
+                    DecodeWarning = decodeWarning,
+                    IsWritable = confidence != "低",
+                    Annotation = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex} {command.CommandName} 参数槽 {parameter.Index}。旧版完整树文本参数；解码置信度 {confidence}{(string.IsNullOrWhiteSpace(decodeWarning) ? string.Empty : "；" + decodeWarning)}。完整保存会随命令树重建，不走原地短写。"
                 };
                 entries.Add(entry);
                 _legacyScriptTextByOffset[entry.Offset] = (command, parameter);
@@ -7216,6 +7224,24 @@ public sealed partial class MainForm
         }
     }
 
+    private void RefreshScriptTextRows(IReadOnlyList<ScenarioTextEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        var offsets = entries.Select(entry => entry.Offset).ToHashSet();
+        for (var rowIndex = 0; rowIndex < _scriptTextGrid.Rows.Count; rowIndex++)
+        {
+            if (_scriptTextGrid.Rows[rowIndex].DataBoundItem is ScenarioTextEntry entry &&
+                offsets.Contains(entry.Offset))
+            {
+                _scriptTextGrid.InvalidateRow(rowIndex);
+            }
+        }
+    }
+
     private void BindScriptSearchResultRows(IReadOnlyList<ScenarioSearchResultRow> rows)
     {
         _scriptSearchResultGrid.DataSource = new BindingList<ScenarioSearchResultRow>(rows.ToList());
@@ -7250,17 +7276,20 @@ public sealed partial class MainForm
 
     private string BuildScriptOverview(ScenarioStructureProbeResult structure, IReadOnlyList<ScenarioTextEntry> texts)
     {
+        var dictionaryLine = BuildSceneDictionaryDiagnosticLine();
         if (_currentLegacyScriptDocument != null)
         {
             return
                 $"旧版剧本制作：{structure.FileName}\r\n" +
                 $"Scene：{structure.SceneCount}    Section：{structure.SectionCount}    Command：{structure.CommandCandidateCount}    文本参数：{texts.Count}\r\n" +
+                dictionaryLine + "\r\n" +
                 "右键事件树可新增、插入、删除和移动；双击指令或使用右侧参数区按旧版 Dialog 修改参数。";
         }
 
         return
             $"剧本制作：{structure.FileName}\r\n" +
             $"Scene：{structure.SceneCount}    Section：{structure.SectionCount}    Command：{structure.CommandCandidateCount}    文本：{texts.Count}\r\n" +
+            dictionaryLine + "\r\n" +
             "选择左侧节点查看对象、参数、文本和图片预览。";
     }
 
@@ -7561,7 +7590,19 @@ public sealed partial class MainForm
         return
             $"{structure.FileName}    {mode}\r\n" +
             $"Scene {structure.SceneCount}    Section {structure.SectionCount}    Command {structure.CommandCandidateCount}    文本 {texts.Count}\r\n" +
+            BuildSceneDictionaryDiagnosticLine() + "\r\n" +
             "右键事件树可新增、插入、删除和移动；双击指令或使用右侧参数区按旧版 Dialog 修改参数。";
+    }
+
+    private string BuildSceneDictionaryDiagnosticLine()
+    {
+        var dictionary = _currentSceneStringDocument;
+        if (dictionary == null)
+        {
+            return "命令字典：未加载；将尝试自动探测 CczString.ini。";
+        }
+
+        return $"命令字典：{dictionary.Commands.Count} 条；{dictionary.DecodeDiagnostic}；{dictionary.SourcePath}";
     }
 
     private string BuildScriptObjectPreview(
@@ -7631,9 +7672,11 @@ public sealed partial class MainForm
         var mode = _legacyScriptTextByOffset.ContainsKey(text.Offset)
             ? "旧版文本参数：可随完整保存扩容"
             : $"原地文本：GBK {bytes}/{text.ByteLength}";
+        var decode = BuildScenarioTextDecodeLine(text);
         return
             $"文本 #{text.Index}    {text.OffsetHex}\r\n" +
             $"{text.Kind}    {mode}\r\n\r\n" +
+            decode + "\r\n\r\n" +
             $"{TrimSingleLine(text.Text, 160)}\r\n\r\n" +
             $"关联命令：\r\n{commandPreview}";
     }
@@ -9242,11 +9285,22 @@ public sealed partial class MainForm
             $"文本：#{entry.Index} {entry.Kind} {entry.OffsetHex}\r\n" +
             $"容量：GBK {currentBytes}/{entry.ByteLength} 字节，剩余 {entry.ByteLength - currentBytes} 字节\r\n" +
             $"写回状态：{entry.WriteStatus}\r\n" +
+            BuildScenarioTextDecodeLine(entry) + "\r\n" +
             $"中文注释：{entry.Annotation}\r\n\r\n" +
             $"关联命令候选：\r\n{relatedPreview}\r\n\r\n" +
             (_legacyScriptTextByOffset.ContainsKey(entry.Offset)
                 ? "说明：该文本来自旧版真实命令参数；保存时会完整重建剧本结构并重读校验，可随 Section 长度一起扩容。"
                 : "说明：文本可在右侧编辑框修改；只能在原容量内短写回，工具会自动备份并复读校验。");
+    }
+
+    private static string BuildScenarioTextDecodeLine(ScenarioTextEntry entry)
+    {
+        var source = string.IsNullOrWhiteSpace(entry.SourceKind) ? "未知来源" : entry.SourceKind;
+        var encoding = string.IsNullOrWhiteSpace(entry.EncodingName) ? "GBK" : entry.EncodingName;
+        var confidence = string.IsNullOrWhiteSpace(entry.DecodeConfidence) ? "高" : entry.DecodeConfidence;
+        var warning = string.IsNullOrWhiteSpace(entry.DecodeWarning) ? string.Empty : "；" + entry.DecodeWarning;
+        var writable = entry.IsWritable ? "可写" : "只读";
+        return $"解码：{source}；{encoding}；置信度 {confidence}；{writable}{warning}";
     }
 
     private void UpdateScriptTextCapacityLabel()
@@ -9710,6 +9764,11 @@ public sealed partial class MainForm
             MessageBox.Show(this, "请先在左侧事件树中选择一条文本参数。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
+        if (!entry.IsWritable)
+        {
+            MessageBox.Show(this, "该文本候选解码置信度低或来源未确认，当前只读，不能写回。", "文本只读", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
 
         var newText = BattlefieldEditorService.NormalizeText(_scriptTextEditorBox.Text);
         if (newText.Contains('\0'))
@@ -9828,7 +9887,7 @@ public sealed partial class MainForm
             }
             else
             {
-                BindScriptTextRows(_currentScriptTextEntries);
+                RefreshScriptTextRows(new[] { entry });
                 UpdateScriptTextCapacityLabel();
             }
             _scriptDetailBox.Text += $"\r\n\r\n保存完成：写入 {result.EntriesWritten} 条，变化 {result.ChangedBytes} 字节。\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
@@ -9969,7 +10028,9 @@ public sealed partial class MainForm
         if (!File.Exists(path)) return null;
         try
         {
-            return _sceneStringParser.Parse(path);
+            var dictionary = _sceneStringParser.Parse(path);
+            _currentSceneStringDocument ??= dictionary;
+            return dictionary;
         }
         catch (Exception ex)
         {
@@ -10072,8 +10133,8 @@ public sealed partial class MainForm
             ? "\u672a\u7b5b\u9009"
             : $"\u7c7b\u578b={kind}\uff0c\u5173\u952e\u5b57={keyword}\uff0c\u4ec5\u6709\u6587\u672c={_scenarioFilesWithTextOnly.Checked}";
         var dictionaryText = dictionary == null
-            ? (_currentSceneStringDocument == null ? "\u672a\u52a0\u8f7d/\u81ea\u52a8\u63a2\u6d4b" : _currentSceneStringDocument.Commands.Count + " \u6761")
-            : dictionary.Commands.Count + " \u6761";
+            ? (_currentSceneStringDocument == null ? "未加载/自动探测" : $"{_currentSceneStringDocument.Commands.Count} 条；{_currentSceneStringDocument.DecodeDiagnostic}")
+            : $"{dictionary.Commands.Count} 条；{dictionary.DecodeDiagnostic}";
         _scenarioFileInfoBox.Text =
             $"SV \u76ee\u5f55\uff1a{Path.Combine(_project.GameRoot, "RS")}\r\n" +
             $"\u6587\u4ef6\u6570\uff1a{_currentScenarioFiles.Count}    \u5f53\u524d\u663e\u793a\uff1a{visibleCount}    \u5206\u7c7b\uff1a{summary}    \u68c0\u51fa\u6587\u672c\u7ebf\u7d22\uff1a{withText}\r\n" +
@@ -11322,8 +11383,8 @@ public sealed partial class MainForm
             var reread = _scenarioTextReader.Read(result.FilePath);
             VerifyScenarioTextSave(changed, reread);
 
-            _currentScenarioTextEntries = reread;
-            BindScenarioTextEntries(_currentScenarioTextEntries);
+            MarkScenarioTextEntriesSaved(changed);
+            RefreshScenarioTextRows(changed);
             _exportScenarioTextsButton.Enabled = _currentScenarioTextEntries.Count > 0;
             _saveScenarioTextsButton.Enabled = true;
             _scenarioTextFilterButton.Enabled = _currentScenarioTextEntries.Count > 0;
@@ -11384,6 +11445,7 @@ public sealed partial class MainForm
 
     private static string? ValidateScenarioTextValue(ScenarioTextEntry entry, string value)
     {
+        if (!entry.IsWritable) return "该文本候选解码置信度低或来源未确认，当前只读，不能写回。";
         if (string.IsNullOrWhiteSpace(value)) return "文本不能为空；如需删除文本请先手工确认格式后再开放删除能力。";
         if (value.Contains('\0')) return "文本不能包含 NUL/零字节。";
         var byteCount = EncodingService.GetGbkByteCount(value);
@@ -11490,6 +11552,26 @@ public sealed partial class MainForm
         _scenarioTextGrid.InvalidateRow(rowIndex);
         ShowSelectedScenarioTextEntry();
         SetStatus($"{entry.OffsetHex}：{entry.WriteStatus}，GBK {entry.GbkByteCount}/{entry.ByteLength} 字节");
+    }
+
+    private void RefreshScenarioTextRows(IReadOnlyList<ScenarioTextEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        var offsets = entries.Select(entry => entry.Offset).ToHashSet();
+        for (var rowIndex = 0; rowIndex < _scenarioTextGrid.Rows.Count; rowIndex++)
+        {
+            if (_scenarioTextGrid.Rows[rowIndex].DataBoundItem is ScenarioTextEntry entry &&
+                offsets.Contains(entry.Offset))
+            {
+                _scenarioTextGrid.InvalidateRow(rowIndex);
+            }
+        }
+
+        ShowSelectedScenarioTextEntry();
     }
 
     private static bool IsScenarioTextChanged(ScenarioTextEntry entry)

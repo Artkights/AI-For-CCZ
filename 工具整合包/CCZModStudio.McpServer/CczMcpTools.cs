@@ -322,6 +322,25 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ExportImageResourcePreview(game_root, resource, image_number, width, height);
 
     [McpServerTool]
+    [Description("Export importable BMP material files for job S, R, S, face, item icon, or strategy icon assets. Writes BMP files only; no game resources are modified.")]
+    public object export_bmp_assets(
+        [Description("Export kind: job_s_image, r_image, s_image, face, item_icon, or strategy_icon.")]
+        string kind,
+        [Description("Output directory. Relative paths resolve from the workspace root. The directory is created when needed.")]
+        string output_root,
+        [Description("Targets to export. Each item uses row_id, display_name, field_value, and optional job_id.")]
+        List<BmpExportTargetUpdate> targets,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Single-item layout. Defaults to true when one target is supplied; false when multiple targets are supplied.")]
+        bool? single_mode = null,
+        [Description("Overwrite existing BMP files. Defaults false.")]
+        bool overwrite_existing = false,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1)
+        => runtime.ExportBmpAssets(game_root, kind, output_root, targets, single_mode, overwrite_existing, faction_slot);
+
+    [McpServerTool]
     [Description("List AI drawable CCZ image asset presets for Image Studio style headless generation.")]
     public object list_ccz_image_asset_presets()
         => runtime.ListCczImageAssetPresets();
@@ -660,21 +679,25 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Preview batch item icon import without writing. 6.5 writes Itemicon.dll; 6.6 writes E5/Item.e5. Item table icon fields are not changed.")]
     public object preview_item_icon_batch_import(
-        [Description("Source image files. Relative paths resolve from workspace, project root, then cwd.")]
-        List<string> source_files,
+        [Description("Optional source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string>? source_files = null,
+        [Description("Optional source root directory. Scans importable item_icon_{N}.bmp files and compatible legacy export subfolders.")]
+        string? source_root = null,
         [Description("Optional item rows with icon indexes. If supplied, source_files count must match target_rows count and order is used.")]
         List<BatchItemIconTargetRowUpdate>? target_rows = null,
         [Description("Optional match mode label, defaults to auto.")]
         string? match_mode = "auto",
         [Description("Optional game root.")]
         string? game_root = null)
-        => runtime.PreviewItemIconBatchImport(game_root, source_files, target_rows, match_mode);
+        => runtime.PreviewItemIconBatchImport(game_root, source_files, source_root, target_rows, match_mode);
 
     [McpServerTool]
     [Description("Batch import item icons. Creates backup and structured aggregate report. Item table icon fields are not changed.")]
     public object replace_item_icon_batch_import(
-        [Description("Source image files. Relative paths resolve from workspace, project root, then cwd.")]
-        List<string> source_files,
+        [Description("Optional source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string>? source_files = null,
+        [Description("Optional source root directory. Scans importable item_icon_{N}.bmp files and compatible legacy export subfolders.")]
+        string? source_root = null,
         [Description("Optional item rows with icon indexes. If supplied, source_files count must match target_rows count and order is used.")]
         List<BatchItemIconTargetRowUpdate>? target_rows = null,
         [Description("Optional match mode label, defaults to auto.")]
@@ -683,7 +706,99 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         string? game_root = null,
         [Description("Default direct writes the detected project.")]
         string? write_mode = null)
-        => runtime.ReplaceItemIconBatchImport(game_root, source_files, target_rows, match_mode, write_mode);
+        => runtime.ReplaceItemIconBatchImport(game_root, source_files, source_root, target_rows, match_mode, write_mode);
+
+    [McpServerTool]
+    [Description("Preview batch strategy icon import without writing. 6.5 writes Mgcicon.dll; 6.6 writes E5/Mtem.e5.")]
+    public object preview_strategy_icon_batch_import(
+        [Description("Optional source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string>? source_files = null,
+        [Description("Optional source root directory. Scans importable strategy_icon_{N}.bmp files and compatible legacy export subfolders.")]
+        string? source_root = null,
+        [Description("Optional strategy rows with icon indexes.")]
+        List<BatchStrategyIconTargetRowUpdate>? target_rows = null,
+        [Description("Optional match mode label, defaults to auto.")]
+        string? match_mode = "auto",
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewStrategyIconBatchImport(game_root, source_files, source_root, target_rows, match_mode);
+
+    [McpServerTool]
+    [Description("Batch import strategy icons. Creates backup and structured aggregate report.")]
+    public object replace_strategy_icon_batch_import(
+        [Description("Optional source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string>? source_files = null,
+        [Description("Optional source root directory. Scans importable strategy_icon_{N}.bmp files and compatible legacy export subfolders.")]
+        string? source_root = null,
+        [Description("Optional strategy rows with icon indexes.")]
+        List<BatchStrategyIconTargetRowUpdate>? target_rows = null,
+        [Description("Optional match mode label, defaults to auto.")]
+        string? match_mode = "auto",
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.ReplaceStrategyIconBatchImport(game_root, source_files, source_root, target_rows, match_mode, write_mode);
+
+    [McpServerTool]
+    [Description("Preview batch role face import without writing. Writes Face.e5 entries through the current face import pipeline.")]
+    public object preview_role_face_batch_import(
+        [Description("Optional source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string>? source_files = null,
+        [Description("Optional source root directory. Scans importable face_{N}.bmp files and compatible legacy export subfolders.")]
+        string? source_root = null,
+        [Description("Optional role rows with face ids.")]
+        List<BatchRoleFaceTargetRowUpdate>? target_rows = null,
+        [Description("Optional match mode label, defaults to auto.")]
+        string? match_mode = "auto",
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewRoleFaceBatchImport(game_root, source_files, source_root, target_rows, match_mode);
+
+    [McpServerTool]
+    [Description("Batch import role faces. Creates backup and structured aggregate report.")]
+    public object replace_role_face_batch_import(
+        [Description("Optional source image files. Relative paths resolve from workspace, project root, then cwd.")]
+        List<string>? source_files = null,
+        [Description("Optional source root directory. Scans importable face_{N}.bmp files and compatible legacy export subfolders.")]
+        string? source_root = null,
+        [Description("Optional role rows with face ids.")]
+        List<BatchRoleFaceTargetRowUpdate>? target_rows = null,
+        [Description("Optional match mode label, defaults to auto.")]
+        string? match_mode = "auto",
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.ReplaceRoleFaceBatchImport(game_root, source_files, source_root, target_rows, match_mode, write_mode);
+
+    [McpServerTool]
+    [Description("Preview batch default job S unit image replacement from a material root without writing. Subfolders use Job12 or Job_12 and contain mov.bmp/atk.bmp/spc.bmp.")]
+    public object preview_job_s_image_raw_batch_replace(
+        [Description("Material root containing Job{jobId} subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Faction slots to preview: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
+        List<int> faction_slots,
+        [Description("Optional detailed job ids to include. When omitted or empty, all valid Job folders are considered.")]
+        List<int>? allowed_job_ids = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewJobSImageRawBatchReplace(game_root, material_root, allowed_job_ids, faction_slots);
+
+    [McpServerTool]
+    [Description("Replace batch default job S unit image assets from a material root. Creates backups and structured reports.")]
+    public object replace_job_s_image_raw_batch_replace(
+        [Description("Material root containing Job{jobId} subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Faction slots to write: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
+        List<int> faction_slots,
+        [Description("Optional detailed job ids to include. When omitted or empty, all valid Job folders are considered.")]
+        List<int>? allowed_job_ids = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.ReplaceJobSImageRawBatch(game_root, material_root, allowed_job_ids, faction_slots, write_mode);
 
     [McpServerTool]
     [Description("Preview E5 role raw-image normalization without writing.")]

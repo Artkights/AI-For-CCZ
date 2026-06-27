@@ -178,6 +178,7 @@ public sealed partial class MainForm
         _saveRoleEditorButton.Enabled = false;
         _importRoleFaceButton.Enabled = false;
         _batchImportRoleFaceButton.Enabled = false;
+        _exportRoleFaceBmpButton.Enabled = false;
         _saveRoleTextDetailButton.Enabled = false;
 
         _currentJobEditorData = null;
@@ -185,6 +186,8 @@ public sealed partial class MainForm
         _saveJobEditorButton.Enabled = false;
         _editAccessoryJobGroupsButton.Enabled = false;
         _replaceJobSImageButton.Enabled = false;
+        _batchReplaceJobSImageButton.Enabled = false;
+        _exportJobSImageBmpButton.Enabled = false;
         _currentAccessoryJobGroupProfile = null;
         _jobSeriesNames = new Dictionary<int, string>();
 
@@ -193,11 +196,15 @@ public sealed partial class MainForm
         _saveJobStrategyEditorButton.Enabled = false;
         _importJobStrategyIconButton.Enabled = false;
         _editJobStrategyIconButton.Enabled = false;
+        _exportJobStrategyIconBmpButton.Enabled = false;
         ClearJobStrategyPreview("读取兵种策略后显示预览。");
 
         _currentItemEditorData = null;
         _itemEditorGrid.DataSource = null;
         _saveItemEditorButton.Enabled = false;
+        _batchImportItemIconButton.Enabled = false;
+        _editItemIconButton.Enabled = false;
+        _exportItemIconBmpButton.Enabled = false;
 
         _currentShopEditorData = null;
         _shopEditorGrid.DataSource = null;
@@ -210,6 +217,9 @@ public sealed partial class MainForm
         _saveImageAssignmentsButton.Enabled = false;
         _importImageAssignmentFaceButton.Enabled = false;
         _batchImportImageAssignmentFaceButton.Enabled = false;
+        _exportRImageBmpButton.Enabled = false;
+        _exportSImageBmpButton.Enabled = false;
+        _exportImageAssignmentFaceBmpButton.Enabled = false;
         ClearImageAssignmentPreview();
         _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
         _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();

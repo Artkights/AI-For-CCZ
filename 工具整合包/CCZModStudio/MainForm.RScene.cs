@@ -216,6 +216,7 @@ public sealed partial class MainForm
         _currentRSceneStateCandidates = Array.Empty<RSceneStateCandidate>();
         _currentRSceneDialoguePreviewCommand = null;
         _currentRSceneDialoguePreviewMessage = string.Empty;
+        _currentRSceneBackgroundReference = null;
         ClearRScenePreviewLock();
         _rScenePreviewCurrentRow = null;
         _rScenePlacedActors.Clear();
@@ -313,6 +314,8 @@ public sealed partial class MainForm
         {
             foreach (var parameter in command.TextParameters)
             {
+                var decodeWarning = parameter.TextDecodeWarning;
+                var confidence = string.IsNullOrWhiteSpace(parameter.TextDecodeConfidence) ? "高" : parameter.TextDecodeConfidence;
                 entries.Add(new ScenarioTextEntry
                 {
                     Index = index++,
@@ -325,7 +328,12 @@ public sealed partial class MainForm
                     Preview = parameter.Text.Length > 60 ? parameter.Text[..60] : parameter.Text,
                     Text = parameter.Text,
                     OriginalText = parameter.Text,
-                    Annotation = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex} {command.CommandName} 参数槽 {parameter.Index}。"
+                    SourceKind = "旧版完整树文本参数",
+                    EncodingName = string.IsNullOrWhiteSpace(parameter.TextEncodingName) ? "GBK" : parameter.TextEncodingName,
+                    DecodeConfidence = confidence,
+                    DecodeWarning = decodeWarning,
+                    IsWritable = confidence != "低",
+                    Annotation = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex} {command.CommandName} 参数槽 {parameter.Index}。旧版完整树文本参数；解码置信度 {confidence}{(string.IsNullOrWhiteSpace(decodeWarning) ? string.Empty : "；" + decodeWarning)}。"
                 });
             }
         }
@@ -593,18 +601,20 @@ public sealed partial class MainForm
                 nameof(RSceneStateCandidate.StartCommandIndex) => "起始命令",
                 nameof(RSceneStateCandidate.EndCommandIndex) => "结束命令",
                 nameof(RSceneStateCandidate.OffsetHex) => "偏移",
-                nameof(RSceneStateCandidate.BackgroundImageNumber) => "背景",
+                nameof(RSceneStateCandidate.BackgroundImageNumber) => "解析图号",
+                nameof(RSceneStateCandidate.BackgroundReferenceText) => "背景引用",
+                nameof(RSceneStateCandidate.BackgroundReference) => "背景对象",
                 nameof(RSceneStateCandidate.ActorCount) => "人数",
                 nameof(RSceneStateCandidate.MapFaceCount) => "头像",
                 nameof(RSceneStateCandidate.Summary) => "摘要",
                 nameof(RSceneStateCandidate.TargetKey) => "内部键",
                 _ => column.HeaderText
             };
-            if (column.DataPropertyName is nameof(RSceneStateCandidate.TargetKey) or nameof(RSceneStateCandidate.CurrentCommandIndex))
+            if (column.DataPropertyName is nameof(RSceneStateCandidate.TargetKey) or nameof(RSceneStateCandidate.CurrentCommandIndex) or nameof(RSceneStateCandidate.BackgroundReference))
             {
                 column.Visible = false;
             }
-            if (column.DataPropertyName is nameof(RSceneStateCandidate.SceneTitle) or nameof(RSceneStateCandidate.Summary))
+            if (column.DataPropertyName is nameof(RSceneStateCandidate.SceneTitle) or nameof(RSceneStateCandidate.Summary) or nameof(RSceneStateCandidate.BackgroundReferenceText))
             {
                 column.Width = 220;
             }
@@ -767,15 +777,22 @@ public sealed partial class MainForm
         _rSceneBackgroundCombo.SelectedIndex = Math.Max(0, index);
     }
 
-    private void SelectRSceneBackgroundImageNumber(int imageNumber)
+    private bool SelectRSceneBackgroundImageNumber(int imageNumber)
     {
-        if (imageNumber <= 0) return;
+        if (imageNumber <= 0) return false;
         for (var i = 0; i < _rSceneBackgroundCombo.Items.Count; i++)
         {
             if (_rSceneBackgroundCombo.Items[i] is not RSceneBackgroundComboItem item || item.ImageNumber != imageNumber) continue;
             _rSceneBackgroundCombo.SelectedIndex = i;
-            return;
+            return true;
         }
+
+        if (_rSceneBackgroundCombo.Items.Count > 0)
+        {
+            _rSceneBackgroundCombo.SelectedIndex = -1;
+        }
+
+        return false;
     }
 
     private void ToggleRScenePreviewLock()
@@ -1003,10 +1020,19 @@ public sealed partial class MainForm
         _rScenePlacedActorDragStart = null;
         _rScenePlacedActorDragMoved = false;
         ClearRSceneMovePreview();
+        _currentRSceneBackgroundReference = snapshot.BackgroundReference;
 
         using (SuppressRSceneCanvasRender())
         {
-            if (snapshot.BackgroundImageNumber.HasValue)
+            if (snapshot.BackgroundReference?.IsMmapBackground == true && snapshot.BackgroundImageNumber.HasValue)
+            {
+                SelectRSceneBackgroundImageNumber(snapshot.BackgroundImageNumber.Value);
+            }
+            else if (snapshot.BackgroundReference != null && _rSceneBackgroundCombo.Items.Count > 0)
+            {
+                _rSceneBackgroundCombo.SelectedIndex = -1;
+            }
+            else if (snapshot.BackgroundImageNumber.HasValue)
             {
                 SelectRSceneBackgroundImageNumber(snapshot.BackgroundImageNumber.Value);
             }
@@ -2291,6 +2317,16 @@ public sealed partial class MainForm
         RenderRSceneCanvas();
     }
 
+    private void HandleRSceneBackgroundSelectionChanged()
+    {
+        if (!_suppressRSceneCanvasRender && _rSceneBackgroundCombo.SelectedItem is RSceneBackgroundComboItem)
+        {
+            _currentRSceneBackgroundReference = null;
+        }
+
+        RenderRSceneCanvasIfNotSuppressed();
+    }
+
     private IDisposable SuppressRSceneCanvasRender()
     {
         var previous = _suppressRSceneCanvasRender;
@@ -2553,8 +2589,29 @@ public sealed partial class MainForm
         using var graphics = Graphics.FromImage(fallback);
         graphics.Clear(Color.FromArgb(28, 30, 34));
         using var brush = new SolidBrush(Color.FromArgb(210, 220, 220, 220));
-        graphics.DrawString("未选择或无法读取 Mmap.e5 背景", Font, brush, 24, 24);
+        graphics.DrawString(
+            BuildRSceneFallbackBackgroundMessage(),
+            Font,
+            brush,
+            new RectangleF(24, 24, RSceneCanvasWidth - 48, RSceneCanvasHeight - 48));
         return fallback;
+    }
+
+    private string BuildRSceneFallbackBackgroundMessage()
+    {
+        if (_currentRSceneBackgroundReference == null)
+        {
+            return _currentRSceneBackgroundEntries.Count == 0
+                ? "未选择或无法读取 Mmap.e5 背景；脚本树和人物/头像命令仍可查看。"
+                : "未选择 Mmap.e5 背景。";
+        }
+
+        if (!_currentRSceneBackgroundReference.IsMmapBackground)
+        {
+            return $"{_currentRSceneBackgroundReference.DisplayText}\r\n该 0x27 背景类别不从 Mmap.e5 读取；请在对应地图资源中核对，R 脚本树和人物/头像命令仍可查看。";
+        }
+
+        return $"{_currentRSceneBackgroundReference.DisplayText}\r\n脚本引用了外/内场景图号，但当前 Mmap.e5 背景候选为空或预览失败；若文件是旧式 LS 大图封包，需要专用解码器。";
     }
 
     private void DrawRScenePlacedActor(Graphics graphics, RScenePlacedActor actor)
@@ -2790,9 +2847,24 @@ public sealed partial class MainForm
         };
 
     private string GetSelectedRSceneBackgroundText()
-        => _rSceneBackgroundCombo.SelectedItem is RSceneBackgroundComboItem item
+    {
+        if (_currentRSceneBackgroundReference != null)
+        {
+            var mmapWarning = _currentRSceneBackgroundReference.IsMmapBackground &&
+                              _currentRSceneBackgroundReference.ResolvedImageNumber.HasValue &&
+                              !IsRSceneBackgroundSelected(_currentRSceneBackgroundReference.ResolvedImageNumber.Value)
+                ? "；Mmap.e5 背景候选为空或未解码"
+                : string.Empty;
+            return _currentRSceneBackgroundReference.DisplayText + mmapWarning;
+        }
+
+        return _rSceneBackgroundCombo.SelectedItem is RSceneBackgroundComboItem item
             ? item.DisplayText
             : "未选择 Mmap.e5 背景";
+    }
+
+    private bool IsRSceneBackgroundSelected(int imageNumber)
+        => _rSceneBackgroundCombo.SelectedItem is RSceneBackgroundComboItem item && item.ImageNumber == imageNumber;
 
     private void ApplyRSceneDraftForScenario(ScenarioFileInfo scenario)
     {
@@ -2987,6 +3059,7 @@ public sealed partial class MainForm
             $"R剧情：{_currentRSceneScenario.FileName}\r\n" +
             $"模式：{mode}\r\n" +
             $"Scene：{_currentRSceneScriptStructure?.SceneCount ?? 0}  Section：{_currentRSceneScriptStructure?.SectionCount ?? 0}  Command：{_currentRSceneScriptStructure?.CommandCandidateCount ?? 0}  文本：{_currentRSceneScriptTextEntries.Count}\r\n" +
+            BuildSceneDictionaryDiagnosticLine() + "\r\n" +
             $"R场景视觉命令：{_currentRSceneCommandCandidates.Count} 条；背景候选：{_currentRSceneBackgroundEntries.Count} 张；角色列表：{_rSceneActorPaletteItems.Count} 人。\r\n" +
             $"当前画布：{GetSelectedRSceneBackgroundText()}；画布角色：{_rScenePlacedActors.Count} 个。\r\n" +
             "说明：右键角色进入编辑态，拖拽可同步 0x30 武将出现的 X/Y 坐标；完整保存R剧本后写入 R_XX.eex。其他角色摆放仍保存为项目侧草稿。";

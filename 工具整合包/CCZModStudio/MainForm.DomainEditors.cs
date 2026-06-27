@@ -4,6 +4,7 @@ using CCZModStudio.Models;
 using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
+using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -76,6 +77,7 @@ public sealed partial class MainForm
             _saveRoleEditorButton.Enabled = true;
             _importRoleFaceButton.Enabled = true;
             _batchImportRoleFaceButton.Enabled = true;
+            _exportRoleFaceBmpButton.Enabled = true;
             _exportRoleEditorCsvButton.Enabled = true;
             _importRoleEditorCsvButton.Enabled = true;
             _roleEditorInfoBox.Text = BuildRoleEditorSummary(_currentRoleEditorData);
@@ -595,12 +597,7 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            var saves = new List<TableSaveResult>();
-            if (_roleBiographyRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _roleBiographyRead.Table, _roleBiographyRead.Data));
-            if (_roleCriticalQuoteRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _roleCriticalQuoteRead.Table, _roleCriticalQuoteRead.Data));
-            if (_roleRetreatQuoteRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _roleRetreatQuoteRead.Table, _roleRetreatQuoteRead.Data));
-
-            LoadRoleTextTables();
+            var saves = SaveRoleTextDetailsCore();
             ShowRoleTextDetails(roleRow);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存角色文本：{roleId} {roleName}，保存表 {saves.Count} 个，变化字节 {changedBytes}");
@@ -648,7 +645,9 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveRoleEditorData(_project, _tables, _currentRoleEditorData);
-            LoadRoleEditor();
+            AcceptSavedDataTable(_currentRoleEditorData, RefreshRoleEditorRowStyles);
+            _roleEditorInfoBox.Text = BuildRoleEditorSummary(_currentRoleEditorData);
+            ShowSelectedRoleEditorCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存角色设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves)
@@ -671,6 +670,15 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.Default;
         }
+    }
+
+    private IReadOnlyList<TableSaveResult> SaveRoleTextDetailsCore()
+    {
+        var saves = new List<TableSaveResult>();
+        if (_roleBiographyRead != null && SaveChangedTableAndVerify(_roleBiographyRead) is { } biographySave) saves.Add(biographySave);
+        if (_roleCriticalQuoteRead != null && SaveChangedTableAndVerify(_roleCriticalQuoteRead) is { } criticalSave) saves.Add(criticalSave);
+        if (_roleRetreatQuoteRead != null && SaveChangedTableAndVerify(_roleRetreatQuoteRead) is { } retreatSave) saves.Add(retreatSave);
+        return saves;
     }
 
     private IReadOnlyList<TableSaveResult> SaveRoleEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables, DataTable roleData)
@@ -708,9 +716,9 @@ public sealed partial class MainForm
         }
 
         var saves = new List<TableSaveResult>();
-        if (personRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, personTable, personRead.Data));
-        if (rRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, rTable, rRead.Data));
-        if (sRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, sTable, sRead.Data));
+        if (SaveChangedTableAndVerify(personRead) is { } personSave) saves.Add(personSave);
+        if (SaveChangedTableAndVerify(rRead) is { } rSave) saves.Add(rSave);
+        if (SaveChangedTableAndVerify(sRead) is { } sSave) saves.Add(sSave);
         return saves;
     }
 
@@ -1412,16 +1420,12 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var result = _exclusiveSetScenarioService.Save(_project, dictionary, updates);
             var reloaded = BuildExclusiveSetScenarioEditorData(_project, _tables);
-            data.Clear();
-            foreach (DataRow row in reloaded.Rows)
+            RunPreservingGridViewport(grid, () =>
             {
-                data.ImportRow(row);
-            }
-            data.AcceptChanges();
-            grid.DataSource = null;
-            ConfigureExclusiveSetScenarioGrid(grid);
-            grid.DataSource = data;
-            RefreshExclusiveSetScenarioRowStyles(grid);
+                SyncDataTableRowsByKey(data, reloaded, "EntryId");
+                data.AcceptChanges();
+                RefreshExclusiveSetScenarioRowStyles(grid);
+            }, "EntryId");
             var changedBytes = result.Writes.Sum(x => x.ChangedBytes);
             infoBox.Text =
                 $"保存完成并已重新读取校验。\r\n写回命令：{result.ChangedEntryCount}\r\n保存剧本：{result.Writes.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", result.Writes.Select(x => x.BackupPath))}";
@@ -1906,15 +1910,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveRolePersonalEffectEditorData(_project, data);
-            var reloaded = BuildRolePersonalEffectEditorData(_project, _tables);
-            data.Clear();
-            foreach (DataRow row in reloaded.Rows)
-            {
-                data.ImportRow(row);
-            }
             data.AcceptChanges();
-            grid.DataSource = data;
-            ConfigureRolePersonalEffectGrid(grid);
             RefreshRolePersonalEffectRowStyles(grid);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             infoBox.Text =
@@ -1954,7 +1950,7 @@ public sealed partial class MainForm
         var saves = new List<TableSaveResult>();
         if (_rolePersonalEffectRead.Data.GetChanges() != null)
         {
-            saves.Add(_tableWriter.Save(project, _rolePersonalEffectRead.Table, _rolePersonalEffectRead.Data));
+            if (SaveChangedTableAndVerify(_rolePersonalEffectRead) is { } save) saves.Add(save);
         }
         return saves;
     }
@@ -1978,6 +1974,8 @@ public sealed partial class MainForm
             _saveJobEditorButton.Enabled = true;
             _editAccessoryJobGroupsButton.Enabled = _currentAccessoryJobGroupProfile != null;
             _replaceJobSImageButton.Enabled = true;
+            _batchReplaceJobSImageButton.Enabled = true;
+            _exportJobSImageBmpButton.Enabled = true;
             _exportJobEditorCsvButton.Enabled = true;
             _importJobEditorCsvButton.Enabled = true;
             _jobEditorInfoBox.Text = BuildJobEditorSummary(_currentJobEditorData);
@@ -3172,17 +3170,14 @@ public sealed partial class MainForm
 
         try
         {
-            SetPictureBoxImage(_jobAreaPreviewBox,
-                _imageAssignmentPreviewService.TryRenderCharacterResourceImage(
-                    _project,
-                    "S",
-                    0,
-                    jobId,
-                    CharacterImageResourceService.DefaultSPreviewFactionSlot));
+            var preview = _imageAssignmentPreviewService.TryRenderSImageFactionStackPreview(_project, 0, jobId, out var previewDetail);
+            SetPictureBoxImage(_jobAreaPreviewBox, preview);
             _jobAreaPreviewInfoBox.Text =
                 $"兵种 ID={jobId:D2}  名称={name}\r\n" +
-                "默认 S 形象：S=0 + 当前详细兵种 ID。\r\n" +
+                "默认 S 形象：S=0 + 当前详细兵种 ID；预览顺序为我军、友军、敌军。\r\n" +
                 BuildJobSImageMappingText(jobId) +
+                "\r\n\r\n渲染详情：\r\n" +
+                previewDetail +
                 "\r\n\r\n点击“一键替换兵种形象”可选择 mov.bmp / atk.bmp / spc.bmp 素材目录，并勾选要替换的我军、友军、敌军槽。";
         }
         catch (Exception ex)
@@ -3300,6 +3295,172 @@ public sealed partial class MainForm
         }
     }
 
+    private void BatchReplaceSelectedJobSImages()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentJobEditorData == null)
+        {
+            MessageBox.Show(this, "请先读取兵种。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var selectedRows = GetSelectedRowsForBmpExport(_jobEditorGrid);
+        var jobIds = new HashSet<int>();
+        foreach (var row in selectedRows)
+        {
+            if (TryGetJobEditorRowIdentity(row, out var jobId, out _))
+            {
+                jobIds.Add(jobId);
+            }
+        }
+
+        using var folderDialog = new FolderBrowserDialog
+        {
+            Description = "选择兵种 S 形象批量素材根目录；子目录使用 Job12，且包含 mov.bmp / atk.bmp / spc.bmp。",
+            UseDescriptionForTitle = true
+        };
+        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var slots = SelectJobSBatchFactionSlots();
+        if (slots.Count == 0) return;
+
+        var request = new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = folderDialog.SelectedPath,
+            AllowedJobIds = jobIds,
+            IncludeOnlySelectedOrFiltered = jobIds.Count > 0,
+            FactionSlots = slots,
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        BatchJobSImageReplacePreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchJobSImageReplaceService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("批量导入兵种 S 形象预览失败：" + ex);
+            MessageBox.Show(this, ex.Message, "批量导入兵种 S 形象预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchJobSImageReplacePreviewText(preview);
+        _jobAreaPreviewInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "批量导入兵种 S 形象存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(
+                this,
+                previewText + "\r\n\r\n确认后会把这些兵种 S 形象一次写入 Unit_*.e5，并自动备份。是否继续？",
+                "确认批量导入兵种 S 形象",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchJobSImageReplaceService.Replace(_project, request);
+            _imageAssignmentPreviewService.ClearCache();
+            if (_jobEditorGrid.CurrentRow != null)
+            {
+                UpdateJobSImagePreview(_jobEditorGrid.CurrentRow);
+            }
+
+            _jobAreaPreviewInfoBox.AppendText("\r\n\r\n" + BuildBatchJobSImageReplaceResultText(result));
+            SetStatus($"批量导入兵种 S 形象完成：写入 {result.Results.Sum(item => item.Result.TotalOperationCount)} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("批量导入兵种 S 形象失败：" + ex);
+            MessageBox.Show(this, ex.Message, "批量导入兵种 S 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private IReadOnlyList<int> SelectJobSBatchFactionSlots()
+    {
+        using var dialog = new Form
+        {
+            Text = "选择写入阵营",
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ClientSize = new Size(260, 180)
+        };
+        var list = new CheckedListBox
+        {
+            Dock = DockStyle.Top,
+            Height = 110,
+            CheckOnClick = true
+        };
+        list.Items.Add(CharacterImageResourceService.BuildSPreviewFactionText(1), true);
+        list.Items.Add(CharacterImageResourceService.BuildSPreviewFactionText(2), true);
+        list.Items.Add(CharacterImageResourceService.BuildSPreviewFactionText(3), true);
+        var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Left = 70, Top = 125, Width = 75 };
+        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Left = 155, Top = 125, Width = 75 };
+        dialog.Controls.Add(list);
+        dialog.Controls.Add(ok);
+        dialog.Controls.Add(cancel);
+        dialog.AcceptButton = ok;
+        dialog.CancelButton = cancel;
+        if (dialog.ShowDialog(this) != DialogResult.OK) return Array.Empty<int>();
+
+        return list.CheckedIndices.Cast<int>().Select(index => index + 1).ToArray();
+    }
+
+    private static string BuildBatchJobSImageReplacePreviewText(BatchJobSImageReplacePreviewResult preview)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("批量导入兵种 S 形象预览");
+        builder.AppendLine($"素材根目录：{preview.Request.MaterialRoot}");
+        builder.AppendLine($"阵营槽：{string.Join("、", preview.Request.FactionSlots.Select(CharacterImageResourceService.BuildSPreviewFactionText))}");
+        builder.AppendLine($"可写入兵种：{preview.Items.Count}");
+        builder.AppendLine($"写入条目：{preview.TotalOperationCount}");
+        foreach (var item in preview.Items.Take(30))
+        {
+            builder.AppendLine($"- Job{item.JobId}: {item.MaterialFolder} -> {item.Preview.TotalOperationCount} 条");
+        }
+
+        AppendBatchImageImportIssues(builder, preview.SkippedItems, preview.Warnings);
+        return builder.ToString();
+    }
+
+    private static string BuildBatchJobSImageReplaceResultText(BatchJobSImageReplaceResult result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("批量导入兵种 S 形象完成");
+        builder.AppendLine($"完成兵种：{result.Results.Count}");
+        builder.AppendLine($"写入条目：{result.Results.Sum(item => item.Result.TotalOperationCount)}");
+        foreach (var item in result.Results.Take(30))
+        {
+            builder.AppendLine($"- Job{item.JobId}: {item.Result.TotalOperationCount} 条");
+        }
+
+        AppendBatchImageImportIssues(builder, result.SkippedItems, result.Warnings);
+        return builder.ToString();
+    }
+
     private static string BuildJobSImageReplacePreviewText(JobSImageReplacePreviewResult preview, string jobName)
         => "一键替换兵种形象预览\r\n" +
            $"兵种：ID={preview.Request.JobId:D2}  名称={jobName}\r\n" +
@@ -3410,7 +3571,8 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveJobEditorData(_project, _currentJobEditorData);
-            LoadJobEditor();
+            AcceptSavedDataTable(_currentJobEditorData, RefreshJobEditorRowStyles);
+            ShowSelectedJobEditorCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种设定备份：" + save.BackupPath);
@@ -3456,10 +3618,10 @@ public sealed partial class MainForm
         }
 
         var saves = new List<TableSaveResult>();
-        if (_jobNameRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobNameRead.Table, _jobNameRead.Data));
-        if (_jobDescriptionRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobDescriptionRead.Table, _jobDescriptionRead.Data));
-        if (_jobGrowthRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobGrowthRead.Table, _jobGrowthRead.Data));
-        if (_jobPierceRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobPierceRead.Table, _jobPierceRead.Data));
+        if (SaveChangedTableAndVerify(_jobNameRead) is { } nameSave) saves.Add(nameSave);
+        if (SaveChangedTableAndVerify(_jobDescriptionRead) is { } descriptionSave) saves.Add(descriptionSave);
+        if (SaveChangedTableAndVerify(_jobGrowthRead) is { } growthSave) saves.Add(growthSave);
+        if (SaveChangedTableAndVerify(_jobPierceRead) is { } pierceSave) saves.Add(pierceSave);
         return saves;
     }
 
@@ -3491,6 +3653,9 @@ public sealed partial class MainForm
             _itemEditorGrid.DataSource = _currentItemEditorData;
             ConfigureItemEditorGrid();
             _saveItemEditorButton.Enabled = true;
+            _batchImportItemIconButton.Enabled = true;
+            _editItemIconButton.Enabled = true;
+            _exportItemIconBmpButton.Enabled = true;
             _exportItemEditorCsvButton.Enabled = true;
             _importItemEditorCsvButton.Enabled = true;
             ResetItemEditorHistory();
@@ -3510,16 +3675,24 @@ public sealed partial class MainForm
         }
     }
 
+    private const string ItemDescriptionColumnName = "\u4ECB\u7ECD";
+
+    private static bool IsItemDescriptionReadUsable(TableReadResult? read)
+        => read?.Validation.IsUsable == true;
+
+    private bool CanWriteItemDescriptions
+        => IsItemDescriptionReadUsable(_itemDescriptionLowRead) &&
+           IsItemDescriptionReadUsable(_itemDescriptionHighRead);
+
     private DataTable BuildItemEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         _itemBaseLowRead = _tableReader.Read(project, FindTable(tables, "6.5-1 物品（0-103）"), tables);
         _itemBaseHighRead = _tableReader.Read(project, FindTable(tables, "6.5-2 物品（104-255）"), tables);
         _itemDescriptionLowRead = _tableReader.Read(project, FindTable(tables, "6.5-1-1 物品说明（0-103）"), tables);
         _itemDescriptionHighRead = _tableReader.Read(project, FindTable(tables, "6.5-2-1 物品说明（104-255）"), tables);
-        if (!_itemBaseLowRead.Validation.IsUsable || !_itemBaseHighRead.Validation.IsUsable ||
-            !_itemDescriptionLowRead.Validation.IsUsable || !_itemDescriptionHighRead.Validation.IsUsable)
+        if (!_itemBaseLowRead.Validation.IsUsable || !_itemBaseHighRead.Validation.IsUsable)
         {
-            throw new InvalidOperationException("物品表或物品说明表有不可读取项，请先查看数据表诊断。");
+            throw new InvalidOperationException("物品基础表有不可读取项，请先查看数据表诊断。物品说明表缺失时会降级为空介绍，不再阻断基础物品读取。");
         }
 
         _itemEffectNames = BuildItemEffectNameLookup(project, tables);
@@ -3560,6 +3733,7 @@ public sealed partial class MainForm
         output.Columns["类型样例"]!.ReadOnly = true;
         output.Columns["类型来源"]!.ReadOnly = true;
         output.Columns["来源文件"]!.ReadOnly = true;
+        output.Columns[ItemDescriptionColumnName]!.ReadOnly = !CanWriteItemDescriptions;
         return output;
     }
 
@@ -3581,6 +3755,7 @@ public sealed partial class MainForm
 
     private void AddItemEditorRows(DataTable output, TableReadResult itemRead, TableReadResult descriptionRead, string segment, ItemCategoryBoundary boundary)
     {
+        var canReadDescription = IsItemDescriptionReadUsable(descriptionRead);
         foreach (DataRow source in itemRead.Data.Rows)
         {
             var id = Convert.ToInt32(source["ID"], CultureInfo.InvariantCulture);
@@ -3628,11 +3803,15 @@ public sealed partial class MainForm
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
                 effectValue,
                 growth);
-            var descriptionRow = TryFindRowById(descriptionRead.Data, id);
-            row["介绍"] = descriptionRow == null
+            var descriptionRow = canReadDescription
+                ? TryFindRowById(descriptionRead.Data, id)
+                : null;
+            row["介绍"] = descriptionRow == null || !descriptionRead.Data.Columns.Contains("介绍")
                 ? string.Empty
                 : Convert.ToString(descriptionRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
-            row["来源文件"] = $"{itemRead.Table.FileName} / {descriptionRead.Table.FileName}";
+            row["来源文件"] = canReadDescription
+                ? $"{itemRead.Table.FileName} / {descriptionRead.Table.FileName}"
+                : $"{itemRead.Table.FileName} / 物品说明块不可用";
             output.Rows.Add(row);
         }
     }
@@ -4016,6 +4195,10 @@ public sealed partial class MainForm
         {
             column.Visible = IsVisibleItemEditorColumn(column.DataPropertyName) && !IsHiddenItemEditorColumn(column.DataPropertyName);
             column.ReadOnly = column.DataPropertyName is "ID" or "分段" or "大类" or "物品大类" or "项目类型" or "类型样例" or "类型来源" or "类型说明" or "价格显示" or "装备特效名" or "实际效果号" or "实际效果说明" or "特效提示" or "来源文件";
+            if (column.DataPropertyName == ItemDescriptionColumnName && !CanWriteItemDescriptions)
+            {
+                column.ReadOnly = true;
+            }
             column.ToolTipText = BuildItemColumnAnnotation(column.DataPropertyName);
             column.HeaderText = BuildItemEditorColumnHeader(column.DataPropertyName);
             if (column.DataPropertyName == "ID") column.Width = 48;
@@ -4054,7 +4237,12 @@ public sealed partial class MainForm
         if (columnName == "实际效果说明") return "对原始字段的保守纠偏说明，用于避免把辅助装备/道具类别标记误读成真实装备特效。";
         if (columnName == "特效提示") return "把装备特效号、效果值和成长集中提示；辅助段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
         if (columnName == "图标") return "物品图标编号；界面会按该编号从 Itemicon.dll 提取候选图标预览，最终映射仍建议实机确认。";
-        if (columnName == "介绍") return "物品说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。";
+        if (columnName == ItemDescriptionColumnName)
+        {
+            return CanWriteItemDescriptions
+                ? "物品说明文本，写入 Imsg.e5；固定 200 字节 GBK 容量。"
+                : "当前项目的 Imsg.e5 物品说明块缺失或不匹配，此列只读显示为空，不会向文件尾追加说明数据。";
+        }
         if (columnName == "来源文件") return "本行基础字段与说明字段的目标文件，只读显示。";
         if (_itemBaseLowRead?.Table.Fields.FirstOrDefault(f => f.ColumnName == columnName) is { } field)
         {
@@ -4079,13 +4267,17 @@ public sealed partial class MainForm
                 .Select(group => $"{group.Key}{group.Count()}")
             : Array.Empty<string>();
         var notesPath = _currentEquipmentTypeProfile?.NotesPath ?? ProjectEquipmentTypeProfileService.BuildNotesPath(_project!);
+        var descriptionStatus = CanWriteItemDescriptions
+            ? "物品说明表可读写，保存会写回 Imsg.e5。"
+            : "物品说明块不可用：介绍列只读为空，保存只写 Data.e5/Star.e5 基础字段，不会追加或覆盖 Imsg.e5 越界区域。";
         return
             $"宝物设定已读取：总行 {data.Rows.Count}，已命名 {named}，0-103 段 {low} 行，104+ 段 {high} 行。\r\n" +
             $"物品大类：{string.Join("，", kindGroups)}。\r\n" +
             $"项目类型来源：{string.Join("，", typeSourceGroups)}；人工校正文件：{notesPath}\r\n" +
+            $"{descriptionStatus}\r\n" +
             "界面按旧版宝物编辑器顺序显示：ID、名称、图标、物品大类、类型码、初始能力、能力成长、价格、特效号、特效名、特效值、图鉴、介绍；隐藏分段/项目类型诊断/长解释列和重复价格列。\r\n" +
-            "右侧图标预览按“图标”字段从 Itemicon.dll 枚举候选图标，保存仍写回 Data.e5、Star.e5、Imsg.e5 的原始字段。\r\n" +
-            "保存会写回 Data.e5、Star.e5、Imsg.e5，保存前自动备份，保存后重新读取校验。";
+            "右侧图标预览按“图标”字段从 Itemicon.dll 枚举候选图标，保存仍写回原始字段。\r\n" +
+            "保存前自动备份，保存后重新读取校验。";
     }
 
     private void ApplyItemEditorFilter()
@@ -4147,6 +4339,7 @@ public sealed partial class MainForm
     {
         var table = _currentItemEditorData;
         if (table == null) return;
+
         using var dialog = new OpenFileDialog
         {
             Title = "导入宝物设定 CSV",
@@ -4986,9 +5179,8 @@ public sealed partial class MainForm
         }
 
         var result = _itemIconPreviewService.BuildPreview(_project, iconIndex);
-        var oldImage = _itemIconPreviewBox.Image;
-        _itemIconPreviewBox.Image = result.Bitmap;
-        oldImage?.Dispose();
+        var largeSource = result.LargeBitmap ?? result.NativeBitmap ?? result.Bitmap;
+        SetItemIconPreviewSources(largeSource, result.SmallBitmap);
         var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         _itemIconPreviewInfoBox.Text =
@@ -4996,14 +5188,179 @@ public sealed partial class MainForm
             $"图标字段={iconIndex}\r\n" +
             $"{result.Message}\r\n" +
             $"资源路径：{result.SourcePath}";
+        var previewWarnings = result.Warnings?
+            .Where(warning => !string.IsNullOrWhiteSpace(warning))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray() ?? Array.Empty<string>();
+        if (previewWarnings.Length > 0)
+        {
+            _itemIconPreviewInfoBox.AppendText("\r\nWarnings:\r\n" + string.Join("\r\n", previewWarnings.Select(warning => "- " + warning)));
+        }
+
+        _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
+        DisposeItemIconPreviewResultBitmaps(result);
     }
 
     private void ClearItemIconPreview(string message)
     {
-        var oldImage = _itemIconPreviewBox.Image;
-        _itemIconPreviewBox.Image = null;
-        oldImage?.Dispose();
+        ClearItemIconPreviewImages();
         _itemIconPreviewInfoBox.Text = message;
+    }
+
+    private void SetItemIconPreviewSources(Bitmap? largeSource, Bitmap? smallSource)
+    {
+        _itemIconLargeSourceBitmap?.Dispose();
+        _itemIconSmallSourceBitmap?.Dispose();
+        _itemIconLargeSourceBitmap = largeSource == null ? null : new Bitmap(largeSource);
+        _itemIconSmallSourceBitmap = smallSource == null ? null : new Bitmap(smallSource);
+        _itemIconLargeZoomPercent = 0;
+        _itemIconSmallZoomPercent = 0;
+        RenderItemIconPreview(ItemIconPreviewRole.Large);
+        RenderItemIconPreview(ItemIconPreviewRole.Small);
+    }
+
+    private void ClearItemIconPreviewImages()
+    {
+        _itemIconLargeSourceBitmap?.Dispose();
+        _itemIconSmallSourceBitmap?.Dispose();
+        _itemIconLargeSourceBitmap = null;
+        _itemIconSmallSourceBitmap = null;
+        _itemIconLargeZoomPercent = 0;
+        _itemIconSmallZoomPercent = 0;
+        SetPictureBoxImage(_itemIconPreviewBox, null);
+        SetPictureBoxImage(_itemIconSmallPreviewBox, null);
+        _itemIconPreviewBox.Size = Size.Empty;
+        _itemIconSmallPreviewBox.Size = Size.Empty;
+        _itemIconLargePreviewTitle.Text = "大图";
+        _itemIconSmallPreviewTitle.Text = "小图";
+    }
+
+    private void RenderItemIconPreview(ItemIconPreviewRole role)
+    {
+        var source = role == ItemIconPreviewRole.Large ? _itemIconLargeSourceBitmap : _itemIconSmallSourceBitmap;
+        var pictureBox = role == ItemIconPreviewRole.Large ? _itemIconPreviewBox : _itemIconSmallPreviewBox;
+        var title = role == ItemIconPreviewRole.Large ? _itemIconLargePreviewTitle : _itemIconSmallPreviewTitle;
+        var scrollPanel = role == ItemIconPreviewRole.Large ? _itemIconLargePreviewScrollPanel : _itemIconSmallPreviewScrollPanel;
+        var baseTitle = role == ItemIconPreviewRole.Large ? "大图" : "小图";
+        if (source == null)
+        {
+            SetPictureBoxImage(pictureBox, null);
+            pictureBox.Size = Size.Empty;
+            title.Text = baseTitle;
+            return;
+        }
+
+        var zoomPercent = role == ItemIconPreviewRole.Large ? _itemIconLargeZoomPercent : _itemIconSmallZoomPercent;
+        if (zoomPercent <= 0)
+        {
+            zoomPercent = CalculateItemIconFitZoomPercent(source, scrollPanel);
+        }
+
+        var zoom = Math.Clamp(zoomPercent / 100, 1, 64);
+        var rendered = RenderItemIconZoomedPreview(source, zoom);
+        SetPictureBoxImage(pictureBox, rendered);
+        pictureBox.Size = rendered.Size;
+        pictureBox.Location = Point.Empty;
+        scrollPanel.AutoScrollMinSize = rendered.Size;
+        title.Text = $"{baseTitle} {source.Width}x{source.Height} {zoom}x";
+    }
+
+    private static int CalculateItemIconFitZoomPercent(Bitmap source, ScrollableControl scrollPanel)
+    {
+        var viewportWidth = Math.Max(1, scrollPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
+        var viewportHeight = Math.Max(1, scrollPanel.ClientSize.Height - SystemInformation.HorizontalScrollBarHeight);
+        var zoom = Math.Max(1, Math.Min(viewportWidth / Math.Max(1, source.Width), viewportHeight / Math.Max(1, source.Height)));
+        return Math.Clamp(zoom, 1, 64) * 100;
+    }
+
+    private void HandleItemIconPreviewMouseWheel(ItemIconPreviewRole role, MouseEventArgs e)
+    {
+        var source = role == ItemIconPreviewRole.Large ? _itemIconLargeSourceBitmap : _itemIconSmallSourceBitmap;
+        if (source == null) return;
+
+        var panel = role == ItemIconPreviewRole.Large ? _itemIconLargePreviewScrollPanel : _itemIconSmallPreviewScrollPanel;
+        var currentPercent = role == ItemIconPreviewRole.Large ? _itemIconLargeZoomPercent : _itemIconSmallZoomPercent;
+        if (currentPercent <= 0)
+        {
+            currentPercent = CalculateItemIconFitZoomPercent(source, panel);
+        }
+
+        var currentZoom = Math.Clamp(currentPercent / 100, 1, 64);
+        var nextZoom = Math.Clamp(currentZoom + (e.Delta > 0 ? 1 : -1), 1, 64);
+        if (role == ItemIconPreviewRole.Large)
+        {
+            _itemIconLargeZoomPercent = nextZoom * 100;
+        }
+        else
+        {
+            _itemIconSmallZoomPercent = nextZoom * 100;
+        }
+
+        RenderItemIconPreview(role);
+    }
+
+    private void ResetItemIconPreviewZoom(ItemIconPreviewRole role)
+    {
+        if (role == ItemIconPreviewRole.Large)
+        {
+            _itemIconLargeZoomPercent = 0;
+        }
+        else
+        {
+            _itemIconSmallZoomPercent = 0;
+        }
+
+        RenderItemIconPreview(role);
+    }
+
+    private static Bitmap RenderItemIconZoomedPreview(Bitmap source, int zoom)
+    {
+        var scale = Math.Clamp(zoom, 1, 64);
+        var width = checked(source.Width * scale);
+        var height = checked(source.Height * scale);
+        var output = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(output);
+        graphics.Clear(Color.Transparent);
+        DrawItemIconChecker(graphics, new Rectangle(0, 0, width, height), Math.Max(4, scale * 2));
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                var pixel = source.GetPixel(x, y);
+                if (pixel.A == 0) continue;
+                using var brush = new SolidBrush(pixel);
+                graphics.FillRectangle(brush, x * scale, y * scale, scale, scale);
+            }
+        }
+
+        return output;
+    }
+
+    private static void DrawItemIconChecker(Graphics graphics, Rectangle rect, int size)
+    {
+        using var light = new SolidBrush(Color.FromArgb(230, 230, 230));
+        using var dark = new SolidBrush(Color.FromArgb(190, 190, 190));
+        for (var y = rect.Top; y < rect.Bottom; y += size)
+        {
+            for (var x = rect.Left; x < rect.Right; x += size)
+            {
+                var even = ((x / size) + (y / size)) % 2 == 0;
+                graphics.FillRectangle(even ? light : dark, x, y, size, size);
+            }
+        }
+    }
+
+    private static void DisposeItemIconPreviewResultBitmaps(ItemIconPreviewResult result)
+    {
+        var bitmap = result.Bitmap;
+        var native = result.NativeBitmap;
+        var small = result.SmallBitmap;
+        var large = result.LargeBitmap;
+
+        bitmap?.Dispose();
+        if (!ReferenceEquals(native, bitmap)) native?.Dispose();
+        if (!ReferenceEquals(small, bitmap) && !ReferenceEquals(small, native)) small?.Dispose();
+        if (!ReferenceEquals(large, bitmap) && !ReferenceEquals(large, native) && !ReferenceEquals(large, small)) large?.Dispose();
     }
 
     private void BatchImportSelectedItemIcons()
@@ -5021,6 +5378,18 @@ public sealed partial class MainForm
         }
 
         var selectedRows = GetSelectedItemRowsForIconImport();
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在宝物表中选中要导入图标的行。", "批量导入宝物图标", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (UseAlignedBatchImageImportDialogs())
+        {
+            BatchImportSelectedItemIconsAligned(selectedRows);
+            return;
+        }
+
         if (selectedRows.Count == 0)
         {
             MessageBox.Show(this, "请先在宝物表中选中要导入图标的行。", "批量导入宝物图标", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -5072,6 +5441,7 @@ public sealed partial class MainForm
 
         var previewText = BuildBatchItemIconImportPreviewText(preview);
         _itemIconPreviewInfoBox.Text = previewText;
+        _itemEditorInfoBox.Text = previewText;
         if (!preview.CanWrite)
         {
             MessageBox.Show(this, previewText, "宝物图标批量导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -5095,6 +5465,90 @@ public sealed partial class MainForm
             _itemIconPreviewService.ClearCache();
             ShowSelectedItemEditorCell();
             _itemIconPreviewInfoBox.Text = BuildBatchItemIconImportResultText(result);
+            _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
+            SetStatus($"宝物图标批量导入完成：{result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch item icon import failed: " + ex);
+            MessageBox.Show(this, ex.Message, "宝物图标批量导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void BatchImportSelectedItemIconsAligned(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        if (_project == null) return;
+
+        var sourceSelection = SelectBatchImageImportSources("选择要导入到所选宝物图标的图片或导出根目录");
+        if (sourceSelection == null) return;
+
+        BatchItemIconImportRequest request;
+        try
+        {
+            request = new BatchItemIconImportRequest
+            {
+                SourceFiles = sourceSelection.SourceFiles,
+                SourceRoot = sourceSelection.SourceRoot,
+                TargetRows = BuildItemIconImportTargetRows(selectedRows),
+                MatchMode = "auto",
+                WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+            };
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "批量导入宝物图标", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        BatchItemIconImportPreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchItemIconImportService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch item icon import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "宝物图标批量导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchItemIconImportPreviewText(preview);
+        _itemIconPreviewInfoBox.Text = previewText;
+        _itemEditorInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "宝物图标批量导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(
+                this,
+                previewText + "\r\n\r\n确认后会批量写入目标图标资源，并自动备份；不会修改宝物表“图标”字段。是否继续？",
+                "确认批量导入宝物图标",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchItemIconImportService.Replace(_project, request);
+            _imageResourceCatalogService.ClearCache();
+            _itemIconPreviewService.ClearCache();
+            ShowSelectedItemEditorCell();
+            _itemIconPreviewInfoBox.Text = BuildBatchItemIconImportResultText(result);
+            _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
             SetStatus($"宝物图标批量导入完成：{result.TotalOperationCount} 条");
         }
         catch (Exception ex)
@@ -5110,14 +5564,20 @@ public sealed partial class MainForm
 
     private IReadOnlyList<DataGridViewRow> GetSelectedItemRowsForIconImport()
     {
-        return _itemEditorGrid.SelectedCells
+        var rows = _itemEditorGrid.SelectedCells
             .Cast<DataGridViewCell>()
             .Where(cell => cell.RowIndex >= 0)
             .Select(cell => _itemEditorGrid.Rows[cell.RowIndex])
             .Where(row => !row.IsNewRow)
             .Distinct()
             .OrderBy(row => row.Index)
-            .ToArray();
+            .ToList();
+        if (rows.Count == 0 && _itemEditorGrid.CurrentRow is { IsNewRow: false } current)
+        {
+            rows.Add(current);
+        }
+
+        return rows;
     }
 
     private static IReadOnlyList<BatchItemIconTargetRow> BuildItemIconImportTargetRows(IReadOnlyList<DataGridViewRow> selectedRows)
@@ -5163,6 +5623,10 @@ public sealed partial class MainForm
                 ? string.Join("/", item.TargetImageNumbers.Select(number => "#" + number.ToString(CultureInfo.InvariantCulture)))
                 : "RT_BITMAP " + string.Join("/", item.ResourceIds);
             builder.AppendLine($"- ID={item.RowId} {item.DisplayName} -> 图标#{item.IconIndex} {target} <- {Path.GetFileName(item.SourcePath)}");
+            if (!string.IsNullOrWhiteSpace(item.NormalizeSummary))
+            {
+                builder.AppendLine($"  normalize: {item.NormalizeSummary}");
+            }
         }
 
         AppendBatchSkippedAndWarnings(builder, preview.SkippedItems, preview.Warnings);
@@ -5258,7 +5722,8 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveItemEditorData(_project, _currentItemEditorData);
-            LoadItemEditor();
+            AcceptSavedDataTable(_currentItemEditorData, RefreshItemEditorRowStyles);
+            ShowSelectedItemEditorCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存宝物设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("宝物设定备份：" + save.BackupPath);
@@ -5282,7 +5747,7 @@ public sealed partial class MainForm
 
     private IReadOnlyList<TableSaveResult> SaveItemEditorData(CczProject project, DataTable itemData)
     {
-        if (_itemBaseLowRead == null || _itemBaseHighRead == null || _itemDescriptionLowRead == null || _itemDescriptionHighRead == null)
+        if (_itemBaseLowRead == null || _itemBaseHighRead == null)
         {
             return Array.Empty<TableSaveResult>();
         }
@@ -5294,7 +5759,6 @@ public sealed partial class MainForm
             var baseRead = id <= 103 ? _itemBaseLowRead : _itemBaseHighRead;
             var descriptionRead = id <= 103 ? _itemDescriptionLowRead : _itemDescriptionHighRead;
             var baseRow = FindRowById(baseRead.Data, id);
-            var descriptionRow = FindRowById(descriptionRead.Data, id);
 
             foreach (DataColumn column in baseRead.Data.Columns)
             {
@@ -5302,14 +5766,29 @@ public sealed partial class MainForm
                 if (!itemData.Columns.Contains(column.ColumnName) || !IsRoleColumnChanged(itemRow, column.ColumnName)) continue;
                 baseRow[column.ColumnName] = itemRow[column.ColumnName, DataRowVersion.Current];
             }
-            if (IsRoleColumnChanged(itemRow, "介绍")) descriptionRow["介绍"] = itemRow["介绍", DataRowVersion.Current];
+
+            if (IsRoleColumnChanged(itemRow, ItemDescriptionColumnName))
+            {
+                if (!IsItemDescriptionReadUsable(descriptionRead))
+                {
+                    throw new InvalidOperationException("当前项目的物品说明表不可写：Imsg.e5 中没有匹配当前 HexTable 布局的物品说明块。基础物品字段仍可保存，请不要向文件尾追加标准 6.5 说明表。");
+                }
+
+                if (!descriptionRead!.Data.Columns.Contains(ItemDescriptionColumnName))
+                {
+                    throw new InvalidOperationException("当前物品说明表缺少“介绍”列，无法写回说明文本。");
+                }
+
+                var descriptionRow = FindRowById(descriptionRead.Data, id);
+                descriptionRow[ItemDescriptionColumnName] = itemRow[ItemDescriptionColumnName, DataRowVersion.Current];
+            }
         }
 
         var saves = new List<TableSaveResult>();
-        if (_itemBaseLowRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _itemBaseLowRead.Table, _itemBaseLowRead.Data));
-        if (_itemBaseHighRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _itemBaseHighRead.Table, _itemBaseHighRead.Data));
-        if (_itemDescriptionLowRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _itemDescriptionLowRead.Table, _itemDescriptionLowRead.Data));
-        if (_itemDescriptionHighRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _itemDescriptionHighRead.Table, _itemDescriptionHighRead.Data));
+        if (SaveChangedTableAndVerify(_itemBaseLowRead) is { } lowSave) saves.Add(lowSave);
+        if (SaveChangedTableAndVerify(_itemBaseHighRead) is { } highSave) saves.Add(highSave);
+        if (IsItemDescriptionReadUsable(_itemDescriptionLowRead) && SaveChangedTableAndVerify(_itemDescriptionLowRead!) is { } descriptionLowSave) saves.Add(descriptionLowSave);
+        if (IsItemDescriptionReadUsable(_itemDescriptionHighRead) && SaveChangedTableAndVerify(_itemDescriptionHighRead!) is { } descriptionHighSave) saves.Add(descriptionHighSave);
         return saves;
     }
 
@@ -6158,7 +6637,8 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveShopEditorData(_project, _currentShopEditorData);
-            LoadShopEditor();
+            AcceptSavedDataTable(_currentShopEditorData, RefreshShopEditorRowStyles);
+            ShowSelectedShopEditorCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存商店编辑：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("商店编辑备份：" + save.BackupPath);
@@ -6205,8 +6685,8 @@ public sealed partial class MainForm
         }
 
         var saves = new List<TableSaveResult>();
-        if (_shopCampaignNameRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _shopCampaignNameRead.Table, _shopCampaignNameRead.Data));
-        if (_shopDataRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _shopDataRead.Table, _shopDataRead.Data));
+        if (SaveChangedTableAndVerify(_shopCampaignNameRead) is { } campaignSave) saves.Add(campaignSave);
+        if (SaveChangedTableAndVerify(_shopDataRead) is { } shopSave) saves.Add(shopSave);
         return saves;
     }
 
@@ -6517,7 +6997,8 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveJobTerrainEditorData(_project, _currentJobTerrainData);
-            LoadJobTerrainEditor();
+            AcceptSavedDataTable(_currentJobTerrainData, RefreshJobTerrainRowStyles);
+            ShowSelectedJobTerrainCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种系/地形：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种系/地形备份：" + save.BackupPath);
@@ -6567,9 +7048,9 @@ public sealed partial class MainForm
         }
 
         var saves = new List<TableSaveResult>();
-        if (_jobSeriesRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobSeriesRead.Table, _jobSeriesRead.Data));
-        if (_jobTerrainPowerRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobTerrainPowerRead.Table, _jobTerrainPowerRead.Data));
-        if (_jobMoveCostRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobMoveCostRead.Table, _jobMoveCostRead.Data));
+        if (SaveChangedTableAndVerify(_jobSeriesRead) is { } seriesSave) saves.Add(seriesSave);
+        if (SaveChangedTableAndVerify(_jobTerrainPowerRead) is { } powerSave) saves.Add(powerSave);
+        if (SaveChangedTableAndVerify(_jobMoveCostRead) is { } moveSave) saves.Add(moveSave);
         return saves;
     }
 
@@ -6578,6 +7059,7 @@ public sealed partial class MainForm
         if (_project == null) return;
         _importJobStrategyIconButton.Enabled = false;
         _editJobStrategyIconButton.Enabled = false;
+        _exportJobStrategyIconBmpButton.Enabled = false;
         if (_tables.Count == 0)
         {
             ReloadCurrentProject();
@@ -6594,6 +7076,7 @@ public sealed partial class MainForm
             _saveJobStrategyEditorButton.Enabled = true;
             _importJobStrategyIconButton.Enabled = true;
             _editJobStrategyIconButton.Enabled = true;
+            _exportJobStrategyIconBmpButton.Enabled = true;
             _jobStrategyEditorInfoBox.Text = BuildJobStrategySummary(_currentJobStrategyData);
             ShowSelectedJobStrategyCell();
             SetStatus($"兵种策略读取完成：{_currentJobStrategyData.Rows.Count} 个策略");
@@ -7349,7 +7832,8 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);
-            LoadJobStrategyEditor();
+            AcceptSavedDataTable(_currentJobStrategyData, RefreshJobStrategyRowStyles);
+            ShowSelectedJobStrategyCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种策略：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种策略备份：" + save.BackupPath);
@@ -7389,6 +7873,12 @@ public sealed partial class MainForm
         if (selectedRows.Count == 0)
         {
             MessageBox.Show(this, "请先在兵种策略表中选中要导入图标的策略行。", "导入策略图标", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (UseAlignedBatchImageImportDialogs())
+        {
+            ImportSelectedJobStrategyIconsAligned(selectedRows);
             return;
         }
 
@@ -7492,6 +7982,174 @@ public sealed partial class MainForm
         }
     }
 
+    private void ImportSelectedJobStrategyIconsAligned(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        if (_project == null) return;
+
+        var sourceSelection = SelectBatchImageImportSources("选择要导入到所选策略图标的图片或导出根目录");
+        if (sourceSelection == null) return;
+
+        BatchStrategyIconImportRequest request;
+        try
+        {
+            request = new BatchStrategyIconImportRequest
+            {
+                SourceFiles = sourceSelection.SourceFiles,
+                SourceRoot = sourceSelection.SourceRoot,
+                TargetRows = BuildJobStrategyIconImportTargetRows(selectedRows),
+                MatchMode = "auto",
+                WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+            };
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "导入策略图标", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        BatchStrategyIconImportPreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _batchStrategyIconImportService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch strategy icon import preview failed: " + ex);
+            MessageBox.Show(this, ex.Message, "策略图标导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildBatchStrategyIconImportPreviewText(preview);
+        _jobStrategyPreviewInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "策略图标导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(
+                this,
+                previewText + "\r\n\r\n确认后会批量写入目标策略图标资源，并自动备份；不会修改兵种策略表字段。是否继续？",
+                "确认导入策略图标",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _batchStrategyIconImportService.Replace(_project, request);
+            _imageResourceCatalogService.ClearCache();
+            _itemIconPreviewService.ClearCache();
+            ShowSelectedJobStrategyCell();
+            _jobStrategyPreviewInfoBox.Text = BuildBatchStrategyIconImportResultText(result);
+            SetStatus($"策略图标导入完成：{result.TotalOperationCount} 个");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch strategy icon import failed: " + ex);
+            MessageBox.Show(this, ex.Message, "策略图标导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private static IReadOnlyList<BatchStrategyIconTargetRow> BuildJobStrategyIconImportTargetRows(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        var targets = new List<BatchStrategyIconTargetRow>();
+        foreach (var row in selectedRows)
+        {
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为兵种策略数据行。");
+            var strategyId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+            var strategyName = Convert.ToString(dataRow["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+            if (!TryConvertToInt(dataRow["策略图标"], out var iconIndex))
+            {
+                throw new InvalidOperationException($"策略 ID={strategyId} 的“策略图标”字段不是有效整数。");
+            }
+
+            targets.Add(new BatchStrategyIconTargetRow(strategyId, strategyName, iconIndex));
+        }
+
+        var duplicateIcon = targets.GroupBy(target => target.IconIndex).FirstOrDefault(group => group.Count() > 1);
+        if (duplicateIcon != null)
+        {
+            var ids = string.Join(", ", duplicateIcon.Select(target => target.RowId.ToString(CultureInfo.InvariantCulture)));
+            throw new InvalidOperationException($"选中策略中有多个策略指向同一图标编号 {duplicateIcon.Key}: {ids}。请调整选择或策略图标字段。");
+        }
+
+        return targets;
+    }
+
+    private static string BuildBatchStrategyIconImportPreviewText(BatchStrategyIconImportPreviewResult preview)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("策略图标批量导入预览");
+        builder.AppendLine($"目标：{preview.TargetRelativePath}");
+        builder.AppendLine($"资源类型：{preview.ResourceKind}");
+        builder.AppendLine($"可写入：{preview.Items.Count}");
+        foreach (var item in preview.Items.Take(30))
+        {
+            var target = item.TargetImageNumbers.Count > 0
+                ? $"E5 #{string.Join("/", item.TargetImageNumbers)}"
+                : $"RT_BITMAP {string.Join("/", item.ResourceIds)}";
+            builder.AppendLine($"- 策略 {item.RowId:D2} {item.DisplayName} -> 图标#{item.IconIndex} {target} <- {Path.GetFileName(item.SourcePath)}");
+        }
+
+        AppendBatchImageImportIssues(builder, preview.SkippedItems, preview.Warnings);
+        return builder.ToString();
+    }
+
+    private static string BuildBatchStrategyIconImportResultText(BatchStrategyIconImportResult result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("策略图标批量导入完成");
+        builder.AppendLine($"目标：{result.TargetRelativePath}");
+        builder.AppendLine($"资源类型：{result.ResourceKind}");
+        builder.AppendLine($"写入：{result.TotalOperationCount}");
+        foreach (var item in result.Items.Take(30))
+        {
+            builder.AppendLine($"- 策略 {item.RowId:D2} {item.DisplayName} -> 图标#{item.IconIndex} <- {Path.GetFileName(item.SourcePath)}");
+        }
+
+        AppendBatchImageImportIssues(builder, result.SkippedItems, result.Warnings);
+        return builder.ToString();
+    }
+
+    private static void AppendBatchImageImportIssues(
+        StringBuilder builder,
+        IReadOnlyList<BatchImageImportSkippedItem> skipped,
+        IReadOnlyList<string> warnings)
+    {
+        if (skipped.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("跳过：");
+            foreach (var item in skipped.Take(20))
+            {
+                builder.AppendLine($"- {item.Key} {item.SourcePath}: {item.Reason}");
+            }
+        }
+
+        if (warnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("提示：");
+            foreach (var warning in warnings.Take(20))
+            {
+                builder.AppendLine("- " + warning);
+            }
+        }
+    }
+
     private void ImportSelectedJobStrategyIconsToE5(IReadOnlyList<JobStrategyIconImportTarget> targets, string targetPath)
     {
         var requests = targets.Select(target => new E5ImageBatchReplaceRequest
@@ -7554,14 +8212,20 @@ public sealed partial class MainForm
 
     private IReadOnlyList<DataGridViewRow> GetSelectedJobStrategyRowsForIconImport()
     {
-        return _jobStrategyEditorGrid.SelectedCells
+        var rows = _jobStrategyEditorGrid.SelectedCells
             .Cast<DataGridViewCell>()
             .Where(cell => cell.RowIndex >= 0)
             .Select(cell => _jobStrategyEditorGrid.Rows[cell.RowIndex])
             .Where(row => !row.IsNewRow)
             .Distinct()
             .OrderBy(row => row.Index)
-            .ToArray();
+            .ToList();
+        if (rows.Count == 0 && _jobStrategyEditorGrid.CurrentRow is { IsNewRow: false } current)
+        {
+            rows.Add(current);
+        }
+
+        return rows;
     }
 
     private static IReadOnlyList<JobStrategyIconImportTarget> BuildJobStrategyIconImportTargets(
@@ -7739,11 +8403,11 @@ public sealed partial class MainForm
         }
 
         var saves = new List<TableSaveResult>();
-        if (_jobStrategyRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobStrategyRead.Table, _jobStrategyRead.Data));
+        if (SaveChangedTableAndVerify(_jobStrategyRead) is { } strategySave) saves.Add(strategySave);
         foreach (var companion in JobStrategyCompanionColumns)
         {
             var read = _jobStrategyCompanionReads[companion.ColumnName];
-            if (read.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, read.Table, read.Data));
+            if (SaveChangedTableAndVerify(read) is { } companionSave) saves.Add(companionSave);
         }
 
         return saves;
@@ -7936,11 +8600,12 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = new List<TableSaveResult>();
-            if (_jobRestraintRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(_project, _jobRestraintRead.Table, _jobRestraintRead.Data));
-            LoadJobMatrixEditor();
+            if (SaveChangedTableAndVerify(_jobRestraintRead) is { } matrixSave) saves.Add(matrixSave);
+            RefreshJobMatrixRowStyles(_jobRestraintGrid);
+            ShowSelectedJobMatrixCell(_jobRestraintGrid, "鍏电鐩稿厠鐭╅樀");
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种相克矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种矩阵备份：" + save.BackupPath);
+            foreach (var savedTable in saves) System.Diagnostics.Debug.WriteLine("兵种矩阵备份：" + savedTable.BackupPath);
             SetStatus($"兵种矩阵保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
@@ -8264,7 +8929,8 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveJobEffectEditorData(_project, _currentJobEffectData);
-            LoadJobEffectEditor();
+            AcceptSavedDataTable(_currentJobEffectData, RefreshJobEffectRowStyles);
+            ShowSelectedJobEffectCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种特效：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种特效备份：" + save.BackupPath);
@@ -8304,8 +8970,8 @@ public sealed partial class MainForm
         }
 
         var saves = new List<TableSaveResult>();
-        if (_jobEffectDescriptionRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobEffectDescriptionRead.Table, _jobEffectDescriptionRead.Data));
-        if (_jobEffectAssignmentRead.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, _jobEffectAssignmentRead.Table, _jobEffectAssignmentRead.Data));
+        if (SaveChangedTableAndVerify(_jobEffectDescriptionRead) is { } descriptionSave) saves.Add(descriptionSave);
+        if (SaveChangedTableAndVerify(_jobEffectAssignmentRead) is { } assignmentSave) saves.Add(assignmentSave);
         return saves;
     }
 }

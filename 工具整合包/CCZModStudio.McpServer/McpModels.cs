@@ -72,6 +72,45 @@ public sealed class BatchItemIconTargetRowUpdate
     public int IconIndex { get; init; }
 }
 
+public sealed class BatchStrategyIconTargetRowUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("display_name")]
+    public string DisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("icon_index")]
+    public int IconIndex { get; init; }
+}
+
+public sealed class BatchRoleFaceTargetRowUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("display_name")]
+    public string DisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("face_id")]
+    public int FaceId { get; init; }
+}
+
+public sealed class BmpExportTargetUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("display_name")]
+    public string DisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("field_value")]
+    public int FieldValue { get; init; }
+
+    [JsonPropertyName("job_id")]
+    public int? JobId { get; init; }
+}
+
 public sealed class BattlefieldUnitStatusUpdate
 {
     [JsonPropertyName("target_key")]

@@ -61,6 +61,10 @@ public sealed partial class CczMcpRuntime
     private readonly BatchRImageReplaceService _batchRImageReplaceService = new();
     private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
     private readonly BatchItemIconImportService _batchItemIconImportService = new();
+    private readonly BatchStrategyIconImportService _batchStrategyIconImportService = new();
+    private readonly BatchRoleFaceImportService _batchRoleFaceImportService = new();
+    private readonly BatchJobSImageReplaceService _batchJobSImageReplaceService = new();
+    private readonly BmpImageExportService _bmpImageExportService = new();
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly ResourceReplaceService _resourceReplace = new();
     private readonly BackupManager _backupManager = new();
@@ -302,6 +306,11 @@ public sealed partial class CczMcpRuntime
         return paths.Select(path => ResolveExternalFile(project, path)).ToArray();
     }
 
+    private static IReadOnlyList<string> ResolveOptionalExternalFiles(CczProject project, IReadOnlyList<string>? paths)
+        => paths == null || paths.Count == 0
+            ? Array.Empty<string>()
+            : paths.Select(path => ResolveExternalFile(project, path)).ToArray();
+
     private static string ResolveExternalDirectory(CczProject project, string path)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("material_folder is required.");
@@ -321,6 +330,18 @@ public sealed partial class CczMcpRuntime
         var found = candidates.FirstOrDefault(Directory.Exists);
         if (found == null) throw new DirectoryNotFoundException("Material folder was not found: " + candidates.First());
         return found;
+    }
+
+    private static string ResolveOptionalExternalDirectory(CczProject project, string? path)
+        => string.IsNullOrWhiteSpace(path) ? string.Empty : ResolveExternalDirectory(project, path);
+
+    private static string ResolveExternalOutputDirectory(CczProject project, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("output_root is required.");
+        var normalized = path.Replace('/', Path.DirectorySeparatorChar);
+        return Path.GetFullPath(Path.IsPathRooted(normalized)
+            ? normalized
+            : Path.Combine(project.WorkspaceRoot, normalized));
     }
 
     private static string ResolveDllIconTarget(CczProject project, string targetRelativePath)

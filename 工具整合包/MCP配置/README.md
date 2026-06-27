@@ -194,9 +194,10 @@ Claude Desktop 可使用同形态 JSON：
 - R/S 结构写回：`compile_scenario_patch`、`preview_scenario_patch`、`apply_scenario_patch`、`apply_scenario_patch_aggressive`、`parse_scenario_text_import`、`apply_scenario_text_import`、`read_scenario_text_import_template`、`read_rscene_draft`、`save_rscene_draft`、`publish_rscene_draft_to_scenario`
 - 地图和资源：`list_hexzmap_blocks`、`read_hexzmap_block`、`write_hexzmap_block`、`preview_map_image`、`replace_map_image`、`preview_resource_replace`、`replace_resource`
 - 地图工作台：`list_map_drafts`、`read_map_draft`、`save_map_draft`、`preview_map_canvas`、`export_map_canvas_jpeg`、`publish_map_canvas_to_map_image`、`publish_map_workbench_bundle`
-- 图片资源目录/预览：`list_image_resources`、`list_image_resource_entries`、`export_image_resource_preview`
+- 图片资源目录/预览/BMP 导出：`list_image_resources`、`list_image_resource_entries`、`export_image_resource_preview`、`export_bmp_assets`
 - AI 绘图素材：`list_ccz_image_asset_presets`、`build_ccz_image_prompt`、`prepare_ccz_generated_image`、`draw_ccz_image_asset`、`draw_and_replace_ccz_image_asset`
 - E5 图片条目：`list_e5_image_entries`、`preview_e5_image_replace`、`replace_e5_image_entry`、`preview_e5_image_batch_replace`、`replace_e5_image_batch`
+- R/S/头像/图标批量素材：`preview_r_image_raw_batch_replace`、`replace_r_image_raw_batch`、`preview_s_image_raw_batch_replace`、`replace_s_image_raw_batch`、`preview_job_s_image_raw_batch_replace`、`replace_job_s_image_raw_batch_replace`、`preview_role_face_batch_import`、`replace_role_face_batch_import`、`preview_item_icon_batch_import`、`replace_item_icon_batch_import`、`preview_strategy_icon_batch_import`、`replace_strategy_icon_batch_import`
 - DLL 图标：`preview_dll_icon_replace`、`replace_dll_icon`、`preview_clear_dll_icon`、`clear_dll_icon`
 - x32dbg/x64dbg 动态调试（独立 MCP）：断点、寄存器、内存、反汇编、搜索、trace 和调试命令；不替代 CCZModStudio 的写入护栏。
 
@@ -263,7 +264,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置
 Expected output:
 
 ```text
-GAME_DEBUG_MCP_VALIDATE_OK server=CCZModStudio.GameDebugMcpServer protocol=2025-06-18 tools=39
+GAME_DEBUG_MCP_VALIDATE_OK server=CCZModStudio.GameDebugMcpServer protocol=2025-06-18 tools=65
 GAME_DEBUG_MCP_STATE_OK contentItems=1
 GAME_DEBUG_MCP_PROCESS_START_OK dryRun=True started=False
 GAME_DEBUG_MCP_XREF_OK targets=5 candidates=22

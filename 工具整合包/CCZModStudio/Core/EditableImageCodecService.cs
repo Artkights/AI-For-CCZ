@@ -13,14 +13,18 @@ public sealed class EditableImageCodecService
     private readonly E5ImageReplaceService _e5 = new();
     private readonly E5RawImageCodec _raw = new();
     private readonly IconResourceReplaceService _icons = new();
+    private readonly ItemIconRasterNormalizeService _itemIconNormalizer = new();
+    private readonly DllBitmapIconCodecService _dllIconCodec = new();
 
     public EditableImageDocument Load(CczProject project, EditableImageTarget target)
     {
         var effectiveKind = ResolveEffectiveKind(target);
+        var loadNote = string.Empty;
         var bitmap = effectiveKind switch
         {
             EditableImageTargetKind.DllBitmapIcon => LoadDllBitmap(target),
             EditableImageTargetKind.E5RawStrip => LoadRawStrip(project, target),
+            _ when target.IsItemIconPair => LoadItemIconPair(target, out loadNote),
             _ => LoadStandardE5(target)
         };
         var palettePath = string.Empty;
@@ -28,6 +32,10 @@ public sealed class EditableImageCodecService
         if (effectiveKind == EditableImageTargetKind.E5RawStrip)
         {
             rawPalette = LoadRawPalette(project, out palettePath);
+        }
+        else if (effectiveKind == EditableImageTargetKind.DllBitmapIcon)
+        {
+            rawPalette = LoadDllIconPalette(target, out palettePath);
         }
 
         if (rawPalette.Count < 256) palettePath = string.Empty;
@@ -40,9 +48,11 @@ public sealed class EditableImageCodecService
             OriginalBitmap = CloneArgb(bitmap),
             Palette = rawPalette,
             PalettePath = palettePath,
+            RestrictToPalette = effectiveKind == EditableImageTargetKind.DllBitmapIcon && rawPalette.Count > 0,
+            PaletteRole = effectiveKind == EditableImageTargetKind.DllBitmapIcon ? "Itemicon.dll storage palette" : string.Empty,
             FrameWidth = effectiveKind == EditableImageTargetKind.E5RawStrip ? target.FrameWidth : null,
             FrameHeight = effectiveKind == EditableImageTargetKind.E5RawStrip ? target.FrameHeight : null,
-            LoadDetail = BuildLoadDetail(effectiveTarget, bitmap)
+            LoadDetail = BuildLoadDetail(effectiveTarget, bitmap, loadNote)
         };
     }
 
@@ -51,10 +61,14 @@ public sealed class EditableImageCodecService
         target = CloneTargetWithKind(target, ResolveEffectiveKind(target));
         if (target.Kind == EditableImageTargetKind.DllBitmapIcon)
         {
+            var palette = LoadDllIconPalette(target, out _);
+            using var writeBitmap = palette.Count > 0
+                ? DllBitmapIconCodecService.QuantizeBitmapToPalette(bitmap, palette)
+                : new Bitmap(bitmap);
             var request = new IconResourceBitmapReplaceRequest
             {
                 IconIndex = target.IconIndex,
-                Bitmap = bitmap,
+                Bitmap = writeBitmap,
                 SourceLabel = target.DisplayName,
                 OperationKind = target.OperationKind
             };
@@ -65,6 +79,22 @@ public sealed class EditableImageCodecService
                 Summary = $"DLL 图标像素编辑预览：{preview.TargetRelativePath} #{target.IconIndex}",
                 Warnings = preview.FormatWarnings,
                 DllPreview = preview
+            };
+        }
+
+        if (target.IsItemIconPair)
+        {
+            var pair = _itemIconNormalizer.NormalizePair(bitmap, target.DisplayName);
+            var e5Requests = BuildItemIconPairRequests(target, pair);
+            var pairPreview = _e5.PreviewBatchReplacement(project, target.TargetPath, e5Requests);
+            var smallNumber = e5Requests[0].ImageNumber;
+            var largeNumber = e5Requests[1].ImageNumber;
+            return new EditableImageWritePreview
+            {
+                TargetRelativePath = pairPreview.TargetRelativePath,
+                Summary = $"E5 item icon pair pixel editor preview: {pairPreview.TargetRelativePath} small #{smallNumber} / large #{largeNumber}",
+                Warnings = pairPreview.FormatWarnings,
+                E5Preview = pairPreview
             };
         }
 
@@ -92,10 +122,14 @@ public sealed class EditableImageCodecService
         target = CloneTargetWithKind(target, ResolveEffectiveKind(target));
         if (target.Kind == EditableImageTargetKind.DllBitmapIcon)
         {
+            var palette = LoadDllIconPalette(target, out _);
+            using var writeBitmap = palette.Count > 0
+                ? DllBitmapIconCodecService.QuantizeBitmapToPalette(bitmap, palette)
+                : new Bitmap(bitmap);
             var request = new IconResourceBitmapReplaceRequest
             {
                 IconIndex = target.IconIndex,
-                Bitmap = bitmap,
+                Bitmap = writeBitmap,
                 SourceLabel = target.DisplayName,
                 OperationKind = target.OperationKind
             };
@@ -107,6 +141,23 @@ public sealed class EditableImageCodecService
                 BackupPath = result.BackupPath,
                 ReportPath = result.ReportJsonPath,
                 DllResult = result
+            };
+        }
+
+        if (target.IsItemIconPair)
+        {
+            var pair = _itemIconNormalizer.NormalizePair(bitmap, target.DisplayName);
+            var e5Requests = BuildItemIconPairRequests(target, pair);
+            var pairResult = _e5.ReplaceBatch(project, target.TargetPath, e5Requests);
+            var smallNumber = e5Requests[0].ImageNumber;
+            var largeNumber = e5Requests[1].ImageNumber;
+            return new EditableImageWriteResult
+            {
+                TargetRelativePath = pairResult.TargetRelativePath,
+                Summary = $"E5 item icon pair pixel editor writeback complete: {pairResult.TargetRelativePath} small #{smallNumber} / large #{largeNumber}",
+                BackupPath = pairResult.BackupPath,
+                ReportPath = pairResult.ReportJsonPath,
+                E5Result = pairResult
             };
         }
 
@@ -138,6 +189,28 @@ public sealed class EditableImageCodecService
         var bitmap = CloneArgb(raw);
         ApplyMagentaTransparency(bitmap);
         return bitmap;
+    }
+
+    private Bitmap LoadItemIconPair(EditableImageTarget target, out string loadNote)
+    {
+        var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
+        var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
+        var bytes = _e5.ReadEntryBytes(target.TargetPath, largeNumber);
+        var decoded = ItemIconRasterNormalizeService.DecodeGameIconBmp(bytes);
+        if (decoded.Width == ItemIconRasterNormalizeService.LargeIconSize &&
+            decoded.Height == ItemIconRasterNormalizeService.LargeIconSize)
+        {
+            loadNote = $"Item.e5 pair edit: large #{largeNumber} is 32x32; save writes small #{smallNumber} and large #{largeNumber}.";
+            return decoded;
+        }
+
+        var originalSize = $"{decoded.Width}x{decoded.Height}";
+        using (decoded)
+        {
+            var normalized = _itemIconNormalizer.NormalizeLargeBitmap(decoded);
+            loadNote = $"Item.e5 pair edit: large #{largeNumber} was {originalSize}; editor canvas normalized to 32x32; save writes small #{smallNumber} and large #{largeNumber}.";
+            return normalized;
+        }
     }
 
     private Bitmap LoadRawStrip(CczProject project, EditableImageTarget target)
@@ -174,11 +247,28 @@ public sealed class EditableImageCodecService
 
     private Bitmap LoadDllBitmap(EditableImageTarget target)
     {
-        var resources = ParseBitmapResources(target.TargetPath);
-        var pair = ResolveBitmapResourcePair(resources, target.IconIndex);
-        var selected = pair.OrderByDescending(x => x.Width * x.Height).FirstOrDefault()
+        var resources = _dllIconCodec.ParseBitmapResources(target.TargetPath);
+        var pair = _dllIconCodec.ResolveBitmapResourcePair(resources, target.IconIndex);
+        var selected = _dllIconCodec.SelectDisplayVariant(pair.LargeVariants)
+                       ?? _dllIconCodec.SelectDisplayVariant(pair.SmallVariants)
                        ?? throw new InvalidOperationException($"图标编号 {target.IconIndex} 没有可编辑的 RT_BITMAP 资源。");
-        return DecodeDib(selected.DibBytes) ?? throw new InvalidOperationException("DLL 图标 DIB 无法解码。");
+        using var decoded = DllBitmapIconCodecService.DecodeStorageDib(selected.DibBytes)
+                            ?? throw new InvalidOperationException("DLL 图标 DIB 无法解码。");
+        if (decoded.Bitmap.Width == DllBitmapIconCodecService.LargeIconSize &&
+            decoded.Bitmap.Height == DllBitmapIconCodecService.LargeIconSize)
+        {
+            return new Bitmap(decoded.Bitmap);
+        }
+
+        return _dllIconCodec.NormalizeLargeBitmap(decoded.Bitmap);
+    }
+
+    private IReadOnlyList<Color> LoadDllIconPalette(EditableImageTarget target, out string palettePath)
+    {
+        palettePath = target.TargetPath;
+        var resources = _dllIconCodec.ParseBitmapResources(target.TargetPath);
+        var pair = _dllIconCodec.ResolveBitmapResourcePair(resources, target.IconIndex);
+        return _dllIconCodec.ResolveStoragePalette(resources, pair);
     }
 
     private byte[] BuildE5SourceBytes(CczProject project, EditableImageTarget target, Bitmap bitmap, out IReadOnlyList<string> warnings)
@@ -197,11 +287,40 @@ public sealed class EditableImageCodecService
         return memory.ToArray();
     }
 
-    private static string BuildLoadDetail(EditableImageTarget target, Bitmap bitmap)
+    private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildItemIconPairRequests(
+        EditableImageTarget target,
+        ItemIconRasterPair pair)
+    {
+        var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
+        var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
+        return
+        [
+            new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = smallNumber,
+                SourceBytes = pair.Small.BmpBytes,
+                SourceLabel = $"{target.DisplayName} (normalized small 16x16)",
+                OperationKind = "item icon pixel edit small normalized"
+            },
+            new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = largeNumber,
+                SourceBytes = pair.Large.BmpBytes,
+                SourceLabel = $"{target.DisplayName} (normalized large 32x32)",
+                OperationKind = "item icon pixel edit large normalized"
+            }
+        ];
+    }
+
+    private static string BuildLoadDetail(EditableImageTarget target, Bitmap bitmap, string loadNote = "")
     {
         var frame = target.FrameWidth.HasValue && target.FrameHeight.HasValue
             ? $"；帧 {target.FrameWidth}x{target.FrameHeight}"
             : string.Empty;
+        if (!string.IsNullOrWhiteSpace(loadNote))
+        {
+            frame += "; " + loadNote;
+        }
         return $"{target.DisplayName}；画布 {bitmap.Width}x{bitmap.Height}{frame}";
     }
 
@@ -250,6 +369,9 @@ public sealed class EditableImageCodecService
             ResourceFormat = target.ResourceFormat,
             FrameWidth = kind == EditableImageTargetKind.E5RawStrip ? target.FrameWidth : null,
             FrameHeight = kind == EditableImageTargetKind.E5RawStrip ? target.FrameHeight : null,
+            IsItemIconPair = target.IsItemIconPair,
+            SmallImageNumber = target.SmallImageNumber,
+            LargeImageNumber = target.LargeImageNumber,
             OperationKind = target.OperationKind
         };
 
@@ -466,7 +588,14 @@ public sealed class EditableImageCodecService
     }
 
     internal static Bitmap? DecodeDibForSmoke(byte[] dibBytes)
-        => DecodeDib(dibBytes);
+    {
+        var decoded = DllBitmapIconCodecService.DecodeDib(dibBytes);
+        if (decoded == null) return null;
+        using (decoded)
+        {
+            return new Bitmap(decoded.Bitmap);
+        }
+    }
 
     private static Bitmap? DecodeGameBitmapDib(byte[] dibBytes, CczBitmapDibRowOrder rowOrder)
     {

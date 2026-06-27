@@ -627,8 +627,7 @@ public sealed class ProjectDetector
 
         var prefixes = new[]
         {
-            "老版游戏制作工具",
-            "鑰佺増娓告垙鍒朵綔宸ュ叿"
+            "老版游戏制作工具"
         };
 
         foreach (var prefix in prefixes)

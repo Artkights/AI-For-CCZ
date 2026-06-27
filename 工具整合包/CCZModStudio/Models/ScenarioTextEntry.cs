@@ -19,6 +19,11 @@ public sealed class ScenarioTextEntry
     public string RawPrefix { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
     public string OriginalText { get; set; } = string.Empty;
+    public string SourceKind { get; set; } = string.Empty;
+    public string EncodingName { get; set; } = string.Empty;
+    public string DecodeConfidence { get; set; } = string.Empty;
+    public string DecodeWarning { get; set; } = string.Empty;
+    public bool IsWritable { get; set; } = true;
     public string Annotation { get => _annotation; set => _annotation = HexDisplayFormatter.NormalizeText(value); }
     public int GbkByteCount => EncodingService.GetGbkByteCount(BuildWritableText(Text));
     public int RemainingBytes => ByteLength - GbkByteCount;
@@ -27,6 +32,7 @@ public sealed class ScenarioTextEntry
         get
         {
             if (string.Equals(Text, OriginalText, StringComparison.Ordinal)) return "未改动";
+            if (!IsWritable) return "只读";
             return RemainingBytes >= 0 ? $"可写回（余 {RemainingBytes}B）" : $"超长 {-RemainingBytes}B";
         }
     }

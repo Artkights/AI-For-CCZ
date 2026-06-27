@@ -18,5 +18,6 @@ public sealed class RSceneCommandCandidate
     public int? X { get; init; }
     public int? Y { get; init; }
     public int? BackgroundImageNumber { get; init; }
+    public RSceneBackgroundReference? BackgroundReference { get; init; }
     public string Annotation { get => _annotation; init => _annotation = CCZModStudio.Core.HexDisplayFormatter.NormalizeText(value); }
 }

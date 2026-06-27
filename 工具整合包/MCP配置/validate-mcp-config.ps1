@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 10000,
-    [int]$MinimumToolCount = 117
+    [int]$MinimumToolCount = 124
 )
 
 $ErrorActionPreference = "Stop"
@@ -185,6 +185,7 @@ try {
         "list_image_resources",
         "list_image_resource_entries",
         "export_image_resource_preview",
+        "export_bmp_assets",
         "list_ccz_image_asset_presets",
         "build_ccz_image_prompt",
         "prepare_ccz_generated_image",
@@ -199,8 +200,16 @@ try {
         "replace_r_image_raw",
         "preview_s_image_raw_replace",
         "replace_s_image_raw",
+        "preview_job_s_image_raw_batch_replace",
+        "replace_job_s_image_raw_batch_replace",
         "preview_e5_role_raw_normalize",
         "normalize_e5_role_raw",
+        "preview_item_icon_batch_import",
+        "replace_item_icon_batch_import",
+        "preview_strategy_icon_batch_import",
+        "replace_strategy_icon_batch_import",
+        "preview_role_face_batch_import",
+        "replace_role_face_batch_import",
         "preview_dll_icon_replace",
         "replace_dll_icon",
         "preview_clear_dll_icon",

@@ -99,6 +99,29 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    public object ExportBmpAssets(
+        string? gameRoot,
+        string kind,
+        string outputRoot,
+        List<BmpExportTargetUpdate>? targets,
+        bool? singleMode,
+        bool overwriteExisting,
+        int factionSlot)
+    {
+        var project = LoadProject(gameRoot);
+        var exportTargets = BuildBmpExportTargets(targets);
+        var request = new BmpExportRequest
+        {
+            Kind = ParseBmpExportKind(kind),
+            OutputRoot = ResolveExternalOutputDirectory(project, outputRoot),
+            SingleMode = singleMode ?? exportTargets.Count == 1,
+            OverwriteExisting = overwriteExisting,
+            FactionSlot = factionSlot,
+            Targets = exportTargets
+        };
+        return BuildBmpExportPayload(_bmpImageExportService.Export(project, request));
+    }
+
     public object PreviewRImageRawReplace(string? gameRoot, int rImageId, string materialFolder)
     {
         var project = LoadProject(gameRoot);
@@ -262,14 +285,16 @@ public sealed partial class CczMcpRuntime
 
     public object PreviewItemIconBatchImport(
         string? gameRoot,
-        List<string> sourceFiles,
+        List<string>? sourceFiles,
+        string? sourceRoot,
         List<BatchItemIconTargetRowUpdate>? targetRows,
         string? matchMode)
     {
         var project = LoadProject(gameRoot);
         var request = new BatchItemIconImportRequest
         {
-            SourceFiles = ResolveExternalFiles(project, sourceFiles),
+            SourceFiles = ResolveOptionalExternalFiles(project, sourceFiles),
+            SourceRoot = ResolveOptionalExternalDirectory(project, sourceRoot),
             TargetRows = BuildBatchItemIconTargetRows(targetRows),
             MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode
         };
@@ -278,7 +303,8 @@ public sealed partial class CczMcpRuntime
 
     public object ReplaceItemIconBatchImport(
         string? gameRoot,
-        List<string> sourceFiles,
+        List<string>? sourceFiles,
+        string? sourceRoot,
         List<BatchItemIconTargetRowUpdate>? targetRows,
         string? matchMode,
         string? writeMode)
@@ -287,12 +313,128 @@ public sealed partial class CczMcpRuntime
         EnsureWriteMode(project, writeMode);
         var request = new BatchItemIconImportRequest
         {
-            SourceFiles = ResolveExternalFiles(project, sourceFiles),
+            SourceFiles = ResolveOptionalExternalFiles(project, sourceFiles),
+            SourceRoot = ResolveOptionalExternalDirectory(project, sourceRoot),
             TargetRows = BuildBatchItemIconTargetRows(targetRows),
             MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode,
             WriteMode = writeMode ?? "direct"
         };
         return BuildBatchItemIconImportResultPayload(_batchItemIconImportService.Replace(project, request));
+    }
+
+    public object PreviewStrategyIconBatchImport(
+        string? gameRoot,
+        List<string>? sourceFiles,
+        string? sourceRoot,
+        List<BatchStrategyIconTargetRowUpdate>? targetRows,
+        string? matchMode)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new BatchStrategyIconImportRequest
+        {
+            SourceFiles = ResolveOptionalExternalFiles(project, sourceFiles),
+            SourceRoot = ResolveOptionalExternalDirectory(project, sourceRoot),
+            TargetRows = BuildBatchStrategyIconTargetRows(targetRows),
+            MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode
+        };
+        return BuildBatchStrategyIconImportPreviewPayload(_batchStrategyIconImportService.Preview(project, request));
+    }
+
+    public object ReplaceStrategyIconBatchImport(
+        string? gameRoot,
+        List<string>? sourceFiles,
+        string? sourceRoot,
+        List<BatchStrategyIconTargetRowUpdate>? targetRows,
+        string? matchMode,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new BatchStrategyIconImportRequest
+        {
+            SourceFiles = ResolveOptionalExternalFiles(project, sourceFiles),
+            SourceRoot = ResolveOptionalExternalDirectory(project, sourceRoot),
+            TargetRows = BuildBatchStrategyIconTargetRows(targetRows),
+            MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode,
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildBatchStrategyIconImportResultPayload(_batchStrategyIconImportService.Replace(project, request));
+    }
+
+    public object PreviewRoleFaceBatchImport(
+        string? gameRoot,
+        List<string>? sourceFiles,
+        string? sourceRoot,
+        List<BatchRoleFaceTargetRowUpdate>? targetRows,
+        string? matchMode)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new BatchRoleFaceImportRequest
+        {
+            SourceFiles = ResolveOptionalExternalFiles(project, sourceFiles),
+            SourceRoot = ResolveOptionalExternalDirectory(project, sourceRoot),
+            TargetRows = BuildBatchRoleFaceTargetRows(targetRows),
+            MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode
+        };
+        return BuildBatchRoleFaceImportPreviewPayload(_batchRoleFaceImportService.Preview(project, request));
+    }
+
+    public object ReplaceRoleFaceBatchImport(
+        string? gameRoot,
+        List<string>? sourceFiles,
+        string? sourceRoot,
+        List<BatchRoleFaceTargetRowUpdate>? targetRows,
+        string? matchMode,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new BatchRoleFaceImportRequest
+        {
+            SourceFiles = ResolveOptionalExternalFiles(project, sourceFiles),
+            SourceRoot = ResolveOptionalExternalDirectory(project, sourceRoot),
+            TargetRows = BuildBatchRoleFaceTargetRows(targetRows),
+            MatchMode = string.IsNullOrWhiteSpace(matchMode) ? "auto" : matchMode,
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildBatchRoleFaceImportResultPayload(_batchRoleFaceImportService.Replace(project, request));
+    }
+
+    public object PreviewJobSImageRawBatchReplace(
+        string? gameRoot,
+        string materialRoot,
+        List<int>? allowedJobIds,
+        List<int>? factionSlots)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = ResolveExternalDirectory(project, materialRoot),
+            AllowedJobIds = (allowedJobIds ?? []).Where(id => id >= 0).ToHashSet(),
+            IncludeOnlySelectedOrFiltered = allowedJobIds is { Count: > 0 },
+            FactionSlots = factionSlots ?? []
+        };
+        return BuildBatchJobSImageRawReplacePreviewPayload(_batchJobSImageReplaceService.Preview(project, request));
+    }
+
+    public object ReplaceJobSImageRawBatch(
+        string? gameRoot,
+        string materialRoot,
+        List<int>? allowedJobIds,
+        List<int>? factionSlots,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var request = new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = ResolveExternalDirectory(project, materialRoot),
+            AllowedJobIds = (allowedJobIds ?? []).Where(id => id >= 0).ToHashSet(),
+            IncludeOnlySelectedOrFiltered = allowedJobIds is { Count: > 0 },
+            FactionSlots = factionSlots ?? [],
+            WriteMode = writeMode ?? "direct"
+        };
+        return BuildBatchJobSImageRawReplaceResultPayload(_batchJobSImageReplaceService.Replace(project, request));
     }
 
     public object PreviewE5RoleRawNormalize(string? gameRoot)
@@ -608,6 +750,36 @@ public sealed partial class CczMcpRuntime
             })
         };
 
+    private static BmpExportKind ParseBmpExportKind(string kind)
+    {
+        var normalized = (kind ?? string.Empty)
+            .Trim()
+            .Replace("-", "_", StringComparison.Ordinal)
+            .ToLowerInvariant();
+        return normalized switch
+        {
+            "job_s_image" or "jobsimage" or "job_s" => BmpExportKind.JobSImage,
+            "r_image" or "rimage" or "r" => BmpExportKind.RImage,
+            "s_image" or "simage" or "s" => BmpExportKind.SImage,
+            "face" or "role_face" or "roleface" => BmpExportKind.Face,
+            "item_icon" or "itemicon" or "item" => BmpExportKind.ItemIcon,
+            "strategy_icon" or "strategyicon" or "strategy" => BmpExportKind.StrategyIcon,
+            _ => throw new InvalidOperationException(
+                "Unsupported BMP export kind. Use job_s_image, r_image, s_image, face, item_icon, or strategy_icon.")
+        };
+    }
+
+    private static IReadOnlyList<BmpExportTarget> BuildBmpExportTargets(IReadOnlyList<BmpExportTargetUpdate>? updates)
+        => updates == null
+            ? Array.Empty<BmpExportTarget>()
+            : updates.Select(update => new BmpExportTarget
+            {
+                RowId = update.RowId,
+                DisplayName = update.DisplayName,
+                FieldValue = update.FieldValue,
+                JobId = update.JobId
+            }).ToArray();
+
     private static IReadOnlyList<BatchSImageUsage> BuildBatchSImageUsages(IReadOnlyList<BatchSImageUsageUpdate>? updates)
         => updates == null
             ? Array.Empty<BatchSImageUsage>()
@@ -617,6 +789,55 @@ public sealed partial class CczMcpRuntime
         => updates == null
             ? Array.Empty<BatchItemIconTargetRow>()
             : updates.Select(update => new BatchItemIconTargetRow(update.RowId, update.DisplayName, update.IconIndex)).ToArray();
+
+    private static IReadOnlyList<BatchStrategyIconTargetRow> BuildBatchStrategyIconTargetRows(IReadOnlyList<BatchStrategyIconTargetRowUpdate>? updates)
+        => updates == null
+            ? Array.Empty<BatchStrategyIconTargetRow>()
+            : updates.Select(update => new BatchStrategyIconTargetRow(update.RowId, update.DisplayName, update.IconIndex)).ToArray();
+
+    private static IReadOnlyList<BatchRoleFaceTargetRow> BuildBatchRoleFaceTargetRows(IReadOnlyList<BatchRoleFaceTargetRowUpdate>? updates)
+        => updates == null
+            ? Array.Empty<BatchRoleFaceTargetRow>()
+            : updates.Select(update => new BatchRoleFaceTargetRow(update.RowId, update.DisplayName, update.FaceId)).ToArray();
+
+    private static object BuildBmpExportPayload(BmpExportResult result)
+        => new
+        {
+            result.Request.Kind,
+            result.Request.OutputRoot,
+            result.Request.SingleMode,
+            result.Request.OverwriteExisting,
+            result.Request.FactionSlot,
+            TargetCount = result.Request.Targets.Count,
+            FileCount = result.Files.Count,
+            SkippedCount = result.SkippedItems.Count,
+            result.Warnings,
+            Files = result.Files.Select(file => new
+            {
+                file.Kind,
+                file.RowId,
+                file.FieldValue,
+                file.DisplayName,
+                file.Role,
+                file.SourcePath,
+                file.SourceRelativePath,
+                file.ImageNumber,
+                file.ResourceId,
+                file.Width,
+                file.Height,
+                file.OutputPath
+            }),
+            SkippedItems = result.SkippedItems.Select(item => new
+            {
+                item.Kind,
+                item.RowId,
+                item.FieldValue,
+                item.DisplayName,
+                item.OutputPath,
+                item.Reason
+            }),
+            SafetyNote = "Exports importable BMP material files only. No game resources are modified and no JSON report is written."
+        };
 
     private static object BuildBatchRImageRawReplacePreviewPayload(BatchRImageReplacePreviewResult preview)
         => new
@@ -697,6 +918,38 @@ public sealed partial class CczMcpRuntime
             })
         };
 
+    private static object BuildBatchJobSImageRawReplacePreviewPayload(BatchJobSImageReplacePreviewResult preview)
+        => new
+        {
+            preview.Request.MaterialRoot,
+            AllowedJobIds = preview.Request.AllowedJobIds,
+            preview.Request.IncludeOnlySelectedOrFiltered,
+            preview.Request.FactionSlots,
+            preview.TotalOperationCount,
+            preview.CanWrite,
+            preview.Warnings,
+            preview.SkippedItems,
+            Items = preview.Items.Select(item => new
+            {
+                item.JobId,
+                item.MaterialFolder,
+                Preview = BuildJobSImageRawReplacePreviewPayload(item.Preview)
+            }),
+            SafetyNote = "Preview only. Batch job S image RAW replacement consumes Job{jobId}/mov.bmp, atk.bmp, and spc.bmp folders."
+        };
+
+    private static object BuildBatchJobSImageRawReplaceResultPayload(BatchJobSImageReplaceResult result)
+        => new
+        {
+            Preview = BuildBatchJobSImageRawReplacePreviewPayload(result),
+            Results = result.Results.Select(item => new
+            {
+                item.JobId,
+                item.MaterialFolder,
+                Result = BuildJobSImageRawReplaceResultPayload(item.Result)
+            })
+        };
+
     private static object BuildBatchItemIconImportPreviewPayload(BatchItemIconImportPreviewResult preview)
         => new
         {
@@ -746,6 +999,106 @@ public sealed partial class CczMcpRuntime
                 result.DllResult.ChangedBytesEstimate,
                 result.DllResult.NewFileSha256
             },
+            E5Result = result.E5Result == null ? null : new
+            {
+                Preview = BuildE5ImageBatchReplacePayload(result.E5Result),
+                result.E5Result.BackupPath,
+                result.E5Result.ReportPath,
+                result.E5Result.ReportJsonPath
+            }
+        };
+
+    private static object BuildBatchStrategyIconImportPreviewPayload(BatchStrategyIconImportPreviewResult preview)
+        => new
+        {
+            preview.TargetPath,
+            preview.TargetRelativePath,
+            preview.ResourceKind,
+            preview.TotalOperationCount,
+            preview.CanWrite,
+            preview.Warnings,
+            preview.SkippedItems,
+            Items = preview.Items.Select(item => new
+            {
+                item.RowId,
+                item.DisplayName,
+                item.IconIndex,
+                item.SourcePath,
+                item.TargetImageNumbers,
+                item.ResourceIds
+            }),
+            DllPreview = preview.DllPreview == null ? null : new
+            {
+                preview.DllPreview.TargetPath,
+                preview.DllPreview.TargetRelativePath,
+                preview.DllPreview.OperationKind,
+                preview.DllPreview.OldFileSizeBytes,
+                preview.DllPreview.OldFileSha256,
+                preview.DllPreview.ResourceFormat,
+                preview.DllPreview.FormatWarnings,
+                preview.DllPreview.RiskSummary,
+                Items = preview.DllPreview.Items
+            },
+            E5Preview = preview.E5Preview == null ? null : BuildE5ImageBatchReplacePayload(preview.E5Preview),
+            SafetyNote = "Preview only. Batch strategy icon import writes Mgcicon.dll on 6.5 or E5/Mtem.e5 on 6.6."
+        };
+
+    private static object BuildBatchStrategyIconImportResultPayload(BatchStrategyIconImportResult result)
+        => new
+        {
+            Preview = BuildBatchStrategyIconImportPreviewPayload(result),
+            DllResult = result.DllResult == null ? null : new
+            {
+                result.DllResult.BackupPath,
+                result.DllResult.ReportPath,
+                result.DllResult.ReportJsonPath,
+                result.DllResult.NewFileSizeBytes,
+                result.DllResult.ChangedBytesEstimate,
+                result.DllResult.NewFileSha256
+            },
+            E5Result = result.E5Result == null ? null : new
+            {
+                Preview = BuildE5ImageBatchReplacePayload(result.E5Result),
+                result.E5Result.BackupPath,
+                result.E5Result.ReportPath,
+                result.E5Result.ReportJsonPath
+            }
+        };
+
+    private static object BuildBatchRoleFaceImportPreviewPayload(BatchRoleFaceImportPreviewResult preview)
+        => new
+        {
+            preview.TargetPath,
+            preview.TargetRelativePath,
+            preview.TotalOperationCount,
+            preview.CanWrite,
+            preview.Warnings,
+            preview.SkippedItems,
+            Items = preview.Items.Select(item => new
+            {
+                item.RowId,
+                item.DisplayName,
+                item.FaceId,
+                item.SourcePath,
+                item.SourceKind,
+                item.SourceWidth,
+                item.SourceHeight,
+                item.OutputKind,
+                item.OutputWidth,
+                item.OutputHeight,
+                item.FormatRequirement,
+                item.TargetImageNumbers,
+                item.TrueColorResourceIds
+            }),
+            E5Preview = preview.E5Preview == null ? null : BuildE5ImageBatchReplacePayload(preview.E5Preview),
+            SafetyNote = "Preview only. Batch role face import writes Face.e5 entries that match the current face import pipeline."
+        };
+
+    private static object BuildBatchRoleFaceImportResultPayload(BatchRoleFaceImportResult result)
+        => new
+        {
+            Preview = BuildBatchRoleFaceImportPreviewPayload(result),
+            result.AggregateReportPath,
             E5Result = result.E5Result == null ? null : new
             {
                 Preview = BuildE5ImageBatchReplacePayload(result.E5Result),

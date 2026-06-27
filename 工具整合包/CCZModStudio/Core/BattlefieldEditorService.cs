@@ -204,6 +204,7 @@ public sealed class BattlefieldEditorService
     public static string? ValidateTextForEntry(ScenarioTextEntry? entry, string value, string displayName)
     {
         if (entry == null) return $"{displayName} 没有匹配到可写回文本线索。";
+        if (!entry.IsWritable) return $"{displayName} 的文本候选解码置信度低或来源未确认，当前只读，不能写回。";
         value = NormalizeText(value);
         if (string.IsNullOrWhiteSpace(value)) return $"{displayName} 不能为空。";
         if (value.Contains('\0')) return $"{displayName} 不能包含 NUL/零字节。";
@@ -223,6 +224,7 @@ public sealed class BattlefieldEditorService
     private static string? ValidateExpandableText(ScenarioTextEntry? entry, string value, string displayName)
     {
         if (entry == null) return $"{displayName} 没有匹配到可写回文本线索。";
+        if (!entry.IsWritable) return $"{displayName} 的文本候选解码置信度低或来源未确认，当前只读，不能写回。";
         value = NormalizeText(value);
         if (string.IsNullOrWhiteSpace(value)) return $"{displayName} 不能为空。";
         if (value.Contains('\0')) return $"{displayName} 不能包含 NUL/零字节。";

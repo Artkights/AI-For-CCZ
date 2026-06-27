@@ -151,7 +151,18 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
         if (includeScenery)
         {
-            DrawSceneryOverlaysIntersecting(g, draft, index);
+            if (draft.SceneryOverlays.Count > 0)
+            {
+                DrawSceneryOverlaysIntersecting(g, draft, index);
+            }
+            else
+            {
+                var scenery = draft.SceneryOverlayCells.LastOrDefault(cell => cell.Index == index);
+                if (scenery != null)
+                {
+                    DrawOverlayCell(g, draft, scenery, materialLookup, materials, draft.SceneryOverlayCells);
+                }
+            }
         }
     }
 
@@ -165,7 +176,17 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
         if (drawScenery)
         {
-            DrawSceneryOverlays(g, draft);
+            if (draft.SceneryOverlays.Count > 0)
+            {
+                DrawSceneryOverlays(g, draft);
+            }
+            else
+            {
+                foreach (var cell in draft.SceneryOverlayCells.OrderBy(cell => cell.Index))
+                {
+                    DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.SceneryOverlayCells);
+                }
+            }
         }
     }
 

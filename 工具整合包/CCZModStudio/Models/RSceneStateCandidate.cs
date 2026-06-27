@@ -12,6 +12,8 @@ public sealed class RSceneStateCandidate
     public int EndCommandIndex { get; init; }
     public string OffsetHex { get; init; } = string.Empty;
     public int? BackgroundImageNumber { get; init; }
+    public string BackgroundReferenceText => BackgroundReference?.DisplayText ?? (BackgroundImageNumber.HasValue ? $"背景 {BackgroundImageNumber.Value}" : "背景未识别");
+    public RSceneBackgroundReference? BackgroundReference { get; init; }
     public int ActorCount { get; init; }
     public int MapFaceCount { get; init; }
     public string Summary { get; init; } = string.Empty;

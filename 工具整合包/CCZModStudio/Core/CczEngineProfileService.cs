@@ -43,6 +43,11 @@ public sealed class CczEngineProfileService
             profile.Warnings.Add($"路径或版本提示为 6.6，但 Ekd5.exe 大小为 {profile.ExeSize.Value.ToString(CultureInfo.InvariantCulture)}，与参考大小 {Version66ExeSize} 不一致。");
         }
 
+        if (LegacyHmMapReader.HasLegacyHmLayout(project))
+        {
+            profile.Warnings.Add("检测到旧式 Hm 战场地图布局：项目无 Map 目录，存在 HmNN.e5、Hexzmap.e5、Spalet.e5。战场底图将以只读 LegacyHmRaw 方式索引和预览，暂不开放重封包写入。");
+        }
+
         return profile;
     }
 

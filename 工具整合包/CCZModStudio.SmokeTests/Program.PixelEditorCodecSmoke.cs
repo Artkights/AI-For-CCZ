@@ -27,6 +27,7 @@ internal partial class Program
         var codec = new EditableImageCodecService();
         var e5 = new E5ImageReplaceService();
         AssertDllDibDecodeRowDirection();
+        RunPixelEditorShortcutSmoke();
 
         var rawPath = CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5");
         if (!File.Exists(rawPath))
@@ -83,7 +84,8 @@ internal partial class Program
                 OperationKind = "PixelEditorCodecSmoke DLL"
             };
             using var iconDocument = codec.Load(testProject, iconTarget);
-            iconDocument.Bitmap.SetPixel(0, 0, Color.FromArgb(255, 12, 34, 56));
+            iconDocument.Bitmap.SetPixel(0, 0, Color.Transparent);
+            iconDocument.Bitmap.SetPixel(10, 10, Color.FromArgb(255, 12, 34, 56));
             var iconPreview = codec.PreviewWrite(testProject, iconTarget, iconDocument.Bitmap);
             if (iconPreview.DllPreview == null || iconPreview.DllPreview.Items.Count != 1)
             {
@@ -95,6 +97,8 @@ internal partial class Program
             {
                 throw new InvalidOperationException("DLL icon pixel editor writeback result is missing backup or report.");
             }
+
+            AssertDllIconPixelEditorWriteback(iconPath, iconTarget.IconIndex);
         }
 
         Console.WriteLine($"PIXEL_EDITOR_CODEC_SMOKE OK root={smokeRoot}");
@@ -112,5 +116,39 @@ internal partial class Program
         using var ccz32Bpp = EditableImageCodecService.DecodeDibForSmoke(BuildSmoke32BppCczTopFirstDib(top, bottom))
             ?? throw new InvalidOperationException("32bpp CCZ top-first DIB 编辑器解码未生成。");
         AssertBitmapPreviewTopBottom(ccz32Bpp, top, bottom, "32bpp CCZ top-first DIB 编辑器解码");
+    }
+
+    static void AssertDllIconPixelEditorWriteback(string dllPath, int iconIndex)
+    {
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+        if (pair.AllVariants.Count == 0)
+        {
+            throw new InvalidOperationException("DLL icon pixel editor writeback did not find reread variants.");
+        }
+
+        foreach (var resource in pair.AllVariants)
+        {
+            using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes)
+                                ?? throw new InvalidOperationException($"DLL icon pixel editor reread failed for ID={resource.Id}.");
+            var corner = decoded.Bitmap.GetPixel(0, 0);
+            if (corner.A != 0)
+            {
+                throw new InvalidOperationException($"DLL icon pixel editor transparent corner was not preserved for ID={resource.Id}: {corner}.");
+            }
+
+            for (var y = 0; y < decoded.Bitmap.Height; y++)
+            {
+                for (var x = 0; x < decoded.Bitmap.Width; x++)
+                {
+                    var pixel = decoded.Bitmap.GetPixel(x, y);
+                    if (pixel.A != 0 && DllBitmapIconCodecService.IsMagentaKey(pixel))
+                    {
+                        throw new InvalidOperationException($"DLL icon pixel editor left visible magenta in ID={resource.Id} at {x},{y}: {pixel}.");
+                    }
+                }
+            }
+        }
     }
 }

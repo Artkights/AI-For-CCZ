@@ -394,8 +394,8 @@ public sealed partial class MainForm
         var saveResult = _scenarioTextWriter.SaveInPlace(_project, BuildScenarioRelativePath(_currentScriptScenario), changed, "Session save: script text");
         var reread = _scenarioTextReader.Read(saveResult.FilePath);
         VerifyScenarioTextSave(changed, reread);
-        _currentScriptTextEntries = reread;
-        BindScriptTextRows(_currentScriptTextEntries);
+        MarkScenarioTextEntriesSaved(changed);
+        RefreshScriptTextRows(changed);
         SetStatus($"Script editor: saved {changed.Count} changed text entries");
     }
 

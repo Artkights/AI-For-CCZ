@@ -11,7 +11,7 @@ internal partial class Program
         var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "BatchImageImportSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
         Directory.CreateDirectory(smokeRoot);
 
-        foreach (var fileName in new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5", "Hexzmap.e5", "Pmapobj.e5", "Unit_mov.e5", "Unit_atk.e5", "Unit_spc.e5", "Face.e5", "Itemicon.dll" })
+        foreach (var fileName in new[] { "Ekd5.exe", "Data.e5", "Imsg.e5", "Star.e5", "Hexzmap.e5", "Pmapobj.e5", "Unit_mov.e5", "Unit_atk.e5", "Unit_spc.e5", "Face.e5", "Itemicon.dll", "Mgcicon.dll" })
         {
             var source = CharacterImageResourceService.ResolveGameFile(project, fileName);
             if (File.Exists(source))
@@ -27,8 +27,10 @@ internal partial class Program
 
         RunBatchRImageSmoke(testProject, smokeRoot, e5);
         RunBatchSImageSmoke(testProject, smokeRoot, e5);
+        RunBatchJobSImageSmoke(testProject, smokeRoot);
         RunBatchRoleFaceSmoke(testProject, smokeRoot, e5);
         RunBatchItemIconSmoke(testProject, smokeRoot);
+        RunBatchStrategyIconSmoke(testProject, smokeRoot);
 
         Console.WriteLine($"BATCH_IMAGE_IMPORT_SMOKE OK root={smokeRoot}");
     }
@@ -174,6 +176,35 @@ internal partial class Program
         }
     }
 
+    private static void RunBatchJobSImageSmoke(CczProject testProject, string smokeRoot)
+    {
+        if (!HasFiles(testProject, "Unit_mov.e5", "Unit_atk.e5", "Unit_spc.e5"))
+        {
+            Console.WriteLine("BATCH_IMAGE_IMPORT_SMOKE skip job S: Unit_*.e5 missing.");
+            return;
+        }
+
+        var materialRoot = Path.Combine(smokeRoot, "_BatchJobSMaterials");
+        CreateBatchSFolder(materialRoot, "Job0", Color.FromArgb(255, 220, 80, 40), Color.FromArgb(255, 40, 150, 220));
+        CreateBatchSFolder(materialRoot, "Job1", Color.FromArgb(255, 90, 180, 60), Color.FromArgb(255, 220, 180, 40));
+        var service = new BatchJobSImageReplaceService();
+        var preview = service.Preview(testProject, new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = materialRoot,
+            AllowedJobIds = new HashSet<int> { 0, 1 },
+            IncludeOnlySelectedOrFiltered = true,
+            FactionSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+
+        if (!preview.CanWrite ||
+            preview.Items.Count != 2 ||
+            preview.SkippedItems.Any(item => item.Reason.StartsWith(BatchImageImportSkipReasons.InvalidName, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("Batch job S image preview should accept Job0/Job1 folders.");
+        }
+    }
+
     private static void RunBatchItemIconSmoke(CczProject testProject, string smokeRoot)
     {
         var itemIconPath = CharacterImageResourceService.ResolveGameFile(testProject, "Itemicon.dll");
@@ -225,6 +256,122 @@ internal partial class Program
             throw new InvalidOperationException("Batch item icon DLL write did not create the expected write result and aggregate report.");
         }
 
+        var magentaBmp = Path.Combine(smokeRoot, "item_icon_2.bmp");
+        var blueBmp = Path.Combine(smokeRoot, "item_icon_3.bmp");
+        var alphaPng = Path.Combine(smokeRoot, "item_icon_4.png");
+        CreateKeyedIconBmp(magentaBmp, DllBitmapIconCodecService.E5MagentaKey, Color.FromArgb(255, 20, 220, 90));
+        CreateKeyedIconBmp(blueBmp, DllBitmapIconCodecService.DllTransparentKey, Color.FromArgb(255, 220, 120, 20));
+        CreateAlphaIconPng(alphaPng, 64, 64, Color.FromArgb(255, 80, 150, 230), Color.FromArgb(255, 220, 80, 160));
+        var keyedFormatsBefore = CaptureDllIconVariantFormats(itemIconPath, 2, 3, 4);
+        var keyedResult = service.Replace(testProject, new BatchItemIconImportRequest
+        {
+            SourceFiles = new[] { magentaBmp, blueBmp, alphaPng },
+            TargetRows = new[]
+            {
+                new BatchItemIconTargetRow(102, "Smoke Magenta Key", 2),
+                new BatchItemIconTargetRow(103, "Smoke Blue Key", 3),
+                new BatchItemIconTargetRow(104, "Smoke Alpha Source", 4)
+            },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (keyedResult.DllResult == null || keyedResult.DllResult.Items.Count != 3)
+        {
+            throw new InvalidOperationException("Batch item icon keyed DLL write did not process all keyed sources.");
+        }
+
+        Assert65DllIconTransparency(itemIconPath, requireTransparentCorner: true, 2, 3);
+        Assert65DllIconTransparency(itemIconPath, requireTransparentCorner: false, 4);
+        Assert65DllIconFormatPreserved(itemIconPath, keyedFormatsBefore);
+        Assert65DllIconLargeMaskMatchesSource(itemIconPath, 2, magentaBmp);
+        Assert65DllIconSmallMaskUsesHardDownsample(itemIconPath, 2, magentaBmp);
+        Assert65DllPreviewPrefersCanonicalLanguage(itemIconPath);
+
+        var pairRoot = Path.Combine(smokeRoot, "_ItemIconPairRoot");
+        Directory.CreateDirectory(pairRoot);
+        var pairSmall = Path.Combine(pairRoot, "item_icon_5_small.bmp");
+        var pairLarge = Path.Combine(pairRoot, "item_icon_5_large.bmp");
+        CreateKeyedIconBmp(pairSmall, DllBitmapIconCodecService.DllTransparentKey, Color.FromArgb(255, 180, 40, 40), 16);
+        CreateKeyedIconBmp(pairLarge, DllBitmapIconCodecService.DllTransparentKey, Color.FromArgb(255, 40, 40, 180), 32);
+        var pairFormatsBefore = CaptureDllIconVariantFormats(itemIconPath, 5);
+        var pairPreview = service.Preview(testProject, new BatchItemIconImportRequest
+        {
+            SourceRoot = pairRoot,
+            TargetRows = new[] { new BatchItemIconTargetRow(105, "Smoke Pair", 5) },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (!pairPreview.CanWrite ||
+            pairPreview.Items.Count != 1 ||
+            !Path.GetFileName(pairPreview.Items[0].SourcePath).Equals("item_icon_5_large.bmp", StringComparison.OrdinalIgnoreCase) ||
+            !Path.GetFileName(pairPreview.Items[0].SmallSourcePath).Equals("item_icon_5_small.bmp", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Batch item icon pair import should prefer item_icon_N_large.bmp and attach item_icon_N_small.bmp.");
+        }
+
+        var pairResult = service.Replace(testProject, pairPreview.Request);
+        if (pairResult.DllResult == null || pairResult.DllResult.Items.Count != 1)
+        {
+            throw new InvalidOperationException("Batch item icon pair import did not write one paired icon.");
+        }
+
+        Assert65DllIconFormatPreserved(itemIconPath, pairFormatsBefore);
+        Assert65DllIconLargeMaskMatchesSource(itemIconPath, 5, pairLarge);
+        Assert65DllIconSmallMaskMatchesSource(itemIconPath, 5, pairSmall);
+
+        var exact8Bpp = Path.Combine(smokeRoot, "item_icon_6.bmp");
+        var codec = new DllBitmapIconCodecService();
+        var exactResourcesBefore = codec.ParseBitmapResources(itemIconPath);
+        var exactPairBefore = codec.ResolveBitmapResourcePair(exactResourcesBefore, 6);
+        var exactPalette = codec.ResolveStoragePalette(exactResourcesBefore, exactPairBefore);
+        CreateExact8BppItemIconStorageBmp(exact8Bpp, 32, exactPalette);
+        var expectedExactStorage = codec.ClassifyItemIconBmpImport(exact8Bpp, exactPairBefore, exactResourcesBefore);
+        if (!expectedExactStorage.PreserveStorage || expectedExactStorage.StoragePair == null)
+        {
+            throw new InvalidOperationException("Exact 8bpp storage fixture was not recognized by the strict storage classifier.");
+        }
+
+        var exactResult = service.Replace(testProject, new BatchItemIconImportRequest
+        {
+            SourceFiles = new[] { exact8Bpp },
+            TargetRows = new[] { new BatchItemIconTargetRow(106, "Smoke Exact 8bpp", 6) },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (exactResult.DllResult == null ||
+            exactResult.DllResult.Items.Count != 1 ||
+            !exactResult.DllResult.ResourceFormat.Contains("8bpp indexed storage", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Exact 8bpp item icon import did not use the storage-preserving path.");
+        }
+
+        AssertExact8BppStorageImport(itemIconPath, 6, expectedExactStorage.StoragePair);
+
+        var mismatch8Bpp = Path.Combine(smokeRoot, "item_icon_7.bmp");
+        CreateExact8BppItemIconStorageBmp(mismatch8Bpp, 32, exactPalette, mutatePalette: true);
+        var mismatchResourcesBefore = codec.ParseBitmapResources(itemIconPath);
+        var mismatchPairBefore = codec.ResolveBitmapResourcePair(mismatchResourcesBefore, 7);
+        var mismatchClassification = codec.ClassifyItemIconBmpImport(mismatch8Bpp, mismatchPairBefore, mismatchResourcesBefore);
+        if (mismatchClassification.PreserveStorage || !mismatchClassification.Mode.Equals("palette-mismatch-fallback", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Palette-mismatched 8bpp BMP should fall back to visual import; mode={mismatchClassification.Mode}.");
+        }
+
+        var mismatchResult = service.Replace(testProject, new BatchItemIconImportRequest
+        {
+            SourceFiles = new[] { mismatch8Bpp },
+            TargetRows = new[] { new BatchItemIconTargetRow(107, "Smoke Palette Mismatch 8bpp", 7) },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (mismatchResult.DllResult == null ||
+            !mismatchResult.DllResult.ResourceFormat.Contains("palette-mismatch-fallback", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Palette-mismatched 8bpp BMP import did not report the visual fallback path.");
+        }
+
+        AssertPaletteMismatch8BppFallback(itemIconPath, 7, mismatch8Bpp);
+
         var filenameRequest = new BatchItemIconImportRequest
         {
             SourceFiles = new[] { iconC },
@@ -243,6 +390,30 @@ internal partial class Program
             filenamePreview.SkippedItems.Any(item => item.Reason.StartsWith(BatchImageImportSkipReasons.CountMismatch, StringComparison.Ordinal)))
         {
             throw new InvalidOperationException("Batch item icon auto mode should fall back to file-name icon number matching.");
+        }
+
+        var exportRoot = Path.Combine(smokeRoot, "_ItemIconExportRoot");
+        Directory.CreateDirectory(exportRoot);
+        var exportedIcon0 = Path.Combine(exportRoot, "item_icon_0.png");
+        var exportedIcon1 = Path.Combine(exportRoot, "item_icon_1.png");
+        CreateSmokePng(exportedIcon0, 32, 32, Color.FromArgb(255, 20, 90, 200), Color.FromArgb(255, 230, 210, 20));
+        CreateSmokePng(exportedIcon1, 32, 32, Color.FromArgb(255, 200, 40, 90), Color.FromArgb(255, 20, 210, 120));
+        var rootPreview = service.Preview(testProject, new BatchItemIconImportRequest
+        {
+            SourceRoot = exportRoot,
+            TargetRows = new[]
+            {
+                new BatchItemIconTargetRow(101, "Smoke B", 1),
+                new BatchItemIconTargetRow(100, "Smoke A", 0)
+            },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (!rootPreview.CanWrite ||
+            rootPreview.Items.Count != 2 ||
+            rootPreview.Items.Any(item => !Path.GetFileName(item.SourcePath).Equals($"item_icon_{item.IconIndex}.png", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Batch item icon SourceRoot import should match canonical item_icon_N files by icon id.");
         }
 
         var strictPreview = service.Preview(testProject, WithMatchMode(filenameRequest, "selected-row-order"));
@@ -268,10 +439,48 @@ internal partial class Program
             => new()
             {
                 SourceFiles = source.SourceFiles,
+                SourceRoot = source.SourceRoot,
                 TargetRows = source.TargetRows,
                 MatchMode = matchMode,
                 WriteMode = source.WriteMode
             };
+    }
+
+    private static void RunBatchStrategyIconSmoke(CczProject testProject, string smokeRoot)
+    {
+        var strategyIconPath = CharacterImageResourceService.ResolveGameFile(testProject, "Mgcicon.dll");
+        if (!File.Exists(strategyIconPath))
+        {
+            Console.WriteLine("BATCH_IMAGE_IMPORT_SMOKE skip strategy icons: Mgcicon.dll missing.");
+            return;
+        }
+
+        var service = new BatchStrategyIconImportService();
+        var exportRoot = Path.Combine(smokeRoot, "_StrategyIconExportRoot");
+        Directory.CreateDirectory(exportRoot);
+        var icon0 = Path.Combine(exportRoot, "strategy_icon_0.png");
+        var icon1 = Path.Combine(exportRoot, "strategy_icon_1.png");
+        CreateSmokePng(icon0, 32, 32, Color.FromArgb(255, 210, 70, 40), Color.FromArgb(255, 30, 150, 220));
+        CreateSmokePng(icon1, 32, 32, Color.FromArgb(255, 80, 40, 200), Color.FromArgb(255, 220, 190, 40));
+
+        var preview = service.Preview(testProject, new BatchStrategyIconImportRequest
+        {
+            SourceRoot = exportRoot,
+            TargetRows = new[]
+            {
+                new BatchStrategyIconTargetRow(11, "Strategy B", 1),
+                new BatchStrategyIconTargetRow(10, "Strategy A", 0)
+            },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (!preview.CanWrite ||
+            preview.ResourceKind != "DLL" ||
+            preview.Items.Count != 2 ||
+            preview.Items.Any(item => !Path.GetFileName(item.SourcePath).Equals($"strategy_icon_{item.IconIndex}.png", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Batch strategy icon SourceRoot import should match canonical strategy_icon_N files by icon id.");
+        }
     }
 
     private static void RunBatchRoleFaceSmoke(CczProject testProject, string smokeRoot, E5ImageReplaceService e5)
@@ -348,6 +557,30 @@ internal partial class Program
             filenamePreview.SkippedItems.Any(item => item.Reason.StartsWith(BatchImageImportSkipReasons.CountMismatch, StringComparison.Ordinal)))
         {
             throw new InvalidOperationException("Batch role face auto mode should fall back to file-name face id matching.");
+        }
+
+        var exportRoot = Path.Combine(smokeRoot, "_FaceExportRoot");
+        Directory.CreateDirectory(exportRoot);
+        var exportedFace1 = Path.Combine(exportRoot, "face_1.bmp");
+        var exportedFace2 = Path.Combine(exportRoot, "face_2.bmp");
+        CreateSmokeBmp(exportedFace1, 120, 120, Color.FromArgb(255, 90, 200, 40), Color.FromArgb(255, 210, 40, 120));
+        CreateSmokeBmp(exportedFace2, 120, 120, Color.FromArgb(255, 40, 120, 210), Color.FromArgb(255, 230, 210, 40));
+        var rootPreview = service.Preview(testProject, new BatchRoleFaceImportRequest
+        {
+            SourceRoot = exportRoot,
+            TargetRows = new[]
+            {
+                new BatchRoleFaceTargetRow(2, "Smoke Face B", 2),
+                new BatchRoleFaceTargetRow(1, "Smoke Face A", 1)
+            },
+            MatchMode = "auto",
+            WriteMode = "test_copy"
+        });
+        if (!rootPreview.CanWrite ||
+            rootPreview.Items.Count != 2 ||
+            rootPreview.Items.Any(item => !Path.GetFileName(item.SourcePath).Equals($"face_{item.FaceId}.bmp", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Batch role face SourceRoot import should match canonical face_N files by face id.");
         }
 
         var faceZeroPreview = service.Preview(testProject, new BatchRoleFaceImportRequest
@@ -468,4 +701,387 @@ internal partial class Program
         graphics.FillRectangle(secondaryBrush, 0, Math.Max(1, height / 2), width, Math.Max(1, height - height / 2));
         bitmap.Save(path, ImageFormat.Png);
     }
+
+    private static void CreateKeyedIconBmp(string path, Color key, Color body, int size = 32)
+    {
+        using var bitmap = new Bitmap(size, size, PixelFormat.Format24bppRgb);
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                bitmap.SetPixel(x, y, key);
+            }
+        }
+
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var brush = new SolidBrush(body))
+        {
+            var inset = Math.Max(1, size / 4);
+            graphics.FillRectangle(brush, inset, inset, Math.Max(1, size / 2), Math.Max(1, size / 2));
+        }
+
+        bitmap.Save(path, ImageFormat.Bmp);
+    }
+
+    private static void CreateAlphaIconPng(string path, int width, int height, Color primary, Color secondary)
+    {
+        using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        using var primaryBrush = new SolidBrush(primary);
+        using var secondaryBrush = new SolidBrush(secondary);
+        graphics.Clear(Color.Transparent);
+        graphics.FillRectangle(primaryBrush, width / 4, height / 4, width / 2, height / 4);
+        graphics.FillRectangle(secondaryBrush, width / 4, height / 2, width / 2, height / 4);
+        bitmap.Save(path, ImageFormat.Png);
+    }
+
+    private static void Assert65DllIconTransparency(string dllPath, bool requireTransparentCorner, params int[] iconIndexes)
+    {
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        foreach (var iconIndex in iconIndexes)
+        {
+            var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+            foreach (var resource in pair.AllVariants)
+            {
+                using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes)
+                                    ?? throw new InvalidOperationException($"DLL icon #{iconIndex} ID={resource.Id} failed to decode.");
+                if (decoded.Bitmap.Width != resource.Width || decoded.Bitmap.Height != resource.Height)
+                {
+                    throw new InvalidOperationException($"DLL icon #{iconIndex} ID={resource.Id} decoded size mismatch.");
+                }
+
+                var corner = decoded.Bitmap.GetPixel(0, 0);
+                if (requireTransparentCorner && corner.A != 0)
+                {
+                    throw new InvalidOperationException($"DLL icon #{iconIndex} ID={resource.Id} corner is not transparent after keyed import: {corner}.");
+                }
+
+                for (var y = 0; y < decoded.Bitmap.Height; y++)
+                {
+                    for (var x = 0; x < decoded.Bitmap.Width; x++)
+                    {
+                        var pixel = decoded.Bitmap.GetPixel(x, y);
+                        if (pixel.A != 0 && DllBitmapIconCodecService.IsMagentaKey(pixel))
+                        {
+                            throw new InvalidOperationException($"DLL icon #{iconIndex} ID={resource.Id} still has visible magenta at {x},{y}: {pixel}.");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static Dictionary<string, int> CaptureDllIconVariantFormats(string dllPath, params int[] iconIndexes)
+    {
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var formats = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var iconIndex in iconIndexes)
+        {
+            var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+            foreach (var resource in pair.AllVariants)
+            {
+                formats[$"{iconIndex}:{resource.Id}:{resource.LanguageId}"] = resource.BitCount;
+            }
+        }
+
+        return formats;
+    }
+
+    private static void Assert65DllIconFormatPreserved(string dllPath, IReadOnlyDictionary<string, int> expected)
+    {
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var actual = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var key in expected.Keys)
+        {
+            var parts = key.Split(':');
+            var iconIndex = int.Parse(parts[0], CultureInfo.InvariantCulture);
+            var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+            foreach (var resource in pair.AllVariants)
+            {
+                actual[$"{iconIndex}:{resource.Id}:{resource.LanguageId}"] = resource.BitCount;
+            }
+        }
+
+        if (!expected.Keys.OrderBy(x => x, StringComparer.Ordinal).SequenceEqual(actual.Keys.OrderBy(x => x, StringComparer.Ordinal), StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException("6.5 DLL icon import changed the set of language variants.");
+        }
+
+        foreach (var (key, bitCount) in expected)
+        {
+            if (!actual.TryGetValue(key, out var actualBitCount) || actualBitCount != bitCount)
+            {
+                throw new InvalidOperationException($"6.5 DLL icon import changed resource format for {key}: {bitCount}bpp -> {actualBitCount}bpp.");
+            }
+        }
+    }
+
+    private static void Assert65DllIconLargeMaskMatchesSource(string dllPath, int iconIndex, string sourcePath)
+    {
+        using var source = new Bitmap(sourcePath);
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+        foreach (var resource in pair.LargeVariants)
+        {
+            using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes)
+                                ?? throw new InvalidOperationException($"DLL icon #{iconIndex} large ID={resource.Id} failed to decode.");
+            if (decoded.Bitmap.Width != source.Width || decoded.Bitmap.Height != source.Height)
+            {
+                throw new InvalidOperationException($"Exact 32x32 DLL icon large changed dimensions: source={source.Width}x{source.Height}, decoded={decoded.Bitmap.Width}x{decoded.Bitmap.Height}.");
+            }
+
+            for (var y = 0; y < source.Height; y++)
+            {
+                for (var x = 0; x < source.Width; x++)
+                {
+                    var expectedVisible = IsSmokeSourceVisible(source.GetPixel(x, y));
+                    var actualVisible = decoded.Bitmap.GetPixel(x, y).A != 0;
+                    if (expectedVisible != actualVisible)
+                    {
+                        throw new InvalidOperationException($"Exact 32x32 DLL icon large alpha mask changed at {x},{y}: expectedVisible={expectedVisible}, actualVisible={actualVisible}, ID={resource.Id} LANG={resource.LanguageId}.");
+                    }
+                }
+            }
+        }
+    }
+
+    private static void Assert65DllIconSmallMaskUsesHardDownsample(string dllPath, int iconIndex, string sourcePath)
+    {
+        using var source = new Bitmap(sourcePath);
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+        foreach (var resource in pair.SmallVariants)
+        {
+            using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes)
+                                ?? throw new InvalidOperationException($"DLL icon #{iconIndex} small ID={resource.Id} failed to decode.");
+            if (decoded.Bitmap.Width != DllBitmapIconCodecService.SmallIconSize ||
+                decoded.Bitmap.Height != DllBitmapIconCodecService.SmallIconSize)
+            {
+                throw new InvalidOperationException($"DLL icon #{iconIndex} small changed dimensions: {decoded.Bitmap.Width}x{decoded.Bitmap.Height}.");
+            }
+
+            for (var y = 0; y < decoded.Bitmap.Height; y++)
+            {
+                for (var x = 0; x < decoded.Bitmap.Width; x++)
+                {
+                    var expectedVisible = PickSmokeHardDownsampleVisible(source, x * 2, y * 2);
+                    var actualVisible = decoded.Bitmap.GetPixel(x, y).A != 0;
+                    if (expectedVisible != actualVisible)
+                    {
+                        throw new InvalidOperationException($"DLL icon small hard downsample mask mismatch at {x},{y}: expectedVisible={expectedVisible}, actualVisible={actualVisible}, ID={resource.Id} LANG={resource.LanguageId}.");
+                    }
+                }
+            }
+        }
+    }
+
+    private static void Assert65DllIconSmallMaskMatchesSource(string dllPath, int iconIndex, string sourcePath)
+    {
+        using var source = new Bitmap(sourcePath);
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+        foreach (var resource in pair.SmallVariants)
+        {
+            using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes)
+                                ?? throw new InvalidOperationException($"DLL icon #{iconIndex} small ID={resource.Id} failed to decode.");
+            if (decoded.Bitmap.Width != source.Width || decoded.Bitmap.Height != source.Height)
+            {
+                throw new InvalidOperationException($"Exact 16x16 DLL icon small changed dimensions: source={source.Width}x{source.Height}, decoded={decoded.Bitmap.Width}x{decoded.Bitmap.Height}.");
+            }
+
+            for (var y = 0; y < source.Height; y++)
+            {
+                for (var x = 0; x < source.Width; x++)
+                {
+                    var expectedVisible = IsSmokeSourceVisible(source.GetPixel(x, y));
+                    var actualVisible = decoded.Bitmap.GetPixel(x, y).A != 0;
+                    if (expectedVisible != actualVisible)
+                    {
+                        throw new InvalidOperationException($"Exact 16x16 DLL icon small alpha mask changed at {x},{y}: expectedVisible={expectedVisible}, actualVisible={actualVisible}, ID={resource.Id} LANG={resource.LanguageId}.");
+                    }
+                }
+            }
+        }
+    }
+
+    private static void Assert65DllPreviewPrefersCanonicalLanguage(string dllPath)
+    {
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var duplicateGroup = resources
+            .GroupBy(resource => resource.Id)
+            .FirstOrDefault(group => group.Any(resource => resource.LanguageId == 0) &&
+                                     group.Any(resource => resource.LanguageId == DllBitmapIconCodecService.PreferredLanguageId));
+        if (duplicateGroup == null) return;
+
+        var selected = codec.SelectDisplayVariant(duplicateGroup);
+        if (selected == null || selected.LanguageId != DllBitmapIconCodecService.PreferredLanguageId)
+        {
+            throw new InvalidOperationException($"DLL preview selected LANG={selected?.LanguageId} for duplicated ID={duplicateGroup.Key}; expected LANG={DllBitmapIconCodecService.PreferredLanguageId}.");
+        }
+    }
+
+    private static void AssertExact8BppStorageImport(string dllPath, int iconIndex, DllIconStoragePair expected)
+    {
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+        if (pair.SmallVariants.Count != 1 || pair.LargeVariants.Count != 1)
+        {
+            throw new InvalidOperationException($"Exact 8bpp item icon import should leave one canonical small/large variant; actual small={pair.SmallVariants.Count}, large={pair.LargeVariants.Count}.");
+        }
+
+        var small = pair.SmallVariants.Single();
+        var large = pair.LargeVariants.Single();
+        if (small.LanguageId != DllBitmapIconCodecService.PreferredLanguageId ||
+            large.LanguageId != DllBitmapIconCodecService.PreferredLanguageId)
+        {
+            throw new InvalidOperationException($"Exact 8bpp item icon import should use canonical language {DllBitmapIconCodecService.PreferredLanguageId}; actual small={small.LanguageId}, large={large.LanguageId}.");
+        }
+
+        if (small.BitCount != 8 ||
+            large.BitCount != 8 ||
+            small.Width != DllBitmapIconCodecService.SmallIconSize ||
+            small.Height != DllBitmapIconCodecService.SmallIconSize ||
+            large.Width != DllBitmapIconCodecService.LargeIconSize ||
+            large.Height != DllBitmapIconCodecService.LargeIconSize)
+        {
+            throw new InvalidOperationException($"Exact 8bpp item icon import wrote unexpected formats: small={small.Width}x{small.Height}/{small.BitCount}, large={large.Width}x{large.Height}/{large.BitCount}.");
+        }
+
+        if (!large.DibBytes.SequenceEqual(expected.Large.DibBytes))
+        {
+            throw new InvalidOperationException("Exact 8bpp item icon import changed the large BMP DIB bytes.");
+        }
+
+        if (!small.DibBytes.SequenceEqual(expected.Small.DibBytes))
+        {
+            throw new InvalidOperationException("Exact 8bpp item icon import did not generate the expected indexed hard-downsampled small DIB.");
+        }
+    }
+
+    private static void AssertPaletteMismatch8BppFallback(string dllPath, int iconIndex, string sourcePath)
+    {
+        var sourceDib = File.ReadAllBytes(sourcePath).Skip(14).ToArray();
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
+        var pair = codec.ResolveBitmapResourcePair(resources, iconIndex);
+        if (pair.LargeVariants.Any(resource => resource.DibBytes.SequenceEqual(sourceDib)))
+        {
+            throw new InvalidOperationException("Palette-mismatched 8bpp BMP was written as raw storage DIB instead of using visual normalization.");
+        }
+
+        foreach (var resource in pair.AllVariants)
+        {
+            using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes)
+                                ?? throw new InvalidOperationException($"Fallback 8bpp BMP import wrote undecodable resource ID={resource.Id}.");
+            if (decoded.Bitmap.Width is not (16 or 32) ||
+                decoded.Bitmap.Height is not (16 or 32))
+            {
+                throw new InvalidOperationException($"Fallback 8bpp BMP import wrote unexpected size {decoded.Bitmap.Width}x{decoded.Bitmap.Height}.");
+            }
+        }
+    }
+
+    private static void CreateExact8BppItemIconStorageBmp(
+        string path,
+        int size,
+        IReadOnlyList<Color> palette,
+        bool mutatePalette = false)
+    {
+        if (palette.Count < 256)
+        {
+            throw new InvalidOperationException("Exact 8bpp storage fixture requires a 256-color DLL palette.");
+        }
+
+        var paletteEntries = 256;
+        var stride = ((size * 8 + 31) / 32) * 4;
+        var imageSize = stride * size;
+        var dib = new byte[40 + paletteEntries * 4 + imageSize];
+        BitConverter.GetBytes(40).CopyTo(dib, 0);
+        BitConverter.GetBytes(size).CopyTo(dib, 4);
+        BitConverter.GetBytes(size).CopyTo(dib, 8);
+        BitConverter.GetBytes((ushort)1).CopyTo(dib, 12);
+        BitConverter.GetBytes((ushort)8).CopyTo(dib, 14);
+        BitConverter.GetBytes(0).CopyTo(dib, 16);
+        BitConverter.GetBytes(imageSize).CopyTo(dib, 20);
+        BitConverter.GetBytes(0).CopyTo(dib, 24);
+        BitConverter.GetBytes(0).CopyTo(dib, 28);
+        BitConverter.GetBytes(0).CopyTo(dib, 32);
+        BitConverter.GetBytes(0).CopyTo(dib, 36);
+
+        for (var i = 0; i < paletteEntries; i++)
+        {
+            var color = palette[i];
+            if (mutatePalette && i == 6)
+            {
+                color = Color.FromArgb(255, (color.R + 17) % 256, color.G, color.B);
+            }
+
+            WriteBmpPaletteColor(dib, i, Color.FromArgb(255, color.R, color.G, color.B));
+        }
+
+        for (var y = 0; y < size; y++)
+        {
+            var storedY = size - 1 - y;
+            var rowOffset = 40 + paletteEntries * 4 + storedY * stride;
+            for (var x = 0; x < size; x++)
+            {
+                byte index = 0;
+                if (x >= 4 && x <= 27 && y >= 4 && y <= 27)
+                {
+                    index = (byte)(1 + ((x / 4 + y / 4) % 6));
+                }
+
+                if (x == y && x >= 6 && x <= 25)
+                {
+                    index = 6;
+                }
+
+                dib[rowOffset + x] = index;
+            }
+        }
+
+        var bmp = new byte[14 + dib.Length];
+        bmp[0] = (byte)'B';
+        bmp[1] = (byte)'M';
+        BitConverter.GetBytes(bmp.Length).CopyTo(bmp, 2);
+        BitConverter.GetBytes(14 + 40 + paletteEntries * 4).CopyTo(bmp, 10);
+        Buffer.BlockCopy(dib, 0, bmp, 14, dib.Length);
+        File.WriteAllBytes(path, bmp);
+    }
+
+    private static void WriteBmpPaletteColor(byte[] dib, int index, Color color)
+    {
+        var offset = 40 + index * 4;
+        dib[offset] = color.B;
+        dib[offset + 1] = color.G;
+        dib[offset + 2] = color.R;
+        dib[offset + 3] = 0;
+    }
+
+    private static bool PickSmokeHardDownsampleVisible(Bitmap source, int left, int top)
+    {
+        var priority = new[] { (X: 1, Y: 1), (X: 1, Y: 0), (X: 0, Y: 1), (X: 0, Y: 0) };
+        foreach (var (offsetX, offsetY) in priority)
+        {
+            var x = Math.Min(source.Width - 1, left + offsetX);
+            var y = Math.Min(source.Height - 1, top + offsetY);
+            if (IsSmokeSourceVisible(source.GetPixel(x, y))) return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsSmokeSourceVisible(Color pixel)
+        => pixel.A != 0 &&
+           !DllBitmapIconCodecService.IsDllBlueKey(pixel) &&
+           !DllBitmapIconCodecService.IsMagentaKey(pixel);
+
 }

@@ -1,3 +1,4 @@
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -22,6 +23,8 @@ internal sealed class PixelImageEditorDialog : Form
     private readonly PictureBox _colorPreview = new();
     private readonly TrackBar _zoomBar = new();
     private readonly Label _statusLabel = new();
+    private readonly CheckBox _gridCheckBox = new();
+    private readonly ToolTip _toolTip = new();
     private readonly Stack<Bitmap> _undo = new();
     private readonly Stack<Bitmap> _redo = new();
     private ToolKind _tool = ToolKind.Pencil;
@@ -125,7 +128,10 @@ internal sealed class PixelImageEditorDialog : Form
         bar.Controls.Add(MakeToolButton("填充", ToolKind.Fill));
         bar.Controls.Add(MakeToolButton("直线", ToolKind.Line));
         bar.Controls.Add(MakeToolButton("矩形", ToolKind.Rectangle));
-        bar.Controls.Add(MakeButton("颜色", PickColor));
+        if (!_document.RestrictToPalette)
+        {
+            bar.Controls.Add(MakeButton("颜色", PickColor));
+        }
         _colorPreview.Width = 32;
         _colorPreview.Height = 28;
         _colorPreview.BorderStyle = BorderStyle.FixedSingle;
@@ -150,17 +156,22 @@ internal sealed class PixelImageEditorDialog : Form
             bar.Controls.Add(swatch);
         }
 
-        bar.Controls.Add(MakeButton("导入PNG", ImportPng));
-        bar.Controls.Add(MakeButton("导出PNG", ExportPng));
-        bar.Controls.Add(MakeButton("撤销", Undo));
-        bar.Controls.Add(MakeButton("重做", Redo));
-        var grid = new CheckBox { Text = "网格", Checked = true, AutoSize = true, Padding = new Padding(10, 7, 0, 0) };
-        grid.CheckedChanged += (_, _) =>
+        bar.Controls.Add(MakeButton("导入PNG", ImportPng, "Ctrl+I"));
+        bar.Controls.Add(MakeButton("导出PNG", ExportPng, "Ctrl+E"));
+        bar.Controls.Add(MakeButton("撤销", Undo, "Ctrl+Z"));
+        bar.Controls.Add(MakeButton("重做", Redo, "Ctrl+Y / Ctrl+Shift+Z"));
+        _gridCheckBox.Text = "网格";
+        _gridCheckBox.Checked = true;
+        _gridCheckBox.AutoSize = true;
+        _gridCheckBox.Padding = new Padding(10, 7, 0, 0);
+        _toolTip.SetToolTip(_gridCheckBox, "Ctrl+H / G");
+        _gridCheckBox.CheckedChanged += (_, _) =>
         {
-            _canvas.ShowGrid = grid.Checked;
+            _canvas.ShowGrid = _gridCheckBox.Checked;
             _canvas.Invalidate();
+            UpdateStatus(null);
         };
-        bar.Controls.Add(grid);
+        bar.Controls.Add(_gridCheckBox);
         bar.Controls.Add(new Label { Text = "缩放", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
         _zoomBar.Minimum = 2;
         _zoomBar.Maximum = 32;
@@ -169,7 +180,11 @@ internal sealed class PixelImageEditorDialog : Form
         _zoomBar.AutoSize = false;
         _zoomBar.Height = 28;
         _zoomBar.TickFrequency = 4;
-        _zoomBar.ValueChanged += (_, _) => _canvas.Zoom = _zoomBar.Value;
+        _zoomBar.ValueChanged += (_, _) =>
+        {
+            _canvas.Zoom = _zoomBar.Value;
+            UpdateStatus(null);
+        };
         bar.Controls.Add(_zoomBar);
 
         return bar;
@@ -179,21 +194,178 @@ internal sealed class PixelImageEditorDialog : Form
     {
         var button = MakeButton(text, () =>
         {
-            _tool = tool;
-            UpdateStatus(null);
-        });
+            SetTool(tool);
+        }, GetToolShortcutText(tool));
+        _toolTip.SetToolTip(button, $"{GetToolDisplayName(tool)} {GetToolShortcutText(tool)}");
         return button;
     }
 
-    private static Button MakeButton(string text, Action action)
+    private Button MakeButton(string text, Action action, string tooltip = "")
     {
         var button = new Button { Text = text, AutoSize = true, MinimumSize = new Size(64, 30), Margin = new Padding(2) };
         button.Click += (_, _) => action();
+        if (!string.IsNullOrWhiteSpace(tooltip))
+        {
+            _toolTip.SetToolTip(button, tooltip);
+        }
         return button;
     }
 
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        var keyCode = keyData & Keys.KeyCode;
+        var modifiers = keyData & (Keys.Control | Keys.Shift | Keys.Alt);
+
+        if (keyData == (Keys.Control | Keys.S))
+        {
+            DialogResult = DialogResult.OK;
+            Close();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.Z))
+        {
+            Undo();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.Y) || keyData == (Keys.Control | Keys.Shift | Keys.Z))
+        {
+            Redo();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.H))
+        {
+            ToggleGrid();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.I))
+        {
+            ImportPng();
+            return true;
+        }
+
+        if (keyData == (Keys.Control | Keys.E))
+        {
+            ExportPng();
+            return true;
+        }
+
+        if (keyData == (Keys.Shift | Keys.Oemplus))
+        {
+            ChangeZoom(1);
+            return true;
+        }
+
+        if (modifiers == Keys.None)
+        {
+            switch (keyCode)
+            {
+                case Keys.P:
+                    SetTool(ToolKind.Pencil);
+                    return true;
+                case Keys.E:
+                    SetTool(ToolKind.Eraser);
+                    return true;
+                case Keys.I:
+                    SetTool(ToolKind.Picker);
+                    return true;
+                case Keys.F:
+                    SetTool(ToolKind.Fill);
+                    return true;
+                case Keys.L:
+                    SetTool(ToolKind.Line);
+                    return true;
+                case Keys.R:
+                    SetTool(ToolKind.Rectangle);
+                    return true;
+                case Keys.G:
+                    ToggleGrid();
+                    return true;
+                case Keys.Oemplus:
+                case Keys.Add:
+                    ChangeZoom(1);
+                    return true;
+                case Keys.OemMinus:
+                case Keys.Subtract:
+                    ChangeZoom(-1);
+                    return true;
+                case Keys.D0:
+                case Keys.NumPad0:
+                    ResetZoom();
+                    return true;
+            }
+        }
+
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void SetTool(ToolKind tool)
+    {
+        ClearPreviewState();
+        _tool = tool;
+        UpdateStatus(null);
+    }
+
+    private void ToggleGrid()
+    {
+        _gridCheckBox.Checked = !_gridCheckBox.Checked;
+    }
+
+    private void ChangeZoom(int delta)
+    {
+        _zoomBar.Value = Math.Clamp(_zoomBar.Value + delta, _zoomBar.Minimum, _zoomBar.Maximum);
+    }
+
+    private void ResetZoom()
+    {
+        _zoomBar.Value = Math.Clamp(12, _zoomBar.Minimum, _zoomBar.Maximum);
+    }
+
+    private void ClearPreviewState()
+    {
+        _painting = false;
+        _canvas.ClearPreview();
+        _canvas.Invalidate();
+    }
+
+    private static string GetToolDisplayName(ToolKind tool)
+        => tool switch
+        {
+            ToolKind.Pencil => "铅笔",
+            ToolKind.Eraser => "橡皮",
+            ToolKind.Picker => "取色",
+            ToolKind.Fill => "填充",
+            ToolKind.Line => "直线",
+            ToolKind.Rectangle => "矩形",
+            _ => tool.ToString()
+        };
+
+    private static string GetToolShortcutText(ToolKind tool)
+        => tool switch
+        {
+            ToolKind.Pencil => "P",
+            ToolKind.Eraser => "E",
+            ToolKind.Picker => "I",
+            ToolKind.Fill => "F",
+            ToolKind.Line => "L",
+            ToolKind.Rectangle => "R",
+            _ => string.Empty
+        };
+
     private IReadOnlyList<Color> BuildPaletteColors()
     {
+        if (_document.RestrictToPalette && _document.Palette.Count > 0)
+        {
+            return _document.Palette
+                .Take(256)
+                .Select(color => Color.FromArgb(255, color.R, color.G, color.B))
+                .DistinctBy(color => color.ToArgb())
+                .ToArray();
+        }
+
         var colors = new List<Color>
         {
             Color.Transparent,
@@ -230,7 +402,7 @@ internal sealed class PixelImageEditorDialog : Form
 
         if (_tool == ToolKind.Picker)
         {
-            _primaryColor = _document.Bitmap.GetPixel(e.Pixel.X, e.Pixel.Y);
+            _primaryColor = SnapColor(_document.Bitmap.GetPixel(e.Pixel.X, e.Pixel.Y));
             UpdateColorPreview();
             _painting = false;
             return;
@@ -239,7 +411,7 @@ internal sealed class PixelImageEditorDialog : Form
         SaveUndo();
         if (_tool == ToolKind.Fill)
         {
-            FloodFill(e.Pixel, _primaryColor);
+            FloodFill(e.Pixel, SnapColor(_primaryColor));
             _painting = false;
             _canvas.Invalidate();
             return;
@@ -257,7 +429,7 @@ internal sealed class PixelImageEditorDialog : Form
         if (!_painting || !IsInside(e.Pixel)) return;
         if (_tool is ToolKind.Pencil or ToolKind.Eraser)
         {
-            DrawLine(_lastPixel, e.Pixel, _tool == ToolKind.Eraser ? Color.Transparent : _primaryColor);
+            DrawLine(_lastPixel, e.Pixel, _tool == ToolKind.Eraser ? Color.Transparent : SnapColor(_primaryColor));
             _lastPixel = e.Pixel;
             _canvas.Invalidate();
         }
@@ -266,7 +438,7 @@ internal sealed class PixelImageEditorDialog : Form
             _canvas.PreviewStart = _startPixel;
             _canvas.PreviewEnd = e.Pixel;
             _canvas.PreviewKind = _tool.ToString();
-            _canvas.PreviewColor = _primaryColor;
+            _canvas.PreviewColor = SnapColor(_primaryColor);
             _canvas.Invalidate();
         }
     }
@@ -279,11 +451,11 @@ internal sealed class PixelImageEditorDialog : Form
         {
             if (_tool == ToolKind.Line)
             {
-                DrawLine(_startPixel, e.Pixel, _primaryColor);
+                DrawLine(_startPixel, e.Pixel, SnapColor(_primaryColor));
             }
             else if (_tool == ToolKind.Rectangle)
             {
-                DrawRectangle(_startPixel, e.Pixel, _primaryColor);
+                DrawRectangle(_startPixel, e.Pixel, SnapColor(_primaryColor));
             }
         }
 
@@ -292,7 +464,7 @@ internal sealed class PixelImageEditorDialog : Form
     }
 
     private void DrawPixel(Point point)
-        => _document.Bitmap.SetPixel(point.X, point.Y, _tool == ToolKind.Eraser ? Color.Transparent : _primaryColor);
+        => _document.Bitmap.SetPixel(point.X, point.Y, _tool == ToolKind.Eraser ? Color.Transparent : SnapColor(_primaryColor));
 
     private void DrawLine(Point a, Point b, Color color)
     {
@@ -380,23 +552,27 @@ internal sealed class PixelImageEditorDialog : Form
     private void Undo()
     {
         if (_undo.Count == 0) return;
+        ClearPreviewState();
         _redo.Push(new Bitmap(_document.Bitmap));
         using var previous = _undo.Pop();
         using var g = Graphics.FromImage(_document.Bitmap);
         g.CompositingMode = CompositingMode.SourceCopy;
         g.DrawImage(previous, 0, 0);
         _canvas.Invalidate();
+        UpdateStatus(null);
     }
 
     private void Redo()
     {
         if (_redo.Count == 0) return;
+        ClearPreviewState();
         _undo.Push(new Bitmap(_document.Bitmap));
         using var next = _redo.Pop();
         using var g = Graphics.FromImage(_document.Bitmap);
         g.CompositingMode = CompositingMode.SourceCopy;
         g.DrawImage(next, 0, 0);
         _canvas.Invalidate();
+        UpdateStatus(null);
     }
 
     private void PickColor()
@@ -408,7 +584,7 @@ internal sealed class PixelImageEditorDialog : Form
             Color = _primaryColor.A == 0 ? Color.White : _primaryColor
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        _primaryColor = dialog.Color;
+        _primaryColor = SnapColor(dialog.Color);
         UpdateColorPreview();
     }
 
@@ -428,9 +604,56 @@ internal sealed class PixelImageEditorDialog : Form
         g.Clear(Color.Transparent);
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(raw, new Rectangle(0, 0, _document.Bitmap.Width, _document.Bitmap.Height));
+        if (_document.Target.IsItemIconPair)
+        {
+            using var normalized = new ItemIconRasterNormalizeService().NormalizeLargeBitmap(raw);
+            g.DrawImageUnscaled(normalized, 0, 0);
+        }
+        else if (_document.Target.Kind == EditableImageTargetKind.DllBitmapIcon)
+        {
+            using var normalized = ImportDllBitmapIconSource(dialog.FileName, raw);
+            using var quantized = QuantizeForDocument(normalized);
+            g.DrawImageUnscaled(quantized, 0, 0);
+        }
+        else
+        {
+            g.DrawImage(raw, new Rectangle(0, 0, _document.Bitmap.Width, _document.Bitmap.Height));
+        }
         _canvas.Invalidate();
+        UpdateStatus(null);
     }
+
+    private Bitmap ImportDllBitmapIconSource(string path, Image raw)
+    {
+        var codec = new DllBitmapIconCodecService();
+        if (Path.GetExtension(path).Equals(".bmp", StringComparison.OrdinalIgnoreCase) &&
+            File.Exists(_document.Target.TargetPath))
+        {
+            var resources = codec.ParseBitmapResources(_document.Target.TargetPath);
+            var pair = codec.ResolveBitmapResourcePair(resources, _document.Target.IconIndex);
+            var classification = codec.ClassifyItemIconBmpImport(path, pair, resources);
+            if (classification.PreserveStorage && classification.StoragePair != null)
+            {
+                using var decoded = DllBitmapIconCodecService.DecodeDib(classification.StoragePair.Large.DibBytes);
+                if (decoded != null)
+                {
+                    return new Bitmap(decoded.Bitmap);
+                }
+            }
+        }
+
+        return codec.NormalizeLargeBitmap(raw);
+    }
+
+    private Bitmap QuantizeForDocument(Bitmap source)
+        => _document.RestrictToPalette && _document.Palette.Count > 0
+            ? DllBitmapIconCodecService.QuantizeBitmapToPalette(source, _document.Palette)
+            : new Bitmap(source);
+
+    private Color SnapColor(Color color)
+        => _document.RestrictToPalette && _document.Palette.Count > 0
+            ? DllBitmapIconCodecService.MapColorToPalette(color, _document.Palette)
+            : color;
 
     private void ExportPng()
     {
@@ -466,7 +689,7 @@ internal sealed class PixelImageEditorDialog : Form
         var frame = _document.HasFrameGrid
             ? $"    帧 {_document.FrameWidth}x{_document.FrameHeight}"
             : string.Empty;
-        _statusLabel.Text = $"{_document.LoadDetail}    工具 {_tool}    缩放 {_canvas.Zoom}x{frame}{pos}";
+        _statusLabel.Text = $"{_document.LoadDetail}    工具 {GetToolDisplayName(_tool)}    缩放 {_canvas.Zoom}x{frame}{pos}";
     }
 
     private static void DrawChecker(Graphics g, Rectangle rect, int size)
@@ -536,7 +759,7 @@ internal sealed class PixelImageEditorDialog : Form
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = PixelOffsetMode.Half;
             DrawChecker(g, new Rectangle(0, 0, _bitmap.Width * Zoom, _bitmap.Height * Zoom), Math.Max(4, Zoom));
-            g.DrawImage(_bitmap, new Rectangle(0, 0, _bitmap.Width * Zoom, _bitmap.Height * Zoom), new Rectangle(0, 0, _bitmap.Width, _bitmap.Height), GraphicsUnit.Pixel);
+            DrawPixelScaledBitmap(g, _bitmap, Zoom);
 
             if (ShowGrid && Zoom >= 6)
             {
@@ -585,6 +808,37 @@ internal sealed class PixelImageEditorDialog : Form
                     var width = (Math.Abs(a.X - b.X) + 1) * Zoom;
                     var height = (Math.Abs(a.Y - b.Y) + 1) * Zoom;
                     g.DrawRectangle(pen, left, top, width, height);
+                }
+            }
+        }
+
+        private static void DrawPixelScaledBitmap(Graphics g, Bitmap bitmap, int zoom)
+        {
+            var brushes = new Dictionary<int, SolidBrush>();
+            try
+            {
+                for (var y = 0; y < bitmap.Height; y++)
+                {
+                    for (var x = 0; x < bitmap.Width; x++)
+                    {
+                        var color = bitmap.GetPixel(x, y);
+                        if (color.A == 0) continue;
+                        var key = color.ToArgb();
+                        if (!brushes.TryGetValue(key, out var brush))
+                        {
+                            brush = new SolidBrush(color);
+                            brushes[key] = brush;
+                        }
+
+                        g.FillRectangle(brush, x * zoom, y * zoom, zoom, zoom);
+                    }
+                }
+            }
+            finally
+            {
+                foreach (var brush in brushes.Values)
+                {
+                    brush.Dispose();
                 }
             }
         }

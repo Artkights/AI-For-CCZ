@@ -121,7 +121,8 @@ internal partial class Program
                 throw new InvalidOperationException("Battlefield editor did not include the first 46 friend deployment record.");
             }
 
-            if (!firstFriendDeployment.LevelJobDisplay.Contains("高级", StringComparison.Ordinal))
+            if (!firstFriendDeployment.LevelJobDisplay.Contains("级", StringComparison.Ordinal) ||
+                !ContainsAnyOrdinal(firstFriendDeployment.LevelJobDisplay, "初级", "中级", "高级"))
             {
                 throw new InvalidOperationException($"Battlefield 46 preview did not read the job level slot used by the deployment dialog: {firstFriendDeployment.LevelJobDisplay}");
             }
@@ -211,6 +212,7 @@ internal partial class Program
         using (var defaultSAllyPreview = previewService.TryRenderCharacterResourceImage(project, "S", 0, 1, 1))
         using (var defaultSFriendPreview = previewService.TryRenderCharacterResourceImage(project, "S", 0, 1, 2))
         using (var defaultSEnemyPreview = previewService.TryRenderCharacterResourceImage(project, "S", 0, 1, 3))
+        using (var defaultSStackPreview = previewService.TryRenderSImageFactionStackPreview(project, 0, 1, out var defaultSStackDetail))
         using (var outOfRangeSPreview = previewService.TryRenderCharacterResourceImage(project, "S", 253, null, 1))
         {
             if (rResourcePreview == null)
@@ -231,6 +233,23 @@ internal partial class Program
             if (defaultSAllyPreview == null || defaultSFriendPreview == null || defaultSEnemyPreview == null)
             {
                 throw new InvalidOperationException("S=0 默认兵种形象应能按职业=1 和我/友/敌阵营分别生成预览。");
+            }
+
+            if (defaultSStackPreview == null)
+            {
+                throw new InvalidOperationException("S=0 默认兵种三阵营合成预览应能生成。");
+            }
+
+            if (defaultSStackPreview.Height <= defaultSAllyPreview.Height * 2)
+            {
+                throw new InvalidOperationException($"S=0 默认兵种三阵营合成预览高度异常：stack={defaultSStackPreview.Size} ally={defaultSAllyPreview.Size}。");
+            }
+
+            if (!defaultSStackDetail.Contains("我军", StringComparison.Ordinal) ||
+                !defaultSStackDetail.Contains("友军", StringComparison.Ordinal) ||
+                !defaultSStackDetail.Contains("敌军", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("S=0 默认兵种三阵营合成预览详情缺少我军/友军/敌军：" + defaultSStackDetail);
             }
     
             if (outOfRangeSPreview != null)
@@ -1062,9 +1081,12 @@ internal partial class Program
         section.Commands.Add(CreateNumericCommand(3, 1, 13, 0x2B, 0x260, personId));
 
         var moved = new RSceneDraftService().BuildStateSnapshot(section, currentCommandIndex: 12);
-        if (moved.BackgroundImageNumber != 1)
+        if (moved.BackgroundReference == null ||
+            moved.BackgroundReference.Category != 1 ||
+            !string.Equals(moved.BackgroundReference.TargetResourceKind, "WorldMap", StringComparison.OrdinalIgnoreCase) ||
+            moved.BackgroundReference.ResolvedImageNumber != 0)
         {
-            throw new InvalidOperationException($"R 场景中国地图 0 应映射到 Mmap.e5 预览图 #1，实际={moved.BackgroundImageNumber?.ToString(CultureInfo.InvariantCulture) ?? "null"}");
+            throw new InvalidOperationException($"R 场景中国地图 0 应保留为 WorldMap #0，实际={moved.BackgroundReference?.DisplayText ?? "null"}");
         }
 
         var face = moved.MapFaces.SingleOrDefault(x => x.PersonId == personId)
@@ -1198,6 +1220,9 @@ internal partial class Program
 
         return count;
     }
+
+    static bool ContainsAnyOrdinal(string text, params string[] values)
+        => values.Any(value => text.Contains(value, StringComparison.Ordinal));
 
     static void AssertRSceneFrameVisible(Bitmap bitmap, string label)
     {

@@ -12,10 +12,10 @@ dotnet build .\CCZModStudio.GameDebugMcpServer\CCZModStudio.GameDebugMcpServer.c
 
 ## Run
 
-Use `宸ュ叿鏁村悎鍖卄 as the working directory:
+Use `工具整合包` as the working directory:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP閰嶇疆\start-ccz-game-debug-mcp.ps1" -GameRoot "..\鍩哄簳\鍔犲己鐗?.5鏈姞瀵嗙増"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP配置\start-ccz-game-debug-mcp.ps1" -GameRoot "..\基底\加强版6.5未加密版"
 ```
 
 The server writes MCP JSON-RPC messages on stdout. Diagnostics and build output must go to stderr.
@@ -48,7 +48,7 @@ The server writes MCP JSON-RPC messages on stdout. Diagnostics and build output 
 ## Validation
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP閰嶇疆\validate-ccz-game-debug-mcp.ps1" -GameRoot "..\鍩哄簳\鍔犲己鐗?.5鏈姞瀵嗙増"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\MCP配置\validate-ccz-game-debug-mcp.ps1" -GameRoot "..\基底\加强版6.5未加密版"
 ```
 
 Expected output:

@@ -538,17 +538,18 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var savedTable = _currentTableResult.Table;
-            var result = _tableWriter.Save(_project, savedTable, _currentTableResult.Data);
+            var savedData = _currentTableResult.Data;
+            var changedRows = GetChangedRows(savedData);
+            var result = _tableWriter.Save(_project, savedTable, savedData);
             var verifyRead = _tableReader.Read(_project, savedTable, _tables);
             if (!verifyRead.Validation.IsUsable)
             {
                 throw new InvalidOperationException("保存后重新读取失败，请查看诊断和备份。");
             }
 
-            _currentTableResult = verifyRead;
-            _dataGrid.DataSource = verifyRead.Data;
-            ConfigureDataGrid(verifyRead);
-            ConfigureChartColumns(verifyRead.Data);
+            VerifySavedTableMatchesCurrentData(savedTable, savedData, verifyRead.Data, changedRows);
+            AcceptSavedDataTable(savedData, RefreshDataGridRowStyles);
+            ConfigureChartColumns(savedData);
             System.Diagnostics.Debug.WriteLine($"已保存表：{result.Table.TableName}");
             System.Diagnostics.Debug.WriteLine($"写入文件：{result.FilePath}");
             System.Diagnostics.Debug.WriteLine($"写入行数：{result.RowsWritten}，变化字节数：{result.ChangedBytes}");

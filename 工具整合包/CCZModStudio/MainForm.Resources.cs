@@ -44,6 +44,7 @@ public sealed partial class MainForm
             _sceneDictionaryInfoBox.Text =
                 $"来源：{_currentSceneStringDocument.SourcePath}\r\n" +
                 $"命令字典：{_currentSceneStringDocument.Commands.Count} 项    附加字符串组：{_currentSceneStringDocument.Groups.Count} 组\r\n" +
+                $"解码：{_currentSceneStringDocument.DecodeDiagnostic}\r\n" +
                 "当前阶段用于剧本模块的命令 ID->名称映射和参数候选表预览，尚未开放 Scene 二进制结构写入。";
             PopulateScriptNewCommandCombo(_currentSceneStringDocument);
             _probeScenarioCommandsButton.Enabled = _currentScenarioFiles.Count > 0;

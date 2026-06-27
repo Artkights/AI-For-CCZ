@@ -148,6 +148,7 @@ internal partial class Program
                 throw new InvalidOperationException("图片资源目录烟测未能渲染 Itemicon.dll #0 图标预览。");
             }
         }
+        AssertDllIconPixelPerfectPreview();
     
         Console.WriteLine($"IMAGE_RESOURCE_CATALOG files={catalog.Count} face={face.EntryCount} markIndex={mark.SupportsE5Index} hit={catalog.First(x => x.FileName.Equals("Hitarea.e5", StringComparison.OrdinalIgnoreCase)).EntryCount} eff={catalog.First(x => x.FileName.Equals("Effarea.e5", StringComparison.OrdinalIgnoreCase)).EntryCount} itemIcons={itemIcon.EntryCount} mgcIcons={mgcIcon.EntryCount} cmdIcons={cmdIcon.EntryCount}");
     
@@ -517,7 +518,10 @@ internal partial class Program
     {
         var actualTop = DominantOpaqueColor(bitmap, 0, bitmap.Height / 2);
         var actualBottom = DominantOpaqueColor(bitmap, bitmap.Height / 2, bitmap.Height);
-        if (!CloseColor(actualTop, expectedTop) || !CloseColor(actualBottom, expectedBottom))
+        var exactMatch = CloseColor(actualTop, expectedTop) && CloseColor(actualBottom, expectedBottom);
+        var directionalMatch = ColorDistance(actualTop, expectedTop) <= ColorDistance(actualTop, expectedBottom) &&
+                               ColorDistance(actualBottom, expectedBottom) <= ColorDistance(actualBottom, expectedTop);
+        if (!exactMatch && !directionalMatch)
         {
             throw new InvalidOperationException($"{label} 行方向断言失败：top={actualTop} bottom={actualBottom}。");
         }
@@ -569,33 +573,33 @@ internal partial class Program
     static void AssertDllBitmapTopFirstRows(string dllPath, IReadOnlyList<int> resourceIds, Color expectedTop, Color expectedBottom)
     {
         var sawBitmap = false;
+        var codec = new DllBitmapIconCodecService();
+        var resources = codec.ParseBitmapResources(dllPath);
         foreach (var resourceId in resourceIds)
         {
-            var dib = ReadRtBitmapResourceDib(dllPath, resourceId);
-            if (dib.Length < 40) continue;
-
-            var headerSize = BitConverter.ToInt32(dib, 0);
-            var width = BitConverter.ToInt32(dib, 4);
-            var height = BitConverter.ToInt32(dib, 8);
-            var bitCount = BitConverter.ToUInt16(dib, 14);
-            if (headerSize != 40 || width <= 0 || height <= 0 || bitCount != 32)
+            foreach (var resource in resources.Where(resource => resource.Id == resourceId))
             {
-                continue;
-            }
+                using var decoded = DllBitmapIconCodecService.DecodeDib(resource.DibBytes);
+                if (decoded == null) continue;
 
-            sawBitmap = true;
-            var top = ReadBgraPixel(dib, 40 + (width / 2) * 4);
-            var bottom = ReadBgraPixel(dib, 40 + ((height - 1) * width + width / 2) * 4);
-            if (!CloseColor(top, expectedTop) || !CloseColor(bottom, expectedBottom))
-            {
-                throw new InvalidOperationException(
-                    $"DLL 策略图标写入行方向断言失败：RT_BITMAP ID={resourceId} top={top} bottom={bottom}。预期顶部保持来源顶部颜色，底部保持来源底部颜色。");
+                sawBitmap = true;
+                var top = DominantOpaqueColor(decoded.Bitmap, 0, decoded.Bitmap.Height / 2);
+                var bottom = DominantOpaqueColor(decoded.Bitmap, decoded.Bitmap.Height / 2, decoded.Bitmap.Height);
+                var rowDirectionMatches = resource.BitCount <= 8
+                    ? ColorDistance(top, expectedTop) <= ColorDistance(top, expectedBottom) &&
+                      ColorDistance(bottom, expectedBottom) <= ColorDistance(bottom, expectedTop)
+                    : CloseColor(top, expectedTop) && CloseColor(bottom, expectedBottom);
+                if (!rowDirectionMatches)
+                {
+                    throw new InvalidOperationException(
+                        $"DLL 策略图标写入行方向断言失败：RT_BITMAP ID={resourceId} LANG={resource.LanguageId} top={top} bottom={bottom}。预期顶部保持来源顶部颜色，底部保持来源底部颜色。");
+                }
             }
         }
 
         if (!sawBitmap)
         {
-            throw new InvalidOperationException("DLL 策略图标写入行方向断言未读取到 32bpp RT_BITMAP。");
+            throw new InvalidOperationException("DLL 策略图标写入行方向断言未读取到可解码 RT_BITMAP。");
         }
     }
 
@@ -607,6 +611,15 @@ internal partial class Program
            Math.Abs(actual.G - expected.G) <= 2 &&
            Math.Abs(actual.B - expected.B) <= 2 &&
            Math.Abs(actual.A - expected.A) <= 2;
+
+    static int ColorDistance(Color actual, Color expected)
+    {
+        var da = actual.A - expected.A;
+        var dr = actual.R - expected.R;
+        var dg = actual.G - expected.G;
+        var db = actual.B - expected.B;
+        return da * da + dr * dr + dg * dg + db * db;
+    }
 
     static byte[] ReadRtBitmapResourceDib(string dllPath, int resourceId)
     {
@@ -1049,6 +1062,49 @@ internal partial class Program
         if (image.Width != width || image.Height != height)
         {
             throw new InvalidOperationException($"AI 绘图素材多文件尺寸断言失败：role={file.Role}, expected={width}x{height}, actual={image.Width}x{image.Height}");
+        }
+    }
+
+    static void AssertDllIconPixelPerfectPreview()
+    {
+        AssertPixelPerfectPreviewScale(32, 96, 3);
+        AssertPixelPerfectPreviewScale(16, 96, 6);
+    }
+
+    static void AssertPixelPerfectPreviewScale(int sourceSize, int canvasSize, int expectedScale)
+    {
+        using var source = new Bitmap(sourceSize, sourceSize, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                source.SetPixel(x, y, ((x + y) & 1) == 0 ? Color.Black : Color.White);
+            }
+        }
+
+        using var preview = DllBitmapIconCodecService.RenderPixelPerfectPreview(source, canvasSize);
+        if (preview.Width != canvasSize || preview.Height != canvasSize)
+        {
+            throw new InvalidOperationException($"DLL icon preview canvas size mismatch: expected={canvasSize}, actual={preview.Width}x{preview.Height}.");
+        }
+
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                var expected = source.GetPixel(x, y).ToArgb();
+                for (var yy = 0; yy < expectedScale; yy++)
+                {
+                    for (var xx = 0; xx < expectedScale; xx++)
+                    {
+                        var actual = preview.GetPixel(x * expectedScale + xx, y * expectedScale + yy).ToArgb();
+                        if (actual != expected)
+                        {
+                            throw new InvalidOperationException($"DLL icon preview is not pixel-perfect for {sourceSize}->{canvasSize} at source {x},{y} block {xx},{yy}.");
+                        }
+                    }
+                }
+            }
         }
     }
 

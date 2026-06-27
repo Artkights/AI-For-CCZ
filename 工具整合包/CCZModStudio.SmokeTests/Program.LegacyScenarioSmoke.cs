@@ -191,7 +191,7 @@ internal partial class Program
             throw new InvalidOperationException("剧本结构编辑烟测找不到尾部 00 事件结束标记。");
         }
 
-        var insertIndex = tailTerminatorIndex + 1;
+        var insertIndex = GetLegacyScriptEditAppendIndex(bodyCommands);
         var jumpTargets = CaptureLegacyScriptEditJumpTargets(document);
         bodyCommands.Insert(insertIndex, inserted);
         ReindexLegacyScriptEditDocument(document);

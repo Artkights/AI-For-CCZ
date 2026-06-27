@@ -7,6 +7,7 @@ public sealed class RSceneStateSnapshot
     public int? StartCommandIndex { get; init; }
     public int CurrentCommandIndex { get; init; }
     public int? BackgroundImageNumber { get; init; }
+    public RSceneBackgroundReference? BackgroundReference { get; init; }
     public List<RSceneActorState> Actors { get; init; } = [];
     public List<RSceneMapFaceState> MapFaces { get; init; } = [];
 }

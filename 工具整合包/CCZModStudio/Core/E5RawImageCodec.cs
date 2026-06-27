@@ -47,6 +47,76 @@ public sealed class E5RawImageCodec
         return EncodeBitmapCore(project, image, sourceLabel, spec, strictHeight);
     }
 
+    public Bitmap DecodeRawBytes(
+        CczProject project,
+        byte[] rawBytes,
+        string sourceLabel,
+        E5RawImageSpec spec,
+        bool trimToWholeRows = true)
+    {
+        if (rawBytes.Length == 0)
+        {
+            throw new InvalidOperationException($"RAW image is empty: {sourceLabel}");
+        }
+
+        if (spec.Width <= 0)
+        {
+            throw new InvalidOperationException($"Invalid RAW width for {spec.FileName}: {spec.Width}");
+        }
+
+        var usableLength = rawBytes.Length;
+        var remainder = usableLength % spec.Width;
+        if (remainder != 0)
+        {
+            if (!trimToWholeRows)
+            {
+                throw new InvalidOperationException(
+                    $"RAW length for {sourceLabel} is not a multiple of width {spec.Width}: {rawBytes.Length}");
+            }
+
+            usableLength -= remainder;
+        }
+
+        var height = usableLength / spec.Width;
+        if (spec.StrictStripHeight.HasValue)
+        {
+            height = spec.StrictStripHeight.Value;
+            usableLength = Math.Min(usableLength, checked(spec.Width * height));
+        }
+
+        if (height <= 0)
+        {
+            throw new InvalidOperationException($"RAW image is too short for {spec.FileName}: {sourceLabel}");
+        }
+
+        var palette = LoadRawPalette(project);
+        var bitmap = new Bitmap(spec.Width, height, PixelFormat.Format32bppArgb);
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < spec.Width; x++)
+            {
+                var rawIndex = y * spec.Width + x;
+                if (rawIndex >= usableLength)
+                {
+                    bitmap.SetPixel(x, y, Color.Transparent);
+                    continue;
+                }
+
+                var value = rawBytes[rawIndex];
+                if (value == 0)
+                {
+                    bitmap.SetPixel(x, y, Color.Transparent);
+                    continue;
+                }
+
+                var color = value < palette.Count ? palette[value] : Color.Transparent;
+                bitmap.SetPixel(x, y, IsMagentaKey(color) ? Color.Transparent : color);
+            }
+        }
+
+        return bitmap;
+    }
+
     public bool TryDecodeStandardImage(byte[] bytes, out int width, out int height)
     {
         width = 0;

@@ -1533,18 +1533,18 @@ public sealed partial class MainForm
                 var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
                 if (cells.Length == block.BytesRead)
                 {
-                    var preview = map != null && File.Exists(map.Path)
+                    var preview = map != null && File.Exists(map.Path) && !map.SourceKind.Equals("LegacyHmRaw", StringComparison.OrdinalIgnoreCase)
                         ? _hexzmapTerrainRenderService.RenderOverlay(cells, block.Width, block.Height, map.Path, 45)
                         : RenderHexzmapCells(cells, block.Width, block.Height);
-                    SetBattlefieldMapPreviewImage(preview, selectedUnit);
+                    SetBattlefieldMapPreviewImage(preview, selectedUnit, map);
                     return;
                 }
             }
 
             if (map != null && File.Exists(map.Path))
             {
-                using var image = Image.FromFile(map.Path);
-                SetBattlefieldMapPreviewImage(new Bitmap(image), selectedUnit);
+                using var image = RenderBattlefieldBaseMap(map);
+                SetBattlefieldMapPreviewImage(new Bitmap(image), selectedUnit, map);
                 return;
             }
 
@@ -1556,6 +1556,16 @@ public sealed partial class MainForm
             _battlefieldMapHintLabel.Text = "地图预览生成失败：" + ex.Message;
             System.Diagnostics.Debug.WriteLine("战场制作地图预览失败：" + ex);
         }
+    }
+
+    private Image RenderBattlefieldBaseMap(MapResourceItem map)
+    {
+        if (_project != null && map.SourceKind.Equals("LegacyHmRaw", StringComparison.OrdinalIgnoreCase))
+        {
+            return _legacyHmMapReader.RenderPreview(_project, map);
+        }
+
+        return Image.FromFile(map.Path);
     }
 
     private static string BuildBattlefieldMapId(ScenarioFileInfo scenario)
@@ -1595,9 +1605,14 @@ public sealed partial class MainForm
     }
 
     private void SetBattlefieldMapPreviewImage(Image image, BattlefieldUnitCandidate? selectedUnit)
+        => SetBattlefieldMapPreviewImage(image, selectedUnit, null);
+
+    private void SetBattlefieldMapPreviewImage(Image image, BattlefieldUnitCandidate? selectedUnit, MapResourceItem? map)
     {
         _battlefieldMapPreviewSelectedUnit = selectedUnit;
-        var (gridWidth, gridHeight) = GetCurrentBattlefieldMapGridSize(image);
+        var (gridWidth, gridHeight) = map != null && map.GridWidth > 0 && map.GridHeight > 0
+            ? (map.GridWidth, map.GridHeight)
+            : GetCurrentBattlefieldMapGridSize(image);
         if (gridWidth > 0 && gridHeight > 0)
         {
             DrawBattlefieldGrid(image, gridWidth, gridHeight);
@@ -3318,6 +3333,8 @@ public sealed partial class MainForm
             foreach (var parameter in command.TextParameters)
             {
                 var capacity = Math.Max(0, parameter.ByteLength - 1);
+                var decodeWarning = parameter.TextDecodeWarning;
+                var confidence = string.IsNullOrWhiteSpace(parameter.TextDecodeConfidence) ? "高" : parameter.TextDecodeConfidence;
                 var entry = new ScenarioTextEntry
                 {
                     Index = index++,
@@ -3330,7 +3347,12 @@ public sealed partial class MainForm
                     Preview = parameter.Text.Length > 60 ? parameter.Text[..60] : parameter.Text,
                     Text = parameter.Text,
                     OriginalText = parameter.Text,
-                    Annotation = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex} {command.CommandName} 参数槽 {parameter.Index}。"
+                    SourceKind = "旧版完整树文本参数",
+                    EncodingName = string.IsNullOrWhiteSpace(parameter.TextEncodingName) ? "GBK" : parameter.TextEncodingName,
+                    DecodeConfidence = confidence,
+                    DecodeWarning = decodeWarning,
+                    IsWritable = confidence != "低",
+                    Annotation = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Command {command.CommandIndex} {command.CommandName} 参数槽 {parameter.Index}。旧版完整树文本参数；解码置信度 {confidence}{(string.IsNullOrWhiteSpace(decodeWarning) ? string.Empty : "；" + decodeWarning)}。"
                 };
                 entries.Add(entry);
                 _battlefieldScriptTextByOffset[entry.Offset] = (command, parameter);
@@ -3467,6 +3489,7 @@ public sealed partial class MainForm
     private string BuildBattlefieldScriptTextDetail(ScenarioTextEntry text)
         => $"文本：#{text.Index} {text.Kind} {text.OffsetHex}\r\n" +
            $"容量：GBK {EncodingService.GetGbkByteCount(_battlefieldScriptTextBox.Text)}/{text.ByteLength} 字节\r\n" +
+           BuildScenarioTextDecodeLine(text) + "\r\n" +
            $"说明：{text.Annotation}";
 
     private string BuildBattlefieldScriptRowDetailWithPreview(ScenarioStructureRow row)
@@ -4120,6 +4143,11 @@ public sealed partial class MainForm
         if (entry == null)
         {
             MessageBox.Show(this, "请先在左侧 S 剧本树选择一条文本。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (!entry.IsWritable)
+        {
+            MessageBox.Show(this, "该文本候选解码置信度低或来源未确认，当前只读，不能写回。", "文本只读", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -4821,7 +4849,7 @@ public sealed partial class MainForm
             return;
         }
 
-        SelectTabPageByText("鍦板浘缂栬緫");
+        SelectTabPageByText("地图编辑");
         if (_mapImageList.Items.Count == 0) LoadMapImages();
         if (!SelectMapImageByName(map.Name))
         {

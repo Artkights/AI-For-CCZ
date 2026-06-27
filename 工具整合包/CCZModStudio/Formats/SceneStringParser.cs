@@ -1,5 +1,4 @@
 ﻿using System.Globalization;
-using System.Text;
 using CCZModStudio.Core;
 using CCZModStudio.Models;
 
@@ -10,7 +9,8 @@ public sealed class SceneStringParser
     public SceneStringDocument Parse(string path)
     {
         if (!File.Exists(path)) throw new FileNotFoundException("剧本字典文件不存在。", path);
-        var lines = ReadAllLinesSmart(path)
+        var read = LegacyTextDecoder.ReadTextFile(path);
+        var lines = read.Lines
             .Select(x => x.Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .ToList();
@@ -33,6 +33,10 @@ public sealed class SceneStringParser
         return new SceneStringDocument
         {
             SourcePath = path,
+            EncodingName = read.EncodingName,
+            DecodeConfidence = read.Confidence,
+            DecodeWarnings = read.Warnings,
+            SourceLineCount = read.Lines.Length,
             Commands = commands,
             Groups = groups
         };
@@ -53,25 +57,4 @@ public sealed class SceneStringParser
         return result.OrderBy(x => x.Id).ToList();
     }
 
-    private static string[] ReadAllLinesSmart(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        try
-        {
-            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
-                .GetString(bytes)
-                .Replace("\r\n", "\n", StringComparison.Ordinal)
-                .Replace('\r', '\n')
-                .Split('\n');
-        }
-        catch (DecoderFallbackException)
-        {
-            EncodingService.EnsureCodePages();
-            return EncodingService.Gbk
-                .GetString(bytes)
-                .Replace("\r\n", "\n", StringComparison.Ordinal)
-                .Replace('\r', '\n')
-                .Split('\n');
-        }
-    }
 }

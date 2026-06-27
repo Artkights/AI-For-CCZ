@@ -19,6 +19,9 @@ public sealed class EditableImageTarget
     public string ResourceFormat { get; init; } = string.Empty;
     public int? FrameWidth { get; init; }
     public int? FrameHeight { get; init; }
+    public bool IsItemIconPair { get; init; }
+    public int SmallImageNumber { get; init; }
+    public int LargeImageNumber { get; init; }
     public string OperationKind { get; init; } = "像素编辑";
 }
 
@@ -29,6 +32,8 @@ public sealed class EditableImageDocument : IDisposable
     public Bitmap OriginalBitmap { get; init; } = new(1, 1);
     public IReadOnlyList<Color> Palette { get; init; } = Array.Empty<Color>();
     public string PalettePath { get; init; } = string.Empty;
+    public bool RestrictToPalette { get; init; }
+    public string PaletteRole { get; init; } = string.Empty;
     public int? FrameWidth { get; init; }
     public int? FrameHeight { get; init; }
     public string LoadDetail { get; init; } = string.Empty;

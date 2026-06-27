@@ -28,10 +28,17 @@ public static class BinaryTextScanner
             var length = i - start;
             if (length >= minByteLength)
             {
-                var text = Decode(bytes.AsSpan(start, length));
+                var decoded = Decode(bytes, start, length);
+                var text = decoded.Text;
                 if (LooksUseful(text) && (!requireCjk || text.Any(IsCjk)))
                 {
-                    result.Add(new BinaryTextHit(start, length, text));
+                    result.Add(new BinaryTextHit(start, length, text)
+                    {
+                        EncodingName = decoded.EncodingName,
+                        Confidence = decoded.Confidence,
+                        WarningText = decoded.WarningText,
+                        RawBytes = decoded.RawBytes
+                    });
                     if (result.Count >= maxItems) break;
                 }
             }
@@ -40,15 +47,30 @@ public static class BinaryTextScanner
         return result;
     }
 
-    private static string Decode(ReadOnlySpan<byte> span)
+    private static LegacyTextDecodeResult Decode(byte[] bytes, int offset, int length)
     {
         try
         {
-            return TrimBoundaryControls(StrictGbk.Value.GetString(span).Trim());
+            var raw = bytes.AsSpan(offset, length).ToArray();
+            var text = TrimBoundaryControls(StrictGbk.Value.GetString(raw).Trim());
+            var warnings = LegacyTextDecoder.AnalyzeText(text);
+            return new LegacyTextDecodeResult(
+                text,
+                "GBK",
+                warnings.Count == 0 ? "高" : "低",
+                warnings,
+                raw,
+                Offset: offset);
         }
         catch (DecoderFallbackException)
         {
-            return string.Empty;
+            return new LegacyTextDecodeResult(
+                string.Empty,
+                "GBK",
+                "低",
+                ["严格 GBK 解码失败"],
+                bytes.AsSpan(offset, length).ToArray(),
+                Offset: offset);
         }
     }
 
@@ -82,4 +104,8 @@ public static class BinaryTextScanner
 public sealed record BinaryTextHit(int Offset, int ByteLength, string Text)
 {
     public string OffsetHex => HexDisplayFormatter.FormatOffset(Offset);
+    public string EncodingName { get; init; } = string.Empty;
+    public string Confidence { get; init; } = string.Empty;
+    public string WarningText { get; init; } = string.Empty;
+    public byte[] RawBytes { get; init; } = Array.Empty<byte>();
 }
