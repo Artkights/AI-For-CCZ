@@ -42,9 +42,16 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            CacheCurrentTableEditorSession();
+            if (TryRestoreTableEditorSession(table))
+            {
+                return;
+            }
+
             var result = _tableReader.Read(_project, table, _tables);
             _currentTableResult = result;
             _dataGrid.DataSource = result.Data;
+            ClearGridEditSession(_dataGrid);
             _tableColumnFilterBox.Clear();
             _dangerTableColumnsOnly.Checked = false;
             _tableRowFilterBox.Clear();
@@ -71,6 +78,73 @@ public sealed partial class MainForm
         }
     }
 
+    private string BuildTableEditorSessionKey(HexTableDefinition table)
+        => _project == null
+            ? string.Empty
+            : $"{Path.GetFullPath(_project.GameRoot)}|table|{table.Id}";
+
+    private void CacheCurrentTableEditorSession()
+    {
+        if (_discardingUnsavedChangesForClose || _project == null || _currentTableResult == null) return;
+        if (_dataGrid.DataSource == null) return;
+
+        _dataGrid.EndEdit();
+        var key = BuildTableEditorSessionKey(_currentTableResult.Table);
+        if (string.IsNullOrWhiteSpace(key)) return;
+
+        _tableEditorSessions[key] = new TableEditorSession
+        {
+            ProjectRoot = Path.GetFullPath(_project.GameRoot),
+            TableId = _currentTableResult.Table.Id,
+            Result = _currentTableResult,
+            Viewport = CaptureGridViewport(_dataGrid),
+            ColumnFilterText = _tableColumnFilterBox.Text,
+            DangerColumnsOnly = _dangerTableColumnsOnly.Checked,
+            RowFilterText = _tableRowFilterBox.Text,
+            ChangedRowsOnly = _changedTableRowsOnly.Checked,
+            SearchVisibleColumnsOnly = _tableRowSearchVisibleColumnsOnly.Checked,
+            EditSession = GetGridEditSession(_dataGrid).Clone()
+        };
+    }
+
+    private bool TryRestoreTableEditorSession(HexTableDefinition table)
+    {
+        var key = BuildTableEditorSessionKey(table);
+        if (string.IsNullOrWhiteSpace(key) || !_tableEditorSessions.TryGetValue(key, out var session)) return false;
+
+        _currentTableResult = session.Result;
+        _dataGrid.DataSource = session.Result.Data;
+        _gridEditSessions[_dataGrid] = session.EditSession.Clone();
+        _tableColumnFilterBox.Text = session.ColumnFilterText;
+        _dangerTableColumnsOnly.Checked = session.DangerColumnsOnly;
+        _tableRowFilterBox.Text = session.RowFilterText;
+        _changedTableRowsOnly.Checked = session.ChangedRowsOnly;
+        _tableRowSearchVisibleColumnsOnly.Checked = session.SearchVisibleColumnsOnly;
+        ClearCurrentTableReferenceTarget();
+        ConfigureDataGrid(session.Result);
+        if (!string.IsNullOrWhiteSpace(session.ColumnFilterText) || session.DangerColumnsOnly)
+        {
+            ApplyTableColumnFilter();
+        }
+
+        if (!string.IsNullOrWhiteSpace(session.RowFilterText) || session.ChangedRowsOnly)
+        {
+            ApplyTableRowFilter();
+        }
+
+        ConfigureChartColumns(session.Result.Data);
+        var canEdit = CanEditTable(session.Result);
+        _fieldAnnotationBox.Text = _fieldAnnotationService.BuildTableSummary(table, session.Result.Validation, canEdit);
+        LogTableValidation(session.Result.Validation);
+        if (session.Viewport != null)
+        {
+            RestoreGridViewport(_dataGrid, session.Viewport);
+        }
+
+        SetStatus($"Restored cached table session: {table.TableName}, rows {session.Result.Data.Rows.Count}.");
+        return true;
+    }
+
     private void ConfigureDataGrid(TableReadResult result)
     {
         var canEdit = CanEditTable(result);
@@ -81,6 +155,9 @@ public sealed partial class MainForm
         _copyTableSelectionButton.Enabled = result.Validation.IsUsable && result.Data.Rows.Count > 0;
         _pasteTableSelectionButton.Enabled = canEdit;
         _batchFillTableColumnButton.Enabled = canEdit;
+        _batchModifyTableButton.Enabled = canEdit;
+        _undoTableEditButton.Enabled = canEdit && CanUndoGridEdit(_dataGrid);
+        _redoTableEditButton.Enabled = canEdit && CanRedoGridEdit(_dataGrid);
         _filterTableColumnsButton.Enabled = result.Validation.IsUsable && result.Data.Columns.Count > 0;
         _clearTableColumnFilterButton.Enabled = result.Validation.IsUsable && result.Data.Columns.Count > 0;
         _dangerTableColumnsOnly.Enabled = result.Validation.IsUsable && result.Data.Columns.Count > 0;
@@ -540,6 +617,8 @@ public sealed partial class MainForm
             var savedTable = _currentTableResult.Table;
             var savedData = _currentTableResult.Data;
             var changedRows = GetChangedRows(savedData);
+            var changedCells = GetChangedCellKeys(savedData);
+            var viewport = CaptureGridViewport(_dataGrid);
             var result = _tableWriter.Save(_project, savedTable, savedData);
             var verifyRead = _tableReader.Read(_project, savedTable, _tables);
             if (!verifyRead.Validation.IsUsable)
@@ -548,7 +627,14 @@ public sealed partial class MainForm
             }
 
             VerifySavedTableMatchesCurrentData(savedTable, savedData, verifyRead.Data, changedRows);
-            AcceptSavedDataTable(savedData, RefreshDataGridRowStyles);
+            SyncVerifiedCellsByKey(savedData, verifyRead.Data, changedCells);
+            savedData.AcceptChanges();
+            RefreshChangedGridCells(_dataGrid, changedCells);
+            RefreshChangedGridRowsOnly(_dataGrid, changedCells, RefreshDataGridRowStyle);
+            RestoreGridViewport(_dataGrid, viewport);
+            ClearGridEditSession(_dataGrid);
+            _undoTableEditButton.Enabled = false;
+            _redoTableEditButton.Enabled = false;
             ConfigureChartColumns(savedData);
             System.Diagnostics.Debug.WriteLine($"已保存表：{result.Table.TableName}");
             System.Diagnostics.Debug.WriteLine($"写入文件：{result.FilePath}");
@@ -805,6 +891,14 @@ public sealed partial class MainForm
 
     }
 
+    private void RefreshGenericTableCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_dataGrid, changedCells);
+        RefreshChangedGridRowsOnly(_dataGrid, changedCells, RefreshDataGridRowStyle);
+        _undoTableEditButton.Enabled = CanUndoGridEdit(_dataGrid);
+        _redoTableEditButton.Enabled = CanRedoGridEdit(_dataGrid);
+    }
+
     private void RefreshDataGridRowStyle(int rowIndex)
     {
         if (rowIndex < 0 || rowIndex >= _dataGrid.Rows.Count) return;
@@ -838,7 +932,21 @@ public sealed partial class MainForm
 
         try
         {
-            var count = CsvService.ImportInto(_currentTableResult.Data, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+            CsvImportResult result = null!;
+            IReadOnlyList<GridCellKey> changedCells = Array.Empty<GridCellKey>();
+            var count = 0;
+            var viewport = CaptureGridViewport(_dataGrid);
+            SuspendGridRepaintPreservingViewport(_dataGrid, () =>
+            {
+                result = CsvService.ImportIntoWithChanges(_currentTableResult.Data, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+                count = result.ImportedRows;
+                changedCells = result.ChangedCells
+                    .Select(cell => new GridCellKey(cell.RowKey, cell.RowIndex, cell.ColumnName))
+                    .ToList();
+                RefreshChangedGridCells(_dataGrid, changedCells);
+                RefreshChangedGridRowsOnly(_dataGrid, changedCells, RefreshDataGridRowStyle);
+            });
+            RestoreGridViewport(_dataGrid, viewport);
             System.Diagnostics.Debug.WriteLine("已导入 CSV：" + dialog.FileName);
             SetStatus($"CSV 导入完成：更新 {count} 行，请检查变更后点击保存；保存前会自动备份。");
         }

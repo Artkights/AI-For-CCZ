@@ -75,9 +75,17 @@ public sealed partial class MainForm
 
     private void LoadProject(CczProject project)
     {
+        using var perf = TracePerf("LoadProject");
+        var currentSessionKey = BuildProjectSessionCacheKey(project);
+        var projectChanged = !_loadedProjectSessionKey.Equals(currentSessionKey, StringComparison.OrdinalIgnoreCase);
         _project = project;
+        _loadedProjectSessionKey = currentSessionKey;
         _legacyMfcDialogDataSources = null;
         _legacyScenarioCommandDisplayFormatter = null;
+        if (projectChanged)
+        {
+            ClearEditorSessionCaches();
+        }
         _attackAreaPreviewService.ClearCache();
         _strategyAnimationPreviewService.ClearCache();
         _imageAssignmentPreviewService.ClearCache();
@@ -100,15 +108,51 @@ public sealed partial class MainForm
             return;
         }
 
-        _tables = _tableParser.Load(project.HexTableXmlPath);
-        LoadSceneDictionary(showMessages: false);
-        IndexMaterialLibrary(showMessages: false);
-        LoadMapWorkbenchSettings();
-        LoadScenarioCommandTemplates(silent: true);
-        RefreshTableList();
+        using (TracePerf("LoadProject.HexTable"))
+        {
+            _tables = _tableParser.Load(project.HexTableXmlPath);
+        }
+        using (TracePerf("LoadProject.SceneDictionary"))
+        {
+            LoadSceneDictionary(showMessages: false);
+        }
+        using (TracePerf("LoadProject.MapWorkbenchSettings"))
+        {
+            LoadMapWorkbenchSettings();
+        }
+        using (TracePerf("LoadProject.CommandTemplates"))
+        {
+            LoadScenarioCommandTemplates(silent: true);
+        }
+        using (TracePerf("LoadProject.RefreshTableList"))
+        {
+            RefreshTableList();
+        }
         System.Diagnostics.Debug.WriteLine($"已加载项目：{project.GameRoot}");
         System.Diagnostics.Debug.WriteLine($"已读取 HexTable 表定义：{_tables.Count} 个。");
         SetStatus($"已加载 {_tables.Count} 个表定义");
+    }
+
+    private static string BuildProjectSessionCacheKey(CczProject project)
+    {
+        return string.Join("|",
+            NormalizeProjectCachePath(project.GameRoot),
+            NormalizeProjectCachePath(project.HexTableXmlPath),
+            NormalizeProjectCachePath(project.SceneDictionaryPath),
+            NormalizeProjectCachePath(project.MaterialLibraryRoot));
+    }
+
+    private static string NormalizeProjectCachePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        try
+        {
+            return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return path.Trim();
+        }
     }
 
     private void RunPackageSelfCheck()
@@ -254,6 +298,12 @@ public sealed partial class MainForm
         _currentMapResources = Array.Empty<MapResourceItem>();
         _mapImageList.DataSource = null;
         _currentMapMakerItem = null;
+        _currentMaterialRoot = string.Empty;
+        _mapWorkbenchMaterialBrowserPopulated = false;
+        _mapMakerMaterialTree.Nodes.Clear();
+        _mapMakerMaterialListView.Items.Clear();
+        _mapMakerMaterialImageList.Images.Clear();
+        ClearMapWorkbenchMaterialThumbnailCache();
         ClearMapMakerPreviewImages();
         _mapMakerMapCellOverrideLookup.Clear();
         ResetMapWorkbenchHistory();

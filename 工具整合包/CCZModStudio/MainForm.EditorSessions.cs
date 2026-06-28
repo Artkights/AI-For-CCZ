@@ -36,6 +36,8 @@ public sealed partial class MainForm
         _scriptEditorSessions.Clear();
         _battlefieldEditorSessions.Clear();
         _rSceneEditorSessions.Clear();
+        _tableEditorSessions.Clear();
+        _gridEditSessions.Clear();
         SetLegacyStructureDirtyFlag(LegacyScriptEditorScope.Script, false);
         SetLegacyStructureDirtyFlag(LegacyScriptEditorScope.Battlefield, false);
         SetLegacyStructureDirtyFlag(LegacyScriptEditorScope.RScene, false);

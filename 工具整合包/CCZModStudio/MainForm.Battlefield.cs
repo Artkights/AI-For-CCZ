@@ -54,11 +54,11 @@ public sealed partial class MainForm
         return true;
     }
 
-    private static IReadOnlyDictionary<byte, string> BuildTerrainNameLookupForBackground(CczProject project)
+    private IReadOnlyDictionary<byte, string> BuildTerrainNameLookupForBackground(CczProject project)
     {
         try
         {
-            var materials = new MaterialLibraryIndexer().Index(project);
+            var materials = _materialLibraryCache.GetOrIndexExplicitRoot(MaterialLibraryIndexer.ResolveMaterialLibraryRoot(project));
             return HexzmapProbeReader.BuildTerrainNameLookup(materials);
         }
         catch

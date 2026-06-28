@@ -38,7 +38,10 @@ var globalSettingsWriteSmokeOnly = args.Contains("--global-settings-write-smoke"
 var globalSettingsDialogSmokeOnly = args.Contains("--global-settings-dialog-smoke", StringComparer.OrdinalIgnoreCase);
 var uiLayoutSettingsSmokeOnly = args.Contains("--ui-layout-settings-smoke", StringComparer.OrdinalIgnoreCase);
 var uiLayoutApplySmokeOnly = args.Contains("--ui-layout-apply-smoke", StringComparer.OrdinalIgnoreCase);
+var mainTabSwitchLayoutSmokeOnly = args.Contains("--main-tab-switch-layout-smoke", StringComparer.OrdinalIgnoreCase);
 var csvEncodingSmokeOnly = args.Contains("--csv-encoding-smoke", StringComparer.OrdinalIgnoreCase);
+var gridEditingSmokeOnly = args.Contains("--grid-editing-smoke", StringComparer.OrdinalIgnoreCase);
+var csvImportCellChangeSmokeOnly = args.Contains("--csv-cell-change-smoke", StringComparer.OrdinalIgnoreCase);
 var mapPreviewSmokeOnly = args.Contains("--map-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var mapTerrainConsistencySmokeOnly = args.Contains("--map-terrain-consistency-smoke", StringComparer.OrdinalIgnoreCase);
 var hexzmapSyncSmokeOnly = args.Contains("--hexzmap-sync-smoke", StringComparer.OrdinalIgnoreCase);
@@ -258,9 +261,27 @@ if (uiLayoutApplySmokeOnly)
     return;
 }
 
+if (mainTabSwitchLayoutSmokeOnly)
+{
+    RunMainTabSwitchLayoutSmoke();
+    return;
+}
+
 if (csvEncodingSmokeOnly)
 {
     RunCsvEncodingSmoke();
+    return;
+}
+
+if (gridEditingSmokeOnly)
+{
+    RunGridEditingSmoke();
+    return;
+}
+
+if (csvImportCellChangeSmokeOnly)
+{
+    RunCsvImportCellChangeSmoke();
     return;
 }
 

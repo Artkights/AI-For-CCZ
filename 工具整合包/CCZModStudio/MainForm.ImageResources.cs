@@ -1019,6 +1019,13 @@ public sealed partial class MainForm
         ShowSelectedImageAssignmentDetail();
     }
 
+    private void RefreshImageAssignmentCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_imageAssignmentGrid, changedCells, (rowIndex, _) => UpdateImageAssignmentResourceStatus(rowIndex));
+        RefreshChangedGridRowsOnly(_imageAssignmentGrid, changedCells);
+        ShowSelectedImageAssignmentDetail();
+    }
+
     private void ColorImageAssignmentResourceRows()
     {
         foreach (DataGridViewRow row in _imageAssignmentGrid.Rows)

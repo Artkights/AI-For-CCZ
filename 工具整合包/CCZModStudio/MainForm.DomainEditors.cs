@@ -352,6 +352,13 @@ public sealed partial class MainForm
         ShowSelectedRoleEditorCell();
     }
 
+    private void RefreshRoleEditorCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_roleEditorGrid, changedCells, UpdateRoleEditorDerivedCells);
+        RefreshChangedGridRowsOnly(_roleEditorGrid, changedCells, RefreshRoleEditorRowStyle);
+        ShowSelectedRoleEditorCell();
+    }
+
     private static string EscapeDataViewLikeValue(string value)
         => value.Replace("'", "''")
             .Replace("[", "[[]")
@@ -644,10 +651,11 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentRoleEditorData);
             var saves = SaveRoleEditorData(_project, _tables, _currentRoleEditorData);
-            AcceptSavedDataTable(_currentRoleEditorData, RefreshRoleEditorRowStyles);
+            AcceptSavedDataTable(_currentRoleEditorData);
+            RefreshRoleEditorCellsAfterEdit(changedCells);
             _roleEditorInfoBox.Text = BuildRoleEditorSummary(_currentRoleEditorData);
-            ShowSelectedRoleEditorCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存角色设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves)
@@ -984,8 +992,9 @@ public sealed partial class MainForm
 
         var toolbar = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true
         };
@@ -1685,8 +1694,9 @@ public sealed partial class MainForm
 
         var toolbar = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true
         };
@@ -2328,11 +2338,12 @@ public sealed partial class MainForm
         => ExportDataTableCsv(_currentJobEditorData, "兵种设定.csv");
 
     private void ImportJobEditorCsv()
-        => ImportDataTableCsv(_currentJobEditorData, "兵种设定", () =>
-        {
-            RefreshJobEditorAfterBulkEdit();
-            ResetJobEditorHistory();
-        });
+        => ImportDataTableCsv(
+            _currentJobEditorData,
+            "兵种设定",
+            () => ResetJobEditorHistory(),
+            _jobEditorGrid,
+            RefreshJobEditorCellsAfterCsvImport);
 
     private void RefreshJobEditorAfterBulkEdit()
     {
@@ -2459,7 +2470,7 @@ public sealed partial class MainForm
         if (edits.Count > 0)
         {
             PushJobEditorHistory(edits);
-            RefreshJobEditorAfterBulkEdit();
+            RefreshJobEditorCellsAfterEdits(edits);
             SetStatus($"详细兵种 {Convert.ToString(row["ID"], CultureInfo.InvariantCulture)} 可装备类别已更新：{edits.Count} 项。");
         }
         else
@@ -2589,7 +2600,7 @@ public sealed partial class MainForm
 
         _jobEditorPendingCellEditOriginals = [];
         PushJobEditorHistory(edits);
-        RefreshJobEditorAfterBulkEdit();
+        RefreshJobEditorCellsAfterEdits(edits);
         if (edits.Count > 1)
         {
             SetStatus($"兵种设定已将当前输入应用到选区：{edits.Count} 个单元格。");
@@ -2651,7 +2662,7 @@ public sealed partial class MainForm
         if (edits.Count > 0)
         {
             _jobEditorGrid.CurrentCell = _jobEditorGrid.Rows[lastCell.Row].Cells[lastCell.Column];
-            RefreshJobEditorAfterBulkEdit();
+            RefreshJobEditorCellsAfterEdits(edits);
         }
 
         SetStatus($"兵种设定粘贴完成：更新 {edits.Count} 个单元格。");
@@ -2696,7 +2707,7 @@ public sealed partial class MainForm
         }
 
         PushJobEditorHistory(edits);
-        if (edits.Count > 0) RefreshJobEditorAfterBulkEdit();
+        if (edits.Count > 0) RefreshJobEditorCellsAfterEdits(edits);
         SetStatus(edits.Count > 0
             ? $"兵种设定批量填列完成：更新 {edits.Count} 个单元格。"
             : string.IsNullOrWhiteSpace(lastError) ? "兵种设定批量填列没有产生改动。" : lastError);
@@ -3031,7 +3042,7 @@ public sealed partial class MainForm
             _applyingJobEditorHistory = false;
         }
 
-        RefreshJobEditorAfterBulkEdit();
+        RefreshJobEditorCellsAfterEdits(edits);
     }
 
     private void ResetJobEditorHistory()
@@ -3293,6 +3304,45 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.Default;
         }
+    }
+
+    private void RefreshJobEditorCellsAfterCsvImport(IReadOnlyList<GridCellKey> changedCells)
+    {
+        if (_currentJobEditorData == null) return;
+
+        foreach (var row in changedCells
+                     .Select(key => FindDataRowByGridCellKey(_currentJobEditorData, key, "ID"))
+                     .Where(row => row is { RowState: not DataRowState.Detached })
+                     .Cast<DataRow>()
+                     .Distinct())
+        {
+            RefreshJobEquipmentSummary(row);
+        }
+
+        RefreshChangedGridCells(_jobEditorGrid, changedCells);
+        RefreshChangedGridRowsOnly(_jobEditorGrid, changedCells, RefreshJobEditorRowStyle);
+        ShowSelectedJobEditorCell();
+        UpdateJobEditorHistoryButtons();
+    }
+
+    private void RefreshJobEditorCellsAfterEdits(IReadOnlyList<JobEditorCellEdit> edits)
+    {
+        foreach (var row in edits
+                     .Select(edit => edit.Row)
+                     .Where(row => row.RowState != DataRowState.Detached)
+                     .Distinct())
+        {
+            RefreshJobEquipmentSummary(row);
+            var rowIndex = FindDataRowGridIndex(_jobEditorGrid, row);
+            if (rowIndex >= 0)
+            {
+                RefreshJobEditorRowStyle(rowIndex);
+                _jobEditorGrid.InvalidateRow(rowIndex);
+            }
+        }
+
+        ShowSelectedJobEditorCell();
+        UpdateJobEditorHistoryButtons();
     }
 
     private void BatchReplaceSelectedJobSImages()
@@ -3570,9 +3620,10 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentJobEditorData);
             var saves = SaveJobEditorData(_project, _currentJobEditorData);
-            AcceptSavedDataTable(_currentJobEditorData, RefreshJobEditorRowStyles);
-            ShowSelectedJobEditorCell();
+            AcceptSavedDataTable(_currentJobEditorData);
+            RefreshJobEditorCellsAfterCsvImport(changedCells);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种设定备份：" + save.BackupPath);
@@ -3891,8 +3942,9 @@ public sealed partial class MainForm
 
         var toolbar = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true
         };
@@ -4351,9 +4403,15 @@ public sealed partial class MainForm
         try
         {
             SetItemEditorCsvDerivedColumnsReadOnly(table, readOnly: true);
-            var count = CsvService.ImportInto(table, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+            var importResult = CsvService.ImportIntoWithChanges(table, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+            var count = importResult.ImportedRows;
             RestoreItemEditorCsvReadOnlySnapshot(table, readOnlySnapshot);
-            RefreshItemEditorAfterBulkEdit();
+            var changedCells = importResult.ChangedCells
+                .Select(cell => new GridCellKey(cell.RowKey, cell.RowIndex, cell.ColumnName))
+                .ToList();
+            RefreshChangedGridCells(_itemEditorGrid, changedCells, UpdateItemEditorDerivedCells);
+            RefreshChangedGridRowsOnly(_itemEditorGrid, changedCells, RefreshItemEditorRowStyle);
+            ShowSelectedItemEditorCell();
             ResetItemEditorHistory();
             System.Diagnostics.Debug.WriteLine($"已导入宝物设定 CSV：{dialog.FileName}，更新行 {count}");
             SetStatus($"宝物设定 CSV 导入完成：更新 {count} 行，请检查后保存。");
@@ -4537,7 +4595,7 @@ public sealed partial class MainForm
         _itemEditorPendingCellEditOriginals = [];
         RefreshItemEditorDerivedCells(source.Row);
         PushItemEditorHistory(edits);
-        RefreshItemEditorAfterBulkEdit();
+        RefreshItemEditorCellsAfterEdits(edits);
         if (edits.Count > 1)
         {
             SetStatus($"宝物设定已将当前输入应用到选区：{edits.Count} 个单元格。");
@@ -4599,7 +4657,7 @@ public sealed partial class MainForm
         if (edits.Count > 0)
         {
             _itemEditorGrid.CurrentCell = _itemEditorGrid.Rows[lastCell.Row].Cells[lastCell.Column];
-            RefreshItemEditorAfterBulkEdit();
+            RefreshItemEditorCellsAfterEdits(edits);
         }
 
         SetStatus($"宝物设定粘贴完成：更新 {edits.Count} 个单元格。");
@@ -4644,7 +4702,7 @@ public sealed partial class MainForm
         }
 
         PushItemEditorHistory(edits);
-        if (edits.Count > 0) RefreshItemEditorAfterBulkEdit();
+        if (edits.Count > 0) RefreshItemEditorCellsAfterEdits(edits);
         SetStatus(edits.Count > 0
             ? $"宝物设定批量填列完成：更新 {edits.Count} 个单元格。"
             : string.IsNullOrWhiteSpace(lastError) ? "宝物设定批量填列没有产生改动。" : lastError);
@@ -4966,7 +5024,7 @@ public sealed partial class MainForm
             _applyingItemEditorHistory = false;
         }
 
-        RefreshItemEditorAfterBulkEdit();
+        RefreshItemEditorCellsAfterEdits(edits);
     }
 
     private void ResetItemEditorHistory()
@@ -5199,6 +5257,26 @@ public sealed partial class MainForm
 
         _itemEditorInfoBox.Text = _itemIconPreviewInfoBox.Text;
         DisposeItemIconPreviewResultBitmaps(result);
+    }
+
+    private void RefreshItemEditorCellsAfterEdits(IReadOnlyList<ItemEditorCellEdit> edits)
+    {
+        foreach (var row in edits
+                     .Select(edit => edit.Row)
+                     .Where(row => row.RowState != DataRowState.Detached)
+                     .Distinct())
+        {
+            RefreshItemEditorDerivedCells(row);
+            var rowIndex = FindDataRowGridIndex(_itemEditorGrid, row);
+            if (rowIndex >= 0)
+            {
+                RefreshItemEditorRowStyle(rowIndex);
+                _itemEditorGrid.InvalidateRow(rowIndex);
+            }
+        }
+
+        ShowSelectedItemEditorCell();
+        UpdateItemEditorHistoryButtons();
     }
 
     private void ClearItemIconPreview(string message)
@@ -5721,8 +5799,11 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentItemEditorData);
             var saves = SaveItemEditorData(_project, _currentItemEditorData);
-            AcceptSavedDataTable(_currentItemEditorData, RefreshItemEditorRowStyles);
+            AcceptSavedDataTable(_currentItemEditorData);
+            RefreshChangedGridCells(_itemEditorGrid, changedCells, UpdateItemEditorDerivedCells);
+            RefreshChangedGridRowsOnly(_itemEditorGrid, changedCells, RefreshItemEditorRowStyle);
             ShowSelectedItemEditorCell();
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存宝物设定：保存表 {saves.Count} 个，变化字节 {changedBytes}");
@@ -6232,6 +6313,22 @@ public sealed partial class MainForm
         }
     }
 
+    private void RefreshShopEditorCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        if (_currentShopEditorData == null) return;
+
+        var changedRows = changedCells
+            .Select(key => FindDataRowByGridCellKey(_currentShopEditorData, key, "ID"))
+            .Where(row => row is { RowState: not DataRowState.Detached })
+            .Cast<DataRow>()
+            .Distinct()
+            .ToList();
+
+        RefreshChangedShopEditorRows(changedRows);
+        RefreshChangedGridCells(_shopEditorGrid, changedCells, UpdateShopEditorDerivedCells);
+        ShowSelectedShopEditorCell();
+    }
+
     private void RefreshShopEditorRowStyle(int rowIndex)
     {
         if (rowIndex < 0 || rowIndex >= _shopEditorGrid.Rows.Count) return;
@@ -6636,9 +6733,10 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentShopEditorData);
             var saves = SaveShopEditorData(_project, _currentShopEditorData);
-            AcceptSavedDataTable(_currentShopEditorData, RefreshShopEditorRowStyles);
-            ShowSelectedShopEditorCell();
+            AcceptSavedDataTable(_currentShopEditorData);
+            RefreshShopEditorCellsAfterEdit(changedCells);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存商店编辑：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("商店编辑备份：" + save.BackupPath);
@@ -6929,6 +7027,13 @@ public sealed partial class MainForm
         _jobTerrainGrid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
     }
 
+    private void RefreshJobTerrainCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_jobTerrainGrid, changedCells);
+        RefreshChangedGridRowsOnly(_jobTerrainGrid, changedCells, RefreshJobTerrainRowStyle);
+        ShowSelectedJobTerrainCell();
+    }
+
     private void ShowSelectedJobTerrainCell()
     {
         if (_currentJobTerrainData == null || _jobTerrainGrid.CurrentCell == null) return;
@@ -6996,9 +7101,10 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentJobTerrainData);
             var saves = SaveJobTerrainEditorData(_project, _currentJobTerrainData);
-            AcceptSavedDataTable(_currentJobTerrainData, RefreshJobTerrainRowStyles);
-            ShowSelectedJobTerrainCell();
+            AcceptSavedDataTable(_currentJobTerrainData);
+            RefreshJobTerrainCellsAfterEdit(changedCells);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种系/地形：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种系/地形备份：" + save.BackupPath);
@@ -7522,6 +7628,13 @@ public sealed partial class MainForm
         _jobStrategyEditorGrid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
     }
 
+    private void RefreshJobStrategyCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_jobStrategyEditorGrid, changedCells, UpdateJobStrategyDerivedCells);
+        RefreshChangedGridRowsOnly(_jobStrategyEditorGrid, changedCells, RefreshJobStrategyRowStyle);
+        ShowSelectedJobStrategyCell();
+    }
+
     private void ShowSelectedJobStrategyCell()
     {
         if (_currentJobStrategyData == null || _jobStrategyEditorGrid.CurrentCell == null) return;
@@ -7831,9 +7944,10 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentJobStrategyData);
             var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);
-            AcceptSavedDataTable(_currentJobStrategyData, RefreshJobStrategyRowStyles);
-            ShowSelectedJobStrategyCell();
+            AcceptSavedDataTable(_currentJobStrategyData);
+            RefreshJobStrategyCellsAfterEdit(changedCells);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种策略：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种策略备份：" + save.BackupPath);
@@ -8546,6 +8660,13 @@ public sealed partial class MainForm
         grid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
     }
 
+    private void RefreshJobMatrixCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_jobRestraintGrid, changedCells);
+        RefreshChangedGridRowsOnly(_jobRestraintGrid, changedCells, rowIndex => RefreshJobMatrixRowStyle(_jobRestraintGrid, rowIndex));
+        ShowSelectedJobMatrixCell(_jobRestraintGrid, "鍏电鐩稿厠");
+    }
+
     private void ShowSelectedJobMatrixCell(DataGridView grid, string matrixName)
     {
         if (grid.CurrentCell == null) return;
@@ -8857,6 +8978,13 @@ public sealed partial class MainForm
         _jobEffectEditorGrid.Rows[rowIndex].DefaultCellStyle.BackColor = IsDataRowChanged(dataRow) ? Color.LightCyan : Color.Empty;
     }
 
+    private void RefreshJobEffectCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
+    {
+        RefreshChangedGridCells(_jobEffectEditorGrid, changedCells, UpdateJobEffectDerivedCells);
+        RefreshChangedGridRowsOnly(_jobEffectEditorGrid, changedCells, RefreshJobEffectRowStyle);
+        ShowSelectedJobEffectCell();
+    }
+
     private void ShowSelectedJobEffectCell()
     {
         if (_currentJobEffectData == null || _jobEffectEditorGrid.CurrentCell == null) return;
@@ -8928,9 +9056,10 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            var changedCells = GetChangedCellKeys(_currentJobEffectData);
             var saves = SaveJobEffectEditorData(_project, _currentJobEffectData);
-            AcceptSavedDataTable(_currentJobEffectData, RefreshJobEffectRowStyles);
-            ShowSelectedJobEffectCell();
+            AcceptSavedDataTable(_currentJobEffectData);
+            RefreshJobEffectCellsAfterEdit(changedCells);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存兵种特效：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("兵种特效备份：" + save.BackupPath);

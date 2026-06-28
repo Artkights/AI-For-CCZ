@@ -5,6 +5,13 @@ using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
 
+public sealed record CsvChangedCell(string? RowKey, int RowIndex, string ColumnName);
+
+public sealed record CsvImportResult(
+    int ImportedRows,
+    IReadOnlyList<CsvChangedCell> ChangedCells,
+    int SkippedReadOnlyCells);
+
 public static class CsvService
 {
     private static readonly Encoding StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -60,6 +67,9 @@ public static class CsvService
     }
 
     public static int ImportInto(DataTable table, string path, bool allowPartialColumns, bool matchByIdWhenPresent)
+        => ImportIntoWithChanges(table, path, allowPartialColumns, matchByIdWhenPresent).ImportedRows;
+
+    public static CsvImportResult ImportIntoWithChanges(DataTable table, string path, bool allowPartialColumns, bool matchByIdWhenPresent)
     {
         var records = ReadRecords(path, table);
         if (records.Count == 0) throw new InvalidOperationException("CSV 文件为空。 ");
@@ -124,6 +134,8 @@ public static class CsvService
 
         var seenIds = useId ? new HashSet<string>(StringComparer.Ordinal) : null;
         var imported = 0;
+        var changedCells = new List<CsvChangedCell>();
+        var skippedReadOnlyCells = 0;
         for (var r = 0; r < dataRows.Count; r++)
         {
             var values = dataRows[r];
@@ -158,10 +170,25 @@ public static class CsvService
 
             foreach (var (csvIndex, column) in columnMap)
             {
-                if (column.ColumnName == "ID" || column.ReadOnly) continue;
+                if (column.ColumnName == "ID" || column.ReadOnly)
+                {
+                    skippedReadOnlyCells++;
+                    continue;
+                }
+
                 try
                 {
-                    row[column] = ConvertCsvValue(values[csvIndex], column, row);
+                    var converted = ConvertCsvValue(values[csvIndex], column, row);
+                    if (CsvValuesEqual(row[column], converted))
+                    {
+                        continue;
+                    }
+
+                    row[column] = converted;
+                    changedCells.Add(new CsvChangedCell(
+                        useId ? Convert.ToString(row["ID"], CultureInfo.InvariantCulture) : null,
+                        table.Rows.IndexOf(row),
+                        column.ColumnName));
                 }
                 catch (Exception ex)
                 {
@@ -172,7 +199,30 @@ public static class CsvService
             imported++;
         }
 
-        return imported;
+        return new CsvImportResult(imported, changedCells, skippedReadOnlyCells);
+    }
+
+    private static bool CsvValuesEqual(object? left, object? right)
+    {
+        if (left == null || left == DBNull.Value)
+        {
+            return right == null || right == DBNull.Value;
+        }
+
+        if (right == null || right == DBNull.Value)
+        {
+            return false;
+        }
+
+        if (Equals(left, right))
+        {
+            return true;
+        }
+
+        return string.Equals(
+            Convert.ToString(left, CultureInfo.InvariantCulture) ?? string.Empty,
+            Convert.ToString(right, CultureInfo.InvariantCulture) ?? string.Empty,
+            StringComparison.Ordinal);
     }
 
     private static bool HasAnyCsvValue(IReadOnlyList<string> record)

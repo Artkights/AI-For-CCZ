@@ -79,10 +79,156 @@ public sealed partial class MainForm
         RestoreGridViewport(grid, snapshot, keyColumn);
     }
 
+    private void SuspendGridRepaintPreservingViewport(DataGridView grid, Action action, string? keyColumn = "ID")
+    {
+        var snapshot = CaptureGridViewport(grid, keyColumn);
+        try
+        {
+            grid.EndEdit();
+            if (grid.DataSource is BindingSource bindingSource) bindingSource.EndEdit();
+            if (grid.BindingContext?[grid.DataSource] is CurrencyManager manager) manager.EndCurrentEdit();
+            grid.SuspendLayout();
+            action();
+        }
+        finally
+        {
+            grid.ResumeLayout(performLayout: false);
+            RestoreGridViewport(grid, snapshot, keyColumn);
+        }
+    }
+
+    private void RefreshChangedGridCells(
+        DataGridView grid,
+        IEnumerable<GridCellKey> cells,
+        Action<int, int>? refreshDerivedCell = null)
+    {
+        foreach (var (rowIndex, column) in ResolveVisibleGridCells(grid, cells))
+        {
+            refreshDerivedCell?.Invoke(rowIndex, column.Index);
+            try
+            {
+                grid.InvalidateCell(column.Index, rowIndex);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+    }
+
+    private void RefreshChangedGridRowsOnly(
+        DataGridView grid,
+        IEnumerable<GridCellKey> cells,
+        Action<int>? refreshRowStyle = null)
+    {
+        foreach (var rowIndex in ResolveGridRows(grid, cells))
+        {
+            refreshRowStyle?.Invoke(rowIndex);
+            try
+            {
+                grid.InvalidateRow(rowIndex);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+    }
+
     private static void AcceptSavedDataTable(DataTable table, Action? refreshVisibleRows = null)
     {
         table.AcceptChanges();
         refreshVisibleRows?.Invoke();
+    }
+
+    private static IReadOnlyList<GridCellKey> GetChangedCellKeys(DataTable table, string keyColumn = "ID")
+    {
+        var keys = new List<GridCellKey>();
+        foreach (DataRow row in table.Rows)
+        {
+            if (row.RowState is DataRowState.Unchanged or DataRowState.Detached or DataRowState.Deleted)
+            {
+                continue;
+            }
+
+            var rowIndex = table.Rows.IndexOf(row);
+            var rowKey = table.Columns.Contains(keyColumn)
+                ? Convert.ToString(row[keyColumn, DataRowVersion.Current], CultureInfo.InvariantCulture)
+                : null;
+
+            if (row.RowState == DataRowState.Added || !row.HasVersion(DataRowVersion.Original))
+            {
+                keys.AddRange(table.Columns
+                    .Cast<DataColumn>()
+                    .Where(column => column.ColumnName != keyColumn)
+                    .Select(column => new GridCellKey(rowKey, rowIndex, column.ColumnName)));
+                continue;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                if (column.ColumnName == keyColumn)
+                {
+                    continue;
+                }
+
+                var original = Convert.ToString(row[column, DataRowVersion.Original], CultureInfo.InvariantCulture) ?? string.Empty;
+                var current = Convert.ToString(row[column, DataRowVersion.Current], CultureInfo.InvariantCulture) ?? string.Empty;
+                if (!string.Equals(original, current, StringComparison.Ordinal))
+                {
+                    keys.Add(new GridCellKey(rowKey, rowIndex, column.ColumnName));
+                }
+            }
+        }
+
+        return keys;
+    }
+
+    private static void SyncVerifiedCellsByKey(DataTable target, DataTable source, IReadOnlyList<GridCellKey> changedCellKeys, string keyColumn = "ID")
+    {
+        if (changedCellKeys.Count == 0)
+        {
+            return;
+        }
+
+        var sourceByKey = source.Columns.Contains(keyColumn)
+            ? source.Rows
+                .Cast<DataRow>()
+                .ToDictionary(row => Convert.ToString(row[keyColumn], CultureInfo.InvariantCulture) ?? string.Empty, StringComparer.Ordinal)
+            : new Dictionary<string, DataRow>(StringComparer.Ordinal);
+
+        foreach (var key in changedCellKeys)
+        {
+            if (string.IsNullOrWhiteSpace(key.ColumnName) ||
+                !target.Columns.Contains(key.ColumnName) ||
+                !source.Columns.Contains(key.ColumnName) ||
+                target.Columns[key.ColumnName]!.ReadOnly)
+            {
+                continue;
+            }
+
+            var targetRow = FindDataRowByGridCellKey(target, key, keyColumn);
+            if (targetRow == null)
+            {
+                continue;
+            }
+
+            DataRow? sourceRow = null;
+            if (!string.IsNullOrWhiteSpace(key.RowKey) &&
+                sourceByKey.TryGetValue(key.RowKey, out var keyedSourceRow))
+            {
+                sourceRow = keyedSourceRow;
+            }
+            else if (key.RowIndex >= 0 && key.RowIndex < source.Rows.Count)
+            {
+                sourceRow = source.Rows[key.RowIndex];
+            }
+
+            if (sourceRow == null)
+            {
+                continue;
+            }
+
+            targetRow[key.ColumnName] = sourceRow[key.ColumnName];
+        }
     }
 
     private static void SyncDataTableRowsByKey(DataTable target, DataTable source, string keyColumn)
@@ -119,6 +265,22 @@ public sealed partial class MainForm
             .Cast<DataRow>()
             .Where(row => row.RowState is not DataRowState.Unchanged and not DataRowState.Detached)
             .ToList();
+
+    private static DataRow? FindDataRowByGridCellKey(DataTable table, GridCellKey key, string keyColumn)
+    {
+        if (!string.IsNullOrWhiteSpace(key.RowKey) && table.Columns.Contains(keyColumn))
+        {
+            foreach (DataRow row in table.Rows)
+            {
+                if (string.Equals(Convert.ToString(row[keyColumn], CultureInfo.InvariantCulture), key.RowKey, StringComparison.Ordinal))
+                {
+                    return row;
+                }
+            }
+        }
+
+        return key.RowIndex >= 0 && key.RowIndex < table.Rows.Count ? table.Rows[key.RowIndex] : null;
+    }
 
     private void VerifySavedTableMatchesCurrentData(
         HexTableDefinition table,
@@ -434,4 +596,62 @@ public sealed partial class MainForm
 
     private static string GetGridColumnName(DataGridViewColumn column)
         => string.IsNullOrWhiteSpace(column.DataPropertyName) ? column.Name : column.DataPropertyName;
+
+    private static int FindDataRowGridIndex(DataGridView grid, DataRow dataRow)
+    {
+        foreach (DataGridViewRow gridRow in grid.Rows)
+        {
+            if (ReferenceEquals(TryGetDataRow(gridRow), dataRow))
+            {
+                return gridRow.Index;
+            }
+        }
+
+        if (dataRow.Table.Columns.Contains("ID") &&
+            dataRow.RowState != DataRowState.Detached &&
+            dataRow.RowState != DataRowState.Deleted)
+        {
+            var rowKey = Convert.ToString(dataRow["ID"], CultureInfo.InvariantCulture);
+            return FindGridRowIndex(grid, rowKey, dataRow.Table.Rows.IndexOf(dataRow), "ID");
+        }
+
+        return dataRow.Table.Rows.IndexOf(dataRow);
+    }
+
+    private static IEnumerable<(int RowIndex, DataGridViewColumn Column)> ResolveVisibleGridCells(DataGridView grid, IEnumerable<GridCellKey> cells)
+    {
+        var seen = new HashSet<(int RowIndex, int ColumnIndex)>();
+        foreach (var cell in cells)
+        {
+            var rowIndex = FindGridRowIndex(grid, cell.RowKey, cell.RowIndex, "ID");
+            if (rowIndex < 0 || rowIndex >= grid.Rows.Count)
+            {
+                continue;
+            }
+
+            var column = cell.ColumnName == null ? null : FindGridColumn(grid, cell.ColumnName);
+            if (column == null || !column.Visible)
+            {
+                continue;
+            }
+
+            if (seen.Add((rowIndex, column.Index)))
+            {
+                yield return (rowIndex, column);
+            }
+        }
+    }
+
+    private static IEnumerable<int> ResolveGridRows(DataGridView grid, IEnumerable<GridCellKey> cells)
+    {
+        var seen = new HashSet<int>();
+        foreach (var cell in cells)
+        {
+            var rowIndex = FindGridRowIndex(grid, cell.RowKey, cell.RowIndex, "ID");
+            if (rowIndex >= 0 && rowIndex < grid.Rows.Count && seen.Add(rowIndex))
+            {
+                yield return rowIndex;
+            }
+        }
+    }
 }

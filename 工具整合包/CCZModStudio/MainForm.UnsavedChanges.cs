@@ -85,9 +85,24 @@ public sealed partial class MainForm
         public bool DraftDirty { get; init; }
     }
 
+    private sealed class TableEditorSession
+    {
+        public required string ProjectRoot { get; init; }
+        public required int TableId { get; init; }
+        public required TableReadResult Result { get; set; }
+        public GridViewportSnapshot? Viewport { get; set; }
+        public string ColumnFilterText { get; set; } = string.Empty;
+        public bool DangerColumnsOnly { get; set; }
+        public string RowFilterText { get; set; } = string.Empty;
+        public bool ChangedRowsOnly { get; set; }
+        public bool SearchVisibleColumnsOnly { get; set; } = true;
+        public GridEditSession EditSession { get; set; } = new();
+    }
+
     private readonly Dictionary<string, ScriptEditorSession> _scriptEditorSessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BattlefieldEditorSession> _battlefieldEditorSessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, RSceneEditorSession> _rSceneEditorSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TableEditorSession> _tableEditorSessions = new(StringComparer.OrdinalIgnoreCase);
     private bool _scriptLegacyStructureDirty;
     private bool _battlefieldLegacyStructureDirty;
     private bool _rSceneLegacyStructureDirty;
@@ -166,6 +181,7 @@ public sealed partial class MainForm
         CacheCurrentScriptEditorSession();
         CacheCurrentBattlefieldEditorSession();
         CacheCurrentRSceneEditorSession();
+        CacheCurrentTableEditorSession();
 
         var items = new List<UnsavedEditorItem>();
         AddDataTableUnsavedItems(items);
@@ -553,6 +569,8 @@ public sealed partial class MainForm
         var savedTable = _currentTableResult.Table;
         var savedData = _currentTableResult.Data;
         var changedRows = GetChangedRows(savedData);
+        var changedCells = GetChangedCellKeys(savedData);
+        var viewport = CaptureGridViewport(_dataGrid);
         var result = _tableWriter.Save(_project, savedTable, savedData);
         var verifyRead = _tableReader.Read(_project, savedTable, _tables);
         if (!verifyRead.Validation.IsUsable)
@@ -561,7 +579,12 @@ public sealed partial class MainForm
         }
 
         VerifySavedTableMatchesCurrentData(savedTable, savedData, verifyRead.Data, changedRows);
-        AcceptSavedDataTable(savedData, RefreshDataGridRowStyles);
+        SyncVerifiedCellsByKey(savedData, verifyRead.Data, changedCells);
+        savedData.AcceptChanges();
+        RefreshChangedGridCells(_dataGrid, changedCells);
+        RefreshChangedGridRowsOnly(_dataGrid, changedCells, RefreshDataGridRowStyle);
+        RestoreGridViewport(_dataGrid, viewport);
+        ClearGridEditSession(_dataGrid);
         ConfigureChartColumns(savedData);
         SetStatus($"数据表已保存：{savedTable.TableName}，变化 {result.ChangedBytes} 字节");
         return Task.CompletedTask;
@@ -570,9 +593,10 @@ public sealed partial class MainForm
     private Task SaveRoleEditorSilentlyAsync()
     {
         if (_project == null || _currentRoleEditorData == null || !HasChanges(_currentRoleEditorData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentRoleEditorData);
         var saves = SaveRoleEditorData(_project, _tables, _currentRoleEditorData);
-        AcceptSavedDataTable(_currentRoleEditorData, RefreshRoleEditorRowStyles);
-        ShowSelectedRoleEditorCell();
+        AcceptSavedDataTable(_currentRoleEditorData);
+        RefreshRoleEditorCellsAfterEdit(changedCells);
         SetStatus($"角色设定已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
@@ -589,9 +613,10 @@ public sealed partial class MainForm
     private Task SaveJobEditorSilentlyAsync()
     {
         if (_project == null || _currentJobEditorData == null || !HasChanges(_currentJobEditorData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentJobEditorData);
         var saves = SaveJobEditorData(_project, _currentJobEditorData);
-        AcceptSavedDataTable(_currentJobEditorData, RefreshJobEditorRowStyles);
-        ShowSelectedJobEditorCell();
+        AcceptSavedDataTable(_currentJobEditorData);
+        RefreshJobEditorCellsAfterCsvImport(changedCells);
         SetStatus($"兵种设定已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
@@ -599,9 +624,10 @@ public sealed partial class MainForm
     private Task SaveJobTerrainEditorSilentlyAsync()
     {
         if (_project == null || _currentJobTerrainData == null || !HasChanges(_currentJobTerrainData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentJobTerrainData);
         var saves = SaveJobTerrainEditorData(_project, _currentJobTerrainData);
-        AcceptSavedDataTable(_currentJobTerrainData, RefreshJobTerrainRowStyles);
-        ShowSelectedJobTerrainCell();
+        AcceptSavedDataTable(_currentJobTerrainData);
+        RefreshJobTerrainCellsAfterEdit(changedCells);
         SetStatus($"兵种系/地形已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
@@ -609,9 +635,9 @@ public sealed partial class MainForm
     private Task SaveJobMatrixEditorSilentlyAsync()
     {
         if (_project == null || _jobRestraintRead == null || !HasChanges(_jobRestraintRead.Data)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_jobRestraintRead.Data);
         var result = SaveChangedTableAndVerify(_jobRestraintRead)!;
-        RefreshJobMatrixRowStyles(_jobRestraintGrid);
-        ShowSelectedJobMatrixCell(_jobRestraintGrid, "兵种相克矩阵");
+        RefreshJobMatrixCellsAfterEdit(changedCells);
         SetStatus($"兵种相克矩阵已保存：{result.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }
@@ -621,9 +647,10 @@ public sealed partial class MainForm
         if (_project == null || _currentJobStrategyData == null) return Task.CompletedTask;
         if (!CommitJobStrategyLearningDialogs()) throw new InvalidOperationException("策略学习弹窗仍有无效改动，无法批量保存。");
         if (!HasChanges(_currentJobStrategyData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentJobStrategyData);
         var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);
-        AcceptSavedDataTable(_currentJobStrategyData, RefreshJobStrategyRowStyles);
-        ShowSelectedJobStrategyCell();
+        AcceptSavedDataTable(_currentJobStrategyData);
+        RefreshJobStrategyCellsAfterEdit(changedCells);
         SetStatus($"策略设定已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
@@ -631,9 +658,10 @@ public sealed partial class MainForm
     private Task SaveJobEffectEditorSilentlyAsync()
     {
         if (_project == null || _currentJobEffectData == null || !HasChanges(_currentJobEffectData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentJobEffectData);
         var saves = SaveJobEffectEditorData(_project, _currentJobEffectData);
-        AcceptSavedDataTable(_currentJobEffectData, RefreshJobEffectRowStyles);
-        ShowSelectedJobEffectCell();
+        AcceptSavedDataTable(_currentJobEffectData);
+        RefreshJobEffectCellsAfterEdit(changedCells);
         SetStatus($"兵种特效已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
@@ -641,8 +669,11 @@ public sealed partial class MainForm
     private Task SaveItemEditorSilentlyAsync()
     {
         if (_project == null || _currentItemEditorData == null || !HasChanges(_currentItemEditorData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentItemEditorData);
         var saves = SaveItemEditorData(_project, _currentItemEditorData);
-        AcceptSavedDataTable(_currentItemEditorData, RefreshItemEditorRowStyles);
+        AcceptSavedDataTable(_currentItemEditorData);
+        RefreshChangedGridCells(_itemEditorGrid, changedCells, UpdateItemEditorDerivedCells);
+        RefreshChangedGridRowsOnly(_itemEditorGrid, changedCells, RefreshItemEditorRowStyle);
         ShowSelectedItemEditorCell();
         SetStatus($"宝物/物品已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
@@ -651,9 +682,10 @@ public sealed partial class MainForm
     private Task SaveShopEditorSilentlyAsync()
     {
         if (_project == null || _currentShopEditorData == null || !HasChanges(_currentShopEditorData)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentShopEditorData);
         var saves = SaveShopEditorData(_project, _currentShopEditorData);
-        AcceptSavedDataTable(_currentShopEditorData, RefreshShopEditorRowStyles);
-        ShowSelectedShopEditorCell();
+        AcceptSavedDataTable(_currentShopEditorData);
+        RefreshShopEditorCellsAfterEdit(changedCells);
         SetStatus($"商店已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
         return Task.CompletedTask;
     }
@@ -661,9 +693,9 @@ public sealed partial class MainForm
     private Task SaveImageAssignmentsSilentlyAsync()
     {
         if (_project == null || _currentImageAssignments == null || !HasChanges(_currentImageAssignments)) return Task.CompletedTask;
+        var changedCells = GetChangedCellKeys(_currentImageAssignments);
         var result = _imageAssignmentService.Save(_project, _tables, _currentImageAssignments);
-        ColorImageAssignmentResourceRows();
-        ShowSelectedImageAssignmentDetail();
+        RefreshImageAssignmentCellsAfterEdit(changedCells);
         SetStatus($"人物R/S已保存：{result.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }

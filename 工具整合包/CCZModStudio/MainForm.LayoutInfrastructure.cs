@@ -16,6 +16,188 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private static int _compactToolbarLayoutRequestCount;
+    private static int _compactToolbarLayoutFlushCount;
+    private static int _compactToolbarLayoutLastFlushProcessedCount;
+    private static int _compactToolbarLayoutLastFlushSkippedCount;
+    private static readonly object CompactToolbarLayoutSync = new();
+    private static readonly HashSet<Control> PendingCompactToolbarLayouts = new();
+    private static bool _compactToolbarLayoutFlushScheduled;
+
+    private static IDisposable TracePerf(string name)
+        => new PerfTraceScope(name);
+
+    private static int CompactToolbarLayoutRequestCount
+        => Volatile.Read(ref _compactToolbarLayoutRequestCount);
+
+    private static int CompactToolbarLayoutFlushCount
+        => Volatile.Read(ref _compactToolbarLayoutFlushCount);
+
+    private static int CompactToolbarLayoutLastFlushProcessedCount
+        => Volatile.Read(ref _compactToolbarLayoutLastFlushProcessedCount);
+
+    private static int CompactToolbarLayoutLastFlushSkippedCount
+        => Volatile.Read(ref _compactToolbarLayoutLastFlushSkippedCount);
+
+    private static void RecordCompactToolbarLayoutRequest()
+        => Interlocked.Increment(ref _compactToolbarLayoutRequestCount);
+
+    private static void ScheduleCompactToolbarLayout(Control control)
+    {
+        if (control.IsDisposed || !control.IsHandleCreated) return;
+        if (!IsControlInSelectedTabPath(control)) return;
+
+        RecordCompactToolbarLayoutRequest();
+
+        var shouldSchedule = false;
+        lock (CompactToolbarLayoutSync)
+        {
+            PendingCompactToolbarLayouts.Add(control);
+            if (!_compactToolbarLayoutFlushScheduled)
+            {
+                _compactToolbarLayoutFlushScheduled = true;
+                shouldSchedule = true;
+            }
+        }
+
+        if (!shouldSchedule) return;
+
+        try
+        {
+            control.BeginInvoke((Action)FlushCompactToolbarLayouts);
+        }
+        catch (InvalidOperationException)
+        {
+            CancelCompactToolbarLayout(control, clearScheduleIfEmpty: true);
+        }
+    }
+
+    private static void CancelCompactToolbarLayout(Control control, bool clearScheduleIfEmpty = false)
+    {
+        lock (CompactToolbarLayoutSync)
+        {
+            PendingCompactToolbarLayouts.Remove(control);
+            if (clearScheduleIfEmpty && PendingCompactToolbarLayouts.Count == 0)
+            {
+                _compactToolbarLayoutFlushScheduled = false;
+            }
+        }
+    }
+
+    private static void FlushCompactToolbarLayouts()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        Control[] controls;
+        lock (CompactToolbarLayoutSync)
+        {
+            controls = PendingCompactToolbarLayouts.ToArray();
+            PendingCompactToolbarLayouts.Clear();
+            _compactToolbarLayoutFlushScheduled = false;
+        }
+
+        var processed = 0;
+        var skipped = 0;
+        MainForm? owner = null;
+        TabPage? selectedMainTab = null;
+        foreach (var control in controls)
+        {
+            if (control.IsDisposed || !control.IsHandleCreated || !control.Visible || !IsControlInSelectedTabPath(control))
+            {
+                skipped++;
+                continue;
+            }
+
+            if (owner == null)
+            {
+                owner = control.FindForm() as MainForm;
+                selectedMainTab = owner?._mainTabs.SelectedTab;
+            }
+
+            var changed = false;
+            switch (control)
+            {
+                case CompactToolbarStackPanel stack:
+                    changed = stack.RunScheduledCompactLayout();
+                    break;
+                case CompactToolbarRowPanel row:
+                    changed = row.RunScheduledCompactLayout();
+                    break;
+            }
+
+            if (changed)
+            {
+                processed++;
+            }
+            else
+            {
+                skipped++;
+            }
+        }
+
+        if (processed > 0 && selectedMainTab?.IsDisposed == false && selectedMainTab.IsHandleCreated)
+        {
+            selectedMainTab.PerformLayout();
+        }
+
+        lock (CompactToolbarLayoutSync)
+        {
+            if (PendingCompactToolbarLayouts.Count > 0 && !_compactToolbarLayoutFlushScheduled)
+            {
+                var nextControl = PendingCompactToolbarLayouts.FirstOrDefault(control =>
+                    !control.IsDisposed && control.IsHandleCreated && IsControlInSelectedTabPath(control));
+                if (nextControl != null)
+                {
+                    _compactToolbarLayoutFlushScheduled = true;
+                    try
+                    {
+                        nextControl.BeginInvoke((Action)FlushCompactToolbarLayouts);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        _compactToolbarLayoutFlushScheduled = false;
+                    }
+                }
+            }
+        }
+
+        Interlocked.Increment(ref _compactToolbarLayoutFlushCount);
+        Volatile.Write(ref _compactToolbarLayoutLastFlushProcessedCount, processed);
+        Volatile.Write(ref _compactToolbarLayoutLastFlushSkippedCount, skipped);
+        stopwatch.Stop();
+        var tabName = selectedMainTab?.Text ?? "<none>";
+        Debug.WriteLine($"[PERF] CompactToolbar.Flush: controls={controls.Length} processed={processed} skipped={skipped} elapsed={stopwatch.ElapsedMilliseconds}ms tab={tabName}");
+    }
+
+    private static bool IsControlInSelectedTabPath(Control control)
+    {
+        for (Control? current = control; current != null; current = current.Parent)
+        {
+            if (current is TabPage page && page.Parent is TabControl tabs && !ReferenceEquals(tabs.SelectedTab, page))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class PerfTraceScope : IDisposable
+    {
+        private readonly string _name;
+        private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+
+        public PerfTraceScope(string name)
+        {
+            _name = name;
+        }
+
+        public void Dispose()
+        {
+            _stopwatch.Stop();
+            Debug.WriteLine($"[PERF] {_name}: {_stopwatch.ElapsedMilliseconds} ms");
+        }
+    }
+
     private TabPage BuildShopEditorPage()
     {
         var page = new TabPage("商店编辑");
@@ -30,59 +212,52 @@ public sealed partial class MainForm
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(3);
         _loadShopEditorButton.Text = "读取商店";
-        _loadShopEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_loadShopEditorButton, 88);
         _saveShopEditorButton.Text = "保存商店";
-        _saveShopEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_saveShopEditorButton, 88);
         _saveShopEditorButton.Enabled = false;
         _exportShopEditorCsvButton.Text = "导出CSV";
-        _exportShopEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportShopEditorCsvButton, 88);
         _exportShopEditorCsvButton.Enabled = false;
         _importShopEditorCsvButton.Text = "导入CSV";
-        _importShopEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_importShopEditorCsvButton, 88);
         _importShopEditorCsvButton.Enabled = false;
         _copyShopEditorSelectionButton.Text = "复制";
-        _copyShopEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_copyShopEditorSelectionButton, 72);
         _pasteShopEditorSelectionButton.Text = "粘贴";
-        _pasteShopEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_pasteShopEditorSelectionButton, 72);
         _batchFillShopEditorColumnButton.Text = "批量填列";
-        _batchFillShopEditorColumnButton.AutoSize = true;
-        _shopEditorSearchBox.Width = 220;
+        ConfigureToolbarButton(_batchFillShopEditorColumnButton, 88);
+        ConfigureToolbarInput(_shopEditorSearchBox, 220, 150);
         _shopEditorSearchBox.PlaceholderText = "关卡/人物/物品/编号";
         _filterShopEditorButton.Text = "筛选";
-        _filterShopEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_filterShopEditorButton, 72);
         _clearShopEditorFilterButton.Text = "清除";
-        _clearShopEditorFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearShopEditorFilterButton, 72);
         _shopBatchScopeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _shopBatchScopeCombo.Width = 108;
+        ConfigureToolbarInput(_shopBatchScopeCombo, 108, 100);
         _shopBatchScopeCombo.Items.AddRange(new object[] { "当前筛选行", "选中行", "全部行" });
         _shopBatchScopeCombo.SelectedIndex = 0;
         _shopBatchSlotCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _shopBatchSlotCombo.Width = 96;
+        ConfigureToolbarInput(_shopBatchSlotCombo, 96, 88);
         _shopBatchSetItemCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _shopBatchSetItemCombo.Width = 230;
+        ConfigureToolbarInput(_shopBatchSetItemCombo, 230, 150);
         _shopBatchFindItemCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _shopBatchFindItemCombo.Width = 170;
+        ConfigureToolbarInput(_shopBatchFindItemCombo, 170, 130);
         _shopBatchReplaceItemCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _shopBatchReplaceItemCombo.Width = 170;
+        ConfigureToolbarInput(_shopBatchReplaceItemCombo, 170, 130);
         _shopBatchSetButton.Text = "批量填入";
-        _shopBatchSetButton.AutoSize = true;
+        ConfigureToolbarButton(_shopBatchSetButton, 88);
         _shopBatchSetButton.Enabled = false;
         _shopBatchClearButton.Text = "批量清空";
-        _shopBatchClearButton.AutoSize = true;
+        ConfigureToolbarButton(_shopBatchClearButton, 88);
         _shopBatchClearButton.Enabled = false;
         _shopBatchReplaceButton.Text = "批量替换";
-        _shopBatchReplaceButton.AutoSize = true;
+        ConfigureToolbarButton(_shopBatchReplaceButton, 88);
         _shopBatchReplaceButton.Enabled = false;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(toolbar, 0,
             _loadShopEditorButton,
             _saveShopEditorButton,
             _exportShopEditorCsvButton,
@@ -90,21 +265,22 @@ public sealed partial class MainForm
             _copyShopEditorSelectionButton,
             _pasteShopEditorSelectionButton,
             _batchFillShopEditorColumnButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("搜索："),
             _shopEditorSearchBox,
             _filterShopEditorButton,
-            _clearShopEditorFilterButton,
-            new Label { Text = "批量：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _clearShopEditorFilterButton);
+        AddToolbarRow(toolbar, 1,
+            CreateToolbarLabel("批量：", 0),
             _shopBatchScopeCombo,
             _shopBatchSlotCombo,
             _shopBatchSetItemCombo,
             _shopBatchSetButton,
-            _shopBatchClearButton,
-            new Label { Text = "替换：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _shopBatchClearButton);
+        AddToolbarRow(toolbar, 2,
+            CreateToolbarLabel("替换：", 0),
             _shopBatchFindItemCombo,
             _shopBatchReplaceItemCombo,
-            _shopBatchReplaceButton
-        });
+            _shopBatchReplaceButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         _shopEditorGrid.Dock = DockStyle.Fill;
@@ -679,6 +855,640 @@ public sealed partial class MainForm
     private void SaveUiLayoutSettings(bool updateWindow = true)
         => UiLayoutSettingsStore.Save(_uiLayoutSettings, _uiLayoutSplits.Keys, updateWindow);
 
+    private sealed class CompactToolbarStackPanel : TableLayoutPanel
+    {
+        private bool _requestingCompactLayout;
+        private bool _selfVisible = true;
+        private Control? _observedParent;
+        private int _lastMeasuredWidth = -1;
+        private int _lastAppliedHeight = -1;
+
+        public bool IsSelfVisible => _selfVisible;
+
+        public override Size GetPreferredSize(Size proposedSize)
+            => MeasureToolbarStack(this, ResolveToolbarMeasureWidth(this, proposedSize.Width));
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            AttachCompactLayoutObservers();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnControlAdded(ControlEventArgs e)
+        {
+            base.OnControlAdded(e);
+            InvalidateCompactLayoutCache();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnControlRemoved(ControlEventArgs e)
+        {
+            base.OnControlRemoved(e);
+            InvalidateCompactLayoutCache();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnLayout(LayoutEventArgs levent)
+        {
+            base.OnLayout(levent);
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnParentChanged(EventArgs e)
+        {
+            DetachCompactLayoutObservers();
+            base.OnParentChanged(e);
+            AttachCompactLayoutObservers();
+            InvalidateCompactLayoutCache();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible)
+            {
+                AttachCompactLayoutObservers();
+            }
+            else
+            {
+                CancelCompactToolbarLayout(this);
+                DetachCompactLayoutObservers();
+            }
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void SetVisibleCore(bool value)
+        {
+            _selfVisible = value;
+            base.SetVisibleCore(value);
+            if (value)
+            {
+                AttachCompactLayoutObservers();
+            }
+            else
+            {
+                CancelCompactToolbarLayout(this);
+                DetachCompactLayoutObservers();
+            }
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            CancelCompactToolbarLayout(this);
+            DetachCompactLayoutObservers();
+            base.OnHandleDestroyed(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                CancelCompactToolbarLayout(this);
+                DetachCompactLayoutObservers();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        private void ScheduleCompactHeightUpdate()
+        {
+            if (!IsSelfVisible || !Visible || IsDisposed || !IsHandleCreated) return;
+            if (!IsControlInSelectedTabPath(this)) return;
+            ScheduleCompactToolbarLayout(this);
+        }
+
+        internal bool RunScheduledCompactLayout()
+            => RequestCompactLayout();
+
+        private bool RequestCompactLayout()
+        {
+            if (_requestingCompactLayout || IsDisposed) return false;
+            if (!IsSelfVisible || !Visible || !IsControlInSelectedTabPath(this)) return false;
+
+            try
+            {
+                _requestingCompactLayout = true;
+                var changed = ApplyCompactHeight();
+                Invalidate();
+                return changed;
+            }
+            finally
+            {
+                _requestingCompactLayout = false;
+            }
+        }
+
+        private void AttachCompactLayoutObservers()
+        {
+            DetachCompactLayoutObservers();
+
+            _observedParent = Parent;
+            if (_observedParent is not null)
+            {
+                _observedParent.SizeChanged += ObservedSizeChanged;
+                _observedParent.Layout += ObservedLayout;
+            }
+        }
+
+        private void DetachCompactLayoutObservers()
+        {
+            if (_observedParent is not null)
+            {
+                _observedParent.SizeChanged -= ObservedSizeChanged;
+                _observedParent.Layout -= ObservedLayout;
+                _observedParent = null;
+            }
+        }
+
+        private void ObservedSizeChanged(object? sender, EventArgs e)
+            => ScheduleCompactHeightUpdate();
+
+        private void ObservedLayout(object? sender, LayoutEventArgs e)
+            => ScheduleCompactHeightUpdate();
+
+        private bool ApplyCompactHeight()
+        {
+            ReleaseToolbarMeasuredHeight(this);
+            ResetToolbarParentRowAutoSize(this);
+
+            if (!IsSelfVisible)
+            {
+                return false;
+            }
+
+            var width = ResolveToolbarMeasureWidth(this, Parent?.ClientSize.Width ?? 0);
+            var availableWidth = Math.Max(1, width - Padding.Horizontal);
+            var preferredHeight = MeasureToolbarStack(this, width).Height;
+            if (width == _lastMeasuredWidth && preferredHeight == _lastAppliedHeight)
+            {
+                return false;
+            }
+
+            var changed = preferredHeight != _lastAppliedHeight;
+
+            SuspendLayout();
+            try
+            {
+                foreach (Control control in Controls)
+                {
+                    ReleaseToolbarMeasuredHeight(control);
+                    ResetToolbarParentRowAutoSize(control);
+                    if (!control.Visible) continue;
+
+                    var childWidth = Math.Max(1, availableWidth - control.Margin.Horizontal);
+                    if (control.Width != childWidth)
+                    {
+                        control.Width = childWidth;
+                        changed = true;
+                    }
+                }
+            }
+            finally
+            {
+                ResumeLayout(false);
+            }
+
+            _lastMeasuredWidth = width;
+            _lastAppliedHeight = preferredHeight;
+            return changed;
+        }
+
+        private void InvalidateCompactLayoutCache()
+        {
+            _lastMeasuredWidth = -1;
+            _lastAppliedHeight = -1;
+        }
+    }
+
+    private sealed class CompactToolbarRowPanel : FlowLayoutPanel
+    {
+        private bool _requestingCompactLayout;
+        private bool _selfVisible = true;
+        private Control? _observedParent;
+        private int _lastMeasuredWidth = -1;
+        private int _lastAppliedHeight = -1;
+
+        public bool IsSelfVisible => _selfVisible;
+
+        public override Size GetPreferredSize(Size proposedSize)
+            => MeasureToolbarRow(this, ResolveToolbarMeasureWidth(this, proposedSize.Width));
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            AttachCompactLayoutObservers();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnControlAdded(ControlEventArgs e)
+        {
+            base.OnControlAdded(e);
+            InvalidateCompactLayoutCache();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnControlRemoved(ControlEventArgs e)
+        {
+            base.OnControlRemoved(e);
+            InvalidateCompactLayoutCache();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnLayout(LayoutEventArgs levent)
+        {
+            base.OnLayout(levent);
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnParentChanged(EventArgs e)
+        {
+            DetachCompactLayoutObservers();
+            base.OnParentChanged(e);
+            AttachCompactLayoutObservers();
+            InvalidateCompactLayoutCache();
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible)
+            {
+                AttachCompactLayoutObservers();
+            }
+            else
+            {
+                CancelCompactToolbarLayout(this);
+                DetachCompactLayoutObservers();
+            }
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void SetVisibleCore(bool value)
+        {
+            _selfVisible = value;
+            base.SetVisibleCore(value);
+            if (value)
+            {
+                AttachCompactLayoutObservers();
+            }
+            else
+            {
+                CancelCompactToolbarLayout(this);
+                DetachCompactLayoutObservers();
+            }
+            ScheduleCompactHeightUpdate();
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            CancelCompactToolbarLayout(this);
+            DetachCompactLayoutObservers();
+            base.OnHandleDestroyed(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                CancelCompactToolbarLayout(this);
+                DetachCompactLayoutObservers();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        private void ScheduleCompactHeightUpdate()
+        {
+            if (!IsSelfVisible || !Visible || IsDisposed || !IsHandleCreated) return;
+            if (!IsControlInSelectedTabPath(this)) return;
+            ScheduleCompactToolbarLayout(this);
+        }
+
+        internal bool RunScheduledCompactLayout()
+            => RequestCompactLayout();
+
+        private bool RequestCompactLayout()
+        {
+            if (_requestingCompactLayout || IsDisposed) return false;
+            if (!IsSelfVisible || !Visible || !IsControlInSelectedTabPath(this)) return false;
+
+            try
+            {
+                _requestingCompactLayout = true;
+                var changed = ApplyCompactHeight();
+                Invalidate();
+                return changed;
+            }
+            finally
+            {
+                _requestingCompactLayout = false;
+            }
+        }
+
+        private void AttachCompactLayoutObservers()
+        {
+            DetachCompactLayoutObservers();
+
+            _observedParent = Parent;
+            if (_observedParent is not null)
+            {
+                _observedParent.SizeChanged += ObservedSizeChanged;
+                _observedParent.Layout += ObservedLayout;
+            }
+        }
+
+        private void DetachCompactLayoutObservers()
+        {
+            if (_observedParent is not null)
+            {
+                _observedParent.SizeChanged -= ObservedSizeChanged;
+                _observedParent.Layout -= ObservedLayout;
+                _observedParent = null;
+            }
+        }
+
+        private void ObservedSizeChanged(object? sender, EventArgs e)
+            => ScheduleCompactHeightUpdate();
+
+        private void ObservedLayout(object? sender, LayoutEventArgs e)
+            => ScheduleCompactHeightUpdate();
+
+        private bool ApplyCompactHeight()
+        {
+            ReleaseToolbarMeasuredHeight(this);
+            ResetToolbarParentRowAutoSize(this);
+
+            if (!IsSelfVisible)
+            {
+                return false;
+            }
+
+            var width = ResolveToolbarMeasureWidth(this, Parent?.ClientSize.Width ?? 0);
+            var preferredHeight = MeasureToolbarRow(this, width).Height;
+            if (width == _lastMeasuredWidth && preferredHeight == _lastAppliedHeight)
+            {
+                return false;
+            }
+
+            PerformLayout();
+            var changed = preferredHeight != _lastAppliedHeight || width != _lastMeasuredWidth;
+            _lastMeasuredWidth = width;
+            _lastAppliedHeight = preferredHeight;
+            return changed;
+        }
+
+        private void InvalidateCompactLayoutCache()
+        {
+            _lastMeasuredWidth = -1;
+            _lastAppliedHeight = -1;
+        }
+    }
+
+    private static int ResolveToolbarMeasureWidth(Control control, int proposedWidth)
+    {
+        const int MinimumStableToolbarWidth = 240;
+        const int DefaultToolbarMeasureWidth = 1600;
+        static bool IsRealWidth(int width) => width is > 1 and < 100000;
+        static bool IsStableWidth(int width) => width is >= MinimumStableToolbarWidth and < 100000;
+
+        var widestMeasuredWidth = 0;
+        void RememberWidth(int width)
+        {
+            if (IsRealWidth(width))
+            {
+                widestMeasuredWidth = Math.Max(widestMeasuredWidth, width);
+            }
+        }
+
+        for (var current = control; current.Parent is not null; current = current.Parent)
+        {
+            var parent = current.Parent;
+            if (parent is TableLayoutPanel tableLayout)
+            {
+                var position = tableLayout.GetPositionFromControl(current);
+                var columnWidths = tableLayout.GetColumnWidths();
+                if (position.Column >= 0 && position.Column < columnWidths.Length)
+                {
+                    var cellWidth = columnWidths[position.Column] - current.Margin.Horizontal;
+                    if (IsStableWidth(cellWidth) && parent is not CompactToolbarStackPanel) return cellWidth;
+                    RememberWidth(cellWidth);
+                }
+
+                if (parent.IsHandleCreated)
+                {
+                    var tableWidth = parent.ClientSize.Width - parent.Padding.Horizontal - current.Margin.Horizontal;
+                    if (tableLayout.ColumnCount == 1 && IsStableWidth(tableWidth) && parent is not CompactToolbarStackPanel) return tableWidth;
+                    RememberWidth(tableWidth);
+                }
+            }
+
+            if (parent.IsHandleCreated)
+            {
+                var width = parent.ClientSize.Width - parent.Padding.Horizontal - current.Margin.Horizontal;
+                if (IsStableWidth(width) && parent is not CompactToolbarStackPanel) return width;
+                RememberWidth(width);
+            }
+        }
+
+        var form = control.FindForm();
+        var formWidth = form?.ClientSize.Width ?? 0;
+        if (form?.IsHandleCreated == true && IsStableWidth(formWidth)) return formWidth;
+        RememberWidth(formWidth);
+
+        if (IsStableWidth(proposedWidth)) return proposedWidth;
+        RememberWidth(proposedWidth);
+
+        if (IsStableWidth(control.ClientSize.Width)) return control.ClientSize.Width;
+        RememberWidth(control.ClientSize.Width);
+
+        if (control.Parent is not null && IsStableWidth(control.Width)) return control.Width;
+        RememberWidth(control.Width);
+
+        if (widestMeasuredWidth > 0) return widestMeasuredWidth;
+
+        return DefaultToolbarMeasureWidth;
+    }
+
+    private static void ReleaseToolbarMeasuredHeight(Control control)
+    {
+        var minimumSize = new Size(control.MinimumSize.Width, 0);
+        var maximumSize = new Size(control.MaximumSize.Width, 0);
+
+        if (control.MinimumSize != minimumSize) control.MinimumSize = minimumSize;
+        if (control.MaximumSize != maximumSize) control.MaximumSize = maximumSize;
+    }
+
+    private static void ResetToolbarParentRowAutoSize(Control control)
+    {
+        if (control.Parent is not TableLayoutPanel tableLayout) return;
+
+        var position = tableLayout.GetPositionFromControl(control);
+        if (position.Row < 0 || position.Row >= tableLayout.RowStyles.Count) return;
+
+        var rowStyle = tableLayout.RowStyles[position.Row];
+        if (rowStyle.SizeType == SizeType.Percent) return;
+
+        if (rowStyle.SizeType == SizeType.AutoSize && Math.Abs(rowStyle.Height) < 0.5f) return;
+
+        rowStyle.SizeType = SizeType.AutoSize;
+        rowStyle.Height = 0;
+    }
+
+    private static bool IsToolbarControlSelfVisible(Control control)
+        => control switch
+        {
+            CompactToolbarStackPanel stack => stack.IsSelfVisible,
+            CompactToolbarRowPanel row => row.IsSelfVisible,
+            _ => control.Visible
+        };
+
+    private static Size MeasureToolbarStack(TableLayoutPanel stack, int width)
+    {
+        var availableWidth = Math.Max(1, width - stack.Padding.Horizontal);
+        var totalHeight = stack.Padding.Vertical;
+
+        foreach (Control control in stack.Controls)
+        {
+            if (!control.Visible) continue;
+
+            var childWidth = Math.Max(1, availableWidth - control.Margin.Horizontal);
+            var preferred = control is FlowLayoutPanel row
+                ? MeasureToolbarRow(row, childWidth)
+                : control.GetPreferredSize(new Size(childWidth, 0));
+            totalHeight += preferred.Height + control.Margin.Vertical;
+        }
+
+        return new Size(width, totalHeight);
+    }
+
+    private static Size MeasureToolbarRow(FlowLayoutPanel row, int width)
+    {
+        var availableWidth = Math.Max(1, width - row.Padding.Horizontal);
+        var totalHeight = row.Padding.Vertical;
+        var lineWidth = 0;
+        var lineHeight = 0;
+        var maxLineWidth = 0;
+        var hasVisibleControls = false;
+
+        foreach (Control control in row.Controls)
+        {
+            if (!control.Visible) continue;
+
+            hasVisibleControls = true;
+            var preferred = control.GetPreferredSize(Size.Empty);
+            var itemWidth = Math.Max(Math.Max(preferred.Width, control.Width), control.MinimumSize.Width) + control.Margin.Horizontal;
+            var itemHeight = Math.Max(Math.Max(preferred.Height, control.Height), control.MinimumSize.Height) + control.Margin.Vertical;
+
+            if (row.WrapContents && lineWidth > 0 && lineWidth + itemWidth > availableWidth)
+            {
+                totalHeight += lineHeight;
+                maxLineWidth = Math.Max(maxLineWidth, lineWidth);
+                lineWidth = 0;
+                lineHeight = 0;
+            }
+
+            lineWidth += itemWidth;
+            lineHeight = Math.Max(lineHeight, itemHeight);
+        }
+
+        if (!hasVisibleControls)
+        {
+            return new Size(width, row.Padding.Vertical);
+        }
+
+        totalHeight += lineHeight;
+        maxLineWidth = Math.Max(maxLineWidth, lineWidth);
+
+        return new Size(Math.Max(1, width), totalHeight);
+    }
+
+    private static TableLayoutPanel CreateToolbarStack(int rowCount)
+    {
+        var layout = new CompactToolbarStackPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            RowCount = rowCount,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < rowCount; i++)
+        {
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        }
+
+        return layout;
+    }
+
+    private static FlowLayoutPanel CreateToolbarRow() => new CompactToolbarRowPanel
+    {
+        Dock = DockStyle.Top,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        FlowDirection = FlowDirection.LeftToRight,
+        WrapContents = true,
+        Margin = Padding.Empty,
+        Padding = Padding.Empty
+    };
+
+    private static Label CreateToolbarLabel(string text, int leftPadding = 12) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        Padding = new Padding(leftPadding, 7, 0, 0),
+        Margin = new Padding(3)
+    };
+
+    private static void ConfigureToolbarButton(Button button, int minWidth = 72)
+    {
+        button.AutoSize = true;
+        button.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        button.MinimumSize = new Size(minWidth, 28);
+        button.Margin = new Padding(2, 1, 2, 1);
+    }
+
+    private static void ConfigureToolbarInput(Control control, int width, int minWidth = 120)
+    {
+        control.Width = width;
+        control.MinimumSize = new Size(minWidth, 0);
+        control.Margin = new Padding(3);
+    }
+
+    private static void ConfigureToolbarCheckBox(CheckBox checkBox)
+    {
+        checkBox.AutoSize = true;
+        checkBox.Margin = new Padding(3, 6, 8, 3);
+    }
+
+    private static void ConfigureToolbarCheckBox(Button button)
+        => ConfigureToolbarButton(button, 118);
+
+    private static void AddToolbarRow(TableLayoutPanel stack, int rowIndex, params Control[] controls)
+    {
+        var row = CreateToolbarRow();
+        row.Controls.AddRange(controls);
+        stack.Controls.Add(row, 0, rowIndex);
+    }
+
     private void CaptureWindowLayoutSettings()
     {
         var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
@@ -723,6 +1533,7 @@ public sealed partial class MainForm
         _mapMakerDirtyBaseRefreshTimer.Stop();
         _mapMakerDirtyBaseRefreshTimer.Dispose();
         CancelPendingMapMakerBeautify();
+        ClearMapWorkbenchMaterialThumbnailCache();
         ClearBattlefieldUnitFrameCache();
         ClearBattlefieldMapPreviewImages();
         SaveCurrentUiLayoutSettings();

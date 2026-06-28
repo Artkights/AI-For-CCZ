@@ -127,21 +127,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         mapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         mapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         mapViewerPage.Controls.Add(mapLayout);
-        var mapToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var mapToolbar = CreateToolbarStack(2);
         _loadMapImagesButton.Text = "读取 Map 图片";
-        _loadMapImagesButton.AutoSize = true;
+        ConfigureToolbarButton(_loadMapImagesButton, 104);
         _mapMakerNewDraftButton.Text = "新建草稿";
-        _mapMakerNewDraftButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerNewDraftButton, 88);
         _mapMakerLoadLastDraftButton.Text = "载入上次草稿";
-        _mapMakerLoadLastDraftButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerLoadLastDraftButton, 118);
         _mapMakerSaveDraftButton.Text = "保存草稿";
-        _mapMakerSaveDraftButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerSaveDraftButton, 88);
         _mapMakerSaveDraftButton.Enabled = false;
         _mapMakerGridWidthInput.Minimum = 1;
         _mapMakerGridWidthInput.Maximum = 256;
@@ -151,33 +145,37 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerGridHeightInput.Maximum = 256;
         _mapMakerGridHeightInput.Value = 30;
         _mapMakerGridHeightInput.Width = 58;
+        _mapMakerGridWidthInput.Margin = new Padding(3);
+        _mapMakerGridHeightInput.Margin = new Padding(3);
         _mapMakerBrushModeCombo.Visible = false;
         _mapMakerSelectMaterialRootButton.Visible = false;
         _mapFitButton.Text = "适应窗口";
-        _mapFitButton.AutoSize = true;
+        ConfigureToolbarButton(_mapFitButton, 88);
         _mapActualButton.Text = "100%";
-        _mapActualButton.AutoSize = true;
+        ConfigureToolbarButton(_mapActualButton, 72);
         _mapZoomTrackBar.Minimum = 10;
         _mapZoomTrackBar.Maximum = 300;
         _mapZoomTrackBar.Value = 100;
         _mapZoomTrackBar.TickFrequency = 50;
         _mapZoomTrackBar.Width = 140;
+        _mapZoomTrackBar.Margin = new Padding(3);
         _mapMakerShowTerrainCheckBox.Text = "查看地形层";
-        _mapMakerShowTerrainCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_mapMakerShowTerrainCheckBox);
         _mapMakerShowTerrainCheckBox.Checked = false;
         _mapMakerShowTerrainCheckBox.Visible = false;
         _mapMakerShowGridCheckBox.Text = "显示网格";
-        _mapMakerShowGridCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_mapMakerShowGridCheckBox);
         _mapMakerShowGridCheckBox.Checked = true;
         _mapMakerAutoGenerateCheckBox.Text = "地形驱动";
-        _mapMakerAutoGenerateCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_mapMakerAutoGenerateCheckBox);
         _mapMakerAutoGenerateCheckBox.Checked = true;
         _mapMakerAutoGenerateCheckBox.Visible = false;
         _mapMakerBeautifyCheckBox.Text = "美化当前地图";
-        _mapMakerBeautifyCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_mapMakerBeautifyCheckBox);
         _mapMakerBeautifyCheckBox.Enabled = false;
         _mapMakerBeautifyFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _mapMakerBeautifyFilterCombo.Width = 110;
+        _mapMakerBeautifyFilterCombo.Margin = new Padding(3);
         _mapMakerBeautifyFilterCombo.Items.AddRange(new object[]
         {
             new BeautifyFilterComboItem(TerrainBeautifyFilterProfiles.Natural, "自然融合"),
@@ -189,7 +187,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         });
         _mapMakerBeautifyFilterCombo.SelectedIndex = 0;
         _mapMakerRollbackBeautifyButton.Text = "回退美化";
-        _mapMakerRollbackBeautifyButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerRollbackBeautifyButton, 88);
         _mapMakerRollbackBeautifyButton.Enabled = false;
         _mapMakerBeautifyStrengthInput.Minimum = 0;
         _mapMakerBeautifyStrengthInput.Maximum = 3;
@@ -225,56 +223,56 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerBrushNameLabel.AutoSize = true;
         _mapMakerBrushNameLabel.Padding = new Padding(0, 7, 0, 0);
         _mapMakerSaveTerrainButton.Text = "保存草稿";
-        _mapMakerSaveTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerSaveTerrainButton, 88);
         _mapMakerSaveTerrainButton.Enabled = false;
         _mapMakerSaveTerrainButton.Visible = false;
         _mapMakerUndoTerrainButton.Text = "撤销";
-        _mapMakerUndoTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerUndoTerrainButton, 72);
         _mapMakerUndoTerrainButton.Enabled = false;
         _mapMakerRedoTerrainButton.Text = "重做";
-        _mapMakerRedoTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerRedoTerrainButton, 72);
         _mapMakerRedoTerrainButton.Enabled = false;
         _mapMakerReplaceMapImageButton.Text = "旧版替换底图";
-        _mapMakerReplaceMapImageButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerReplaceMapImageButton, 118);
         _mapMakerReplaceMapImageButton.Enabled = false;
         _mapMakerReplaceMapImageButton.Visible = false;
         _mapMakerExportPreviewButton.Text = "导出PNG";
-        _mapMakerExportPreviewButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerExportPreviewButton, 88);
         _mapMakerExportPreviewButton.Enabled = false;
         _mapMakerExportJpgButton.Text = "导出美化JPG";
-        _mapMakerExportJpgButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerExportJpgButton, 118);
         _mapMakerExportJpgButton.Enabled = false;
         _mapMakerExtractMaterialButton.Text = "提取素材";
-        _mapMakerExtractMaterialButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerExtractMaterialButton, 88);
         _mapMakerExtractMaterialButton.Enabled = false;
         _mapMakerMaterialPlanButton.Text = "主素材设置";
-        _mapMakerMaterialPlanButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerMaterialPlanButton, 104);
         _mapMakerMaterialPlanButton.Enabled = false;
         _mapMakerMaterialPlanButton.Visible = false;
         _mapMakerPublishMapButton.Text = "高级：仅底图";
-        _mapMakerPublishMapButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerPublishMapButton, 118);
         _mapMakerPublishMapButton.Enabled = false;
         _mapMakerPublishTerrainButton.Text = "高级：仅地形";
-        _mapMakerPublishTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerPublishTerrainButton, 118);
         _mapMakerPublishTerrainButton.Enabled = false;
         _mapMakerPublishAllButton.Text = "一键发布";
-        _mapMakerPublishAllButton.AutoSize = true;
+        ConfigureToolbarButton(_mapMakerPublishAllButton, 88);
         _mapMakerPublishAllButton.Enabled = false;
-        mapToolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(mapToolbar, 0,
             _loadMapImagesButton,
             _mapMakerNewDraftButton,
             _mapMakerLoadLastDraftButton,
-            new Label { Text = "尺寸：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("尺寸："),
             _mapMakerGridWidthInput,
-            new Label { Text = "x", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            CreateToolbarLabel("x", 0),
             _mapMakerGridHeightInput,
             _mapMakerSaveDraftButton,
             _mapFitButton,
             _mapActualButton,
-            new Label { Text = "缩放：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("缩放："),
             _mapZoomTrackBar,
-            _mapMakerShowGridCheckBox,
+            _mapMakerShowGridCheckBox);
+        AddToolbarRow(mapToolbar, 1,
             _mapMakerBeautifyFilterCombo,
             _mapMakerBeautifyCheckBox,
             _mapMakerRollbackBeautifyButton,
@@ -283,8 +281,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _mapMakerRedoTerrainButton,
             _mapMakerExportPreviewButton,
             _mapMakerExportJpgButton,
-            _mapMakerPublishAllButton
-        });
+            _mapMakerPublishAllButton);
         mapLayout.Controls.Add(mapToolbar, 0, 0);
         var mapSplit = new SplitContainer
         {
@@ -402,55 +399,48 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(2);
         _loadRoleEditorButton.Text = "读取角色";
-        _loadRoleEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_loadRoleEditorButton, 88);
         _saveRoleEditorButton.Text = "保存角色";
-        _saveRoleEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_saveRoleEditorButton, 88);
         _saveRoleEditorButton.Enabled = false;
         _openRoleInTableEditorButton.Text = "打开通用人物表";
-        _openRoleInTableEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_openRoleInTableEditorButton, 128);
         _openRolePersonalEffectButton.Text = "剧本专属/套装(72/10)";
-        _openRolePersonalEffectButton.AutoSize = true;
+        ConfigureToolbarButton(_openRolePersonalEffectButton, 160);
         _openRoleEffectButton.Text = "个人特效(EXE表)";
-        _openRoleEffectButton.AutoSize = true;
+        ConfigureToolbarButton(_openRoleEffectButton, 128);
         _openGlobalSettingsButton.Text = "全局设定";
-        _openGlobalSettingsButton.AutoSize = true;
+        ConfigureToolbarButton(_openGlobalSettingsButton, 88);
         _importRoleFaceButton.Text = "\u4e00\u952e\u5bfc\u5165\u5934\u50cf";
-        _importRoleFaceButton.AutoSize = true;
+        ConfigureToolbarButton(_importRoleFaceButton, 118);
         _importRoleFaceButton.Enabled = false;
         _batchImportRoleFaceButton.Text = "\u6279\u91cf\u5bfc\u5165\u5934\u50cf";
-        _batchImportRoleFaceButton.AutoSize = true;
+        ConfigureToolbarButton(_batchImportRoleFaceButton, 118);
         _batchImportRoleFaceButton.Enabled = false;
         _exportRoleFaceBmpButton.Text = "\u5bfc\u51fa\u5934\u50cfBMP";
-        _exportRoleFaceBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportRoleFaceBmpButton, 118);
         _exportRoleFaceBmpButton.Enabled = false;
         _exportRoleEditorCsvButton.Text = "导出CSV";
-        _exportRoleEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportRoleEditorCsvButton, 88);
         _exportRoleEditorCsvButton.Enabled = false;
         _importRoleEditorCsvButton.Text = "导入CSV";
-        _importRoleEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_importRoleEditorCsvButton, 88);
         _importRoleEditorCsvButton.Enabled = false;
         _copyRoleEditorSelectionButton.Text = "复制";
-        _copyRoleEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_copyRoleEditorSelectionButton, 72);
         _pasteRoleEditorSelectionButton.Text = "粘贴";
-        _pasteRoleEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_pasteRoleEditorSelectionButton, 72);
         _batchFillRoleEditorColumnButton.Text = "批量填列";
-        _batchFillRoleEditorColumnButton.AutoSize = true;
-        _roleEditorSearchBox.Width = 180;
+        ConfigureToolbarButton(_batchFillRoleEditorColumnButton, 88);
+        ConfigureToolbarInput(_roleEditorSearchBox, 180, 140);
         _roleEditorSearchBox.PlaceholderText = "姓名/编号/职业/形象";
         _filterRoleEditorButton.Text = "筛选";
-        _filterRoleEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_filterRoleEditorButton, 72);
         _clearRoleEditorFilterButton.Text = "清除";
-        _clearRoleEditorFilterButton.AutoSize = true;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearRoleEditorFilterButton, 72);
+        AddToolbarRow(toolbar, 0,
             _loadRoleEditorButton,
             _saveRoleEditorButton,
             _openRolePersonalEffectButton,
@@ -458,17 +448,17 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _openGlobalSettingsButton,
             _importRoleFaceButton,
             _batchImportRoleFaceButton,
-            _exportRoleFaceBmpButton,
+            _exportRoleFaceBmpButton);
+        AddToolbarRow(toolbar, 1,
             _exportRoleEditorCsvButton,
             _importRoleEditorCsvButton,
             _copyRoleEditorSelectionButton,
             _pasteRoleEditorSelectionButton,
             _batchFillRoleEditorColumnButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("搜索："),
             _roleEditorSearchBox,
             _filterRoleEditorButton,
-            _clearRoleEditorFilterButton
-        });
+            _clearRoleEditorFilterButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         _roleEditorGrid.Dock = DockStyle.Fill;
@@ -512,13 +502,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detail.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
 
-        var top = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var top = CreateToolbarRow();
         top.Controls.Add(new Label
         {
             Text = "角色文本",
@@ -527,7 +511,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             Padding = new Padding(0, 7, 12, 0)
         });
         _saveRoleTextDetailButton.Text = "保存列传/台词";
-        _saveRoleTextDetailButton.AutoSize = true;
+        ConfigureToolbarButton(_saveRoleTextDetailButton, 128);
         _saveRoleTextDetailButton.Enabled = false;
         top.Controls.Add(_saveRoleTextDetailButton);
         detail.Controls.Add(top, 0, 0);
@@ -584,55 +568,48 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(2);
         _loadItemEditorButton.Text = "读取宝物/物品";
-        _loadItemEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_loadItemEditorButton, 118);
         _saveItemEditorButton.Text = "保存宝物/物品";
-        _saveItemEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_saveItemEditorButton, 118);
         _saveItemEditorButton.Enabled = false;
         _openItemEffectCatalogButton.Text = "宝物特效";
-        _openItemEffectCatalogButton.AutoSize = true;
+        ConfigureToolbarButton(_openItemEffectCatalogButton, 88);
         _exportItemEditorCsvButton.Text = "导出CSV";
-        _exportItemEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportItemEditorCsvButton, 88);
         _exportItemEditorCsvButton.Enabled = false;
         _importItemEditorCsvButton.Text = "导入CSV";
-        _importItemEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_importItemEditorCsvButton, 88);
         _importItemEditorCsvButton.Enabled = false;
         _copyItemEditorSelectionButton.Text = "复制";
-        _copyItemEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_copyItemEditorSelectionButton, 72);
         _pasteItemEditorSelectionButton.Text = "粘贴";
-        _pasteItemEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_pasteItemEditorSelectionButton, 72);
         _batchFillItemEditorColumnButton.Text = "批量填列";
-        _batchFillItemEditorColumnButton.AutoSize = true;
+        ConfigureToolbarButton(_batchFillItemEditorColumnButton, 88);
         _undoItemEditorButton.Text = "撤回";
-        _undoItemEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_undoItemEditorButton, 72);
         _undoItemEditorButton.Enabled = false;
         _redoItemEditorButton.Text = "前进";
-        _redoItemEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_redoItemEditorButton, 72);
         _redoItemEditorButton.Enabled = false;
         _batchImportItemIconButton.Text = "\u6279\u91cf\u5bfc\u5165\u56fe\u6807";
-        _batchImportItemIconButton.AutoSize = true;
+        ConfigureToolbarButton(_batchImportItemIconButton, 118);
         _batchImportItemIconButton.Enabled = false;
         _editItemIconButton.Text = "\u7f16\u8f91\u56fe\u6807";
-        _editItemIconButton.AutoSize = true;
+        ConfigureToolbarButton(_editItemIconButton, 88);
         _editItemIconButton.Enabled = false;
         _exportItemIconBmpButton.Text = "\u5bfc\u51faBMP";
-        _exportItemIconBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportItemIconBmpButton, 88);
         _exportItemIconBmpButton.Enabled = false;
-        _itemEditorSearchBox.Width = 210;
+        ConfigureToolbarInput(_itemEditorSearchBox, 210, 150);
         _itemEditorSearchBox.PlaceholderText = "名称/ID/类型/特效/说明";
         _filterItemEditorButton.Text = "筛选";
-        _filterItemEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_filterItemEditorButton, 72);
         _clearItemEditorFilterButton.Text = "清除";
-        _clearItemEditorFilterButton.AutoSize = true;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearItemEditorFilterButton, 72);
+        AddToolbarRow(toolbar, 0,
             _loadItemEditorButton,
             _saveItemEditorButton,
             _openItemEffectCatalogButton,
@@ -641,16 +618,16 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _copyItemEditorSelectionButton,
             _pasteItemEditorSelectionButton,
             _batchFillItemEditorColumnButton,
+            _undoItemEditorButton,
+            _redoItemEditorButton);
+        AddToolbarRow(toolbar, 1,
             _batchImportItemIconButton,
             _editItemIconButton,
             _exportItemIconBmpButton,
-            _undoItemEditorButton,
-            _redoItemEditorButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("搜索："),
             _itemEditorSearchBox,
             _filterItemEditorButton,
-            _clearItemEditorFilterButton
-        });
+            _clearItemEditorFilterButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         _itemEditorGrid.Dock = DockStyle.Fill;
@@ -803,67 +780,61 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         detailPage.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(2);
         _loadJobEditorButton.Text = "读取兵种";
-        _loadJobEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_loadJobEditorButton, 88);
         _saveJobEditorButton.Text = "保存兵种";
-        _saveJobEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_saveJobEditorButton, 88);
         _saveJobEditorButton.Enabled = false;
         _editAccessoryJobGroupsButton.Text = "辅助分组";
-        _editAccessoryJobGroupsButton.AutoSize = true;
+        ConfigureToolbarButton(_editAccessoryJobGroupsButton, 88);
         _editAccessoryJobGroupsButton.Enabled = false;
         _replaceJobSImageButton.Text = "一键替换兵种形象";
-        _replaceJobSImageButton.AutoSize = true;
+        ConfigureToolbarButton(_replaceJobSImageButton, 142);
         _replaceJobSImageButton.Enabled = false;
         _batchReplaceJobSImageButton.Text = "批量导入S形象";
-        _batchReplaceJobSImageButton.AutoSize = true;
+        ConfigureToolbarButton(_batchReplaceJobSImageButton, 118);
         _batchReplaceJobSImageButton.Enabled = false;
         _exportJobSImageBmpButton.Text = "\u5bfc\u51faS BMP";
-        _exportJobSImageBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportJobSImageBmpButton, 88);
         _exportJobSImageBmpButton.Enabled = false;
         _openJobSeriesTableButton.Text = "通用兵种系表";
-        _openJobSeriesTableButton.AutoSize = true;
+        ConfigureToolbarButton(_openJobSeriesTableButton, 118);
         _openJobEffectTableButton.Text = "兵种特效页";
-        _openJobEffectTableButton.AutoSize = true;
+        ConfigureToolbarButton(_openJobEffectTableButton, 104);
         _exportJobEditorCsvButton.Text = "导出CSV";
-        _exportJobEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportJobEditorCsvButton, 88);
         _exportJobEditorCsvButton.Enabled = false;
         _importJobEditorCsvButton.Text = "导入CSV";
-        _importJobEditorCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_importJobEditorCsvButton, 88);
         _importJobEditorCsvButton.Enabled = false;
         _copyJobEditorSelectionButton.Text = "复制";
-        _copyJobEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_copyJobEditorSelectionButton, 72);
         _pasteJobEditorSelectionButton.Text = "粘贴";
-        _pasteJobEditorSelectionButton.AutoSize = true;
+        ConfigureToolbarButton(_pasteJobEditorSelectionButton, 72);
         _batchFillJobEditorColumnButton.Text = "批量填列";
-        _batchFillJobEditorColumnButton.AutoSize = true;
+        ConfigureToolbarButton(_batchFillJobEditorColumnButton, 88);
         _undoJobEditorButton.Text = "后退";
-        _undoJobEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_undoJobEditorButton, 72);
         _undoJobEditorButton.Enabled = false;
         _redoJobEditorButton.Text = "前进";
-        _redoJobEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_redoJobEditorButton, 72);
         _redoJobEditorButton.Enabled = false;
-        _jobEditorSearchBox.Width = 180;
+        ConfigureToolbarInput(_jobEditorSearchBox, 180, 140);
         _jobEditorSearchBox.PlaceholderText = "兵种名/说明/数值";
         _filterJobEditorButton.Text = "筛选";
-        _filterJobEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_filterJobEditorButton, 72);
         _clearJobEditorFilterButton.Text = "清除";
-        _clearJobEditorFilterButton.AutoSize = true;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearJobEditorFilterButton, 72);
+        AddToolbarRow(toolbar, 0,
             _loadJobEditorButton,
             _saveJobEditorButton,
             _editAccessoryJobGroupsButton,
             _replaceJobSImageButton,
             _batchReplaceJobSImageButton,
             _exportJobSImageBmpButton,
-            _openJobEffectTableButton,
+            _openJobEffectTableButton);
+        AddToolbarRow(toolbar, 1,
             _exportJobEditorCsvButton,
             _importJobEditorCsvButton,
             _copyJobEditorSelectionButton,
@@ -871,11 +842,10 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _batchFillJobEditorColumnButton,
             _undoJobEditorButton,
             _redoJobEditorButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("搜索："),
             _jobEditorSearchBox,
             _filterJobEditorButton,
-            _clearJobEditorFilterButton
-        });
+            _clearJobEditorFilterButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         var detailBody = CreateResizableSplit("BuildJobEditorPage.DetailGridPreview", Orientation.Vertical, 760);
@@ -931,31 +901,25 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         terrainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         terrainPage.Controls.Add(terrainLayout);
 
-        var terrainToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var terrainToolbar = CreateToolbarRow();
         _loadJobTerrainButton.Text = "读取兵种系/地形";
-        _loadJobTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_loadJobTerrainButton, 128);
         _saveJobTerrainButton.Text = "保存兵种系/地形";
-        _saveJobTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_saveJobTerrainButton, 128);
         _saveJobTerrainButton.Enabled = false;
         _openJobRestraintTableButton.Text = "通用兵种相克表";
-        _openJobRestraintTableButton.AutoSize = true;
-        _jobTerrainSearchBox.Width = 200;
+        ConfigureToolbarButton(_openJobRestraintTableButton, 128);
+        ConfigureToolbarInput(_jobTerrainSearchBox, 200, 150);
         _jobTerrainSearchBox.PlaceholderText = "兵种系/地形/数值";
         _filterJobTerrainButton.Text = "筛选";
-        _filterJobTerrainButton.AutoSize = true;
+        ConfigureToolbarButton(_filterJobTerrainButton, 72);
         _clearJobTerrainFilterButton.Text = "清除";
-        _clearJobTerrainFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearJobTerrainFilterButton, 72);
         terrainToolbar.Controls.AddRange(new Control[]
         {
             _loadJobTerrainButton,
             _saveJobTerrainButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("搜索："),
             _jobTerrainSearchBox,
             _filterJobTerrainButton,
             _clearJobTerrainFilterButton
@@ -989,20 +953,14 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         matrixLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         matrixPage.Controls.Add(matrixLayout);
 
-        var matrixToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var matrixToolbar = CreateToolbarRow();
         _loadJobMatrixButton.Text = "读取矩阵";
-        _loadJobMatrixButton.AutoSize = true;
+        ConfigureToolbarButton(_loadJobMatrixButton, 88);
         _saveJobMatrixButton.Text = "保存矩阵";
-        _saveJobMatrixButton.AutoSize = true;
+        ConfigureToolbarButton(_saveJobMatrixButton, 88);
         _saveJobMatrixButton.Enabled = false;
         _openJobMatrixRestraintTableButton.Text = "通用兵种相克表";
-        _openJobMatrixRestraintTableButton.AutoSize = true;
+        ConfigureToolbarButton(_openJobMatrixRestraintTableButton, 128);
         matrixToolbar.Controls.AddRange(new Control[]
         {
             _loadJobMatrixButton,
@@ -1041,47 +999,40 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         strategyLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         strategyPage.Controls.Add(strategyLayout);
 
-        var strategyToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var strategyToolbar = CreateToolbarStack(2);
         _loadJobStrategyEditorButton.Text = "读取兵种策略";
-        _loadJobStrategyEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_loadJobStrategyEditorButton, 118);
         _saveJobStrategyEditorButton.Text = "保存兵种策略";
-        _saveJobStrategyEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_saveJobStrategyEditorButton, 118);
         _saveJobStrategyEditorButton.Enabled = false;
         _importJobStrategyIconButton.Text = "导入策略图标";
-        _importJobStrategyIconButton.AutoSize = true;
+        ConfigureToolbarButton(_importJobStrategyIconButton, 118);
         _importJobStrategyIconButton.Enabled = false;
         _editJobStrategyIconButton.Text = "\u7f16\u8f91\u56fe\u6807";
-        _editJobStrategyIconButton.AutoSize = true;
+        ConfigureToolbarButton(_editJobStrategyIconButton, 88);
         _editJobStrategyIconButton.Enabled = false;
         _exportJobStrategyIconBmpButton.Text = "\u5bfc\u51faBMP";
-        _exportJobStrategyIconBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportJobStrategyIconBmpButton, 88);
         _exportJobStrategyIconBmpButton.Enabled = false;
         _openJobStrategyTableButton.Text = "通用策略表";
-        _openJobStrategyTableButton.AutoSize = true;
-        _jobStrategyEditorSearchBox.Width = 220;
+        ConfigureToolbarButton(_openJobStrategyTableButton, 104);
+        ConfigureToolbarInput(_jobStrategyEditorSearchBox, 220, 150);
         _jobStrategyEditorSearchBox.PlaceholderText = "策略名/兵种/等级/属性";
         _filterJobStrategyEditorButton.Text = "筛选";
-        _filterJobStrategyEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_filterJobStrategyEditorButton, 72);
         _clearJobStrategyEditorFilterButton.Text = "清除";
-        _clearJobStrategyEditorFilterButton.AutoSize = true;
-        strategyToolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearJobStrategyEditorFilterButton, 72);
+        AddToolbarRow(strategyToolbar, 0,
             _loadJobStrategyEditorButton,
             _saveJobStrategyEditorButton,
             _importJobStrategyIconButton,
             _editJobStrategyIconButton,
-            _exportJobStrategyIconBmpButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            _exportJobStrategyIconBmpButton);
+        AddToolbarRow(strategyToolbar, 1,
+            CreateToolbarLabel("搜索：", 0),
             _jobStrategyEditorSearchBox,
             _filterJobStrategyEditorButton,
-            _clearJobStrategyEditorFilterButton
-        });
+            _clearJobStrategyEditorFilterButton);
         strategyLayout.Controls.Add(strategyToolbar, 0, 0);
 
         _jobStrategyEditorGrid.Dock = DockStyle.Fill;
@@ -1141,31 +1092,25 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         effectLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         effectPage.Controls.Add(effectLayout);
 
-        var effectToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var effectToolbar = CreateToolbarRow();
         _loadJobEffectEditorButton.Text = "读取兵种特效";
-        _loadJobEffectEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_loadJobEffectEditorButton, 118);
         _saveJobEffectEditorButton.Text = "保存兵种特效";
-        _saveJobEffectEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_saveJobEffectEditorButton, 118);
         _saveJobEffectEditorButton.Enabled = false;
         _openJobExclusiveEffectTableButton.Text = "通用专属/套装表";
-        _openJobExclusiveEffectTableButton.AutoSize = true;
-        _jobEffectEditorSearchBox.Width = 220;
+        ConfigureToolbarButton(_openJobExclusiveEffectTableButton, 138);
+        ConfigureToolbarInput(_jobEffectEditorSearchBox, 220, 150);
         _jobEffectEditorSearchBox.PlaceholderText = "特效名/说明/武将/兵种";
         _filterJobEffectEditorButton.Text = "筛选";
-        _filterJobEffectEditorButton.AutoSize = true;
+        ConfigureToolbarButton(_filterJobEffectEditorButton, 72);
         _clearJobEffectEditorFilterButton.Text = "清除";
-        _clearJobEffectEditorFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearJobEffectEditorFilterButton, 72);
         effectToolbar.Controls.AddRange(new Control[]
         {
             _loadJobEffectEditorButton,
             _saveJobEffectEditorButton,
-            new Label { Text = "搜索：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("搜索："),
             _jobEffectEditorSearchBox,
             _filterJobEffectEditorButton,
             _clearJobEffectEditorFilterButton
@@ -1203,43 +1148,36 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(2);
         _loadBattlefieldButton.Text = "读取关卡";
-        _loadBattlefieldButton.AutoSize = true;
+        ConfigureToolbarButton(_loadBattlefieldButton, 88);
         _battlefieldScenarioCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _battlefieldScenarioCombo.Width = 260;
+        ConfigureToolbarInput(_battlefieldScenarioCombo, 260, 180);
         _saveBattlefieldTextsButton.Text = "保存标题/胜败条件";
-        _saveBattlefieldTextsButton.AutoSize = true;
+        ConfigureToolbarButton(_saveBattlefieldTextsButton, 150);
         _saveBattlefieldTextsButton.Enabled = false;
         _saveBattlefieldUnitReviewsButton.Text = "保存出场核对";
-        _saveBattlefieldUnitReviewsButton.AutoSize = true;
+        ConfigureToolbarButton(_saveBattlefieldUnitReviewsButton, 118);
         _saveBattlefieldUnitReviewsButton.Enabled = false;
         _writeBattlefieldDeploymentButton.Text = "写回出场到S剧本";
-        _writeBattlefieldDeploymentButton.AutoSize = true;
+        ConfigureToolbarButton(_writeBattlefieldDeploymentButton, 142);
         _writeBattlefieldDeploymentButton.Enabled = false;
         _jumpBattlefieldMapButton.Text = "跳到地图编辑";
-        _jumpBattlefieldMapButton.AutoSize = true;
+        ConfigureToolbarButton(_jumpBattlefieldMapButton, 118);
         _jumpBattlefieldMapButton.Enabled = false;
         _jumpBattlefieldScenarioButton.Text = "跳到剧本编辑";
-        _jumpBattlefieldScenarioButton.AutoSize = true;
+        ConfigureToolbarButton(_jumpBattlefieldScenarioButton, 118);
         _jumpBattlefieldScenarioButton.Enabled = false;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(toolbar, 0,
             _loadBattlefieldButton,
-            new Label { Text = "关卡：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("关卡："),
             _battlefieldScenarioCombo,
             _saveBattlefieldTextsButton,
-            _saveBattlefieldUnitReviewsButton,
+            _saveBattlefieldUnitReviewsButton);
+        AddToolbarRow(toolbar, 1,
             _writeBattlefieldDeploymentButton,
             _jumpBattlefieldMapButton,
-            _jumpBattlefieldScenarioButton
-        });
+            _jumpBattlefieldScenarioButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         var mainSplit = CreateResizableSplit("BuildBattlefieldEditorPage.ScriptMap", Orientation.Vertical, 520);
@@ -1257,37 +1195,30 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         scriptLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         scriptLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        var scriptToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _battlefieldScriptSearchBox.Width = 160;
+        var scriptToolbar = CreateToolbarStack(2);
+        ConfigureToolbarInput(_battlefieldScriptSearchBox, 160, 120);
         _battlefieldScriptSearchBox.PlaceholderText = "搜索S剧本";
         _battlefieldScriptSearchButton.Text = "搜索";
-        _battlefieldScriptSearchButton.AutoSize = true;
+        ConfigureToolbarButton(_battlefieldScriptSearchButton, 72);
         _battlefieldScriptClearSearchButton.Text = "清除";
-        _battlefieldScriptClearSearchButton.AutoSize = true;
+        ConfigureToolbarButton(_battlefieldScriptClearSearchButton, 72);
         _saveBattlefieldScriptTextButton.Text = "保存选中文本";
-        _saveBattlefieldScriptTextButton.AutoSize = true;
+        ConfigureToolbarButton(_saveBattlefieldScriptTextButton, 118);
         _saveBattlefieldScriptTextButton.Enabled = false;
         _saveBattlefieldScriptStructureButton.Text = "完整保存S剧本 Ctrl+S";
-        _saveBattlefieldScriptStructureButton.AutoSize = true;
+        ConfigureToolbarButton(_saveBattlefieldScriptStructureButton, 160);
         _saveBattlefieldScriptStructureButton.Enabled = false;
         _showBattlefieldVariablesButton.Text = "变量 Ctrl+L";
-        _showBattlefieldVariablesButton.AutoSize = true;
+        ConfigureToolbarButton(_showBattlefieldVariablesButton, 104);
         _showBattlefieldVariablesButton.Enabled = false;
-        scriptToolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(scriptToolbar, 0,
             _battlefieldScriptSearchBox,
             _battlefieldScriptSearchButton,
             _battlefieldScriptClearSearchButton,
+            _showBattlefieldVariablesButton);
+        AddToolbarRow(scriptToolbar, 1,
             _saveBattlefieldScriptTextButton,
-            _saveBattlefieldScriptStructureButton,
-            _showBattlefieldVariablesButton
-        });
+            _saveBattlefieldScriptStructureButton);
         scriptLayout.Controls.Add(scriptToolbar, 0, 0);
 
         _battlefieldScriptTree.Dock = DockStyle.Fill;
@@ -1401,20 +1332,21 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         mapLayout.Controls.Add(_battlefieldMapScrollPanel, 0, 0);
         var battlefieldMapHintPanel = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             AutoScroll = true,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
-            Padding = new Padding(0, 4, 0, 0)
+            Padding = Padding.Empty
         };
         _battlefieldMapZoomLabel.Text = "缩放 100%";
         _battlefieldMapZoomLabel.AutoSize = true;
         _battlefieldMapZoomLabel.Padding = new Padding(8, 4, 0, 0);
         _battlefieldMapZoomResetButton.Text = "1:1";
-        _battlefieldMapZoomResetButton.AutoSize = true;
+        ConfigureToolbarButton(_battlefieldMapZoomResetButton, 56);
         _markBattlefieldCommand25Button.Text = "指定地点测试";
-        _markBattlefieldCommand25Button.AutoSize = true;
+        ConfigureToolbarButton(_markBattlefieldCommand25Button, 118);
         _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子；可右键选中已摆放单位并调整。";
         _battlefieldMapHintLabel.AutoSize = true;
         _battlefieldMapHintLabel.Padding = new Padding(0, 4, 0, 0);
@@ -1434,7 +1366,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
         controlOptionsPanel.Controls.Add(new Label { Text = "控制台", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
-        var factionPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = true };
+        var factionPanel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, WrapContents = true };
         _battlefieldFactionAllyRadio.Text = "我军";
         _battlefieldFactionFriendRadio.Text = "友军";
         _battlefieldFactionEnemyRadio.Text = "敌军";
@@ -1450,7 +1382,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldLevelOffsetInput.Minimum = -99;
         _battlefieldLevelOffsetInput.Maximum = 99;
         _battlefieldLevelOffsetInput.Width = 72;
-        var levelOffsetPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+        var levelOffsetPanel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
         levelOffsetPanel.Controls.AddRange(new Control[]
         {
             new Label { Text = "等级修正", AutoSize = true, Padding = new Padding(0, 5, 0, 0) },
@@ -1486,37 +1418,30 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         };
         unitLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         unitLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var unitToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var unitToolbar = CreateToolbarStack(2);
         _battlefieldUnitCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _battlefieldUnitCategoryFilterCombo.Width = 140;
-        _battlefieldUnitFilterBox.Width = 120;
+        ConfigureToolbarInput(_battlefieldUnitCategoryFilterCombo, 140, 120);
+        ConfigureToolbarInput(_battlefieldUnitFilterBox, 120, 100);
         _battlefieldUnitFilterBox.PlaceholderText = "候选筛选";
         _filterBattlefieldUnitsButton.Text = "筛选";
-        _filterBattlefieldUnitsButton.AutoSize = true;
+        ConfigureToolbarButton(_filterBattlefieldUnitsButton, 72);
         _clearBattlefieldUnitFilterButton.Text = "全部";
-        _clearBattlefieldUnitFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearBattlefieldUnitFilterButton, 72);
         _markBattlefieldUnitReviewedButton.Text = "已核对";
-        _markBattlefieldUnitReviewedButton.AutoSize = true;
+        ConfigureToolbarButton(_markBattlefieldUnitReviewedButton, 72);
         _markBattlefieldUnitNeedsChangeButton.Text = "需改";
-        _markBattlefieldUnitNeedsChangeButton.AutoSize = true;
+        ConfigureToolbarButton(_markBattlefieldUnitNeedsChangeButton, 72);
         _jumpBattlefieldUnitScriptButton.Text = "跳命令";
-        _jumpBattlefieldUnitScriptButton.AutoSize = true;
-        unitToolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_jumpBattlefieldUnitScriptButton, 72);
+        AddToolbarRow(unitToolbar, 0,
             _battlefieldUnitCategoryFilterCombo,
             _battlefieldUnitFilterBox,
             _filterBattlefieldUnitsButton,
-            _clearBattlefieldUnitFilterButton,
+            _clearBattlefieldUnitFilterButton);
+        AddToolbarRow(unitToolbar, 1,
             _markBattlefieldUnitReviewedButton,
             _markBattlefieldUnitNeedsChangeButton,
-            _jumpBattlefieldUnitScriptButton
-        });
+            _jumpBattlefieldUnitScriptButton);
         unitLayout.Controls.Add(unitToolbar, 0, 0);
         _battlefieldUnitGrid.Dock = DockStyle.Fill;
         _battlefieldUnitGrid.ReadOnly = false;
@@ -1567,39 +1492,32 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(2);
         _loadRSceneButton.Text = "读取R剧情";
-        _loadRSceneButton.AutoSize = true;
+        ConfigureToolbarButton(_loadRSceneButton, 88);
         _rSceneScenarioCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _rSceneScenarioCombo.Width = 260;
+        ConfigureToolbarInput(_rSceneScenarioCombo, 260, 180);
         _saveRSceneDraftButton.Text = "保存场景草稿";
-        _saveRSceneDraftButton.AutoSize = true;
+        ConfigureToolbarButton(_saveRSceneDraftButton, 118);
         _saveRSceneDraftButton.Enabled = false;
         _saveRSceneScriptStructureButton.Text = "完整保存R剧本 Ctrl+S";
-        _saveRSceneScriptStructureButton.AutoSize = true;
+        ConfigureToolbarButton(_saveRSceneScriptStructureButton, 160);
         _saveRSceneScriptStructureButton.Enabled = false;
         _showRSceneVariablesButton.Text = "变量 Ctrl+L";
-        _showRSceneVariablesButton.AutoSize = true;
+        ConfigureToolbarButton(_showRSceneVariablesButton, 104);
         _showRSceneVariablesButton.Enabled = false;
         _jumpRSceneScriptButton.Text = "跳到剧本编辑";
-        _jumpRSceneScriptButton.AutoSize = true;
+        ConfigureToolbarButton(_jumpRSceneScriptButton, 118);
         _jumpRSceneScriptButton.Enabled = false;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(toolbar, 0,
             _loadRSceneButton,
-            new Label { Text = "R剧情：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("R剧情："),
             _rSceneScenarioCombo,
-            _saveRSceneDraftButton,
+            _saveRSceneDraftButton);
+        AddToolbarRow(toolbar, 1,
             _saveRSceneScriptStructureButton,
             _showRSceneVariablesButton,
-            _jumpRSceneScriptButton
-        });
+            _jumpRSceneScriptButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         var mainSplit = CreateResizableSplit("BuildRSceneEditorPage.ScriptScene", Orientation.Vertical, 520, 300, 420);
@@ -1678,66 +1596,52 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         };
         canvasLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         canvasLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var canvasToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var canvasToolbar = CreateToolbarStack(2);
         _rSceneBackgroundCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _rSceneBackgroundCombo.Width = 220;
+        ConfigureToolbarInput(_rSceneBackgroundCombo, 220, 150);
         _rSceneGridSizeInput.Minimum = RSceneTileWidth;
         _rSceneGridSizeInput.Maximum = RSceneTileWidth;
         _rSceneGridSizeInput.Value = 16;
         _rSceneGridSizeInput.Width = 64;
         _rSceneShowGridCheckBox.Text = "网格";
-        _rSceneShowGridCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_rSceneShowGridCheckBox);
         _rSceneShowGridCheckBox.Checked = true;
         _rSceneDialoguePreviewCheckBox.Text = "对白预览";
-        _rSceneDialoguePreviewCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_rSceneDialoguePreviewCheckBox);
         _rSceneDialoguePreviewCheckBox.Checked = true;
         _rSceneZoomLabel.Text = "缩放 100%";
         _rSceneZoomLabel.AutoSize = true;
         _rSceneZoomLabel.Padding = new Padding(8, 5, 0, 0);
+        _rSceneZoomLabel.Margin = new Padding(3);
         _rSceneZoomResetButton.Text = "1:1";
-        _rSceneZoomResetButton.AutoSize = true;
+        ConfigureToolbarButton(_rSceneZoomResetButton, 56);
         _rScenePreviewLockButton.Text = "锁定预览";
-        _rScenePreviewLockButton.AutoSize = true;
+        ConfigureToolbarButton(_rScenePreviewLockButton, 88);
         _rScenePreviewLockButton.Enabled = false;
         _rSceneCanvasHintLabel.Text = "背景：读取 R 剧情后选择 Mmap.e5 图号；拖动角色到背景格子。";
         _rSceneCanvasHintLabel.AutoSize = true;
-        _rSceneCanvasHintLabel.Padding = new Padding(8, 5, 0, 0);
-        canvasToolbar.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "背景", AutoSize = true, Padding = new Padding(0, 5, 0, 0) },
+        _rSceneCanvasHintLabel.Padding = new Padding(0, 5, 0, 0);
+        _rSceneCanvasHintLabel.Margin = new Padding(3);
+        AddToolbarRow(canvasToolbar, 0,
+            CreateToolbarLabel("背景", 0),
             _rSceneBackgroundCombo,
-            new Label { Text = "坐标格", AutoSize = true, Padding = new Padding(8, 5, 0, 0) },
-            new Label { Text = "斜菱形 16x8", AutoSize = true, Padding = new Padding(0, 5, 0, 0) },
+            CreateToolbarLabel("坐标格"),
+            CreateToolbarLabel("斜菱形 16x8", 0),
             _rSceneShowGridCheckBox,
             _rSceneDialoguePreviewCheckBox,
             _rSceneZoomLabel,
             _rSceneZoomResetButton,
-            _rScenePreviewLockButton,
-            _rSceneCanvasHintLabel
-        });
+            _rScenePreviewLockButton);
+        AddToolbarRow(canvasToolbar, 1, _rSceneCanvasHintLabel);
         canvasLayout.Controls.Add(canvasToolbar, 0, 0);
         canvasLayout.Controls.Add(_rSceneCanvasScrollPanel, 0, 1);
 
-        var rSceneParameterEditToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            Padding = new Padding(0, 4, 0, 4),
-            Margin = Padding.Empty
-        };
+        var rSceneParameterEditToolbar = CreateToolbarRow();
         _applyRSceneInlineDialogButton.Text = "应用修改";
-        _applyRSceneInlineDialogButton.AutoSize = true;
+        ConfigureToolbarButton(_applyRSceneInlineDialogButton, 88);
         _applyRSceneInlineDialogButton.Enabled = false;
         _resetRSceneInlineDialogButton.Text = "重置";
-        _resetRSceneInlineDialogButton.AutoSize = true;
+        ConfigureToolbarButton(_resetRSceneInlineDialogButton, 72);
         _resetRSceneInlineDialogButton.Enabled = false;
         rSceneParameterEditToolbar.Controls.AddRange(new Control[]
         {
@@ -1793,7 +1697,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _rSceneStanceInput.Maximum = RSceneFrameCount - 1;
         _rSceneStanceInput.Value = 0;
         _rSceneStanceInput.Width = 64;
-        var stancePanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+        var stancePanel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
         stancePanel.Controls.AddRange(new Control[]
         {
             new Label { Text = "动作帧", AutoSize = true, Padding = new Padding(0, 5, 0, 0) },
@@ -1801,14 +1705,14 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         });
         controlPanel.Controls.Add(stancePanel, 0, 2);
         _rScenePlaybackButton.Text = "开始";
-        _rScenePlaybackButton.AutoSize = true;
+        ConfigureToolbarButton(_rScenePlaybackButton, 72);
         _rScenePlaybackButton.Enabled = false;
         _rScenePlaybackDelayInput.Minimum = 50;
         _rScenePlaybackDelayInput.Maximum = 10000;
         _rScenePlaybackDelayInput.Increment = 50;
         _rScenePlaybackDelayInput.Value = 500;
         _rScenePlaybackDelayInput.Width = 86;
-        var playbackPanel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+        var playbackPanel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
         playbackPanel.Controls.AddRange(new Control[]
         {
             _rScenePlaybackButton,
@@ -1848,96 +1752,91 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         page.Controls.Add(layout);
 
-        var toolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var toolbar = CreateToolbarStack(2);
         _loadScriptButton.Text = "读取剧本列表";
-        _loadScriptButton.AutoSize = true;
+        ConfigureToolbarButton(_loadScriptButton, 118);
         _scriptScenarioCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scriptScenarioCombo.Width = 260;
-        _scriptSearchBox.Width = 180;
+        ConfigureToolbarInput(_scriptScenarioCombo, 260, 180);
+        ConfigureToolbarInput(_scriptSearchBox, 180, 140);
         _scriptSearchBox.PlaceholderText = "搜索命令/文本";
         _scriptSearchButton.Text = "搜索";
-        _scriptSearchButton.AutoSize = true;
+        ConfigureToolbarButton(_scriptSearchButton, 72);
         _scriptClearSearchButton.Text = "清除";
-        _scriptClearSearchButton.AutoSize = true;
+        ConfigureToolbarButton(_scriptClearSearchButton, 72);
         _showScriptVariablesButton.Text = "变量 Ctrl+L";
-        _showScriptVariablesButton.AutoSize = true;
+        ConfigureToolbarButton(_showScriptVariablesButton, 104);
         _showScriptVariablesButton.Enabled = false;
         _locateScriptCommandButton.Text = "定位";
-        _locateScriptCommandButton.AutoSize = true;
+        ConfigureToolbarButton(_locateScriptCommandButton, 72);
         _locateScriptCommandButton.Enabled = false;
         _copyScriptCommandButton.Text = "复制";
-        _copyScriptCommandButton.AutoSize = true;
+        ConfigureToolbarButton(_copyScriptCommandButton, 72);
         _copyScriptCommandButton.Enabled = false;
         _cutScriptCommandButton.Text = "剪切";
-        _cutScriptCommandButton.AutoSize = true;
+        ConfigureToolbarButton(_cutScriptCommandButton, 72);
         _cutScriptCommandButton.Enabled = false;
         _previewPasteScriptCommandButton.Text = "粘贴预览";
-        _previewPasteScriptCommandButton.AutoSize = true;
+        ConfigureToolbarButton(_previewPasteScriptCommandButton, 88);
         _previewPasteScriptCommandButton.Enabled = false;
         _scriptNewCommandCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scriptNewCommandCombo.Width = 220;
+        ConfigureToolbarInput(_scriptNewCommandCombo, 220, 160);
         _scriptNewCommandCombo.Enabled = false;
         _appendScriptCommandToSectionButton.Text = "正文末尾";
-        _appendScriptCommandToSectionButton.AutoSize = true;
+        ConfigureToolbarButton(_appendScriptCommandToSectionButton, 88);
         _appendScriptCommandToSectionButton.Enabled = false;
         _insertScriptCommandBeforeButton.Text = "前插";
-        _insertScriptCommandBeforeButton.AutoSize = true;
+        ConfigureToolbarButton(_insertScriptCommandBeforeButton, 72);
         _insertScriptCommandBeforeButton.Enabled = false;
         _insertScriptCommandAfterButton.Text = "后插";
-        _insertScriptCommandAfterButton.AutoSize = true;
+        ConfigureToolbarButton(_insertScriptCommandAfterButton, 72);
         _insertScriptCommandAfterButton.Enabled = false;
         _appendScriptCommandToChildBlockButton.Text = "子块";
-        _appendScriptCommandToChildBlockButton.AutoSize = true;
+        ConfigureToolbarButton(_appendScriptCommandToChildBlockButton, 72);
         _appendScriptCommandToChildBlockButton.Enabled = false;
         _deleteScriptCommandButton.Text = "删除";
-        _deleteScriptCommandButton.AutoSize = true;
+        ConfigureToolbarButton(_deleteScriptCommandButton, 72);
         _deleteScriptCommandButton.Enabled = false;
         _pasteScriptCommandBeforeButton.Text = "粘到前面";
-        _pasteScriptCommandBeforeButton.AutoSize = true;
+        ConfigureToolbarButton(_pasteScriptCommandBeforeButton, 88);
         _pasteScriptCommandBeforeButton.Enabled = false;
         _pasteScriptCommandAfterButton.Text = "粘到后面";
-        _pasteScriptCommandAfterButton.AutoSize = true;
+        ConfigureToolbarButton(_pasteScriptCommandAfterButton, 88);
         _pasteScriptCommandAfterButton.Enabled = false;
         _moveScriptCommandUpButton.Text = "上移";
-        _moveScriptCommandUpButton.AutoSize = true;
+        ConfigureToolbarButton(_moveScriptCommandUpButton, 72);
         _moveScriptCommandUpButton.Enabled = false;
         _moveScriptCommandDownButton.Text = "下移";
-        _moveScriptCommandDownButton.AutoSize = true;
+        ConfigureToolbarButton(_moveScriptCommandDownButton, 72);
         _moveScriptCommandDownButton.Enabled = false;
         _saveScriptTextButton.Text = "保存文本";
-        _saveScriptTextButton.AutoSize = true;
+        ConfigureToolbarButton(_saveScriptTextButton, 88);
         _saveScriptTextButton.Enabled = false;
         _saveScriptStructureButton.Text = "完整保存剧本 Ctrl+S";
-        _saveScriptStructureButton.AutoSize = true;
+        ConfigureToolbarButton(_saveScriptStructureButton, 150);
         _saveScriptStructureButton.Enabled = false;
         _jumpScriptBattlefieldButton.Text = "战场";
-        _jumpScriptBattlefieldButton.AutoSize = true;
+        ConfigureToolbarButton(_jumpScriptBattlefieldButton, 72);
         _jumpScriptBattlefieldButton.Enabled = false;
-        toolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(toolbar, 0,
             _loadScriptButton,
-            new Label { Text = "剧本：", AutoSize = true, Padding = new Padding(12, 7, 0, 0) },
+            CreateToolbarLabel("剧本："),
             _scriptScenarioCombo,
             _scriptSearchBox,
             _scriptSearchButton,
             _scriptClearSearchButton,
             _showScriptVariablesButton,
             _locateScriptCommandButton,
+            _saveScriptStructureButton,
+            _jumpScriptBattlefieldButton);
+        AddToolbarRow(toolbar, 1,
             _copyScriptCommandButton,
             _cutScriptCommandButton,
             _deleteScriptCommandButton,
             _previewPasteScriptCommandButton,
             _pasteScriptCommandBeforeButton,
             _pasteScriptCommandAfterButton,
-            _saveScriptStructureButton,
-            _jumpScriptBattlefieldButton
-        });
+            _moveScriptCommandUpButton,
+            _moveScriptCommandDownButton);
         layout.Controls.Add(toolbar, 0, 0);
 
         _scriptHeaderLabel.Dock = DockStyle.Fill;
@@ -1989,11 +1888,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         }, 0, 0);
         var structureToolbar = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
-            Padding = new Padding(0, 0, 0, 6)
+            Padding = Padding.Empty
         };
         structureToolbar.Controls.AddRange(new Control[]
         {
@@ -2041,20 +1941,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _scriptParameterGrid.RowHeadersVisible = false;
         _scriptParameterGrid.BorderStyle = BorderStyle.FixedSingle;
 
-        var parameterEditToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-            Padding = new Padding(0, 4, 0, 4),
-            Margin = Padding.Empty
-        };
+        var parameterEditToolbar = CreateToolbarRow();
         _applyScriptInlineDialogButton.Text = "应用修改";
-        _applyScriptInlineDialogButton.AutoSize = true;
+        ConfigureToolbarButton(_applyScriptInlineDialogButton, 88);
         _applyScriptInlineDialogButton.Enabled = false;
         _resetScriptInlineDialogButton.Text = "重置";
-        _resetScriptInlineDialogButton.AutoSize = true;
+        ConfigureToolbarButton(_resetScriptInlineDialogButton, 72);
         _resetScriptInlineDialogButton.Enabled = false;
         parameterEditToolbar.Controls.AddRange(new Control[]
         {

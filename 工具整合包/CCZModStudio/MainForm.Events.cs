@@ -23,14 +23,18 @@ public sealed partial class MainForm
         _rScenePlaybackTimer.Tick += (_, _) => AdvanceRScenePlayback();
         _jobStrategyAnimationTimer.Tick += (_, _) => AdvanceJobStrategyAnimationPreview();
         _mapMakerDirtyBaseRefreshTimer.Tick += (_, _) => FlushMapMakerDirtyBasePreview(runBeautify: false);
+        _mainTabs.SelectedIndexChanged += (_, _) => HandleMainTabSelectionChanged();
         _openProjectButton.Click += (_, _) => OpenProjectDialog();
         _reloadButton.Click += (_, _) => ReloadCurrentProject();
         _saveTableButton.Click += (_, _) => SaveCurrentTable();
         _exportCsvButton.Click += (_, _) => ExportCurrentTableCsv();
         _importCsvButton.Click += (_, _) => ImportCurrentTableCsv();
         _copyTableSelectionButton.Click += (_, _) => CopyGridSelection(_dataGrid);
-        _pasteTableSelectionButton.Click += (_, _) => PasteGridSelection(_dataGrid, (_, _) => { }, RefreshDataGridRowStyles);
-        _batchFillTableColumnButton.Click += (_, _) => FillSelectedGridColumnWithCurrentValue(_dataGrid, (_, _) => { }, RefreshDataGridRowStyles);
+        _pasteTableSelectionButton.Click += (_, _) => PasteGridSelection(_dataGrid, (_, _) => { }, null, RefreshGenericTableCellsAfterEdit);
+        _batchFillTableColumnButton.Click += (_, _) => FillSelectedGridColumnWithCurrentValue(_dataGrid, (_, _) => { }, null, RefreshGenericTableCellsAfterEdit);
+        _batchModifyTableButton.Click += (_, _) => ShowGridBatchModifyDialog(_dataGrid, (_, _) => { }, null, RefreshGenericTableCellsAfterEdit);
+        _undoTableEditButton.Click += (_, _) => UndoGridEdit(_dataGrid, (_, _) => { }, null, RefreshGenericTableCellsAfterEdit);
+        _redoTableEditButton.Click += (_, _) => RedoGridEdit(_dataGrid, (_, _) => { }, null, RefreshGenericTableCellsAfterEdit);
         _openPlanButton.Click += (_, _) => OpenPlan();
         _loadRoleEditorButton.Click += (_, _) => LoadRoleEditor();
         _saveRoleEditorButton.Click += (_, _) => SaveRoleEditor();
@@ -45,8 +49,8 @@ public sealed partial class MainForm
         _exportRoleEditorCsvButton.Click += (_, _) => ExportRoleEditorCsv();
         _importRoleEditorCsvButton.Click += (_, _) => ImportRoleEditorCsv();
         _copyRoleEditorSelectionButton.Click += (_, _) => CopyGridSelection(_roleEditorGrid);
-        _pasteRoleEditorSelectionButton.Click += (_, _) => PasteGridSelection(_roleEditorGrid, UpdateRoleEditorDerivedCells, RefreshRoleEditorAfterBulkEdit);
-        _batchFillRoleEditorColumnButton.Click += (_, _) => FillSelectedGridColumnWithCurrentValue(_roleEditorGrid, UpdateRoleEditorDerivedCells, RefreshRoleEditorAfterBulkEdit);
+        _pasteRoleEditorSelectionButton.Click += (_, _) => PasteGridSelection(_roleEditorGrid, UpdateRoleEditorDerivedCells, null, RefreshRoleEditorCellsAfterEdit);
+        _batchFillRoleEditorColumnButton.Click += (_, _) => FillSelectedGridColumnWithCurrentValue(_roleEditorGrid, UpdateRoleEditorDerivedCells, null, RefreshRoleEditorCellsAfterEdit);
         _filterRoleEditorButton.Click += (_, _) => ApplyRoleEditorFilter();
         _clearRoleEditorFilterButton.Click += (_, _) => ClearRoleEditorFilter();
         _roleEditorSearchBox.KeyDown += (_, e) =>
@@ -280,8 +284,8 @@ public sealed partial class MainForm
         _filterTableRowsButton.Click += (_, _) => ApplyTableRowFilter();
         _clearTableRowFilterButton.Click += (_, _) => ClearTableRowFilter();
         _changedTableRowsOnly.CheckedChanged += (_, _) => ApplyTableRowFilter();
-        AttachGridEditShortcuts(_dataGrid, (_, _) => { }, RefreshDataGridRowStyles);
-        AttachGridEditShortcuts(_roleEditorGrid, UpdateRoleEditorDerivedCells, RefreshRoleEditorAfterBulkEdit);
+        AttachGridEditShortcuts(_dataGrid, (_, _) => { }, null, afterCellsChanged: RefreshGenericTableCellsAfterEdit);
+        AttachGridEditShortcuts(_roleEditorGrid, UpdateRoleEditorDerivedCells, null, afterCellsChanged: RefreshRoleEditorCellsAfterEdit);
         AttachGridEditShortcuts(
             _jobEditorGrid,
             (_, _) => { },
@@ -304,6 +308,11 @@ public sealed partial class MainForm
             RefreshShopEditorAfterBulkEdit,
             PasteShopEditorSelection,
             FillShopEditorSelectionWithCurrentValue);
+        AttachGridEditShortcuts(_jobTerrainGrid, (_, _) => { }, null, afterCellsChanged: RefreshJobTerrainCellsAfterEdit);
+        AttachGridEditShortcuts(_jobRestraintGrid, (_, _) => { }, null, afterCellsChanged: RefreshJobMatrixCellsAfterEdit);
+        AttachGridEditShortcuts(_jobStrategyEditorGrid, UpdateJobStrategyDerivedCells, null, afterCellsChanged: RefreshJobStrategyCellsAfterEdit);
+        AttachGridEditShortcuts(_jobEffectEditorGrid, UpdateJobEffectDerivedCells, null, afterCellsChanged: RefreshJobEffectCellsAfterEdit);
+        AttachGridEditShortcuts(_imageAssignmentGrid, (row, _) => UpdateImageAssignmentResourceStatus(row), null, afterCellsChanged: RefreshImageAssignmentCellsAfterEdit);
         _loadImageAssignmentsButton.Click += (_, _) => LoadImageAssignments();
         _loadImageResourcesButton.Click += (_, _) => LoadImageResources();
         _openImageResourceButton.Click += (_, _) => OpenSelectedImageResourceLocation();
@@ -649,8 +658,14 @@ public sealed partial class MainForm
         _mapMakerPublishAllButton.Click += (_, _) => PublishCurrentMapWorkbenchMapAndTerrain();
         _mapMakerPublishMapButton.Click += (_, _) => PublishCurrentMapWorkbenchMapImage();
         _mapMakerPublishTerrainButton.Click += (_, _) => PublishCurrentMapWorkbenchTerrain();
-        _mapMakerMaterialSearchBox.TextChanged += (_, _) => PopulateMapWorkbenchMaterialBrowser();
+        _mapMakerMaterialSearchBox.TextChanged += (_, _) => HandleMapWorkbenchMaterialSearchChanged();
+        _mapMakerMaterialSearchBox.Enter += (_, _) => HandleMapWorkbenchMaterialBrowserInteraction();
+        _mapMakerMaterialSearchBox.MouseDown += (_, _) => HandleMapWorkbenchMaterialBrowserInteraction();
+        _mapMakerMaterialTree.Enter += (_, _) => HandleMapWorkbenchMaterialBrowserInteraction();
+        _mapMakerMaterialTree.MouseDown += (_, _) => HandleMapWorkbenchMaterialBrowserInteraction();
         _mapMakerMaterialTree.AfterSelect += (_, _) => PopulateMapWorkbenchMaterialListForSelection();
+        _mapMakerMaterialListView.Enter += (_, _) => HandleMapWorkbenchMaterialBrowserInteraction();
+        _mapMakerMaterialListView.MouseDown += (_, _) => HandleMapWorkbenchMaterialBrowserInteraction();
         _mapMakerMaterialListView.SelectedIndexChanged += (_, _) => SelectMapWorkbenchMaterialFromListView();
         ConfigureMapViewerContextMenu();
         _mapViewerBox.MouseDown += (_, e) => BeginMapMakerTerrainPaint(e);

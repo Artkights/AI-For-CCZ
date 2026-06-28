@@ -53,6 +53,12 @@ public sealed class MaterialLibraryIndexer
 
     public static string? ResolveMaterialLibraryRoot(CczProject project)
     {
+        var knownRoot = NormalizeCandidate(project.MaterialLibraryRoot);
+        if (IsUsableMaterialLibraryRoot(knownRoot))
+        {
+            return knownRoot;
+        }
+
         var candidates = new List<string?> { project.MaterialLibraryRoot };
         AddMaterialRootCandidates(candidates, project.GameRoot);
         AddMaterialRootCandidates(candidates, project.WorkspaceRoot);
@@ -70,15 +76,21 @@ public sealed class MaterialLibraryIndexer
 
     public static string? SelectBestMaterialLibraryRoot(IEnumerable<string?> candidates)
     {
-        return candidates
+        var roots = candidates
             .Select((path, index) => (Path: NormalizeCandidate(path), Index: index))
             .Where(item => item.Path != null && Directory.Exists(item.Path))
             .DistinctBy(item => item.Path!, StringComparer.OrdinalIgnoreCase)
-            .Select(item => (item.Path, item.Index, IsNewLayout: LooksLikeNewLayout(item.Path!), Score: ScoreMaterialLibraryRoot(item.Path!)))
-            .Where(item => item.Score > 0)
-            .OrderByDescending(item => item.IsNewLayout)
-            .ThenBy(item => item.Index)
-            .ThenByDescending(item => item.Score)
+            .ToList();
+
+        var newLayout = roots
+            .Where(item => LooksLikeNewLayout(item.Path!))
+            .OrderBy(item => item.Index)
+            .FirstOrDefault();
+        if (newLayout.Path != null) return newLayout.Path;
+
+        return roots
+            .Where(item => ContainsAnyImage(item.Path!))
+            .OrderBy(item => item.Index)
             .Select(item => item.Path)
             .FirstOrDefault();
     }
@@ -86,7 +98,8 @@ public sealed class MaterialLibraryIndexer
     private static IReadOnlyList<MaterialAsset> IndexRoot(string? root)
     {
         if (root == null || !Directory.Exists(root)) return Array.Empty<MaterialAsset>();
-        return LooksLikeNewLayout(root) ? IndexNewLayout(root) : IndexLegacyLayout(root);
+        var context = new IndexContext();
+        return LooksLikeNewLayout(root) ? IndexNewLayout(root, context) : IndexLegacyLayout(root, context);
     }
 
     private static void AddMaterialRootCandidates(List<string?> candidates, string? root)
@@ -114,35 +127,20 @@ public sealed class MaterialLibraryIndexer
         }
     }
 
-    private static int ScoreMaterialLibraryRoot(string root)
+    private static bool IsUsableMaterialLibraryRoot(string? root)
+        => root != null && Directory.Exists(root) && (LooksLikeNewLayout(root) || ContainsAnyImage(root));
+
+    private static bool ContainsAnyImage(string root)
     {
-        if (!Directory.Exists(root)) return 0;
-        var score = LooksLikeNewLayout(root) ? 10_000 : 1_000;
-        var terrainRoot = Path.Combine(root, "地形");
-        var buildingRoot = Path.Combine(root, "建筑");
-        var sceneryRoot = Path.Combine(root, "景物");
-        score += CountTypedImageAssets(terrainRoot) * 10;
-        score += CountTypedImageAssets(buildingRoot) * 10;
-        score += CountImages(sceneryRoot);
-
-        if (Directory.Exists(terrainRoot)) score += 100;
-        if (Directory.Exists(buildingRoot)) score += 100;
-        if (Directory.Exists(sceneryRoot)) score += 100;
-        return score;
+        try
+        {
+            return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Any(IsImageFile);
+        }
+        catch
+        {
+            return false;
+        }
     }
-
-    private static int CountTypedImageAssets(string typedRoot)
-    {
-        if (!Directory.Exists(typedRoot)) return 0;
-        return Directory.GetDirectories(typedRoot)
-            .Where(TryParseTypedFolder)
-            .Sum(path => CountImages(path));
-    }
-
-    private static int CountImages(string root)
-        => Directory.Exists(root)
-            ? Directory.GetFiles(root, "*", SearchOption.AllDirectories).Count(IsImageFile)
-            : 0;
 
     private static bool LooksLikeNewLayout(string root)
     {
@@ -158,12 +156,12 @@ public sealed class MaterialLibraryIndexer
                Directory.GetDirectories(buildingRoot).Any(TryParseTypedFolder);
     }
 
-    private static IReadOnlyList<MaterialAsset> IndexNewLayout(string root)
+    private static IReadOnlyList<MaterialAsset> IndexNewLayout(string root, IndexContext context)
     {
         var result = new List<MaterialAsset>();
-        IndexTypedRoot(result, root, "地形", MaterialAssetTypes.Terrain);
-        IndexTypedRoot(result, root, "建筑", MaterialAssetTypes.Building);
-        IndexSceneryRoot(result, root);
+        IndexTypedRoot(result, root, "地形", MaterialAssetTypes.Terrain, context);
+        IndexTypedRoot(result, root, "建筑", MaterialAssetTypes.Building, context);
+        IndexSceneryRoot(result, root, context);
         return result
             .OrderBy(asset => GetTypePriority(asset.AssetType))
             .ThenBy(asset => asset.TerrainId ?? byte.MaxValue)
@@ -173,7 +171,7 @@ public sealed class MaterialLibraryIndexer
             .ToList();
     }
 
-    private static void IndexTypedRoot(List<MaterialAsset> result, string root, string folderName, string assetType)
+    private static void IndexTypedRoot(List<MaterialAsset> result, string root, string folderName, string assetType, IndexContext context)
     {
         var typedRoot = Path.Combine(root, folderName);
         if (!Directory.Exists(typedRoot)) return;
@@ -182,15 +180,15 @@ public sealed class MaterialLibraryIndexer
         {
             if (!TryParseTypedFolder(groupDir, out var id, out _)) continue;
             var name = GetBuiltInTerrainName(id);
-            var variants = ReadVariants(groupDir);
+            var variants = ReadVariants(groupDir, context);
             var images = Directory.GetFiles(groupDir)
                 .Where(IsImageFile)
                 .OrderBy(path => SortKey(Path.GetFileNameWithoutExtension(path)))
                 .ThenBy(path => path, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
-            variants = RebuildCanonicalStripVariants(images, variants);
+            variants = RebuildCanonicalStripVariants(images, variants, context);
             var canonicalStripFiles = images
-                .Where(IsCanonicalStripImage)
+                .Where(path => IsCanonicalStripImage(path, context))
                 .Select(Path.GetFileName)
                 .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
                 .Select(fileName => fileName!)
@@ -205,7 +203,7 @@ public sealed class MaterialLibraryIndexer
                 {
                     var imagePath = Path.Combine(groupDir, variant.FileName);
                     if (!File.Exists(imagePath) || !IsImageFile(imagePath)) continue;
-                    var dimensions = GetImageDimensions(imagePath);
+                    var dimensions = context.GetImageDimensions(imagePath);
                     var rect = NormalizeSourceRect(variant, dimensions.Width, dimensions.Height);
                     result.Add(CreateAsset(
                         assetType,
@@ -220,13 +218,14 @@ public sealed class MaterialLibraryIndexer
                         variant.Mask,
                         variant.Mode,
                         variant.Priority,
-                        rect));
+                        rect,
+                        context: context));
                 }
 
                 var variantFiles = variants.Select(v => v.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 foreach (var imagePath in images.Where(path => !variantFiles.Contains(Path.GetFileName(path))))
                 {
-                    var dimensions = GetImageDimensions(imagePath);
+                    var dimensions = context.GetImageDimensions(imagePath);
                     if (IsCanonicalStripImage(dimensions.Width, dimensions.Height))
                     {
                         foreach (var variant in new MaterialAutoTileMetadataService().BuildVariantsForImage(imagePath))
@@ -245,7 +244,8 @@ public sealed class MaterialLibraryIndexer
                                 variant.Mask,
                                 variant.Mode,
                                 variant.Priority,
-                                generatedVariantRect));
+                                generatedVariantRect,
+                                context: context));
                         }
 
                         continue;
@@ -265,7 +265,8 @@ public sealed class MaterialLibraryIndexer
                         MaterialAutoTileMasks.None,
                         MaterialAutoTileModes.Default,
                         0,
-                        rect));
+                        rect,
+                        context: context));
                 }
 
                 continue;
@@ -274,7 +275,7 @@ public sealed class MaterialLibraryIndexer
             for (var i = 0; i < images.Count; i++)
             {
                 var imagePath = images[i];
-                var dimensions = GetImageDimensions(imagePath);
+                var dimensions = context.GetImageDimensions(imagePath);
                 if (IsCanonicalStripImage(dimensions.Width, dimensions.Height))
                 {
                     foreach (var variant in new MaterialAutoTileMetadataService().BuildVariantsForImage(imagePath))
@@ -293,7 +294,8 @@ public sealed class MaterialLibraryIndexer
                             variant.Mask,
                             variant.Mode,
                             variant.Priority,
-                            generatedVariantRect));
+                            generatedVariantRect,
+                            context: context));
                     }
 
                     continue;
@@ -313,12 +315,13 @@ public sealed class MaterialLibraryIndexer
                     MaterialAutoTileMasks.None,
                     MaterialAutoTileModes.Default,
                     0,
-                    rect));
+                    rect,
+                    context: context));
             }
         }
     }
 
-    private static void IndexSceneryRoot(List<MaterialAsset> result, string root)
+    private static void IndexSceneryRoot(List<MaterialAsset> result, string root, IndexContext context)
     {
         var sceneryRoot = Path.Combine(root, "景物");
         if (!Directory.Exists(sceneryRoot)) return;
@@ -331,7 +334,7 @@ public sealed class MaterialLibraryIndexer
         for (var i = 0; i < images.Count; i++)
         {
             var imagePath = images[i];
-            var dimensions = GetImageDimensions(imagePath);
+            var dimensions = context.GetImageDimensions(imagePath);
             var rect = new Rectangle(0, 0, Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Width)), Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Height)));
             result.Add(CreateAsset(
                 MaterialAssetTypes.Scenery,
@@ -346,11 +349,12 @@ public sealed class MaterialLibraryIndexer
                 MaterialAutoTileMasks.None,
                 MaterialAutoTileModes.Default,
                 0,
-                rect));
+                rect,
+                context: context));
         }
     }
 
-    private static IReadOnlyList<MaterialAsset> IndexLegacyLayout(string root)
+    private static IReadOnlyList<MaterialAsset> IndexLegacyLayout(string root, IndexContext context)
     {
         var result = new List<MaterialAsset>();
         foreach (var categoryDir in Directory.GetDirectories(root).OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase))
@@ -378,7 +382,7 @@ public sealed class MaterialLibraryIndexer
                 var name = terrainId.HasValue
                     ? GetBuiltInTerrainName(terrainId.Value)
                     : string.Empty;
-                var dimensions = GetImageDimensions(path);
+                var dimensions = context.GetImageDimensions(path);
                 var rect = new Rectangle(0, 0, Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Width)), Math.Min(MapResourceItem.MapTilePixelSize, Math.Max(1, dimensions.Height)));
                 result.Add(CreateAsset(
                     assetType,
@@ -395,7 +399,8 @@ public sealed class MaterialLibraryIndexer
                     0,
                     rect,
                     tag.HexTag,
-                    tag.Description));
+                    tag.Description,
+                    context));
             }
         }
 
@@ -417,10 +422,11 @@ public sealed class MaterialLibraryIndexer
         int autoTilePriority,
         Rectangle sourceRect,
         string? hexTag = null,
-        string? description = null)
+        string? description = null,
+        IndexContext? context = null)
     {
         var info = new FileInfo(path);
-        var dimensions = GetImageDimensions(path);
+        var dimensions = context?.GetImageDimensions(path) ?? GetImageDimensions(path);
         return new MaterialAsset
         {
             Category = category,
@@ -453,7 +459,7 @@ public sealed class MaterialLibraryIndexer
             ? $"{assetType}:{terrainId.Value}:{terrainName}:{Path.GetFileName(fileName)}"
             : $"{assetType}:{terrainName}:{Path.GetFileName(fileName)}";
 
-    private static List<MaterialAutoTileVariant> ReadVariants(string groupDir)
+    private static List<MaterialAutoTileVariant> ReadVariants(string groupDir, IndexContext context)
     {
         var path = Path.Combine(groupDir, "_variants.json");
         if (!File.Exists(path)) return new List<MaterialAutoTileVariant>();
@@ -471,7 +477,7 @@ public sealed class MaterialLibraryIndexer
                     var imagePath = Path.Combine(groupDir, v.FileName);
                     if (File.Exists(imagePath) && IsImageFile(imagePath))
                     {
-                        var dimensions = GetImageDimensions(imagePath);
+                        var dimensions = context.GetImageDimensions(imagePath);
                         NormalizeCanonicalStripVariant(v, dimensions.Width, dimensions.Height, groupDir);
                     }
                     v.Mode = NormalizeVariantMode(v.Mode, groupDir);
@@ -488,10 +494,11 @@ public sealed class MaterialLibraryIndexer
 
     private static List<MaterialAutoTileVariant> RebuildCanonicalStripVariants(
         IReadOnlyList<string> images,
-        List<MaterialAutoTileVariant> variants)
+        List<MaterialAutoTileVariant> variants,
+        IndexContext context)
     {
         var canonicalStripImages = images
-            .Where(IsCanonicalStripImage)
+            .Where(path => IsCanonicalStripImage(path, context))
             .ToList();
         if (canonicalStripImages.Count == 0)
         {
@@ -591,6 +598,12 @@ public sealed class MaterialLibraryIndexer
     private static bool IsCanonicalStripImage(string path)
     {
         var dimensions = GetImageDimensions(path);
+        return IsCanonicalStripImage(dimensions.Width, dimensions.Height);
+    }
+
+    private static bool IsCanonicalStripImage(string path, IndexContext context)
+    {
+        var dimensions = context.GetImageDimensions(path);
         return IsCanonicalStripImage(dimensions.Width, dimensions.Height);
     }
 
@@ -738,6 +751,23 @@ public sealed class MaterialLibraryIndexer
         catch
         {
             return (0, 0);
+        }
+    }
+
+    private sealed class IndexContext
+    {
+        private readonly Dictionary<string, (int Width, int Height)> _imageDimensions = new(StringComparer.OrdinalIgnoreCase);
+
+        public (int Width, int Height) GetImageDimensions(string path)
+        {
+            if (_imageDimensions.TryGetValue(path, out var dimensions))
+            {
+                return dimensions;
+            }
+
+            dimensions = MaterialLibraryIndexer.GetImageDimensions(path);
+            _imageDimensions[path] = dimensions;
+            return dimensions;
         }
     }
 }

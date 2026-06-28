@@ -70,6 +70,7 @@ internal partial class Program
                 Application.DoEvents();
                 form.PerformLayout();
                 Application.DoEvents();
+                var initialToolbarFlushes = GetPrivateStaticIntForUiLayoutSmoke("CompactToolbarLayoutFlushCount");
 
                 var splits = GetUiLayoutSplits(form);
                 if (!splits.TryGetValue("BuildMapEditorPage.MapListEditor", out var split))
@@ -80,6 +81,7 @@ internal partial class Program
                 split.Width = 1000;
                 split.PerformLayout();
                 Application.DoEvents();
+                Application.DoEvents();
 
                 var usable = split.Width - split.SplitterWidth;
                 var expected = (int)Math.Round(usable * 0.80);
@@ -89,6 +91,19 @@ internal partial class Program
                     var formRatio = UiLayoutSettingsStore.GetSplitRatio(GetUiLayoutSettings(form), "BuildMapEditorPage.MapListEditor");
                     throw new InvalidOperationException(
                         $"页框未按本地配置恢复：actual={split.SplitterDistance}, expected={expected}, width={split.Width}, splitter={split.SplitterWidth}, storePath={UiLayoutSettingsStore.GetPath()}, loadedRatio={loadedRatio?.ToString() ?? "<null>"}, formRatio={formRatio?.ToString() ?? "<null>"}");
+                }
+
+                var flushesAfterLayout = GetPrivateStaticIntForUiLayoutSmoke("CompactToolbarLayoutFlushCount");
+                for (var i = 0; i < 4; i++)
+                {
+                    Application.DoEvents();
+                    Thread.Sleep(1);
+                }
+
+                var flushesAfterIdle = GetPrivateStaticIntForUiLayoutSmoke("CompactToolbarLayoutFlushCount");
+                if (flushesAfterIdle > flushesAfterLayout + 2)
+                {
+                    throw new InvalidOperationException($"Compact toolbar layout queue kept appending after UI layout apply. initial={initialToolbarFlushes} afterLayout={flushesAfterLayout} afterIdle={flushesAfterIdle}");
                 }
 
                 form.Close();
@@ -122,5 +137,12 @@ internal partial class Program
         var field = typeof(MainForm).GetField("_uiLayoutSettings", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("找不到 MainForm._uiLayoutSettings 字段。");
         return (UiLayoutSettings)field.GetValue(form)!;
+    }
+
+    private static int GetPrivateStaticIntForUiLayoutSmoke(string name)
+    {
+        var property = typeof(MainForm).GetProperty(name, BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException($"Missing MainForm.{name} property.");
+        return (int)property.GetValue(null)!;
     }
 }

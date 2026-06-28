@@ -79,6 +79,7 @@ public sealed partial class MainForm
 
     private bool IndexMaterialLibrary(bool showMessages)
     {
+        using var perf = TracePerf("IndexMaterialLibrary");
         var workspace = _project?.WorkspaceRoot ?? Directory.GetCurrentDirectory();
         try
         {
@@ -87,9 +88,10 @@ public sealed partial class MainForm
                 : MaterialLibraryIndexer.ResolveMaterialLibraryRoot(_project);
             var materialRoot = resolvedRoot
                 ?? Path.Combine(workspace, "普罗-综合工具v0.3", "素材库");
-            _currentMaterialAssets = _project == null
-                ? _materialLibraryIndexer.Index(workspace)
-                : _materialLibraryIndexer.Index(_project);
+            _currentMaterialAssets = string.IsNullOrWhiteSpace(resolvedRoot)
+                ? Array.Empty<MaterialAsset>()
+                : _materialLibraryCache.GetOrIndexExplicitRoot(resolvedRoot);
+            _currentMaterialRoot = resolvedRoot ?? string.Empty;
             _materialGrid.DataSource = new BindingList<MaterialAsset>(_currentMaterialAssets.ToList());
             ConfigureMaterialGrid();
             var categorySummary = string.Join("，", _currentMaterialAssets

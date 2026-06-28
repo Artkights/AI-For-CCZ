@@ -35,6 +35,7 @@ internal partial class Program
                 var materialTree = GetPrivateFieldForMapWorkbenchUiSmoke<TreeView>(form, "_mapMakerMaterialTree");
                 var materialList = GetPrivateFieldForMapWorkbenchUiSmoke<ListView>(form, "_mapMakerMaterialListView");
                 var materials = GetPrivateFieldForMapWorkbenchUiSmoke<IReadOnlyList<MaterialAsset>>(form, "_currentMaterialAssets");
+                var mainTabs = GetPrivateFieldForMapWorkbenchUiSmoke<TabControl>(form, "_mainTabs");
 
                 if (list.Items.Count == 0)
                 {
@@ -103,6 +104,33 @@ internal partial class Program
                     throw new InvalidOperationException($"Material browser should index all three migrated material classes. terrain={terrainMaterialCount} building={buildingMaterialCount} scenery={sceneryMaterialCount}");
                 }
 
+                if (materialTree.Nodes.Count != 0 || materialList.Items.Count != 0)
+                {
+                    throw new InvalidOperationException("Material browser should stay empty until the map material page is entered.");
+                }
+
+                form.Show();
+                Application.DoEvents();
+                var mapTab = FindMainTabContainingControlForMapWorkbenchUiSmoke(mainTabs, materialTree)
+                    ?? throw new InvalidOperationException("Map workbench tab was not found.");
+                mainTabs.SelectedTab = mapTab;
+                Application.DoEvents();
+                Application.DoEvents();
+                if (GetPrivateFieldForMapWorkbenchUiSmoke<bool>(form, "_mapWorkbenchMaterialBrowserPopulated") ||
+                    materialTree.Nodes.Count != 0 ||
+                    materialList.Items.Count != 0)
+                {
+                    throw new InvalidOperationException("Selecting the map editor tab should not populate the material browser.");
+                }
+
+                InvokePrivateForMapWorkbenchUiSmoke(form, "EnsureMapWorkbenchMaterialBrowserPopulated");
+                if (materialList.Items.Count != 0 || materialList.LargeImageList == null || materialList.LargeImageList.Images.Count != 0)
+                {
+                    throw new InvalidOperationException("Material browser should delay thumbnails until a material group is selected.");
+                }
+
+                InvokePrivateForMapWorkbenchUiSmoke(form, "PopulateMapWorkbenchMaterialListForSelection");
+
                 AssertWorkbenchMaterialLibraryUsesStandardFolders(materials, MaterialAssetTypes.Terrain, 1, "草原", minimumImages: 2);
                 AssertWorkbenchMaterialLibraryUsesStandardFolders(materials, MaterialAssetTypes.Terrain, 2, "树林", minimumImages: 2);
                 AssertWorkbenchMaterialLibraryUsesStandardFolders(materials, MaterialAssetTypes.Building, 14, "栅栏", minimumImages: 1);
@@ -120,7 +148,7 @@ internal partial class Program
 
                 if (materialList.Items.Count == 0 || materialList.LargeImageList == null || materialList.LargeImageList.Images.Count == 0)
                 {
-                    throw new InvalidOperationException("Material browser did not populate selectable material thumbnails.");
+                    throw new InvalidOperationException("Material browser did not populate selectable material thumbnails after selecting a group.");
                 }
 
                 AssertMapWorkbenchAutoTileBrowserGroup(form, materialTree, materialList, "15：城墙", expectedItems: 3);
@@ -211,6 +239,33 @@ internal partial class Program
         {
             throw new InvalidOperationException("Map workbench UI smoke failed.", failure);
         }
+    }
+
+    private static TabPage? FindMainTabContainingControlForMapWorkbenchUiSmoke(TabControl tabs, Control target)
+    {
+        foreach (TabPage page in tabs.TabPages)
+        {
+            if (ContainsControlForMapWorkbenchUiSmoke(page, target))
+            {
+                return page;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsControlForMapWorkbenchUiSmoke(Control root, Control target)
+    {
+        if (ReferenceEquals(root, target)) return true;
+        foreach (Control child in root.Controls)
+        {
+            if (ContainsControlForMapWorkbenchUiSmoke(child, target))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static int CountVisiblePixelsForMapWorkbenchUiSmoke(Bitmap bitmap)

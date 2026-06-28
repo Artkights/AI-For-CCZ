@@ -573,7 +573,7 @@ public sealed partial class MainForm
         {
             var materials = _currentMaterialAssets.Count > 0
                 ? _currentMaterialAssets
-                : _materialLibraryIndexer.Index(_project);
+                : _materialLibraryCache.GetOrIndexExplicitRoot(MaterialLibraryIndexer.ResolveMaterialLibraryRoot(_project));
             return HexzmapProbeReader.BuildTerrainNameLookup(materials);
         }
         catch (Exception ex)
@@ -718,6 +718,7 @@ public sealed partial class MainForm
 
     private void LoadMapWorkbenchSettings()
     {
+        using var perf = TracePerf("LoadMapWorkbenchSettings");
         if (_project == null) return;
         try
         {
@@ -726,7 +727,10 @@ public sealed partial class MainForm
             var materialRoot = ResolveDefaultMapWorkbenchMaterialRoot();
             if (!string.IsNullOrWhiteSpace(materialRoot))
             {
-                IndexMapWorkbenchMaterialRoot(materialRoot, showMessages: false);
+                _mapWorkbenchSettings.LastMaterialRoot = Path.GetFullPath(materialRoot);
+                _mapMakerMaterialInfoBox.Text =
+                    $"素材根目录：{_mapWorkbenchSettings.LastMaterialRoot}\r\n" +
+                    "素材库将在首次进入地图编辑、读取地图或使用素材功能时加载。";
             }
             else if (!string.IsNullOrWhiteSpace(_mapWorkbenchSettings.LastMaterialRoot))
             {
@@ -743,6 +747,9 @@ public sealed partial class MainForm
     private string ResolveDefaultMapWorkbenchMaterialRoot()
     {
         if (_project == null) return string.Empty;
+        if (TryResolveExistingMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, out var existingRoot)) return existingRoot;
+        if (TryResolveExistingMaterialRoot(_project.MaterialLibraryRoot, out existingRoot)) return existingRoot;
+
         var candidates = new List<string>();
         AddMaterialRootCandidate(candidates, _mapWorkbenchSettings.LastMaterialRoot);
         AddMaterialRootCandidate(candidates, MaterialLibraryIndexer.ResolveMaterialLibraryRoot(_project));
@@ -754,6 +761,23 @@ public sealed partial class MainForm
         AddMaterialRootCandidate(candidates, PortableInstallPaths.LegacyResource("普罗-综合工具v0.3", "素材库"));
 
         return MaterialLibraryIndexer.SelectBestMaterialLibraryRoot(candidates) ?? string.Empty;
+    }
+
+    private static bool TryResolveExistingMaterialRoot(string? path, out string root)
+    {
+        root = string.Empty;
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (!Directory.Exists(fullPath)) return false;
+            root = fullPath;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void AddMaterialRootCandidate(List<string> candidates, string? path)
@@ -793,7 +817,7 @@ public sealed partial class MainForm
             return false;
         }
 
-        IndexMapWorkbenchMaterialRoot(root, showMessages);
+        IndexMapWorkbenchMaterialRoot(root, showMessages, populateBrowser: false);
         return _currentMaterialAssets.Count > 0;
     }
 
@@ -1108,7 +1132,7 @@ public sealed partial class MainForm
             Directory.Exists(_currentMapWorkbenchDraft.MaterialRoot) &&
             !_mapWorkbenchSettings.LastMaterialRoot.Equals(_currentMapWorkbenchDraft.MaterialRoot, StringComparison.OrdinalIgnoreCase))
         {
-            IndexMapWorkbenchMaterialRoot(_currentMapWorkbenchDraft.MaterialRoot, showMessages: false);
+            IndexMapWorkbenchMaterialRoot(_currentMapWorkbenchDraft.MaterialRoot, showMessages: false, populateBrowser: false);
         }
 
         if (resetHistory)
@@ -1334,16 +1358,21 @@ public sealed partial class MainForm
             SelectedPath = Directory.Exists(initial) ? initial : (_project?.WorkspaceRoot ?? Directory.GetCurrentDirectory())
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        IndexMapWorkbenchMaterialRoot(dialog.SelectedPath, showMessages: true);
+        IndexMapWorkbenchMaterialRoot(dialog.SelectedPath, showMessages: true, populateBrowser: true);
     }
 
-    private void IndexMapWorkbenchMaterialRoot(string root, bool showMessages)
+    private void IndexMapWorkbenchMaterialRoot(string root, bool showMessages, bool populateBrowser = true)
     {
+        using var perf = TracePerf("IndexMapWorkbenchMaterialRoot");
         if (string.IsNullOrWhiteSpace(root)) return;
         try
         {
             Cursor = Cursors.WaitCursor;
-            _currentMaterialAssets = _materialLibraryIndexer.IndexExplicitRoot(root);
+            var fullRoot = Path.GetFullPath(root);
+            _currentMaterialAssets = _materialLibraryCache.GetOrIndexExplicitRoot(fullRoot);
+            _currentMaterialRoot = fullRoot;
+            _mapWorkbenchMaterialBrowserPopulated = false;
+            ClearMapWorkbenchMaterialThumbnailCache();
             _mapWorkbenchSettings.LastMaterialRoot = Path.GetFullPath(root);
             if (_currentMapWorkbenchDraft != null)
             {
@@ -1353,7 +1382,14 @@ public sealed partial class MainForm
 
             PopulateMapWorkbenchMaterialCategoryFilter();
             ApplyMapWorkbenchMaterialFilter();
-            PopulateMapWorkbenchMaterialBrowser();
+            if (populateBrowser)
+            {
+                PopulateMapWorkbenchMaterialBrowser();
+            }
+            else
+            {
+                ClearMapWorkbenchMaterialBrowser();
+            }
             _materialGrid.DataSource = new BindingList<MaterialAsset>(_currentMaterialAssets.ToList());
             ConfigureMaterialGrid();
             _mapMakerMaterialInfoBox.Text =
@@ -1427,11 +1463,71 @@ public sealed partial class MainForm
         _mapMakerMaterialSearchBox.Clear();
         if (_mapMakerMaterialCategoryCombo.Items.Count > 0) _mapMakerMaterialCategoryCombo.SelectedIndex = 0;
         ApplyMapWorkbenchMaterialFilter();
+        if (_mapWorkbenchMaterialBrowserPopulated)
+        {
+            PopulateMapWorkbenchMaterialBrowser();
+        }
+    }
+
+    private void HandleMainTabSelectionChanged()
+    {
+        using var perf = TracePerf("MainTab.SelectedIndexChanged");
+        var beforeTab = _lastMainTabText;
+        var afterTab = _mainTabs.SelectedTab?.Text ?? string.Empty;
+        var beforeLayoutRequests = CompactToolbarLayoutRequestCount;
+        var browserPopulatedBefore = _mapWorkbenchMaterialBrowserPopulated;
+        var treeNodeCountBefore = _mapMakerMaterialTree.Nodes.Count;
+        _lastMainTabText = afterTab;
+        void WriteTabSwitchPerfDetail()
+        {
+            var layoutRequests = CompactToolbarLayoutRequestCount - beforeLayoutRequests;
+            Debug.WriteLine(
+                $"[PERF] MainTab.SelectedIndexChanged.Detail: from={beforeTab} to={afterTab} compactRequests={layoutRequests} materialLoaded=false browserBefore={browserPopulatedBefore} browserAfter={_mapWorkbenchMaterialBrowserPopulated} treeBefore={treeNodeCountBefore} treeAfter={_mapMakerMaterialTree.Nodes.Count}");
+        }
+
+        if (!IsDisposed && IsHandleCreated)
+        {
+            try
+            {
+                BeginInvoke((Action)WriteTabSwitchPerfDetail);
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                // The form may be closing while a tab event is still unwinding.
+            }
+        }
+
+        WriteTabSwitchPerfDetail();
+    }
+
+    private void HandleMapWorkbenchMaterialSearchChanged()
+    {
+        EnsureMapWorkbenchMaterialBrowserPopulated();
+    }
+
+    private void HandleMapWorkbenchMaterialBrowserInteraction()
+    {
+        EnsureMapWorkbenchMaterialBrowserPopulated();
+    }
+
+    private void EnsureMapWorkbenchMaterialBrowserPopulated()
+    {
+        if (_mapWorkbenchMaterialBrowserPopulated) return;
+        if (_currentMaterialAssets.Count == 0 && !EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false)) return;
         PopulateMapWorkbenchMaterialBrowser();
+    }
+
+    private void ClearMapWorkbenchMaterialBrowser()
+    {
+        _mapWorkbenchMaterialBrowserPopulated = false;
+        _mapMakerMaterialTree.Nodes.Clear();
+        PopulateMapWorkbenchMaterialList(Array.Empty<MaterialAsset>());
     }
 
     private void PopulateMapWorkbenchMaterialBrowser()
     {
+        using var perf = TracePerf("PopulateMapWorkbenchMaterialBrowser");
         var previousGroup = (_mapMakerMaterialTree.SelectedNode?.Tag as string) ?? string.Empty;
         var keyword = _mapMakerMaterialSearchBox.Text.Trim();
         var roots = new[]
@@ -1444,6 +1540,7 @@ public sealed partial class MainForm
         _mapMakerMaterialTree.BeginUpdate();
         try
         {
+            _populatingMapWorkbenchMaterialBrowser = true;
             _mapMakerMaterialTree.Nodes.Clear();
             foreach (var root in roots)
             {
@@ -1475,15 +1572,17 @@ public sealed partial class MainForm
             if (selected != null)
             {
                 _mapMakerMaterialTree.SelectedNode = selected;
-                PopulateMapWorkbenchMaterialListForSelection();
             }
             else
             {
                 PopulateMapWorkbenchMaterialList(Array.Empty<MaterialAsset>());
             }
+
+            _mapWorkbenchMaterialBrowserPopulated = true;
         }
         finally
         {
+            _populatingMapWorkbenchMaterialBrowser = false;
             _mapMakerMaterialTree.EndUpdate();
         }
     }
@@ -1524,6 +1623,7 @@ public sealed partial class MainForm
 
     private void PopulateMapWorkbenchMaterialListForSelection()
     {
+        if (_populatingMapWorkbenchMaterialBrowser) return;
         var node = _mapMakerMaterialTree.SelectedNode;
         if (node == null)
         {
@@ -1557,6 +1657,7 @@ public sealed partial class MainForm
 
     private void PopulateMapWorkbenchMaterialList(IReadOnlyList<MaterialAsset> assets)
     {
+        using var perf = TracePerf($"PopulateMapWorkbenchMaterialList({assets.Count})");
         _mapMakerMaterialImageList.Images.Clear();
         _mapMakerMaterialListView.BeginUpdate();
         try
@@ -1591,6 +1692,12 @@ public sealed partial class MainForm
 
     private Bitmap BuildMapWorkbenchMaterialThumbnail(MaterialAsset asset)
     {
+        var cacheKey = BuildMapWorkbenchMaterialThumbnailCacheKey(asset);
+        if (_mapWorkbenchMaterialThumbnailCache.TryGetValue(cacheKey, out var cached))
+        {
+            return new Bitmap(cached);
+        }
+
         var bitmap = new Bitmap(48, 48);
         using var g = Graphics.FromImage(bitmap);
         g.Clear(Color.FromArgb(245, 245, 245));
@@ -1619,7 +1726,43 @@ public sealed partial class MainForm
             g.DrawRectangle(pen, 0, 0, 47, 47);
         }
 
+        _mapWorkbenchMaterialThumbnailCache[cacheKey] = new Bitmap(bitmap);
         return bitmap;
+    }
+
+    private string BuildMapWorkbenchMaterialThumbnailCacheKey(MaterialAsset asset)
+    {
+        long ticks = 0;
+        try
+        {
+            if (File.Exists(asset.FilePath))
+            {
+                ticks = File.GetLastWriteTimeUtc(asset.FilePath).Ticks;
+            }
+        }
+        catch
+        {
+            ticks = 0;
+        }
+
+        return string.Join("|",
+            asset.FilePath,
+            ticks.ToString(CultureInfo.InvariantCulture),
+            asset.SourceX.ToString(CultureInfo.InvariantCulture),
+            asset.SourceY.ToString(CultureInfo.InvariantCulture),
+            asset.SourceWidth.ToString(CultureInfo.InvariantCulture),
+            asset.SourceHeight.ToString(CultureInfo.InvariantCulture),
+            asset.AssetType);
+    }
+
+    private void ClearMapWorkbenchMaterialThumbnailCache()
+    {
+        foreach (var image in _mapWorkbenchMaterialThumbnailCache.Values)
+        {
+            image.Dispose();
+        }
+
+        _mapWorkbenchMaterialThumbnailCache.Clear();
     }
 
     private void SelectMapWorkbenchMaterialFromListView()
@@ -2742,7 +2885,7 @@ public sealed partial class MainForm
             return;
         }
 
-        IndexMapWorkbenchMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, showMessages: false);
+        IndexMapWorkbenchMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, showMessages: false, populateBrowser: false);
         SelectMapWorkbenchMaterialGroupForExtraction(extractedTarget, extractedTerrainId);
         var result = extractionResult;
         var fileNames = string.Join(", ", result.Files.Take(8).Select(file => Path.GetFileName(file.Path)));
@@ -2844,7 +2987,7 @@ public sealed partial class MainForm
             Materials = _currentMaterialAssets
         };
         var result = _mapMaterialExtractionService.Extract(request);
-        IndexMapWorkbenchMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, showMessages: false);
+        IndexMapWorkbenchMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, showMessages: false, populateBrowser: false);
         SelectMapWorkbenchMaterialGroupForExtraction(targetType, request.TerrainId);
         return result;
     }

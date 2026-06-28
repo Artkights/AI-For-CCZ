@@ -224,6 +224,7 @@ public sealed partial class MainForm : Form
     private readonly ProPatchParser _patchParser = new();
     private readonly PatchApplyService _patchService = new();    private readonly SceneStringParser _sceneStringParser = new();
     private readonly MaterialLibraryIndexer _materialLibraryIndexer = new();
+    private readonly MaterialLibraryCache _materialLibraryCache;
     private readonly MapDraftService _mapDraftService = new();
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
@@ -472,6 +473,10 @@ public sealed partial class MainForm : Form
     private MapWorkbenchDraft? _currentMapWorkbenchDraft;
     private MapWorkbenchSettings _mapWorkbenchSettings = new();
     private MaterialAsset? _mapMakerSelectedMaterial;
+    private string _currentMaterialRoot = string.Empty;
+    private bool _mapWorkbenchMaterialBrowserPopulated;
+    private bool _populatingMapWorkbenchMaterialBrowser;
+    private readonly Dictionary<string, Bitmap> _mapWorkbenchMaterialThumbnailCache = new(StringComparer.OrdinalIgnoreCase);
     private MapWorkbenchBrushMode _mapWorkbenchBrushMode = MapWorkbenchBrushMode.TerrainBrush;
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapUndoStack = new();
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapRedoStack = new();
@@ -508,6 +513,8 @@ public sealed partial class MainForm : Form
     private TableReferenceNavigationTarget? _currentTableReferenceTarget;
     private UiLayoutSettings _uiLayoutSettings = new();
     private readonly Dictionary<string, SplitContainer> _uiLayoutSplits = new(StringComparer.Ordinal);
+    private string _loadedProjectSessionKey = string.Empty;
+    private string _lastMainTabText = string.Empty;
     private bool _updatingScenarioStructureSelection;
     private bool _updatingScenarioCommandTemplateFilters;
     private bool _updatingMapMakerPresetSelection;
@@ -567,6 +574,9 @@ public sealed partial class MainForm : Form
     private readonly Button _copyTableSelectionButton = new();
     private readonly Button _pasteTableSelectionButton = new();
     private readonly Button _batchFillTableColumnButton = new();
+    private readonly Button _batchModifyTableButton = new();
+    private readonly Button _undoTableEditButton = new();
+    private readonly Button _redoTableEditButton = new();
     private readonly Button _openPlanButton = new();
     private readonly Button _loadRoleEditorButton = new();
     private readonly Button _saveRoleEditorButton = new();
@@ -1180,6 +1190,7 @@ public sealed partial class MainForm : Form
 
     public MainForm()
     {
+        _materialLibraryCache = new MaterialLibraryCache(_materialLibraryIndexer);
         Text = "CCZModStudio 6.5 - V0.6 集成原型";
         Icon = LoadApplicationIcon();
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -1340,6 +1351,7 @@ public sealed partial class MainForm : Form
 
     private void BuildLayout()
     {
+        using var perf = TracePerf("BuildLayout");
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1392,6 +1404,15 @@ public sealed partial class MainForm : Form
         _pasteTableSelectionButton.AutoSize = true;
         _batchFillTableColumnButton.Text = "批量填列";
         _batchFillTableColumnButton.AutoSize = true;
+        _batchModifyTableButton.Text = "Batch modify";
+        _batchModifyTableButton.AutoSize = true;
+        _batchModifyTableButton.Enabled = false;
+        _undoTableEditButton.Text = "Undo";
+        _undoTableEditButton.AutoSize = true;
+        _undoTableEditButton.Enabled = false;
+        _redoTableEditButton.Text = "Redo";
+        _redoTableEditButton.AutoSize = true;
+        _redoTableEditButton.Enabled = false;
         _openPlanButton.Text = "打开 plan.md";
         _openPlanButton.AutoSize = true;
         _showAllTables.Text = "显示全部版本/禁用表";
@@ -1409,6 +1430,9 @@ public sealed partial class MainForm : Form
             _copyTableSelectionButton,
             _pasteTableSelectionButton,
             _batchFillTableColumnButton,
+            _batchModifyTableButton,
+            _undoTableEditButton,
+            _redoTableEditButton,
             _openPlanButton
         });
 
@@ -1480,22 +1504,15 @@ public sealed partial class MainForm : Form
             };
             tableGridLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tableGridLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var tableSelectToolbar = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = true,
-                Padding = new Padding(0, 0, 0, 4)
-            };
+            var tableSelectToolbar = CreateToolbarRow();
             _tableList.DropDownStyle = ComboBoxStyle.DropDownList;
-            _tableList.Width = 360;
+            ConfigureToolbarInput(_tableList, 360, 220);
             _tableList.DropDownWidth = 560;
             _tableList.MaxDropDownItems = 24;
-            _showAllTables.Margin = new Padding(12, 6, 0, 0);
+            ConfigureToolbarCheckBox(_showAllTables);
             tableSelectToolbar.Controls.AddRange(new Control[]
             {
-                new Label { Text = "数据表：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+                CreateToolbarLabel("数据表：", 0),
                 _tableList,
                 _showAllTables
             });
@@ -1523,83 +1540,77 @@ public sealed partial class MainForm : Form
             };
             chartLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             chartLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var chartToolbar = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = true
-            };
+            var chartToolbar = CreateToolbarStack(3);
             _chartColumnCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-            _chartColumnCombo.Width = 180;
+            ConfigureToolbarInput(_chartColumnCombo, 180, 130);
             _renderChartButton.Text = "绘制分布图";
-            _renderChartButton.AutoSize = true;
+            ConfigureToolbarButton(_renderChartButton, 104);
             _renderChartButton.Enabled = false;
-            _tableColumnFilterBox.Width = 150;
+            ConfigureToolbarInput(_tableColumnFilterBox, 150, 120);
             _tableColumnFilterBox.PlaceholderText = "按字段/注释筛选列";
             _filterTableColumnsButton.Text = "筛选列";
-            _filterTableColumnsButton.AutoSize = true;
+            ConfigureToolbarButton(_filterTableColumnsButton, 72);
             _filterTableColumnsButton.Enabled = false;
             _clearTableColumnFilterButton.Text = "显示全部列";
-            _clearTableColumnFilterButton.AutoSize = true;
+            ConfigureToolbarButton(_clearTableColumnFilterButton, 104);
             _clearTableColumnFilterButton.Enabled = false;
             _dangerTableColumnsOnly.Text = "仅高风险字段";
-            _dangerTableColumnsOnly.AutoSize = true;
+            ConfigureToolbarCheckBox(_dangerTableColumnsOnly);
             _dangerTableColumnsOnly.Enabled = false;
             _exportFieldAnnotationsButton.Text = "导出字段注释";
-            _exportFieldAnnotationsButton.AutoSize = true;
+            ConfigureToolbarButton(_exportFieldAnnotationsButton, 118);
             _exportFieldAnnotationsButton.Enabled = false;
             _exportVisibleColumnsCsvButton.Text = "导出可见行列CSV";
-            _exportVisibleColumnsCsvButton.AutoSize = true;
+            ConfigureToolbarButton(_exportVisibleColumnsCsvButton, 140);
             _exportVisibleColumnsCsvButton.Enabled = false;
             _visibleColumnsCsvWithNotes.Text = "含字段说明行";
-            _visibleColumnsCsvWithNotes.AutoSize = true;
+            ConfigureToolbarCheckBox(_visibleColumnsCsvWithNotes);
             _visibleColumnsCsvWithNotes.Checked = true;
             _visibleColumnsCsvWithNotes.Enabled = false;
             _jumpTableReferenceButton.Text = "跳到引用目标";
-            _jumpTableReferenceButton.AutoSize = true;
+            ConfigureToolbarButton(_jumpTableReferenceButton, 118);
             _jumpTableReferenceButton.Enabled = false;
-            _tableReferenceNavigationBox.Width = 360;
+            ConfigureToolbarInput(_tableReferenceNavigationBox, 360, 200);
             _tableReferenceNavigationBox.ReadOnly = true;
             _tableReferenceNavigationBox.PlaceholderText = "选中引用字段后显示可跳转目标";
-            _tableRowFilterBox.Width = 150;
+            ConfigureToolbarInput(_tableRowFilterBox, 150, 120);
             _tableRowFilterBox.PlaceholderText = "按行内容筛选";
             _filterTableRowsButton.Text = "筛选行";
-            _filterTableRowsButton.AutoSize = true;
+            ConfigureToolbarButton(_filterTableRowsButton, 72);
             _filterTableRowsButton.Enabled = false;
             _clearTableRowFilterButton.Text = "显示全部行";
-            _clearTableRowFilterButton.AutoSize = true;
+            ConfigureToolbarButton(_clearTableRowFilterButton, 104);
             _clearTableRowFilterButton.Enabled = false;
             _changedTableRowsOnly.Text = "仅已改动行";
-            _changedTableRowsOnly.AutoSize = true;
+            ConfigureToolbarCheckBox(_changedTableRowsOnly);
             _changedTableRowsOnly.Enabled = false;
             _tableRowSearchVisibleColumnsOnly.Text = "只搜可见列";
-            _tableRowSearchVisibleColumnsOnly.AutoSize = true;
+            ConfigureToolbarCheckBox(_tableRowSearchVisibleColumnsOnly);
             _tableRowSearchVisibleColumnsOnly.Checked = true;
             _tableRowSearchVisibleColumnsOnly.Enabled = false;
-            chartToolbar.Controls.AddRange(new Control[]
-            {
-                new Label { Text = "数值列：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+            AddToolbarRow(chartToolbar, 0,
+                CreateToolbarLabel("数值列：", 0),
                 _chartColumnCombo,
                 _renderChartButton,
-                new Label { Text = "列筛选：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
+                CreateToolbarLabel("列筛选："),
                 _tableColumnFilterBox,
                 _filterTableColumnsButton,
                 _clearTableColumnFilterButton,
-                _dangerTableColumnsOnly,
+                _dangerTableColumnsOnly);
+            AddToolbarRow(chartToolbar, 1,
                 _exportFieldAnnotationsButton,
                 _exportVisibleColumnsCsvButton,
                 _visibleColumnsCsvWithNotes,
-                new Label { Text = "关联：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
+                CreateToolbarLabel("关联："),
                 _jumpTableReferenceButton,
-                _tableReferenceNavigationBox,
-                new Label { Text = "行筛选：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
+                _tableReferenceNavigationBox);
+            AddToolbarRow(chartToolbar, 2,
+                CreateToolbarLabel("行筛选：", 0),
                 _tableRowFilterBox,
                 _filterTableRowsButton,
                 _clearTableRowFilterButton,
                 _changedTableRowsOnly,
-                _tableRowSearchVisibleColumnsOnly
-            });
+                _tableRowSearchVisibleColumnsOnly);
             _tableChartInfoBox.Width = 520;
             _tableChartInfoBox.ReadOnly = true;
             chartLayout.Controls.Add(chartToolbar, 0, 0);
@@ -1637,41 +1648,34 @@ public sealed partial class MainForm : Form
         imageResourceLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         imageResourcePage.Controls.Add(imageResourceLayout);
 
-        var imageResourceToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var imageResourceToolbar = CreateToolbarStack(2);
         _loadImageResourcesButton.Text = "读取图片资源";
-        _loadImageResourcesButton.AutoSize = true;
+        ConfigureToolbarButton(_loadImageResourcesButton, 118);
         _openImageResourceButton.Text = "定位文件";
-        _openImageResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_openImageResourceButton, 88);
         _replaceImageResourceEntryButton.Text = "替换E5条目";
-        _replaceImageResourceEntryButton.AutoSize = true;
+        ConfigureToolbarButton(_replaceImageResourceEntryButton, 104);
         _editImageResourceEntryButton.Text = "像素编辑";
-        _editImageResourceEntryButton.AutoSize = true;
+        ConfigureToolbarButton(_editImageResourceEntryButton, 88);
         _restoreImageResourceEntryButton.Text = "从备份还原";
-        _restoreImageResourceEntryButton.AutoSize = true;
+        ConfigureToolbarButton(_restoreImageResourceEntryButton, 104);
         _batchImportImageResourceEntriesButton.Text = "批量导入";
-        _batchImportImageResourceEntriesButton.AutoSize = true;
+        ConfigureToolbarButton(_batchImportImageResourceEntriesButton, 88);
         _batchClearImageResourceEntriesButton.Text = "批量删除";
-        _batchClearImageResourceEntriesButton.AutoSize = true;
+        ConfigureToolbarButton(_batchClearImageResourceEntriesButton, 88);
         _normalizeRoleRawImagesButton.Text = "角色RAW统一";
-        _normalizeRoleRawImagesButton.AutoSize = true;
+        ConfigureToolbarButton(_normalizeRoleRawImagesButton, 104);
         _exportImageResourceEntriesButton.Text = "导出条目CSV";
-        _exportImageResourceEntriesButton.AutoSize = true;
+        ConfigureToolbarButton(_exportImageResourceEntriesButton, 118);
         _imageResourceCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _imageResourceCategoryFilterCombo.Width = 112;
-        _imageResourceSearchBox.Width = 210;
+        ConfigureToolbarInput(_imageResourceCategoryFilterCombo, 112, 100);
+        ConfigureToolbarInput(_imageResourceSearchBox, 210, 150);
         _imageResourceSearchBox.PlaceholderText = "筛选文件/别名/用途";
         _filterImageResourcesButton.Text = "筛选";
-        _filterImageResourcesButton.AutoSize = true;
+        ConfigureToolbarButton(_filterImageResourcesButton, 72);
         _clearImageResourceFilterButton.Text = "显示全部";
-        _clearImageResourceFilterButton.AutoSize = true;
-        imageResourceToolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearImageResourceFilterButton, 88);
+        AddToolbarRow(imageResourceToolbar, 0,
             _loadImageResourcesButton,
             _openImageResourceButton,
             _replaceImageResourceEntryButton,
@@ -1680,13 +1684,13 @@ public sealed partial class MainForm : Form
             _batchImportImageResourceEntriesButton,
             _batchClearImageResourceEntriesButton,
             _normalizeRoleRawImagesButton,
-            _exportImageResourceEntriesButton,
-            new Label { Text = "分类：", AutoSize = true, Padding = new Padding(10, 7, 0, 0) },
+            _exportImageResourceEntriesButton);
+        AddToolbarRow(imageResourceToolbar, 1,
+            CreateToolbarLabel("分类：", 0),
             _imageResourceCategoryFilterCombo,
             _imageResourceSearchBox,
             _filterImageResourcesButton,
-            _clearImageResourceFilterButton
-        });
+            _clearImageResourceFilterButton);
         imageResourceLayout.Controls.Add(imageResourceToolbar, 0, 0);
 
         var imageResourceSplit = new SplitContainer
@@ -1737,79 +1741,73 @@ public sealed partial class MainForm : Form
         imageLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         imageLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         imageAssignmentPage.Controls.Add(imageLayout);
-        var imageToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var imageToolbarLayout = CreateToolbarStack(2);
         _loadImageAssignmentsButton.Text = "读取人物R/S";
-        _loadImageAssignmentsButton.AutoSize = true;
+        ConfigureToolbarButton(_loadImageAssignmentsButton, 104);
         _saveImageAssignmentsButton.Text = "保存R/S";
-        _saveImageAssignmentsButton.AutoSize = true;
+        ConfigureToolbarButton(_saveImageAssignmentsButton, 72);
         _saveImageAssignmentsButton.Enabled = false;
         _openRsDirectoryButton.Text = "打开RS目录";
-        _openRsDirectoryButton.AutoSize = true;
-        _imageAssignmentSearchBox.Width = 220;
+        ConfigureToolbarButton(_openRsDirectoryButton, 104);
+        _openRsDirectoryButton.Visible = false;
+        ConfigureToolbarInput(_imageAssignmentSearchBox, 220, 160);
         _imageAssignmentSearchBox.PlaceholderText = "筛选人物/职业/R编号/S编号/资源状态";
         _imageAssignmentMissingOnlyCheckBox.Text = "仅缺失资源";
-        _imageAssignmentMissingOnlyCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_imageAssignmentMissingOnlyCheckBox);
         _imageAssignmentSPreviewFactionCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _imageAssignmentSPreviewFactionCombo.Width = 92;
+        ConfigureToolbarInput(_imageAssignmentSPreviewFactionCombo, 92, 88);
         _imageAssignmentSPreviewFactionCombo.Items.AddRange(new object[] { "我军", "友军", "敌军" });
         _imageAssignmentSPreviewFactionCombo.SelectedIndex = 0;
         _filterImageAssignmentsButton.Text = "筛选";
-        _filterImageAssignmentsButton.AutoSize = true;
+        ConfigureToolbarButton(_filterImageAssignmentsButton, 72);
         _clearImageAssignmentFilterButton.Text = "显示全部";
-        _clearImageAssignmentFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearImageAssignmentFilterButton, 88);
         _clearImageAssignmentFilterButton.Enabled = false;
         _locateImageResourceButton.Text = "\u5b9a\u4f4d\u9009\u4e2d\u8d44\u6e90";
-        _locateImageResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_locateImageResourceButton, 104);
         _replaceImageResourceButton.Text = "导入/替换E5";
-        _replaceImageResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_replaceImageResourceButton, 104);
         _editRImageResourceButton.Text = "编辑R形象";
-        _editRImageResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_editRImageResourceButton, 104);
         _editSImageResourceButton.Text = "编辑S形象";
-        _editSImageResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_editSImageResourceButton, 104);
         _replaceRImageSetButton.Text = "一键替换R形象";
-        _replaceRImageSetButton.AutoSize = true;
+        ConfigureToolbarButton(_replaceRImageSetButton, 118);
         _replaceSImageSetButton.Text = "一键替换S形象";
-        _replaceSImageSetButton.AutoSize = true;
+        ConfigureToolbarButton(_replaceSImageSetButton, 118);
         _batchReplaceRImageSetButton.Text = "批量导入R形象";
-        _batchReplaceRImageSetButton.AutoSize = true;
+        ConfigureToolbarButton(_batchReplaceRImageSetButton, 118);
         _batchReplaceSImageSetButton.Text = "批量导入S形象";
-        _batchReplaceSImageSetButton.AutoSize = true;
+        ConfigureToolbarButton(_batchReplaceSImageSetButton, 118);
         _importImageAssignmentFaceButton.Text = "一键导入头像";
-        _importImageAssignmentFaceButton.AutoSize = true;
+        ConfigureToolbarButton(_importImageAssignmentFaceButton, 118);
         _importImageAssignmentFaceButton.Enabled = false;
         _batchImportImageAssignmentFaceButton.Text = "批量导入头像";
-        _batchImportImageAssignmentFaceButton.AutoSize = true;
+        ConfigureToolbarButton(_batchImportImageAssignmentFaceButton, 118);
         _batchImportImageAssignmentFaceButton.Enabled = false;
         _exportRImageBmpButton.Text = "\u5bfc\u51faR BMP";
-        _exportRImageBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportRImageBmpButton, 104);
         _exportRImageBmpButton.Enabled = false;
         _exportSImageBmpButton.Text = "\u5bfc\u51faS BMP";
-        _exportSImageBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportSImageBmpButton, 104);
         _exportSImageBmpButton.Enabled = false;
         _exportImageAssignmentFaceBmpButton.Text = "\u5bfc\u51fa\u5934\u50cfBMP";
-        _exportImageAssignmentFaceBmpButton.AutoSize = true;
+        ConfigureToolbarButton(_exportImageAssignmentFaceBmpButton, 118);
         _exportImageAssignmentFaceBmpButton.Enabled = false;
         _restoreImageResourceButton.Text = "还原E5条目";
-        _restoreImageResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_restoreImageResourceButton, 104);
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
-        _exportMissingImageResourcesButton.AutoSize = true;
-        imageToolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_exportMissingImageResourcesButton, 118);
+        AddToolbarRow(imageToolbarLayout, 0,
             _loadImageAssignmentsButton,
             _saveImageAssignmentsButton,
-            _openRsDirectoryButton,
             _imageAssignmentSearchBox,
             _imageAssignmentMissingOnlyCheckBox,
-            new Label { Text = "S预览阵营：", AutoSize = true, Padding = new Padding(10, 7, 0, 0) },
+            CreateToolbarLabel("S预览阵营："),
             _imageAssignmentSPreviewFactionCombo,
             _filterImageAssignmentsButton,
-            _clearImageAssignmentFilterButton,
+            _clearImageAssignmentFilterButton);
+        AddToolbarRow(imageToolbarLayout, 1,
             _locateImageResourceButton,
             _replaceImageResourceButton,
             _editRImageResourceButton,
@@ -1824,9 +1822,8 @@ public sealed partial class MainForm : Form
             _exportSImageBmpButton,
             _exportImageAssignmentFaceBmpButton,
             _restoreImageResourceButton,
-            _exportMissingImageResourcesButton
-        });
-        imageLayout.Controls.Add(imageToolbar, 0, 0);
+            _exportMissingImageResourcesButton);
+        imageLayout.Controls.Add(imageToolbarLayout, 0, 0);
         _imageAssignmentInfoBox.Dock = DockStyle.Fill;
         _imageAssignmentInfoBox.Multiline = true;
         _imageAssignmentInfoBox.Height = 70;
@@ -1909,40 +1906,31 @@ public sealed partial class MainForm : Form
         eexLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         eexLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         eexPage.Controls.Add(eexLayout);
-        var eexToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var eexToolbar = CreateToolbarStack(2);
         _loadEexArchivesButton.Text = "读取 RS/Map .eex";
-        _loadEexArchivesButton.AutoSize = true;
+        ConfigureToolbarButton(_loadEexArchivesButton, 128);
         _openEexArchiveButton.Text = "定位选中文件";
-        _openEexArchiveButton.AutoSize = true;
+        ConfigureToolbarButton(_openEexArchiveButton, 118);
         _exportEexArchivesCsvButton.Text = "导出EEX索引CSV";
-        _exportEexArchivesCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportEexArchivesCsvButton, 138);
         _probeEexEntriesButton.Text = "解析选中EEX区段";
-        _probeEexEntriesButton.AutoSize = true;
+        ConfigureToolbarButton(_probeEexEntriesButton, 142);
         _exportEexEntryProbeCsvButton.Text = "导出区段CSV";
-        _exportEexEntryProbeCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportEexEntryProbeCsvButton, 118);
         _compareEexCrossFilesButton.Text = "跨文件对比";
-        _compareEexCrossFilesButton.AutoSize = true;
+        ConfigureToolbarButton(_compareEexCrossFilesButton, 104);
         _renderEexHeatmapButton.Text = "生成字节热力图";
-        _renderEexHeatmapButton.AutoSize = true;
+        ConfigureToolbarButton(_renderEexHeatmapButton, 128);
         _exportEexHeatmapPngButton.Text = "导出热力图PNG";
-        _exportEexHeatmapPngButton.AutoSize = true;
-        var eexCategoryLabel = new Label { Text = "分类", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
+        ConfigureToolbarButton(_exportEexHeatmapPngButton, 128);
         _eexArchiveCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _eexArchiveCategoryFilterCombo.Width = 110;
-        var eexSearchLabel = new Label { Text = "关键字", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _eexArchiveSearchBox.Width = 150;
+        ConfigureToolbarInput(_eexArchiveCategoryFilterCombo, 110, 100);
+        ConfigureToolbarInput(_eexArchiveSearchBox, 150, 120);
         _filterEexArchivesButton.Text = "筛选";
-        _filterEexArchivesButton.AutoSize = true;
+        ConfigureToolbarButton(_filterEexArchivesButton, 72);
         _clearEexArchiveFilterButton.Text = "显示全部";
-        _clearEexArchiveFilterButton.AutoSize = true;
-        eexToolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearEexArchiveFilterButton, 88);
+        AddToolbarRow(eexToolbar, 0,
             _loadEexArchivesButton,
             _openEexArchiveButton,
             _exportEexArchivesCsvButton,
@@ -1950,14 +1938,14 @@ public sealed partial class MainForm : Form
             _exportEexEntryProbeCsvButton,
             _compareEexCrossFilesButton,
             _renderEexHeatmapButton,
-            _exportEexHeatmapPngButton,
-            eexCategoryLabel,
+            _exportEexHeatmapPngButton);
+        AddToolbarRow(eexToolbar, 1,
+            CreateToolbarLabel("分类", 0),
             _eexArchiveCategoryFilterCombo,
-            eexSearchLabel,
+            CreateToolbarLabel("关键字"),
             _eexArchiveSearchBox,
             _filterEexArchivesButton,
-            _clearEexArchiveFilterButton
-        });
+            _clearEexArchiveFilterButton);
         eexLayout.Controls.Add(eexToolbar, 0, 0);
         _eexArchiveInfoBox.Dock = DockStyle.Fill;
         _eexArchiveInfoBox.Multiline = true;
@@ -2058,101 +2046,94 @@ public sealed partial class MainForm : Form
         scenarioLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         scenarioLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         scenarioPage.Controls.Add(scenarioLayout);
-        var scenarioToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var scenarioToolbar = CreateToolbarStack(3);
         _loadScenarioFilesButton.Text = "读取 RS/*.eex";
-        _loadScenarioFilesButton.AutoSize = true;
+        ConfigureToolbarButton(_loadScenarioFilesButton, 118);
         _openScenarioFileButton.Text = "\u5b9a\u4f4d\u9009\u4e2d\u6587\u4ef6";
-        _openScenarioFileButton.AutoSize = true;
+        ConfigureToolbarButton(_openScenarioFileButton, 118);
         _exportScenarioFileIndexCsvButton.Text = "\u5bfc\u51faRS\u7d22\u5f15CSV";
-        _exportScenarioFileIndexCsvButton.AutoSize = true;
-        var scenarioKindLabel = new Label { Text = "\u7c7b\u578b", AutoSize = true, Padding = new Padding(8, 7, 0, 0) };
+        ConfigureToolbarButton(_exportScenarioFileIndexCsvButton, 128);
         _scenarioKindFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scenarioKindFilterCombo.Width = 110;
-        var scenarioFileSearchLabel = new Label { Text = "\u6587\u4ef6\u7b5b\u9009", AutoSize = true, Padding = new Padding(8, 7, 0, 0) };
-        _scenarioFileSearchBox.Width = 140;
+        ConfigureToolbarInput(_scenarioKindFilterCombo, 110, 100);
+        ConfigureToolbarInput(_scenarioFileSearchBox, 140, 120);
         _filterScenarioFilesButton.Text = "\u7b5b\u9009";
-        _filterScenarioFilesButton.AutoSize = true;
+        ConfigureToolbarButton(_filterScenarioFilesButton, 72);
         _clearScenarioFileFilterButton.Text = "\u663e\u793a\u5168\u90e8";
-        _clearScenarioFileFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearScenarioFileFilterButton, 88);
         _scenarioFilesWithTextOnly.Text = "\u4ec5\u6709\u6587\u672c";
-        _scenarioFilesWithTextOnly.AutoSize = true;
+        ConfigureToolbarCheckBox(_scenarioFilesWithTextOnly);
         _probeScenarioCommandsButton.Text = "探测选中命令";
-        _probeScenarioCommandsButton.AutoSize = true;
+        ConfigureToolbarButton(_probeScenarioCommandsButton, 118);
         _probeScenarioCommandsButton.Enabled = false;
         _buildScenarioStructureButton.Text = "生成结构草图";
-        _buildScenarioStructureButton.AutoSize = true;
+        ConfigureToolbarButton(_buildScenarioStructureButton, 118);
         _buildScenarioStructureButton.Enabled = false;
         _exportScenarioStructureXmlButton.Text = "导出结构XML";
-        _exportScenarioStructureXmlButton.AutoSize = true;
+        ConfigureToolbarButton(_exportScenarioStructureXmlButton, 118);
         _exportScenarioStructureXmlButton.Enabled = false;
         _exportScenarioCommandTemplateCatalogButton.Text = "导出命令模板目录";
-        _exportScenarioCommandTemplateCatalogButton.AutoSize = true;
+        ConfigureToolbarButton(_exportScenarioCommandTemplateCatalogButton, 150);
         _exportScenarioCommandTemplateCatalogButton.Enabled = false;
         _refreshScenarioCommandTemplatesButton.Text = "刷新模板目录";
-        _refreshScenarioCommandTemplatesButton.AutoSize = true;
+        ConfigureToolbarButton(_refreshScenarioCommandTemplatesButton, 118);
         _filterScenarioCommandTemplatesButton.Text = "筛选";
-        _filterScenarioCommandTemplatesButton.AutoSize = true;
+        ConfigureToolbarButton(_filterScenarioCommandTemplatesButton, 72);
         _clearScenarioCommandTemplateFilterButton.Text = "显示全部";
-        _clearScenarioCommandTemplateFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearScenarioCommandTemplateFilterButton, 88);
         _showScenarioCommandTemplateInStructureButton.Text = "筛出当前R/S命令";
-        _showScenarioCommandTemplateInStructureButton.AutoSize = true;
+        ConfigureToolbarButton(_showScenarioCommandTemplateInStructureButton, 142);
         _showScenarioCommandTemplateInStructureButton.Enabled = false;
-        _scenarioCommandTemplateSearchBox.Width = 180;
+        ConfigureToolbarInput(_scenarioCommandTemplateSearchBox, 180, 140);
         _scenarioCommandTemplateSearchBox.PlaceholderText = "命令名/槽位/用途/风险";
         _scenarioCommandTemplateCategoryCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scenarioCommandTemplateCategoryCombo.Width = 140;
+        ConfigureToolbarInput(_scenarioCommandTemplateCategoryCombo, 140, 120);
         _scenarioCommandTemplateStatusCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scenarioCommandTemplateStatusCombo.Width = 92;
+        ConfigureToolbarInput(_scenarioCommandTemplateStatusCombo, 92, 88);
         _probeScenarioTextsButton.Text = "提取选中文本";
-        _probeScenarioTextsButton.AutoSize = true;
+        ConfigureToolbarButton(_probeScenarioTextsButton, 118);
         _probeScenarioTextsButton.Enabled = false;
         _exportScenarioTextsButton.Text = "导出文本CSV/TXT";
-        _exportScenarioTextsButton.AutoSize = true;
+        ConfigureToolbarButton(_exportScenarioTextsButton, 138);
         _exportScenarioTextsButton.Enabled = false;
         _saveScenarioTextsButton.Text = "保存文本到项目";
-        _saveScenarioTextsButton.AutoSize = true;
+        ConfigureToolbarButton(_saveScenarioTextsButton, 128);
         _saveScenarioTextsButton.Enabled = false;
-        _scenarioTextFilterBox.Width = 160;
+        ConfigureToolbarInput(_scenarioTextFilterBox, 160, 120);
         _scenarioTextFilterBox.PlaceholderText = "筛选文本/注释";
         _scenarioTextFilterButton.Text = "筛选";
-        _scenarioTextFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_scenarioTextFilterButton, 72);
         _scenarioTextFilterButton.Enabled = false;
         _scenarioTextFilterClearButton.Text = "清除筛选";
-        _scenarioTextFilterClearButton.AutoSize = true;
+        ConfigureToolbarButton(_scenarioTextFilterClearButton, 88);
         _scenarioTextFilterClearButton.Enabled = false;
         _scenarioTextChangedOnly.Text = "仅改动";
-        _scenarioTextChangedOnly.AutoSize = true;
+        ConfigureToolbarCheckBox(_scenarioTextChangedOnly);
         _scenarioTextChangedOnly.Enabled = false;
-        scenarioToolbar.Controls.AddRange(new Control[]
-        {
+        AddToolbarRow(scenarioToolbar, 0,
             _loadScenarioFilesButton,
             _openScenarioFileButton,
             _exportScenarioFileIndexCsvButton,
-            scenarioKindLabel,
+            CreateToolbarLabel("类型"),
             _scenarioKindFilterCombo,
-            scenarioFileSearchLabel,
+            CreateToolbarLabel("文件筛选"),
             _scenarioFileSearchBox,
             _filterScenarioFilesButton,
             _clearScenarioFileFilterButton,
-            _scenarioFilesWithTextOnly,
+            _scenarioFilesWithTextOnly);
+        AddToolbarRow(scenarioToolbar, 1,
             _probeScenarioCommandsButton,
             _buildScenarioStructureButton,
             _exportScenarioStructureXmlButton,
+            _exportScenarioCommandTemplateCatalogButton);
+        AddToolbarRow(scenarioToolbar, 2,
             _probeScenarioTextsButton,
             _exportScenarioTextsButton,
             _saveScenarioTextsButton,
-            new Label { Text = "文本筛选：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
+            CreateToolbarLabel("文本筛选："),
             _scenarioTextFilterBox,
             _scenarioTextFilterButton,
             _scenarioTextFilterClearButton,
-            _scenarioTextChangedOnly
-        });
+            _scenarioTextChangedOnly);
         scenarioLayout.Controls.Add(scenarioToolbar, 0, 0);
         _scenarioFileInfoBox.Dock = DockStyle.Fill;
         _scenarioFileInfoBox.Multiline = true;
@@ -2203,57 +2184,50 @@ public sealed partial class MainForm : Form
         };
         structureLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         structureLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var structureFilterToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        _scenarioStructureFilterBox.Width = 180;
+        var structureFilterToolbar = CreateToolbarStack(2);
+        ConfigureToolbarInput(_scenarioStructureFilterBox, 180, 140);
         _scenarioStructureFilterBox.PlaceholderText = "命令/偏移/注释筛选";
         _filterScenarioStructureButton.Text = "筛选结构";
-        _filterScenarioStructureButton.AutoSize = true;
+        ConfigureToolbarButton(_filterScenarioStructureButton, 88);
         _filterScenarioStructureButton.Enabled = false;
         _clearScenarioStructureFilterButton.Text = "显示全部结构";
-        _clearScenarioStructureFilterButton.AutoSize = true;
+        ConfigureToolbarButton(_clearScenarioStructureFilterButton, 118);
         _clearScenarioStructureFilterButton.Enabled = false;
         _scenarioStructureTemplatesOnly.Text = "仅有模板";
-        _scenarioStructureTemplatesOnly.AutoSize = true;
+        ConfigureToolbarCheckBox(_scenarioStructureTemplatesOnly);
         _scenarioStructureTemplatesOnly.Enabled = false;
         _scenarioStructureTextOnly.Text = "文本/剧情";
-        _scenarioStructureTextOnly.AutoSize = true;
+        ConfigureToolbarCheckBox(_scenarioStructureTextOnly);
         _scenarioStructureTextOnly.Enabled = false;
         _scenarioStructureMapOnly.Text = "地图/坐标";
-        _scenarioStructureMapOnly.AutoSize = true;
+        ConfigureToolbarCheckBox(_scenarioStructureMapOnly);
         _scenarioStructureMapOnly.Enabled = false;
         _scenarioStructureHighRiskOnly.Text = "高风险/需核对";
-        _scenarioStructureHighRiskOnly.AutoSize = true;
+        ConfigureToolbarCheckBox(_scenarioStructureHighRiskOnly);
         _scenarioStructureHighRiskOnly.Enabled = false;
         _scenarioCommandReferenceCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _scenarioCommandReferenceCombo.Width = 360;
+        ConfigureToolbarInput(_scenarioCommandReferenceCombo, 360, 220);
         _scenarioCommandReferenceCombo.Enabled = false;
         _jumpScenarioCommandReferenceButton.Text = "跳到命令引用";
-        _jumpScenarioCommandReferenceButton.AutoSize = true;
+        ConfigureToolbarButton(_jumpScenarioCommandReferenceButton, 118);
         _jumpScenarioCommandReferenceButton.Enabled = false;
         _exportScenarioCommandReferenceChecklistButton.Text = "导出命令引用清单";
-        _exportScenarioCommandReferenceChecklistButton.AutoSize = true;
+        ConfigureToolbarButton(_exportScenarioCommandReferenceChecklistButton, 150);
         _exportScenarioCommandReferenceChecklistButton.Enabled = false;
-        structureFilterToolbar.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "结构筛选：", AutoSize = true, Padding = new Padding(0, 7, 0, 0) },
+        AddToolbarRow(structureFilterToolbar, 0,
+            CreateToolbarLabel("结构筛选：", 0),
             _scenarioStructureFilterBox,
             _filterScenarioStructureButton,
             _clearScenarioStructureFilterButton,
             _scenarioStructureTemplatesOnly,
             _scenarioStructureTextOnly,
             _scenarioStructureMapOnly,
-            _scenarioStructureHighRiskOnly,
-            new Label { Text = "命令引用：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
+            _scenarioStructureHighRiskOnly);
+        AddToolbarRow(structureFilterToolbar, 1,
+            CreateToolbarLabel("命令引用：", 0),
             _scenarioCommandReferenceCombo,
             _jumpScenarioCommandReferenceButton,
-            _exportScenarioCommandReferenceChecklistButton
-        });
+            _exportScenarioCommandReferenceChecklistButton);
         structureLayout.Controls.Add(structureFilterToolbar, 0, 0);
         _scenarioStructureTree.Dock = DockStyle.Fill;
         _scenarioStructureTree.HideSelection = false;
@@ -2286,27 +2260,20 @@ public sealed partial class MainForm : Form
         };
         commandTemplateLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         commandTemplateLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var commandTemplateToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
-        commandTemplateToolbar.Controls.AddRange(new Control[]
-        {
+        var commandTemplateToolbar = CreateToolbarStack(2);
+        AddToolbarRow(commandTemplateToolbar, 0,
             _refreshScenarioCommandTemplatesButton,
-            new Label { Text = "关键字：", AutoSize = true, Padding = new Padding(14, 7, 0, 0) },
+            CreateToolbarLabel("关键字："),
             _scenarioCommandTemplateSearchBox,
-            new Label { Text = "分类：", AutoSize = true, Padding = new Padding(8, 7, 0, 0) },
+            CreateToolbarLabel("分类："),
             _scenarioCommandTemplateCategoryCombo,
-            new Label { Text = "状态：", AutoSize = true, Padding = new Padding(8, 7, 0, 0) },
+            CreateToolbarLabel("状态："),
             _scenarioCommandTemplateStatusCombo,
             _filterScenarioCommandTemplatesButton,
-            _clearScenarioCommandTemplateFilterButton,
+            _clearScenarioCommandTemplateFilterButton);
+        AddToolbarRow(commandTemplateToolbar, 1,
             _showScenarioCommandTemplateInStructureButton,
-            _exportScenarioCommandTemplateCatalogButton
-        });
+            _exportScenarioCommandTemplateCatalogButton);
         commandTemplateLayout.Controls.Add(commandTemplateToolbar, 0, 0);
         _scenarioCommandTemplateGrid.Dock = DockStyle.Fill;
         _scenarioCommandTemplateGrid.ReadOnly = true;
@@ -2358,47 +2325,38 @@ public sealed partial class MainForm : Form
         lsLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         lsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         lsPage.Controls.Add(lsLayout);
-        var lsToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var lsToolbar = CreateToolbarStack(2);
         _loadLsResourcesButton.Text = "读取 Ls/E5 资源";
-        _loadLsResourcesButton.AutoSize = true;
+        ConfigureToolbarButton(_loadLsResourcesButton, 128);
         _openLsResourceButton.Text = "定位选中文件";
-        _openLsResourceButton.AutoSize = true;
+        ConfigureToolbarButton(_openLsResourceButton, 118);
         _exportLsResourcesCsvButton.Text = "导出CSV";
-        _exportLsResourcesCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportLsResourcesCsvButton, 88);
         _renderLsResourceHeatmapButton.Text = "生成字节热力图";
-        _renderLsResourceHeatmapButton.AutoSize = true;
+        ConfigureToolbarButton(_renderLsResourceHeatmapButton, 128);
         _exportLsResourceHeatmapPngButton.Text = "导出热力图PNG";
-        _exportLsResourceHeatmapPngButton.AutoSize = true;
+        ConfigureToolbarButton(_exportLsResourceHeatmapPngButton, 128);
         _exportLsResourceHeatmapPngButton.Enabled = false;
-        var lsCategoryLabel = new Label { Text = "分类", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
         _lsResourceCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-        _lsResourceCategoryFilterCombo.Width = 120;
-        var lsSearchLabel = new Label { Text = "关键字", AutoSize = true, Padding = new Padding(8, 5, 0, 0) };
-        _lsResourceSearchBox.Width = 180;
+        ConfigureToolbarInput(_lsResourceCategoryFilterCombo, 120, 100);
+        ConfigureToolbarInput(_lsResourceSearchBox, 180, 130);
         _filterLsResourcesButton.Text = "筛选";
-        _filterLsResourcesButton.AutoSize = true;
+        ConfigureToolbarButton(_filterLsResourcesButton, 72);
         _clearLsResourceFilterButton.Text = "显示全部";
-        _clearLsResourceFilterButton.AutoSize = true;
-        lsToolbar.Controls.AddRange(new Control[]
-        {
+        ConfigureToolbarButton(_clearLsResourceFilterButton, 88);
+        AddToolbarRow(lsToolbar, 0,
             _loadLsResourcesButton,
             _openLsResourceButton,
             _exportLsResourcesCsvButton,
             _renderLsResourceHeatmapButton,
-            _exportLsResourceHeatmapPngButton,
-            lsCategoryLabel,
+            _exportLsResourceHeatmapPngButton);
+        AddToolbarRow(lsToolbar, 1,
+            CreateToolbarLabel("分类", 0),
             _lsResourceCategoryFilterCombo,
-            lsSearchLabel,
+            CreateToolbarLabel("关键字"),
             _lsResourceSearchBox,
             _filterLsResourcesButton,
-            _clearLsResourceFilterButton
-        });
+            _clearLsResourceFilterButton);
         lsLayout.Controls.Add(lsToolbar, 0, 0);
         _lsResourceInfoBox.Dock = DockStyle.Fill;
         _lsResourceInfoBox.Multiline = true;
@@ -2453,25 +2411,18 @@ public sealed partial class MainForm : Form
         hexzmapLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         hexzmapLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         hexzmapPage.Controls.Add(hexzmapLayout);
-        var hexzmapToolbar = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true
-        };
+        var hexzmapToolbar = CreateToolbarRow();
         _loadHexzmapProbeButton.Text = "读取 Hexzmap.e5";
-        _loadHexzmapProbeButton.AutoSize = true;
+        ConfigureToolbarButton(_loadHexzmapProbeButton, 128);
         _exportHexzmapProbeCsvButton.Text = "导出地形探针CSV";
-        _exportHexzmapProbeCsvButton.AutoSize = true;
+        ConfigureToolbarButton(_exportHexzmapProbeCsvButton, 138);
         _exportHexzmapProbeCsvButton.Enabled = false;
         _exportHexzmapOverlayPngButton.Text = "导出当前叠加PNG";
-        _exportHexzmapOverlayPngButton.AutoSize = true;
+        ConfigureToolbarButton(_exportHexzmapOverlayPngButton, 138);
         _exportHexzmapOverlayPngButton.Enabled = false;
         _hexzmapOverlayMapCheckBox.Text = "叠加地图底图";
-        _hexzmapOverlayMapCheckBox.AutoSize = true;
+        ConfigureToolbarCheckBox(_hexzmapOverlayMapCheckBox);
         _hexzmapOverlayMapCheckBox.Checked = true;
-        _hexzmapOverlayMapCheckBox.Margin = new Padding(16, 6, 3, 3);
         _hexzmapOverlayOpacityLabel.Text = "地形透明度 45%";
         _hexzmapOverlayOpacityLabel.AutoSize = true;
         _hexzmapOverlayOpacityLabel.Margin = new Padding(8, 8, 0, 0);
