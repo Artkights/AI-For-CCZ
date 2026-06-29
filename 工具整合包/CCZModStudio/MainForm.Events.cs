@@ -96,7 +96,6 @@ public sealed partial class MainForm
         };
         _jobEditorGrid.SelectionChanged += (_, _) => HandleJobEditorSelectionChanged();
         _jobEditorGrid.CellMouseDown += (_, _) => MarkJobEditorSelectionChangeFromMouse();
-        _jobEditorGrid.CellDoubleClick += (_, e) => OpenJobEquipmentAttributeEditor(e.RowIndex);
         _jobEditorGrid.KeyDown += (_, e) =>
         {
             if (IsPotentialJobEditorTextInput(e)) SnapshotJobEditorSelectionForEdit();
@@ -223,8 +222,7 @@ public sealed partial class MainForm
             ApplyJobStrategyFilter();
             e.SuppressKeyPress = true;
         };
-        _jobStrategyEditorGrid.SelectionChanged += (_, _) => ShowSelectedJobStrategyCell();
-        _jobStrategyEditorGrid.CellDoubleClick += (_, e) => OpenJobStrategyLearningEditor(e.RowIndex);
+        _jobStrategyEditorGrid.SelectionChanged += (_, _) => HandleJobStrategySelectionChanged();
         _jobStrategyEditorGrid.CellValidating += (_, e) => ValidateJobStrategyCell(e);
         _jobStrategyEditorGrid.DataError += (_, e) =>
         {
@@ -239,6 +237,21 @@ public sealed partial class MainForm
             UpdateJobStrategyDerivedCells(e.RowIndex, e.ColumnIndex);
             RefreshJobStrategyRowStyle(e.RowIndex);
             ShowSelectedJobStrategyCell();
+        };
+        _jobStrategyLearningEditorGrid.CellValidating += (_, e) => ValidateJobStrategyLearningEditorCell(e);
+        _jobStrategyLearningEditorGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            _jobStrategyLearningEditorStatusLabel.Text = $"学习等级无效：{e.Exception?.Message}";
+        };
+        _jobStrategyLearningEditorGrid.CellEndEdit += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                _jobStrategyLearningEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = string.Empty;
+            }
+
+            UpdateJobStrategyLearningEditorStatus();
         };
         _loadJobEffectEditorButton.Click += (_, _) => LoadJobEffectEditor();
         _saveJobEffectEditorButton.Click += (_, _) => SaveJobEffectEditor();

@@ -426,6 +426,9 @@ public sealed partial class MainForm : Form
     private List<JobEditorCellEdit> _jobEditorPendingCellEditOriginals = [];
     private bool _applyingJobEditorHistory;
     private bool _jobEditorSelectionChangeStartedByMouse;
+    private DataRow? _jobEquipmentEditorBoundRow;
+    private bool _bindingJobEquipmentEditor;
+    private string _jobEquipmentEditorSlotSignature = string.Empty;
     private DataTable? _currentJobTerrainData;
     private TableReadResult? _jobSeriesRead;
     private TableReadResult? _jobTerrainPowerRead;
@@ -436,6 +439,9 @@ public sealed partial class MainForm : Form
     private readonly Dictionary<string, TableReadResult> _jobStrategyCompanionReads = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<int, string> _jobStrategyJobNames = new Dictionary<int, string>();
     private readonly Dictionary<int, JobStrategyLearningDialog> _jobStrategyLearningDialogs = new();
+    private DataRow? _jobStrategyLearningEditorBoundRow;
+    private bool _bindingJobStrategyLearningEditor;
+    private readonly DataTable _jobStrategyLearningEditorData = new("兵种策略学习等级");
     private int _jobStrategyConfiguredMagicCount;
     private string _jobStrategyConfiguredMagicSource = string.Empty;
     private DataTable? _currentJobEffectData;
@@ -625,6 +631,12 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _jobEditorGrid = new();
     private readonly PictureBox _jobAreaPreviewBox = new();
     private readonly TextBox _jobAreaPreviewInfoBox = new();
+    private readonly Panel _jobEquipmentEditorPanel = new();
+    private readonly TableLayoutPanel _jobEquipmentCheckGrid = new();
+    private readonly Label _jobEquipmentEditorTitleLabel = new();
+    private readonly Label _jobEquipmentEditorStatusLabel = new();
+    private readonly ToolTip _jobEquipmentEditorToolTip = new();
+    private readonly Dictionary<string, CheckBox> _jobEquipmentEditorChecks = new(StringComparer.Ordinal);
     private readonly TextBox _jobEditorInfoBox = new();
     private readonly Button _loadJobTerrainButton = new();
     private readonly Button _saveJobTerrainButton = new();
@@ -652,6 +664,10 @@ public sealed partial class MainForm : Form
     private readonly TextBox _jobStrategyEditorInfoBox = new();
     private readonly PictureBox _jobStrategyPreviewBox = new();
     private readonly TextBox _jobStrategyPreviewInfoBox = new();
+    private readonly Panel _jobStrategyLearningEditorPanel = new();
+    private readonly DataGridView _jobStrategyLearningEditorGrid = new();
+    private readonly Label _jobStrategyLearningEditorTitleLabel = new();
+    private readonly Label _jobStrategyLearningEditorStatusLabel = new();
     private readonly Button _loadJobEffectEditorButton = new();
     private readonly Button _saveJobEffectEditorButton = new();
     private readonly Button _openJobExclusiveEffectTableButton = new();

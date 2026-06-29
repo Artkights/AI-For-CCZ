@@ -165,6 +165,7 @@ public sealed partial class MainForm
         yield return _jobTerrainGrid;
         yield return _jobRestraintGrid;
         yield return _jobStrategyEditorGrid;
+        yield return _jobStrategyLearningEditorGrid;
         yield return _jobEffectEditorGrid;
         yield return _itemEditorGrid;
         yield return _shopEditorGrid;
@@ -196,6 +197,11 @@ public sealed partial class MainForm
     private void AddDataTableUnsavedItems(List<UnsavedEditorItem> items)
     {
         if (_project == null) return;
+        CommitJobEquipmentEditorChanges();
+        if (!CommitJobStrategyLearningEditorChanges(showMessage: true, restoreSelectionOnFailure: true))
+        {
+            return;
+        }
 
         if (_currentTableResult != null && CanEditTable(_currentTableResult) && HasChanges(_currentTableResult.Data))
         {
@@ -612,7 +618,9 @@ public sealed partial class MainForm
 
     private Task SaveJobEditorSilentlyAsync()
     {
-        if (_project == null || _currentJobEditorData == null || !HasChanges(_currentJobEditorData)) return Task.CompletedTask;
+        if (_project == null || _currentJobEditorData == null) return Task.CompletedTask;
+        CommitJobEquipmentEditorChanges();
+        if (!HasChanges(_currentJobEditorData)) return Task.CompletedTask;
         var changedCells = GetChangedCellKeys(_currentJobEditorData);
         var saves = SaveJobEditorData(_project, _currentJobEditorData);
         AcceptSavedDataTable(_currentJobEditorData);
@@ -645,7 +653,8 @@ public sealed partial class MainForm
     private Task SaveJobStrategyEditorSilentlyAsync()
     {
         if (_project == null || _currentJobStrategyData == null) return Task.CompletedTask;
-        if (!CommitJobStrategyLearningDialogs()) throw new InvalidOperationException("策略学习弹窗仍有无效改动，无法批量保存。");
+        if (!CommitJobStrategyLearningEditorChanges(showMessage: false, restoreSelectionOnFailure: true)) throw new InvalidOperationException("策略学习等级右侧编辑区仍有无效改动，无法批量保存。");
+        if (!CommitJobStrategyLearningDialogs()) throw new InvalidOperationException("策略学习等级仍有无效改动，无法批量保存。");
         if (!HasChanges(_currentJobStrategyData)) return Task.CompletedTask;
         var changedCells = GetChangedCellKeys(_currentJobStrategyData);
         var saves = SaveJobStrategyEditorData(_project, _currentJobStrategyData);

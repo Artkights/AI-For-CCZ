@@ -868,16 +868,73 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         previewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         previewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         previewPanel.Controls.Add(new Label { Text = "预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
+        var previewContentPanel = new Panel
+        {
+            Dock = DockStyle.Fill
+        };
+        previewPanel.Controls.Add(previewContentPanel, 0, 1);
+        var imagePreviewLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        imagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+        imagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        previewContentPanel.Controls.Add(imagePreviewLayout);
         _jobAreaPreviewBox.Dock = DockStyle.Fill;
         _jobAreaPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _jobAreaPreviewBox.BackColor = Color.White;
-        previewPanel.Controls.Add(_jobAreaPreviewBox, 0, 1);
+        imagePreviewLayout.Controls.Add(_jobAreaPreviewBox, 0, 0);
         _jobAreaPreviewInfoBox.Dock = DockStyle.Fill;
         _jobAreaPreviewInfoBox.Multiline = true;
         _jobAreaPreviewInfoBox.ReadOnly = true;
         _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobAreaPreviewInfoBox.WordWrap = true;
-        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种名称按我军/友军/敌军显示默认 S 形象；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图。双击兵种行可编辑可装备类别。";
+        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种名称按我军/友军/敌军显示默认 S 形象；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图；单击“可装备类别”列可在右侧勾选并在切换单元格时同步摘要。";
+        imagePreviewLayout.Controls.Add(_jobAreaPreviewInfoBox, 0, 1);
+
+        _jobEquipmentEditorPanel.Dock = DockStyle.Fill;
+        _jobEquipmentEditorPanel.Visible = false;
+        _jobEquipmentEditorPanel.BorderStyle = BorderStyle.FixedSingle;
+        _jobEquipmentEditorPanel.Padding = new Padding(8);
+        var equipmentEditorRoot = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        equipmentEditorRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        equipmentEditorRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        equipmentEditorRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _jobEquipmentEditorPanel.Controls.Add(equipmentEditorRoot);
+
+        _jobEquipmentEditorTitleLabel.Dock = DockStyle.Fill;
+        _jobEquipmentEditorTitleLabel.AutoSize = true;
+        _jobEquipmentEditorTitleLabel.Font = new Font(Font, FontStyle.Bold);
+        equipmentEditorRoot.Controls.Add(_jobEquipmentEditorTitleLabel, 0, 0);
+
+        var equipmentScrollPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            Padding = new Padding(0, 6, 0, 6)
+        };
+        equipmentEditorRoot.Controls.Add(equipmentScrollPanel, 0, 1);
+
+        _jobEquipmentCheckGrid.Dock = DockStyle.Top;
+        _jobEquipmentCheckGrid.AutoSize = true;
+        _jobEquipmentCheckGrid.ColumnCount = 2;
+        _jobEquipmentCheckGrid.RowCount = 0;
+        _jobEquipmentCheckGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        _jobEquipmentCheckGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        equipmentScrollPanel.Controls.Add(_jobEquipmentCheckGrid);
+
+        _jobEquipmentEditorStatusLabel.Dock = DockStyle.Fill;
+        _jobEquipmentEditorStatusLabel.AutoSize = true;
+        _jobEquipmentEditorStatusLabel.Padding = new Padding(0, 6, 0, 0);
+        equipmentEditorRoot.Controls.Add(_jobEquipmentEditorStatusLabel, 0, 2);
+        previewContentPanel.Controls.Add(_jobEquipmentEditorPanel);
         AddCollapsibleSplitPanel(detailBody, 2, "预览", previewPanel, "BuildJobEditorPage.DetailGridPreview.Preview");
 
         _jobEditorInfoBox.Dock = DockStyle.Fill;
@@ -1048,26 +1105,78 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var strategyPreviewPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 2,
             ColumnCount = 1,
             Padding = new Padding(8, 0, 0, 0)
         };
         strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
-        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        strategyPreviewPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         strategyPreviewPanel.Controls.Add(new Label { Text = "策略预览", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
+
+        var strategyPreviewContentPanel = new Panel
+        {
+            Dock = DockStyle.Fill
+        };
+        strategyPreviewPanel.Controls.Add(strategyPreviewContentPanel, 0, 1);
+
+        var strategyImagePreviewLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        strategyPreviewContentPanel.Controls.Add(strategyImagePreviewLayout);
+
         _jobStrategyPreviewBox.Dock = DockStyle.Fill;
         _jobStrategyPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _jobStrategyPreviewBox.BackColor = Color.White;
         _jobStrategyPreviewBox.BorderStyle = BorderStyle.FixedSingle;
-        strategyPreviewPanel.Controls.Add(_jobStrategyPreviewBox, 0, 1);
+        strategyImagePreviewLayout.Controls.Add(_jobStrategyPreviewBox, 0, 0);
         _jobStrategyPreviewInfoBox.Dock = DockStyle.Fill;
         _jobStrategyPreviewInfoBox.Multiline = true;
         _jobStrategyPreviewInfoBox.ReadOnly = true;
         _jobStrategyPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobStrategyPreviewInfoBox.WordWrap = true;
-        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应资源预览；其它字段显示兵种学习情况。";
-        strategyPreviewPanel.Controls.Add(_jobStrategyPreviewInfoBox, 0, 2);
+        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，单击“名称”可在右侧编辑 80 个兵种的学习等级；选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应资源预览；其它字段显示兵种学习情况。";
+        strategyImagePreviewLayout.Controls.Add(_jobStrategyPreviewInfoBox, 0, 1);
+
+        _jobStrategyLearningEditorPanel.Dock = DockStyle.Fill;
+        _jobStrategyLearningEditorPanel.Visible = false;
+        _jobStrategyLearningEditorPanel.BorderStyle = BorderStyle.FixedSingle;
+        _jobStrategyLearningEditorPanel.Padding = new Padding(8);
+        var strategyLearningEditorRoot = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _jobStrategyLearningEditorPanel.Controls.Add(strategyLearningEditorRoot);
+
+        _jobStrategyLearningEditorTitleLabel.Dock = DockStyle.Fill;
+        _jobStrategyLearningEditorTitleLabel.AutoSize = true;
+        _jobStrategyLearningEditorTitleLabel.Font = new Font(Font, FontStyle.Bold);
+        strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorTitleLabel, 0, 0);
+
+        _jobStrategyLearningEditorGrid.Dock = DockStyle.Fill;
+        _jobStrategyLearningEditorGrid.AllowUserToAddRows = false;
+        _jobStrategyLearningEditorGrid.AllowUserToDeleteRows = false;
+        _jobStrategyLearningEditorGrid.AutoGenerateColumns = true;
+        _jobStrategyLearningEditorGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _jobStrategyLearningEditorGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        _jobStrategyLearningEditorGrid.MultiSelect = false;
+        strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorGrid, 0, 1);
+
+        _jobStrategyLearningEditorStatusLabel.Dock = DockStyle.Fill;
+        _jobStrategyLearningEditorStatusLabel.AutoSize = true;
+        _jobStrategyLearningEditorStatusLabel.Padding = new Padding(0, 6, 0, 0);
+        strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorStatusLabel, 0, 2);
+        strategyPreviewContentPanel.Controls.Add(_jobStrategyLearningEditorPanel);
+
         SetJobStrategyPreviewImageVisible(false);
         AddCollapsibleSplitPanel(strategyBody, 2, "策略预览", strategyPreviewPanel, "BuildJobEditorPage.StrategyGridPreview.Preview");
 
@@ -1076,7 +1185,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobStrategyEditorInfoBox.ReadOnly = true;
         _jobStrategyEditorInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobStrategyEditorInfoBox.WordWrap = true;
-        _jobStrategyEditorInfoBox.Text = "兵种策略：读取后可编辑策略基础属性、EKD5 策略附表属性，以及各详细兵种的学会等级；学会等级为 0 表示该兵种不能学习。";
+        _jobStrategyEditorInfoBox.Text = "兵种策略：读取后可编辑策略基础属性、EKD5 策略附表属性；单击名称列可在右侧编辑各详细兵种的学会等级，学会等级为 0 表示该兵种不能学习。";
         strategyLayout.Controls.Add(strategyBody, 0, 1);
         tabs.TabPages.Add(strategyPage);
 
