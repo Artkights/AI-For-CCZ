@@ -110,6 +110,97 @@ internal partial class Program
     
         return (commandCount, maxDepth);
     }
+
+    static void RunLegacyVariableTestDisplaySmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        var formatter = new LegacyScenarioCommandDisplayFormatter(LegacyMfcDialogDataSources.Create(project, tables));
+        AssertLegacyVariableTestDisplay(formatter, "true-only", new[] { 20 }, Array.Empty<int>(), "Var20;无");
+        AssertLegacyVariableTestDisplay(formatter, "false-only", Array.Empty<int>(), new[] { 20 }, "无;Var20");
+        AssertLegacyVariableTestDisplay(formatter, "both", new[] { 1, 2 }, new[] { 3 }, "Var1 Var2;Var3");
+        AssertLegacyVariableTestDisplay(formatter, "both-empty", Array.Empty<int>(), Array.Empty<int>(), "无;无");
+
+        var sceneStringPath = ProjectDetector.FindSceneDictionaryPath(project);
+        if (File.Exists(sceneStringPath))
+        {
+            var sceneDoc = new SceneStringParser().Parse(sceneStringPath);
+            var scenarios = new ScenarioFileReader()
+                .ReadAllIndex(project)
+                .Where(scenario => ScenarioFileReader.IsRsScriptFile(scenario.FileName))
+                .ToList();
+            var reader = new LegacyScenarioReader();
+            var formatted = 0;
+            foreach (var scenario in scenarios)
+            {
+                LegacyScenarioDocument document;
+                try
+                {
+                    document = reader.Read(scenario.Path, sceneDoc);
+                }
+                catch (InvalidDataException)
+                {
+                    continue;
+                }
+
+                foreach (var command in document.EnumerateCommands().Where(command => command.CommandId == 0x05))
+                {
+                    var display = formatter.FormatCommand(command);
+                    var semicolonCount = display.Count(ch => ch == ';');
+                    if (semicolonCount != 1)
+                    {
+                        throw new InvalidOperationException($"0x05 display should contain one semicolon, got {semicolonCount}: {display}");
+                    }
+
+                    formatted++;
+                }
+            }
+
+            Console.WriteLine($"LEGACY_VARIABLE_TEST_DISPLAY_SCAN formatted={formatted}");
+        }
+
+        Console.WriteLine("LEGACY_VARIABLE_TEST_DISPLAY_OK");
+    }
+
+    static void AssertLegacyVariableTestDisplay(
+        LegacyScenarioCommandDisplayFormatter formatter,
+        string caseName,
+        IReadOnlyList<int> trueValues,
+        IReadOnlyList<int> falseValues,
+        string expected)
+    {
+        var command = CreateLegacyVariableTestCommand(trueValues, falseValues);
+        var actual = formatter.FormatValuesPreview(command, 8);
+        if (!string.Equals(actual, expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Legacy variable test display mismatch for {caseName}: expected '{expected}', actual '{actual}'.");
+        }
+    }
+
+    static LegacyScenarioCommandNode CreateLegacyVariableTestCommand(IReadOnlyList<int> trueValues, IReadOnlyList<int> falseValues)
+    {
+        var command = new LegacyScenarioCommandNode
+        {
+            CommandId = 0x05,
+            CommandName = "变量测试"
+        };
+        command.Parameters.Add(CreateLegacyVariableArrayParameter(0, trueValues));
+        command.Parameters.Add(CreateLegacyVariableArrayParameter(1, falseValues));
+        return command;
+    }
+
+    static LegacyScenarioCommandParameter CreateLegacyVariableArrayParameter(int index, IReadOnlyList<int> values)
+    {
+        var parameter = new LegacyScenarioCommandParameter
+        {
+            Index = index,
+            LayoutCode = 0x35,
+            Tag = 0x35,
+            Kind = LegacyScenarioParameterKind.VariableArray,
+            IntValue = values.Count,
+            ByteLength = 2 + values.Count * 2
+        };
+        parameter.Values.AddRange(values);
+        return parameter;
+    }
     
     static void RunLegacyScriptEditSmoke(CczProject project)
     {

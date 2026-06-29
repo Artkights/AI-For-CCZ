@@ -280,6 +280,8 @@ internal partial class Program
     static void RunBattlefieldUnitStatusWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         _ = tables;
+        RunBattlefieldUnitConsoleDeltaSmoke();
+
         var smokeRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_TestCopies", "BattlefieldUnitStatusWriteSmoke_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
         Directory.CreateDirectory(smokeRoot);
         foreach (var coreFile in new[] { "Ekd5.exe", "Data.e5", "Star.e5", "Imsg.e5", "Hexzmap.e5" })
@@ -325,6 +327,182 @@ internal partial class Program
         var targetKey = BuildSmokeUnitTargetKey(target.Command, target.RecordIndex);
 
         RunBattlefieldUnitStatusWriteSmoke(testProject, scenario, dictionary, targetKey, target.PersonId);
+    }
+
+    static void RunBattlefieldUnitConsoleDeltaSmoke()
+    {
+        var service = new BattlefieldUnitStatusWriteService();
+        var boundary = new ItemCategoryBoundary(0, 70, 109, "console delta smoke", IsFallback: false);
+        var defaults = new BattlefieldUnitDataDefaults
+        {
+            Found = true,
+            PersonId = 32,
+            PersonName = "SmokeUnit",
+            JobId = 5,
+            WeaponId = 3,
+            WeaponLevel = 2,
+            ArmorId = 72,
+            ArmorLevel = 3,
+            AssistId = 111,
+            Abilities = new Dictionary<int, int>
+            {
+                [10] = 80,
+                [11] = 81,
+                [12] = 82,
+                [13] = 83,
+                [14] = 84
+            }
+        };
+
+        var baseDraft = CreateBattlefieldConsoleDeltaDraft(defaults);
+        var noChange = service.BuildDeltaDraftFromEffectiveValues(
+            baseDraft,
+            defaults,
+            boundary,
+            defaults.WeaponId,
+            defaults.WeaponLevel,
+            defaults.ArmorId,
+            defaults.ArmorLevel,
+            defaults.AssistId,
+            defaults.JobId,
+            defaults.Abilities.ToDictionary(pair => pair.Key, pair => (Operation: 0, Value: (int?)pair.Value)));
+        AssertBattlefieldConsoleDelta(noChange, expectDelta: false, "Data defaults should not create script overrides.");
+
+        var diff = service.BuildDeltaDraftFromEffectiveValues(
+            baseDraft,
+            defaults,
+            boundary,
+            weaponId: 4,
+            weaponLevel: 5,
+            armorId: defaults.ArmorId,
+            armorLevel: defaults.ArmorLevel,
+            assistId: defaults.AssistId,
+            jobId: 6,
+            abilities: defaults.Abilities.ToDictionary(pair => pair.Key, pair =>
+                pair.Key == 10
+                    ? (Operation: 0, Value: (int?)90)
+                    : (Operation: 0, Value: (int?)pair.Value)));
+        AssertBattlefieldConsoleDelta(diff, expectDelta: true, "Changed values should create script overrides.");
+        if (diff.RemoveEquipmentOverride ||
+            diff.RemoveJobOverride ||
+            diff.RemoveAbilityOverrides.Count != 0 ||
+            diff.Weapon != BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(4, boundary, BattlefieldEquipmentSlot.Weapon) ||
+            diff.WeaponLevel != 5 ||
+            diff.Armor != 0 ||
+            diff.ArmorLevel != 0 ||
+            diff.Assist != 0 ||
+            diff.JobId != 6 ||
+            diff.Abilities.First(x => x.AbilityId == 10).Operation != 0 ||
+            diff.Abilities.First(x => x.AbilityId == 10).Value != 90 ||
+            diff.Abilities.Where(x => x.AbilityId != 10).Any(x => x.Value.HasValue))
+        {
+            throw new InvalidOperationException("Battlefield console delta smoke failed to create the expected equipment/job/ability overrides.");
+        }
+
+        var overridden = CreateBattlefieldConsoleDeltaDraft(defaults);
+        overridden.HasEquipmentCommand = true;
+        overridden.Weapon = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(4, boundary, BattlefieldEquipmentSlot.Weapon);
+        overridden.WeaponLevel = 5;
+        overridden.Armor = 0;
+        overridden.ArmorLevel = 0;
+        overridden.Assist = 0;
+        overridden.HasJobCommand = true;
+        overridden.JobId = 6;
+        var ability10 = overridden.Abilities.First(x => x.AbilityId == 10);
+        ability10.HasCommand = true;
+        ability10.Operation = 0;
+        ability10.Value = 90;
+
+        var reverted = service.BuildDeltaDraftFromEffectiveValues(
+            overridden,
+            defaults,
+            boundary,
+            defaults.WeaponId,
+            defaults.WeaponLevel,
+            defaults.ArmorId,
+            defaults.ArmorLevel,
+            defaults.AssistId,
+            defaults.JobId,
+            defaults.Abilities.ToDictionary(pair => pair.Key, pair => (Operation: 0, Value: (int?)pair.Value)));
+        AssertBattlefieldConsoleDelta(reverted, expectDelta: true, "Reverting overrides to Data defaults should remove script overrides.");
+        if (!reverted.RemoveEquipmentOverride ||
+            !reverted.RemoveJobOverride ||
+            !reverted.RemoveAbilityOverrides.Contains(10) ||
+            reverted.RemoveAbilityOverrides.Count != 1 ||
+            reverted.Weapon.HasValue ||
+            reverted.WeaponLevel.HasValue ||
+            reverted.Armor.HasValue ||
+            reverted.ArmorLevel.HasValue ||
+            reverted.Assist.HasValue ||
+            reverted.JobId.HasValue ||
+            reverted.Abilities.Any(x => x.Value.HasValue))
+        {
+            throw new InvalidOperationException("Battlefield console delta smoke failed to request removal when values returned to Data defaults.");
+        }
+
+        var plusMode = service.BuildDeltaDraftFromEffectiveValues(
+            baseDraft,
+            defaults,
+            boundary,
+            defaults.WeaponId,
+            defaults.WeaponLevel,
+            defaults.ArmorId,
+            defaults.ArmorLevel,
+            defaults.AssistId,
+            defaults.JobId,
+            defaults.Abilities.ToDictionary(pair => pair.Key, pair =>
+                pair.Key == 11
+                    ? (Operation: 1, Value: (int?)3)
+                    : (Operation: 0, Value: (int?)pair.Value)));
+        var plusAbility = plusMode.Abilities.First(x => x.AbilityId == 11);
+        if (plusAbility.Operation != 1 || plusAbility.Value != 3)
+        {
+            throw new InvalidOperationException("Battlefield console delta smoke failed to preserve +/- ability operation mode.");
+        }
+
+        Console.WriteLine("BATTLEFIELD_UNIT_CONSOLE_DELTA_SMOKE_OK");
+    }
+
+    static BattlefieldUnitStatusDraft CreateBattlefieldConsoleDeltaDraft(BattlefieldUnitDataDefaults defaults)
+    {
+        var draft = new BattlefieldUnitStatusDraft
+        {
+            TargetKey = "Scene=0;Section=0;Command=0;Offset=000000;Id=0x46;Record=0",
+            ScenarioFileName = "S_00.eex",
+            PersonId = defaults.PersonId,
+            PersonName = defaults.PersonName,
+            CommandId = 0x46,
+            RecordIndex = 0,
+            LevelBonus = 0,
+            JobLevel = 0,
+            AiPolicy = 0,
+            DataDefaults = defaults
+        };
+        foreach (var ability in draft.Abilities)
+        {
+            ability.DataDefaultValue = defaults.GetAbility(ability.AbilityId);
+        }
+
+        return draft;
+    }
+
+    static void AssertBattlefieldConsoleDelta(BattlefieldUnitStatusDraft draft, bool expectDelta, string message)
+    {
+        var hasDelta =
+            draft.RemoveEquipmentOverride ||
+            draft.RemoveJobOverride ||
+            draft.RemoveAbilityOverrides.Count > 0 ||
+            draft.Weapon.HasValue ||
+            draft.WeaponLevel.HasValue ||
+            draft.Armor.HasValue ||
+            draft.ArmorLevel.HasValue ||
+            draft.Assist.HasValue ||
+            draft.JobId.HasValue ||
+            draft.Abilities.Any(ability => ability.Value.HasValue);
+        if (hasDelta != expectDelta)
+        {
+            throw new InvalidOperationException(message);
+        }
     }
     
     static void RunItemEffectCatalogSmoke(CczProject testProject, string smokeRoot)
@@ -1048,10 +1226,28 @@ internal partial class Program
             PlacementNote = "Smoke battlefield deployment write"
         };
     
+        var legacyDocument = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+        var locator = ParseBattlefieldStatusSmokeLocator(candidate.TargetKey);
+        var applyOnly = new BattlefieldDeploymentWriteService().ApplyScriptPlacements(legacyDocument, new[] { placement });
+        if (applyOnly.WrittenRecordCount != 1)
+        {
+            throw new InvalidOperationException("Battlefield deployment in-memory apply did not update exactly one record.");
+        }
+
+        var memoryCommand = FindSmokeCommand(legacyDocument, locator)
+            ?? throw new InvalidOperationException("Battlefield deployment in-memory apply lost target command.");
+        var layout = GetDeploymentRecordLayout(memoryCommand.CommandId);
+        var start = locator.RecordIndex * layout.GroupSize;
+        var xIndex = memoryCommand.CommandId == 0x46 ? 2 : 3;
+        var yIndex = memoryCommand.CommandId == 0x46 ? 3 : 4;
+        AssertSmokeParameter(memoryCommand, start + xIndex, changedX, "inMemoryX");
+        AssertSmokeParameter(memoryCommand, start + yIndex, changedY, "inMemoryY");
+
         var write = new BattlefieldDeploymentWriteService().SaveScriptPlacements(
             testProject,
             scenario,
             dictionary,
+            legacyDocument,
             new[] { placement });
         if (write.WrittenRecordCount != 1 ||
             string.IsNullOrWhiteSpace(write.BackupPath) ||
@@ -1102,6 +1298,36 @@ internal partial class Program
         }
     
         Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_CACHE_DEDUP_OK file={scenarioFileName} local={localPlacement.TargetKey} scriptSkipped={placement.TargetKey} notes={Path.GetFileName(reviewPath)}");
+
+        var clearDocument = new LegacyScenarioReader().Read(scenario.Path, dictionary);
+        var clearResult = new BattlefieldDeploymentWriteService().ClearFriendEnemyScriptPlacements(clearDocument, new[] { placement });
+        if (clearResult.WrittenRecordCount != 1)
+        {
+            throw new InvalidOperationException("Battlefield deployment clear did not update exactly one 46/47 record.");
+        }
+
+        var clearCommand = FindSmokeCommand(clearDocument, locator)
+            ?? throw new InvalidOperationException("Battlefield deployment clear lost target command.");
+        var clearLayout = GetDeploymentRecordLayout(clearCommand.CommandId);
+        var clearStart = locator.RecordIndex * clearLayout.GroupSize;
+        for (var index = 0; index < clearLayout.GroupSize; index++)
+        {
+            AssertSmokeParameter(clearCommand, clearStart + index, 0, "cleared slot " + index);
+        }
+
+        var clearWrite = new LegacyScenarioWriter().Save(
+            testProject,
+            Path.Combine("RS", scenario.FileName),
+            clearDocument,
+            dictionary,
+            "Smoke clear battlefield 46/47 deployment slot from current tree");
+        var clearVerifyDocument = service.Load(testProject, scenario, dictionary, tables);
+        if (clearVerifyDocument.UnitCandidates.Any(x => x.TargetKey.Equals(candidate.TargetKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Battlefield deployment clear reread still exposed the cleared 46/47 record as a unit candidate.");
+        }
+
+        Console.WriteLine($"BATTLEFIELD_DEPLOYMENT_CLEAR_SLOT_OK file={scenarioFileName} target={candidate.TargetKey} backup={Path.GetFileName(clearWrite.BackupPath)} changedBytes={clearWrite.ChangedBytes}");
     
         var emptySlot = FindOrCreateEmptyBattlefieldDeploymentSlot(testProject, scenario, dictionary, service, tables);
         if (emptySlot != null)
@@ -1217,7 +1443,7 @@ internal partial class Program
         }
         var beforeBlockEnd = FindSmokeDeploymentBlockEnd(beforeList, beforeIndex);
 
-        var draft = service.LoadDraft(scenario, dictionary, placement);
+        var draft = service.LoadDraft(before, scenario.FileName, placement);
         draft.LevelBonus = draft.LevelBonus == 3 ? 4 : 3;
         draft.JobLevel = draft.JobLevel == 2 ? 1 : 2;
         draft.AiPolicy = draft.AiPolicy == 1 ? 2 : 1;
@@ -1233,7 +1459,24 @@ internal partial class Program
             draft.Abilities[i].Value = 80 + i;
         }
 
-        var write = service.Save(testProject, scenario, dictionary, draft);
+        var applyOnly = service.Apply(testProject, before, draft);
+        if (applyOnly.InsertedCommandCount + applyOnly.UpdatedCommandCount < 7)
+        {
+            throw new InvalidOperationException("Battlefield unit status in-memory apply did not create expected commands.");
+        }
+
+        var memoryCommand = FindSmokeCommand(before, locator)
+            ?? throw new InvalidOperationException("Battlefield unit status in-memory apply lost source deployment command.");
+        var memoryLayout = GetDeploymentRecordLayout(memoryCommand.CommandId);
+        var memoryLevelIndex = memoryCommand.CommandId == 0x46 ? 5 : 6;
+        var memoryJobLevelIndex = memoryCommand.CommandId == 0x46 ? 6 : 7;
+        var memoryAiIndex = memoryCommand.CommandId == 0x46 ? 7 : 8;
+        var memoryStart = locator.RecordIndex * memoryLayout.GroupSize;
+        AssertSmokeParameter(memoryCommand, memoryStart + memoryLevelIndex, draft.LevelBonus!.Value, "inMemoryLevel");
+        AssertSmokeParameter(memoryCommand, memoryStart + memoryJobLevelIndex, draft.JobLevel!.Value, "inMemoryJobLevel");
+        AssertSmokeParameter(memoryCommand, memoryStart + memoryAiIndex, draft.AiPolicy!.Value, "inMemoryAi");
+
+        var write = service.Save(testProject, scenario, dictionary, before, draft);
         if (write.InsertedCommandCount + write.UpdatedCommandCount < 7 ||
             string.IsNullOrWhiteSpace(write.BackupPath) ||
             !File.Exists(write.BackupPath) ||

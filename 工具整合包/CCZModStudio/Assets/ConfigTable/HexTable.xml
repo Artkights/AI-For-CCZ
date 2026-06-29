@@ -8,8 +8,8 @@
     <DataPos>396</DataPos>
     <RowCount>1024</RowCount>
     <RowSize>32</RowSize>
-    <Columns>名称,头像,撤退台词,暴击台词,Army,武力,统帅,智力,敏捷,士气,初始HP,初始MP,职业,级别,经验</Columns>
-    <Bytes>13,2,1,1,1,1,1,1,1,1,2,1,1,1,1</Bytes>
+    <Columns>名称,头像,撤退台词,暴击台词,Army,武力,统帅,智力,敏捷,士气,初始HP,初始MP,职业,级别,经验,武器,防具,辅助</Columns>
+    <Bytes>13,2,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1</Bytes>
     <IndexTable>6.3</IndexTable>
     <BeginID>0</BeginID>
     <OnMem>false</OnMem>
@@ -533,8 +533,8 @@
     <DataPos>396</DataPos>
     <RowCount>1024</RowCount>
     <RowSize>32</RowSize>
-    <Columns>名称,头像,撤退台词,暴击台词,Army,武力,统帅,智力,敏捷,士气,初始HP,初始MP,职业,级别,经验</Columns>
-    <Bytes>13,2,1,1,1,1,1,1,1,1,2,1,1,1,1</Bytes>
+    <Columns>名称,头像,撤退台词,暴击台词,Army,武力,统帅,智力,敏捷,士气,初始HP,初始MP,职业,级别,经验,武器,防具,辅助</Columns>
+    <Bytes>13,2,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1</Bytes>
     <IndexTable>6.5</IndexTable>
     <BeginID>0</BeginID>
     <OnMem>false</OnMem>

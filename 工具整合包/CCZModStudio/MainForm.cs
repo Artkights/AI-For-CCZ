@@ -307,8 +307,12 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<LegacyScenarioCommandNode> _legacyScriptCommandClipboardItems = Array.Empty<LegacyScenarioCommandNode>();
     private IReadOnlyList<LegacyScenarioScene> _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
     private IReadOnlyList<LegacyScenarioSection> _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+    private string _legacyScriptCommandClipboardProjectName = string.Empty;
     private string _legacyScriptCommandClipboardScenarioName = string.Empty;
     private string _legacyScriptCommandClipboardGameRoot = string.Empty;
+    private string _legacyScriptClipboardFingerprint = string.Empty;
+    private string _legacyScriptClipboardWarning = string.Empty;
+    private bool _legacyScriptClipboardMemoryOnly;
     private bool _updatingScriptTreeChecks;
     private int _nextLegacyScriptSyntheticOffset = -1;
     private readonly Dictionary<string, LegacyScenarioCommandNode> _legacyScriptCommandByKey = new(StringComparer.OrdinalIgnoreCase);
@@ -538,6 +542,8 @@ public sealed partial class MainForm : Form
     private bool _bindingBattlefieldScriptEditor;
     private bool _updatingBattlefieldScriptSelection;
     private bool _editingBattlefieldLegacyCommandDialog;
+    private BattlefieldUnitStatusDraft? _currentBattlefieldConsoleStatusDraft;
+    private BattlefieldUnitDataDefaults? _currentBattlefieldConsoleDataDefaults;
     private bool _updatingRSceneScenarioSelection;
     private bool _loadingRSceneScenarioList;
     private bool _loadingRSceneScenarioDocument;
@@ -971,6 +977,16 @@ public sealed partial class MainForm : Form
     private readonly ComboBox _battlefieldLevelModeCombo = new();
     private readonly ComboBox _battlefieldAiModeCombo = new();
     private readonly ComboBox _battlefieldDirectionCombo = new();
+    private readonly Label _battlefieldConsoleSummaryLabel = new();
+    private readonly TextBox _battlefieldDataDefaultsBox = new();
+    private readonly ComboBox _battlefieldConsoleWeaponCombo = new();
+    private readonly NumericUpDown _battlefieldConsoleWeaponLevelInput = new();
+    private readonly ComboBox _battlefieldConsoleArmorCombo = new();
+    private readonly NumericUpDown _battlefieldConsoleArmorLevelInput = new();
+    private readonly ComboBox _battlefieldConsoleAssistCombo = new();
+    private readonly ComboBox _battlefieldConsoleJobCombo = new();
+    private readonly DataGridView _battlefieldConsoleAbilityGrid = new();
+    private readonly TextBox _battlefieldConsoleStatusPreviewBox = new();
     private readonly Button _battlefieldRemovePlacedUnitButton = new();
     private readonly Button _battlefieldClearPlacedUnitsButton = new();
     private readonly TextBox _battlefieldUnitPaletteFilterBox = new();
@@ -1070,6 +1086,7 @@ public sealed partial class MainForm : Form
     private readonly ToolStripMenuItem _legacyScriptContextRedoItem = new("前进(&Y)\tCtrl+Y");
     private readonly ToolStripMenuItem _legacyScriptContextCutItem = new("剪切(&T)\tCtrl+X");
     private readonly ToolStripMenuItem _legacyScriptContextCopyItem = new("复制(&C)\tCtrl+C");
+    private readonly ToolStripMenuItem _legacyScriptContextPreviewPasteItem = new("粘贴预览");
     private readonly ToolStripMenuItem _legacyScriptContextPasteItem = new("粘贴(&P)\tCtrl+V");
     private readonly ToolStripMenuItem _legacyScriptContextTextImportItem = new("文本导入...") { Tag = "TextImport" };
     private readonly ToolStripMenuItem _legacyScriptContextExpandItem = new("全部展开\tCtrl+Q");
@@ -1380,6 +1397,7 @@ public sealed partial class MainForm : Form
             RowCount = 4,
             Padding = new Padding(8)
         };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -1500,9 +1518,11 @@ public sealed partial class MainForm : Form
         LayoutTopBar();
         root.Controls.Add(topBar, 0, 0);
 
-        _projectLabel.AutoSize = true;
+        _projectLabel.AutoSize = false;
+        _projectLabel.AutoEllipsis = true;
         _projectLabel.Dock = DockStyle.Fill;
         _projectLabel.Padding = new Padding(0, 6, 0, 6);
+        _projectLabel.TextAlign = ContentAlignment.MiddleLeft;
         _projectLabel.Text = "项目：未加载";
         root.Controls.Add(_projectLabel, 0, 1);
 
@@ -2599,6 +2619,37 @@ public sealed partial class MainForm : Form
         int SectionIndex,
         string TargetText,
         string StatusActionText);
+
+    private enum LegacyScriptClipboardPayloadKind
+    {
+        None,
+        Commands,
+        Sections,
+        Scenes
+    }
+
+    private sealed record LegacyScriptBlockedJumpInfo(
+        int SceneIndex,
+        int SectionIndex,
+        int CommandIndex,
+        string CommandIdHex,
+        int? JumpTargetOrdinal,
+        int? JumpTargetCommandIndex);
+
+    private sealed record LegacyScriptPasteValidationResult(
+        bool CanPaste,
+        string Reason,
+        LegacyScriptClipboardPayloadKind PayloadKind,
+        bool IsCrossScenario,
+        IReadOnlyList<LegacyScriptBlockedJumpInfo> BlockedJumpCommands,
+        int SafeCommandCount,
+        string SourceProjectName,
+        string SourceScenarioName,
+        string SourceGameRoot,
+        string TargetProjectName,
+        string TargetScenarioName,
+        string TargetGameRoot,
+        string? ClipboardWarning = null);
 
     private sealed class LegacyScriptClipboardEnvelope
     {

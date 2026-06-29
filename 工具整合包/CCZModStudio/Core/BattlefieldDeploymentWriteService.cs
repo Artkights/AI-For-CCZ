@@ -20,6 +20,59 @@ public sealed class BattlefieldDeploymentWriteService
             throw new InvalidOperationException("出场写回只支持 RS\\S_XX.eex 战场剧本。");
         }
 
+        var document = _reader.Read(scenario.Path, dictionary);
+        return SaveScriptPlacements(project, scenario, dictionary, document, placements);
+    }
+
+    public BattlefieldDeploymentWriteResult SaveScriptPlacements(
+        CczProject project,
+        ScenarioFileInfo scenario,
+        SceneStringDocument dictionary,
+        LegacyScenarioDocument document,
+        IEnumerable<BattlefieldPlacedUnit> placements)
+    {
+        if (!ScenarioFileReader.IsBattlefieldScriptFile(scenario.FileName))
+        {
+            throw new InvalidOperationException("出场写回只支持 RS\\S_XX.eex 战场剧本。");
+        }
+
+        var applied = ApplyScriptPlacements(document, placements, countUnchangedAsWritten: true);
+
+        var result = _writer.Save(
+            project,
+            BuildScenarioRelativePath(scenario),
+            document,
+            dictionary,
+            "战场制作页 46/47/4B 出场坐标记录写回");
+
+        var verifyDocument = _reader.Read(scenario.Path, dictionary);
+        ValidateChanges(verifyDocument, applied.Changes);
+
+        return new BattlefieldDeploymentWriteResult
+        {
+            FilePath = result.FilePath,
+            BackupPath = result.BackupPath,
+            ReportJsonPath = result.ReportJsonPath,
+            ChangedBytes = result.ChangedBytes,
+            RequestedPlacementCount = applied.RequestedPlacementCount,
+            WrittenRecordCount = applied.WrittenRecordCount,
+            SkippedRecordCount = applied.SkippedRecordCount,
+            ValidationSummary = result.ValidationSummary + $"；Deployment reread OK: {applied.Changes.Count} record(s)",
+            Changes = applied.Changes,
+            SkippedReasons = applied.SkippedReasons
+        };
+    }
+
+    public BattlefieldDeploymentWriteResult ApplyScriptPlacements(
+        LegacyScenarioDocument document,
+        IEnumerable<BattlefieldPlacedUnit> placements)
+        => ApplyScriptPlacements(document, placements, countUnchangedAsWritten: false);
+
+    private BattlefieldDeploymentWriteResult ApplyScriptPlacements(
+        LegacyScenarioDocument document,
+        IEnumerable<BattlefieldPlacedUnit> placements,
+        bool countUnchangedAsWritten)
+    {
         var requested = placements.ToList();
         var writable = new List<WritablePlacement>();
         var skipped = new List<string>();
@@ -39,8 +92,8 @@ public sealed class BattlefieldDeploymentWriteService
             throw new InvalidOperationException("没有可写回的 S 剧本出场记录。只有已自动绑定或手动绑定到 S 剧本、TargetKey 含 Scene/Section/Command/Record 的摆放项才能写回。");
         }
 
-        var document = _reader.Read(scenario.Path, dictionary);
         var changes = new List<BattlefieldDeploymentWriteChange>();
+        var unchangedCount = 0;
         foreach (var placement in writable)
         {
             var command = FindCommand(document, placement.Locator);
@@ -76,29 +129,36 @@ public sealed class BattlefieldDeploymentWriteService
                 continue;
             }
 
+            var changed = false;
             if (definition.WritesPerson)
             {
-                SetParameterValue(command, start + definition.PersonIndex, placement.Source.PersonId, LegacyScenarioParameterKind.Word16);
+                SetParameterValueIfChanged(command, start + definition.PersonIndex, placement.Source.PersonId, LegacyScenarioParameterKind.Word16, ref changed);
             }
-            SetCoordinateParameterValue(command, start + definition.XIndex, placement.Source.GridX);
-            SetCoordinateParameterValue(command, start + definition.YIndex, placement.Source.GridY);
+            SetCoordinateParameterValueIfChanged(command, start + definition.XIndex, placement.Source.GridX, ref changed);
+            SetCoordinateParameterValueIfChanged(command, start + definition.YIndex, placement.Source.GridY, ref changed);
             int? aiValue = null;
             if (definition.AiIndex >= 0 && TryMapAiMode(placement.Source.AiMode, out var mappedAi))
             {
                 aiValue = mappedAi;
-                SetParameterValue(command, start + definition.AiIndex, mappedAi, LegacyScenarioParameterKind.Word16);
+                SetParameterValueIfChanged(command, start + definition.AiIndex, mappedAi, LegacyScenarioParameterKind.Word16, ref changed);
             }
             int? directionValue = null;
             if (definition.DirectionIndex >= 0 && TryMapDirection(placement.Source.Direction, out var mappedDirection))
             {
                 directionValue = mappedDirection;
-                SetParameterValue(command, start + definition.DirectionIndex, mappedDirection, LegacyScenarioParameterKind.Word16);
+                SetParameterValueIfChanged(command, start + definition.DirectionIndex, mappedDirection, LegacyScenarioParameterKind.Word16, ref changed);
             }
             int? hiddenValue = null;
             if (definition.HiddenIndex >= 0)
             {
                 hiddenValue = placement.Source.Hidden ? 1 : 0;
-                SetParameterValue(command, start + definition.HiddenIndex, hiddenValue.Value, LegacyScenarioParameterKind.Word16);
+                SetParameterValueIfChanged(command, start + definition.HiddenIndex, hiddenValue.Value, LegacyScenarioParameterKind.Word16, ref changed);
+            }
+
+            if (!changed)
+            {
+                unchangedCount++;
+                continue;
             }
 
             changes.Add(new BattlefieldDeploymentWriteChange
@@ -126,29 +186,28 @@ public sealed class BattlefieldDeploymentWriteService
 
         if (changes.Count == 0)
         {
+            if (unchangedCount > 0)
+            {
+                return new BattlefieldDeploymentWriteResult
+                {
+                    RequestedPlacementCount = requested.Count,
+                    WrittenRecordCount = countUnchangedAsWritten ? unchangedCount : 0,
+                    SkippedRecordCount = skipped.Count,
+                    ValidationSummary = $"Deployment in-memory apply OK: no changed record(s), unchanged={unchangedCount}",
+                    Changes = changes,
+                    SkippedReasons = skipped
+                };
+            }
+
             throw new InvalidOperationException("可定位的摆放项均未能写回：\r\n" + string.Join("\r\n", skipped));
         }
 
-        var result = _writer.Save(
-            project,
-            BuildScenarioRelativePath(scenario),
-            document,
-            dictionary,
-            "战场制作页 46/47/4B 出场坐标记录写回");
-
-        var verifyDocument = _reader.Read(scenario.Path, dictionary);
-        ValidateChanges(verifyDocument, changes);
-
         return new BattlefieldDeploymentWriteResult
         {
-            FilePath = result.FilePath,
-            BackupPath = result.BackupPath,
-            ReportJsonPath = result.ReportJsonPath,
-            ChangedBytes = result.ChangedBytes,
             RequestedPlacementCount = requested.Count,
-            WrittenRecordCount = changes.Count,
+            WrittenRecordCount = countUnchangedAsWritten ? changes.Count + unchangedCount : changes.Count,
             SkippedRecordCount = skipped.Count,
-            ValidationSummary = result.ValidationSummary + $"；Deployment reread OK: {changes.Count} record(s)",
+            ValidationSummary = $"Deployment in-memory apply OK: {changes.Count} record(s)",
             Changes = changes,
             SkippedReasons = skipped
         };
@@ -156,6 +215,113 @@ public sealed class BattlefieldDeploymentWriteService
 
     public static bool IsScriptPlacementWritable(BattlefieldPlacedUnit placement)
         => TryBuildWritablePlacement(placement, out _, out _);
+
+    public static bool IsFriendOrEnemyScriptPlacementWritable(BattlefieldPlacedUnit placement)
+        => TryBuildWritablePlacement(placement, out var writable, out _) &&
+           TryParseCommandId(writable.Locator.CommandIdHex, out var commandId) &&
+           commandId is 0x46 or 0x47;
+
+    public BattlefieldDeploymentWriteResult ClearFriendEnemyScriptPlacements(
+        LegacyScenarioDocument document,
+        IEnumerable<BattlefieldPlacedUnit> placements)
+    {
+        var requested = placements.ToList();
+        var writable = new List<WritablePlacement>();
+        var skipped = new List<string>();
+        foreach (var placement in requested)
+        {
+            if (!TryBuildWritablePlacement(placement, out var writablePlacement, out var reason))
+            {
+                skipped.Add($"{DescribePlacement(placement)}：{reason}");
+                continue;
+            }
+
+            if (!TryParseCommandId(writablePlacement.Locator.CommandIdHex, out var commandId) ||
+                commandId is not (0x46 or 0x47))
+            {
+                skipped.Add($"{DescribePlacement(placement)}：只清空 0x46 友军或 0x47 敌军出场记录，0x4B/本地草稿不改 S 剧本。");
+                continue;
+            }
+
+            writable.Add(writablePlacement);
+        }
+
+        if (writable.Count == 0)
+        {
+            throw new InvalidOperationException("没有可从 S 剧本清空的 0x46/0x47 友军/敌军出场记录。");
+        }
+
+        var changes = new List<BattlefieldDeploymentWriteChange>();
+        foreach (var placement in writable)
+        {
+            var command = FindCommand(document, placement.Locator);
+            if (command == null)
+            {
+                skipped.Add($"{DescribePlacement(placement.Source)}：未在旧版命令树找到对应 46/47 命令。");
+                continue;
+            }
+
+            var definition = DeploymentDefinition.FromCommandId(command.CommandId);
+            if (definition == null || !definition.WritesPerson || command.CommandId is not (0x46 or 0x47))
+            {
+                skipped.Add($"{DescribePlacement(placement.Source)}：{command.CommandIdHex} 不是可清空的 46/47 友军/敌军出场记录。");
+                continue;
+            }
+
+            if (placement.Locator.RecordIndex < 0 || placement.Locator.RecordIndex >= definition.RecordCount)
+            {
+                skipped.Add($"{DescribePlacement(placement.Source)}：Record={placement.Locator.RecordIndex} 超出 {command.CommandIdHex} 的记录范围。");
+                continue;
+            }
+
+            var start = placement.Locator.RecordIndex * definition.GroupSize;
+            if (start + definition.GroupSize > command.Parameters.Count)
+            {
+                skipped.Add($"{DescribePlacement(placement.Source)}：命令参数数量不足，无法清空记录槽位。");
+                continue;
+            }
+
+            var oldPersonId = GetParameterValue(command, start + definition.PersonIndex);
+            var oldGridX = GetParameterValue(command, start + definition.XIndex);
+            var oldGridY = GetParameterValue(command, start + definition.YIndex);
+            var oldAi = definition.AiIndex >= 0 ? GetParameterValue(command, start + definition.AiIndex) : (int?)null;
+
+            for (var index = 0; index < definition.GroupSize; index++)
+            {
+                ClearParameterValue(command, start + index);
+            }
+
+            changes.Add(new BattlefieldDeploymentWriteChange
+            {
+                TargetKey = placement.Source.TargetKey,
+                CommandIdHex = command.CommandIdHex,
+                SceneIndex = command.SceneIndex,
+                SectionIndex = command.SectionIndex,
+                CommandIndex = command.CommandIndex,
+                RecordIndex = placement.Locator.RecordIndex,
+                PersonId = oldPersonId,
+                GridX = oldGridX,
+                GridY = oldGridY,
+                AiMode = oldAi,
+                Summary = $"{command.CommandIdHex} {command.CommandName} Record={placement.Locator.RecordIndex} 清空友/敌军出场槽：人物={oldPersonId} 坐标=({oldGridX},{oldGridY})"
+            });
+        }
+
+        if (changes.Count == 0)
+        {
+            throw new InvalidOperationException("可定位的 46/47 摆放项均未能清空：\r\n" + string.Join("\r\n", skipped));
+        }
+
+        return new BattlefieldDeploymentWriteResult
+        {
+            RequestedPlacementCount = requested.Count,
+            WrittenRecordCount = changes.Count,
+            SkippedRecordCount = skipped.Count,
+            ValidationSummary = $"Deployment in-memory clear OK: {changes.Count} record(s)",
+            Changes = changes,
+            SkippedReasons = skipped
+        };
+    }
 
     private static void ValidateChanges(LegacyScenarioDocument verifyDocument, IReadOnlyList<BattlefieldDeploymentWriteChange> changes)
     {
@@ -233,6 +399,45 @@ public sealed class BattlefieldDeploymentWriteService
         parameter.IntValue = value;
     }
 
+    private static void SetParameterValueIfChanged(
+        LegacyScenarioCommandNode command,
+        int parameterIndex,
+        int value,
+        LegacyScenarioParameterKind expectedKind,
+        ref bool changed)
+    {
+        if (parameterIndex < 0 || parameterIndex >= command.Parameters.Count)
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 缺少参数槽 {parameterIndex}。");
+        }
+
+        if (command.Parameters[parameterIndex].IntValue == value)
+        {
+            return;
+        }
+
+        SetParameterValue(command, parameterIndex, value, expectedKind);
+        changed = true;
+    }
+
+    private static void ClearParameterValue(LegacyScenarioCommandNode command, int parameterIndex)
+    {
+        if (parameterIndex < 0 || parameterIndex >= command.Parameters.Count)
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 缺少参数槽 {parameterIndex}。");
+        }
+
+        var parameter = command.Parameters[parameterIndex];
+        if (parameter.Kind is not (LegacyScenarioParameterKind.Word16 or LegacyScenarioParameterKind.Dword32))
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 参数槽 {parameterIndex} 不是数值参数，不能作为 46/47 出场记录清空。");
+        }
+
+        parameter.IntValue = 0;
+        parameter.Text = string.Empty;
+        parameter.Values.Clear();
+    }
+
     private static void SetCoordinateParameterValue(LegacyScenarioCommandNode command, int parameterIndex, int value)
     {
         if (parameterIndex < 0 || parameterIndex >= command.Parameters.Count)
@@ -247,6 +452,26 @@ public sealed class BattlefieldDeploymentWriteService
         }
 
         SetParameterValue(command, parameterIndex, value, kind);
+    }
+
+    private static void SetCoordinateParameterValueIfChanged(
+        LegacyScenarioCommandNode command,
+        int parameterIndex,
+        int value,
+        ref bool changed)
+    {
+        if (parameterIndex < 0 || parameterIndex >= command.Parameters.Count)
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 缺少坐标参数槽 {parameterIndex}。");
+        }
+
+        if (command.Parameters[parameterIndex].IntValue == value)
+        {
+            return;
+        }
+
+        SetCoordinateParameterValue(command, parameterIndex, value);
+        changed = true;
     }
 
     private static void AssertParameterValue(LegacyScenarioCommandNode command, int parameterIndex, int expected, string label)

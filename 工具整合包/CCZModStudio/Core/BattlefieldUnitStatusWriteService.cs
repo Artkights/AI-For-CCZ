@@ -42,6 +42,7 @@ public sealed class BattlefieldUnitStatusWriteService
     private readonly LegacyScenarioReader _reader = new();
     private readonly LegacyScenarioWriter _writer = new();
     private readonly CczEngineProfileService _engineProfileService = new();
+    private readonly BattlefieldUnitDataDefaultService _dataDefaultService = new();
 
     public static bool IsWritableStatusTarget(BattlefieldPlacedUnit placement)
         => TryParseLocator(placement.TargetKey, out var locator) &&
@@ -54,8 +55,32 @@ public sealed class BattlefieldUnitStatusWriteService
         SceneStringDocument dictionary,
         BattlefieldPlacedUnit placement)
     {
-        var locator = BuildWritableLocator(placement);
         var document = _reader.Read(scenario.Path, dictionary);
+        return LoadDraft(document, scenario.FileName, placement);
+    }
+
+    public BattlefieldUnitStatusDraft LoadDraft(
+        LegacyScenarioDocument document,
+        string scenarioFileName,
+        BattlefieldPlacedUnit placement)
+        => LoadDraft(document, scenarioFileName, placement, null, null);
+
+    public BattlefieldUnitStatusDraft LoadDraft(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        LegacyScenarioDocument document,
+        string scenarioFileName,
+        BattlefieldPlacedUnit placement)
+        => LoadDraft(document, scenarioFileName, placement, project, tables);
+
+    private BattlefieldUnitStatusDraft LoadDraft(
+        LegacyScenarioDocument document,
+        string scenarioFileName,
+        BattlefieldPlacedUnit placement,
+        CczProject? project,
+        IReadOnlyList<HexTableDefinition>? tables)
+    {
+        var locator = BuildWritableLocator(placement);
         var target = FindCommand(document, locator)
             ?? throw new InvalidOperationException("未在当前 S 剧本树中找到该单位绑定的 46/47 出场设定。");
         var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
@@ -64,17 +89,23 @@ public sealed class BattlefieldUnitStatusWriteService
 
         var start = locator.RecordIndex * definition.GroupSize;
         var personId = GetInt(target, start + definition.PersonIndex);
+        var dataDefaults = project != null && tables != null
+            ? _dataDefaultService.LoadPersonDefaults(project, tables, personId)
+            : null;
         var draft = new BattlefieldUnitStatusDraft
         {
             TargetKey = placement.TargetKey,
-            ScenarioFileName = scenario.FileName,
+            ScenarioFileName = scenarioFileName,
             PersonId = personId,
-            PersonName = string.IsNullOrWhiteSpace(placement.Name) ? $"人物{personId}" : placement.Name,
+            PersonName = !string.IsNullOrWhiteSpace(dataDefaults?.PersonName)
+                ? dataDefaults.PersonName
+                : string.IsNullOrWhiteSpace(placement.Name) ? $"人物{personId}" : placement.Name,
             CommandId = target.CommandId,
             RecordIndex = locator.RecordIndex,
             LevelBonus = GetInt(target, start + definition.LevelIndex),
             JobLevel = GetInt(target, start + definition.JobLevelIndex),
             AiPolicy = GetInt(target, start + definition.AiIndex),
+            DataDefaults = dataDefaults,
             SourceSummary = $"{target.CommandIdHex} {target.CommandName} Scene={target.SceneIndex} Section={target.SectionIndex} Command={target.CommandIndex} Record={locator.RecordIndex}"
         };
 
@@ -107,6 +138,7 @@ public sealed class BattlefieldUnitStatusWriteService
 
         foreach (var ability in draft.Abilities)
         {
+            ability.DataDefaultValue = dataDefaults?.GetAbility(ability.AbilityId);
             if (FindLastAbilityCommand(scopeCommands, personId, ability.AbilityId) is not { } command) continue;
             ability.HasCommand = true;
             ability.Operation = GetIntOrNull(command, 2);
@@ -116,6 +148,409 @@ public sealed class BattlefieldUnitStatusWriteService
         draft.CommandPreview = BuildPreview(draft);
         return draft;
     }
+
+    public BattlefieldUnitStatusWriteResult Save(
+        CczProject project,
+        ScenarioFileInfo scenario,
+        SceneStringDocument dictionary,
+        LegacyScenarioDocument document,
+        BattlefieldUnitStatusDraft draft)
+    {
+        if (!ScenarioFileReader.IsBattlefieldScriptFile(scenario.FileName))
+        {
+            throw new InvalidOperationException("Battlefield unit status write only supports RS\\S_XX.eex.");
+        }
+
+        var locator = BuildWritableLocator(draft.TargetKey);
+        var target = FindCommand(document, locator)
+            ?? throw new InvalidOperationException("The bound 46/47 deployment command was not found in the current S script tree.");
+        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
+            ?? throw new InvalidOperationException("Battlefield unit status write only supports 46/47 deployment commands.");
+        ValidateRecordRange(target, definition, locator.RecordIndex);
+        var start = locator.RecordIndex * definition.GroupSize;
+        var personId = GetInt(target, start + definition.PersonIndex);
+
+        var applied = Apply(project, document, draft);
+        var write = _writer.Save(
+            project,
+            Path.Combine("RS", scenario.FileName),
+            document,
+            dictionary,
+            $"Battlefield unit status write from current tree 46/47 + 48/52/38 person={personId}");
+
+        var verify = _reader.Read(scenario.Path, dictionary);
+        ValidateReread(verify, locator, draft, personId);
+
+        return new BattlefieldUnitStatusWriteResult
+        {
+            FilePath = write.FilePath,
+            BackupPath = write.BackupPath,
+            ReportJsonPath = write.ReportJsonPath,
+            ChangedBytes = write.ChangedBytes,
+            UpdatedCommandCount = applied.UpdatedCommandCount,
+            InsertedCommandCount = applied.InsertedCommandCount,
+            ValidationSummary = write.ValidationSummary + $"; unit status reread OK: person={personId}",
+            Changes = applied.Changes
+        };
+    }
+
+    public BattlefieldUnitStatusWriteResult Apply(
+        CczProject project,
+        LegacyScenarioDocument document,
+        BattlefieldUnitStatusDraft draft)
+    {
+        var locator = BuildWritableLocator(draft.TargetKey);
+        var target = FindCommand(document, locator)
+            ?? throw new InvalidOperationException("The bound 46/47 deployment command was not found in the current S script tree.");
+        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
+            ?? throw new InvalidOperationException("Battlefield unit status write only supports 46/47 deployment commands.");
+        var itemBoundary = ItemCategoryBoundaryService.Resolve(project);
+        ValidateDraftRanges(draft, itemBoundary);
+        ValidateRecordRange(target, definition, locator.RecordIndex);
+
+        var start = locator.RecordIndex * definition.GroupSize;
+        var personId = GetInt(target, start + definition.PersonIndex);
+        if (draft.PersonId != 0 && draft.PersonId != personId)
+        {
+            throw new InvalidOperationException($"The bound deployment record changed: dialog person={draft.PersonId}, script person={personId}. Refresh and retry.");
+        }
+
+        var changes = new List<string>();
+        var updatedCommandCount = 0;
+        var insertedCommandCount = 0;
+        var writesEquipment = HasAnyEquipmentValue(draft);
+        var writesRuntimeStatus = HasAnyRuntimeStatusValue(draft);
+        var equipmentBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : EquipmentStatusBlockTitle;
+        var runtimeBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : RuntimeStatusBlockTitle;
+
+        SetDeploymentSlotIfChanged(target, start + definition.LevelIndex, draft.LevelBonus, "Level bonus", changes);
+        SetDeploymentSlotIfChanged(target, start + definition.JobLevelIndex, draft.JobLevel, "Job level", changes);
+        SetDeploymentSlotIfChanged(target, start + definition.AiIndex, draft.AiPolicy, "AI policy", changes);
+
+        if (!TryFindCommandList(document, target, out var commandList, out var targetListIndex))
+        {
+            throw new InvalidOperationException("Could not locate the command list containing the 46/47 deployment command.");
+        }
+
+        var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
+        var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
+        if (draft.RemoveEquipmentOverride)
+        {
+            updatedCommandCount += RemoveSamePersonCommands(document, deploymentCommands, 0x48, personId, "Remove 0x48 equipment override", changes);
+            writesEquipment = false;
+        }
+
+        if (writesEquipment)
+        {
+            var values = new[]
+            {
+                personId,
+                draft.Weapon ?? 0,
+                draft.WeaponLevel ?? 0,
+                draft.Armor ?? 0,
+                draft.ArmorLevel ?? 0,
+                draft.Assist ?? 0
+            };
+            var block = EnsureInternalInfoBlock(
+                commandList,
+                deploymentSegment,
+                deploymentSegment.EndIndex,
+                EquipmentStatusBlockTitles,
+                equipmentBlockTitle,
+                target.SceneIndex,
+                target.SectionIndex,
+                personId,
+                StatusBlockContent.Equipment);
+            insertedCommandCount += block.InsertedCommandCount;
+            var blockCommands = GetInternalInfoBlockCommands(block.Command);
+
+            if (FindLastSamePersonCommand(deploymentCommands, 0x48, personId) is { } existing)
+            {
+                SetCommandValues(existing, values);
+                if (!TryFindCommandList(document, existing, out var existingList, out _) ||
+                    !ReferenceEquals(existingList, blockCommands))
+                {
+                    if (TryFindCommandList(document, existing, out existingList, out _))
+                    {
+                        MoveCommandIntoInternalInfoBlock(existingList, existing, block.Command);
+                    }
+                }
+                updatedCommandCount++;
+                changes.Add($"Update 0x48 equipment: weapon={values[1]} Lv={values[2]} armor={values[3]} Lv={values[4]} assist={values[5]}");
+            }
+            else
+            {
+                InsertCommandIntoInternalInfoBlock(block.Command, CreateCommand(0x48, target.SceneIndex, target.SectionIndex, values));
+                insertedCommandCount++;
+                changes.Add($"Insert 0x48 equipment into 0x02 \"{GetInternalInfoBlockTitle(block.Command)}\": weapon={values[1]} Lv={values[2]} armor={values[3]} Lv={values[4]} assist={values[5]}");
+            }
+        }
+
+        var drawingSegment = default(StatusCommandSegment);
+        var drawingCommands = new List<LegacyScenarioCommandNode>();
+        if (writesRuntimeStatus || draft.RemoveJobOverride || draft.RemoveAbilityOverrides.Count > 0)
+        {
+            drawingSegment = FindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex);
+            drawingCommands = GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment);
+        }
+
+        if (draft.RemoveJobOverride)
+        {
+            updatedCommandCount += RemoveJobOverrides(document, drawingCommands, personId, changes);
+        }
+
+        foreach (var abilityId in draft.RemoveAbilityOverrides.Distinct())
+        {
+            updatedCommandCount += RemoveAbilityOverrides(document, drawingCommands, personId, abilityId, changes);
+        }
+
+        InternalInfoBlockResult? runtimeBlock = null;
+        List<LegacyScenarioCommandNode>? runtimeBlockCommands = null;
+        if (writesRuntimeStatus)
+        {
+            runtimeBlock = EnsureInternalInfoBlock(
+                drawingSegment.CommandList,
+                drawingSegment.Segment,
+                drawingSegment.Segment.EndIndex,
+                RuntimeStatusBlockTitles,
+                runtimeBlockTitle,
+                target.SceneIndex,
+                target.SectionIndex,
+                personId,
+                StatusBlockContent.Runtime);
+            insertedCommandCount += runtimeBlock.Value.InsertedCommandCount;
+            runtimeBlockCommands = GetInternalInfoBlockCommands(runtimeBlock.Value.Command);
+        }
+
+        if (draft.JobId.HasValue)
+        {
+            var blockCommand = runtimeBlock?.Command
+                ?? throw new InvalidOperationException("Could not create the 0x52/0x38 internal info block.");
+            var blockCommands = runtimeBlockCommands
+                ?? throw new InvalidOperationException("Could not locate the 0x52/0x38 internal info block command list.");
+            var values = new[] { personId, draft.JobId.Value };
+            if (FindLastSamePersonCommand(drawingCommands, 0x52, personId) is { } existing)
+            {
+                SetCommandValues(existing, values);
+                if (!TryFindCommandList(document, existing, out var existingList, out _) ||
+                    !ReferenceEquals(existingList, blockCommands))
+                {
+                    if (TryFindCommandList(document, existing, out existingList, out _))
+                    {
+                        MoveJobCommandGroupIntoInternalInfoBlock(existingList, existing, blockCommand);
+                    }
+                }
+                var insertedToggles = EnsureAbilityRecalcToggles(blockCommands, existing, target.SceneIndex, target.SectionIndex);
+                if (insertedToggles > 0)
+                {
+                    insertedCommandCount += insertedToggles;
+                }
+                updatedCommandCount++;
+                changes.Add(insertedToggles > 0
+                    ? $"Update 0x52 job={draft.JobId.Value} and add 4081 recalc toggles in 0x02 \"{GetInternalInfoBlockTitle(blockCommand)}\""
+                    : $"Update 0x52 job={draft.JobId.Value} and keep 4081 recalc toggles in 0x02 \"{GetInternalInfoBlockTitle(blockCommand)}\"");
+            }
+            else
+            {
+                InsertCommandIntoInternalInfoBlock(blockCommand, CreateVariableOperationCommand(target.SceneIndex, target.SectionIndex, 4081, 1));
+                InsertCommandIntoInternalInfoBlock(blockCommand, CreateCommand(0x52, target.SceneIndex, target.SectionIndex, values));
+                InsertCommandIntoInternalInfoBlock(blockCommand, CreateVariableOperationCommand(target.SceneIndex, target.SectionIndex, 4081, 0));
+                insertedCommandCount += 3;
+                changes.Add($"Insert 0x77/0x52/0x77 job change under 0x1C drawing block: job={draft.JobId.Value}");
+            }
+        }
+
+        foreach (var ability in draft.Abilities.Where(ability => ability.Value.HasValue))
+        {
+            var blockCommand = runtimeBlock?.Command
+                ?? throw new InvalidOperationException("Could not create the 0x52/0x38 internal info block.");
+            var blockCommands = runtimeBlockCommands
+                ?? throw new InvalidOperationException("Could not locate the 0x52/0x38 internal info block command list.");
+            var operation = ability.Operation ?? 0;
+            var value = ability.Value!.Value;
+            var values = new[] { personId, ability.AbilityId, operation, value };
+            if (FindLastAbilityCommand(drawingCommands, personId, ability.AbilityId) is { } existing)
+            {
+                SetCommandValues(existing, values);
+                if (!TryFindCommandList(document, existing, out var existingList, out _) ||
+                    !ReferenceEquals(existingList, blockCommands))
+                {
+                    if (TryFindCommandList(document, existing, out existingList, out _))
+                    {
+                        MoveCommandIntoInternalInfoBlock(existingList, existing, blockCommand);
+                    }
+                }
+                updatedCommandCount++;
+                changes.Add($"Update 0x38 {ability.Name}: {DescribeOperation(operation)} {value}");
+            }
+            else
+            {
+                InsertCommandIntoInternalInfoBlock(blockCommand, CreateCommand(0x38, target.SceneIndex, target.SectionIndex, values));
+                insertedCommandCount++;
+                changes.Add($"Insert 0x38 {ability.Name} under 0x1C drawing block: {DescribeOperation(operation)} {value}");
+            }
+        }
+
+        if (changes.Count == 0)
+        {
+            throw new InvalidOperationException("No status fields were changed. Edit at least one deployment, equipment, job, or ability field.");
+        }
+
+        return new BattlefieldUnitStatusWriteResult
+        {
+            UpdatedCommandCount = updatedCommandCount,
+            InsertedCommandCount = insertedCommandCount,
+            ValidationSummary = $"unit status in-memory apply OK: person={personId}",
+            Changes = changes
+        };
+    }
+
+    public BattlefieldUnitStatusDraft BuildDeltaDraftFromEffectiveValues(
+        BattlefieldUnitStatusDraft current,
+        BattlefieldUnitDataDefaults dataDefaults,
+        ItemCategoryBoundary itemBoundary,
+        int? weaponId,
+        int? weaponLevel,
+        int? armorId,
+        int? armorLevel,
+        int? assistId,
+        int? jobId,
+        IReadOnlyDictionary<int, (int Operation, int? Value)> abilities)
+    {
+        var draft = CloneStatusDraft(current);
+        draft.DataDefaults = dataDefaults;
+        draft.Weapon = null;
+        draft.WeaponLevel = null;
+        draft.Armor = null;
+        draft.ArmorLevel = null;
+        draft.Assist = null;
+        draft.JobId = null;
+        draft.RemoveEquipmentOverride = false;
+        draft.RemoveJobOverride = false;
+        draft.RemoveAbilityOverrides.Clear();
+
+        var scriptWeapon = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(weaponId, itemBoundary, BattlefieldEquipmentSlot.Weapon);
+        var scriptArmor = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(armorId, itemBoundary, BattlefieldEquipmentSlot.Armor);
+        var scriptAssist = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(assistId, itemBoundary, BattlefieldEquipmentSlot.Assist);
+        var dataWeapon = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(dataDefaults.WeaponId, itemBoundary, BattlefieldEquipmentSlot.Weapon);
+        var dataArmor = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(dataDefaults.ArmorId, itemBoundary, BattlefieldEquipmentSlot.Armor);
+        var dataAssist = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(dataDefaults.AssistId, itemBoundary, BattlefieldEquipmentSlot.Assist);
+        var currentWeapon = BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(
+            current.HasEquipmentCommand ? current.Weapon : null,
+            itemBoundary,
+            BattlefieldEquipmentSlot.Weapon,
+            dataDefaults.WeaponId);
+        var currentArmor = BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(
+            current.HasEquipmentCommand ? current.Armor : null,
+            itemBoundary,
+            BattlefieldEquipmentSlot.Armor,
+            dataDefaults.ArmorId);
+        var currentAssist = BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(
+            current.HasEquipmentCommand ? current.Assist : null,
+            itemBoundary,
+            BattlefieldEquipmentSlot.Assist,
+            dataDefaults.AssistId);
+        var currentWeaponLevel = ResolveEquipmentLevel(current.HasEquipmentCommand ? current.WeaponLevel : null, dataDefaults.WeaponLevel);
+        var currentArmorLevel = ResolveEquipmentLevel(current.HasEquipmentCommand ? current.ArmorLevel : null, dataDefaults.ArmorLevel);
+        var requestedWeaponLevel = weaponLevel ?? 0;
+        var requestedArmorLevel = armorLevel ?? 0;
+
+        var equipmentDiffers =
+            scriptWeapon != dataWeapon ||
+            requestedWeaponLevel != (dataDefaults.WeaponLevel ?? 0) ||
+            scriptArmor != dataArmor ||
+            requestedArmorLevel != (dataDefaults.ArmorLevel ?? 0) ||
+            scriptAssist != dataAssist;
+        var equipmentChanged =
+            !Nullable.Equals(weaponId, currentWeapon) ||
+            requestedWeaponLevel != currentWeaponLevel ||
+            !Nullable.Equals(armorId, currentArmor) ||
+            requestedArmorLevel != currentArmorLevel ||
+            !Nullable.Equals(assistId, currentAssist);
+        if (equipmentChanged && equipmentDiffers)
+        {
+            draft.Weapon = scriptWeapon == dataWeapon ? 0 : scriptWeapon;
+            draft.WeaponLevel = requestedWeaponLevel == (dataDefaults.WeaponLevel ?? 0) ? 0 : requestedWeaponLevel;
+            draft.Armor = scriptArmor == dataArmor ? 0 : scriptArmor;
+            draft.ArmorLevel = requestedArmorLevel == (dataDefaults.ArmorLevel ?? 0) ? 0 : requestedArmorLevel;
+            draft.Assist = scriptAssist == dataAssist ? 0 : scriptAssist;
+        }
+        else if (equipmentChanged && current.HasEquipmentCommand)
+        {
+            draft.RemoveEquipmentOverride = true;
+        }
+
+        var currentJob = current.HasJobCommand ? current.JobId : dataDefaults.JobId;
+        var jobChanged = !Nullable.Equals(jobId, currentJob);
+        if (jobChanged && jobId.HasValue && dataDefaults.JobId.HasValue && jobId.Value != dataDefaults.JobId.Value)
+        {
+            draft.JobId = jobId.Value;
+        }
+        else if (jobChanged && current.HasJobCommand)
+        {
+            draft.RemoveJobOverride = true;
+        }
+
+        draft.Abilities.Clear();
+        foreach (var currentAbility in current.Abilities)
+        {
+            var ability = new BattlefieldUnitAbilityDraft
+            {
+                AbilityId = currentAbility.AbilityId,
+                Name = currentAbility.Name,
+                HasCommand = currentAbility.HasCommand,
+                DataDefaultValue = dataDefaults.GetAbility(currentAbility.AbilityId)
+            };
+            if (abilities.TryGetValue(currentAbility.AbilityId, out var requested) &&
+                requested.Value.HasValue)
+            {
+                var operation = requested.Operation;
+                var value = requested.Value.Value;
+                var dataDefault = dataDefaults.GetAbility(currentAbility.AbilityId);
+                var currentEffectiveOperation = currentAbility.HasCommand ? currentAbility.Operation ?? 0 : 0;
+                var currentEffectiveValue = currentAbility.HasCommand && currentAbility.Value.HasValue
+                    ? currentAbility.Value.Value
+                    : dataDefault;
+                if (operation == currentEffectiveOperation &&
+                    currentEffectiveValue.HasValue &&
+                    value == currentEffectiveValue.Value)
+                {
+                    draft.Abilities.Add(ability);
+                    continue;
+                }
+
+                var equalsDefault = operation == 0 && dataDefault.HasValue && value == dataDefault.Value;
+                if (equalsDefault)
+                {
+                    if (currentAbility.HasCommand)
+                    {
+                        ability.RemoveOverride = true;
+                        draft.RemoveAbilityOverrides.Add(currentAbility.AbilityId);
+                    }
+                }
+                else
+                {
+                    ability.Operation = operation;
+                    ability.Value = value;
+                }
+            }
+            else if (currentAbility.HasCommand)
+            {
+                ability.RemoveOverride = true;
+                draft.RemoveAbilityOverrides.Add(currentAbility.AbilityId);
+            }
+
+            draft.Abilities.Add(ability);
+        }
+
+        draft.CommandPreview = BuildPreview(draft);
+        return draft;
+    }
+
+    private static int ResolveEquipmentLevel(int? scriptLevel, int? dataDefaultLevel)
+        => scriptLevel.HasValue && scriptLevel.Value != 0
+            ? scriptLevel.Value
+            : dataDefaultLevel ?? 0;
 
     public BattlefieldUnitStatusWriteResult Save(
         CczProject project,
@@ -153,9 +588,9 @@ public sealed class BattlefieldUnitStatusWriteService
         var equipmentBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : EquipmentStatusBlockTitle;
         var runtimeBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : RuntimeStatusBlockTitle;
 
-        SetDeploymentSlot(target, start + definition.LevelIndex, draft.LevelBonus, "等级加成", changes);
-        SetDeploymentSlot(target, start + definition.JobLevelIndex, draft.JobLevel, "兵种级", changes);
-        SetDeploymentSlot(target, start + definition.AiIndex, draft.AiPolicy, "AI方针", changes);
+        SetDeploymentSlotIfChanged(target, start + definition.LevelIndex, draft.LevelBonus, "等级加成", changes);
+        SetDeploymentSlotIfChanged(target, start + definition.JobLevelIndex, draft.JobLevel, "兵种级", changes);
+        SetDeploymentSlotIfChanged(target, start + definition.AiIndex, draft.AiPolicy, "AI方针", changes);
 
         if (!TryFindCommandList(document, target, out var commandList, out var targetListIndex))
         {
@@ -164,6 +599,12 @@ public sealed class BattlefieldUnitStatusWriteService
 
         var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
         var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
+        if (draft.RemoveEquipmentOverride)
+        {
+            updatedCommandCount += RemoveSamePersonCommands(document, deploymentCommands, 0x48, personId, "移除 0x48 装备覆盖", changes);
+            writesEquipment = false;
+        }
+
         if (writesEquipment)
         {
             var values = new[]
@@ -212,10 +653,20 @@ public sealed class BattlefieldUnitStatusWriteService
 
         var drawingSegment = default(StatusCommandSegment);
         var drawingCommands = new List<LegacyScenarioCommandNode>();
-        if (writesRuntimeStatus)
+        if (writesRuntimeStatus || draft.RemoveJobOverride || draft.RemoveAbilityOverrides.Count > 0)
         {
             drawingSegment = FindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex);
             drawingCommands = GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment);
+        }
+
+        if (draft.RemoveJobOverride)
+        {
+            updatedCommandCount += RemoveJobOverrides(document, drawingCommands, personId, changes);
+        }
+
+        foreach (var abilityId in draft.RemoveAbilityOverrides.Distinct())
+        {
+            updatedCommandCount += RemoveAbilityOverrides(document, drawingCommands, personId, abilityId, changes);
         }
 
         InternalInfoBlockResult? runtimeBlock = null;
@@ -491,13 +942,37 @@ public sealed class BattlefieldUnitStatusWriteService
 
         var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
         var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
+        if (draft.RemoveEquipmentOverride &&
+            FindLastSamePersonCommand(deploymentCommands, 0x48, personId) != null)
+        {
+            throw new InvalidDataException("战场单位状态复读失败：0x48 装备覆盖仍然存在。");
+        }
+
         var hasRuntimeStatusValue = HasAnyRuntimeStatusValue(draft);
         var drawingCommands = new List<LegacyScenarioCommandNode>();
-        if (hasRuntimeStatusValue)
+        if (hasRuntimeStatusValue || draft.RemoveJobOverride || draft.RemoveAbilityOverrides.Count > 0)
         {
             var drawingSegment = FindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex);
             drawingCommands = GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment);
         }
+
+        if (draft.RemoveJobOverride &&
+            FindLastSamePersonCommand(drawingCommands, 0x52, personId) != null)
+        {
+            throw new InvalidDataException("战场单位状态复读失败：0x52 兵种覆盖仍然存在。");
+        }
+
+        foreach (var abilityId in draft.RemoveAbilityOverrides)
+        {
+            if (FindLastAbilityCommand(drawingCommands, personId, abilityId) != null)
+            {
+                var name = AbilityNames.TryGetValue(abilityId, out var abilityName)
+                    ? abilityName
+                    : abilityId.ToString(CultureInfo.InvariantCulture);
+                throw new InvalidDataException($"战场单位状态复读失败：0x38 {name} 覆盖仍然存在。");
+            }
+        }
+
         if (HasAnyEquipmentValue(draft))
         {
             var equipment = FindLastSamePersonCommand(deploymentCommands, 0x48, personId)
@@ -568,6 +1043,53 @@ public sealed class BattlefieldUnitStatusWriteService
         => draft.JobId.HasValue ||
            draft.Abilities.Any(ability => ability.Value.HasValue);
 
+    private static BattlefieldUnitStatusDraft CloneStatusDraft(BattlefieldUnitStatusDraft source)
+    {
+        var clone = new BattlefieldUnitStatusDraft
+        {
+            TargetKey = source.TargetKey,
+            ScenarioFileName = source.ScenarioFileName,
+            PersonId = source.PersonId,
+            PersonName = source.PersonName,
+            CommandId = source.CommandId,
+            RecordIndex = source.RecordIndex,
+            LevelBonus = source.LevelBonus,
+            JobLevel = source.JobLevel,
+            AiPolicy = source.AiPolicy,
+            Weapon = source.Weapon,
+            WeaponLevel = source.WeaponLevel,
+            Armor = source.Armor,
+            ArmorLevel = source.ArmorLevel,
+            Assist = source.Assist,
+            JobId = source.JobId,
+            HasEquipmentCommand = source.HasEquipmentCommand,
+            HasJobCommand = source.HasJobCommand,
+            DataDefaults = source.DataDefaults,
+            RemoveEquipmentOverride = source.RemoveEquipmentOverride,
+            RemoveJobOverride = source.RemoveJobOverride,
+            EquipmentBoundarySummary = source.EquipmentBoundarySummary,
+            SourceSummary = source.SourceSummary,
+            CommandPreview = source.CommandPreview
+        };
+        clone.RemoveAbilityOverrides.AddRange(source.RemoveAbilityOverrides);
+        clone.Abilities.Clear();
+        foreach (var ability in source.Abilities)
+        {
+            clone.Abilities.Add(new BattlefieldUnitAbilityDraft
+            {
+                AbilityId = ability.AbilityId,
+                Name = ability.Name,
+                Operation = ability.Operation,
+                Value = ability.Value,
+                HasCommand = ability.HasCommand,
+                DataDefaultValue = ability.DataDefaultValue,
+                RemoveOverride = ability.RemoveOverride
+            });
+        }
+
+        return clone;
+    }
+
     private static void SetDeploymentSlot(
         LegacyScenarioCommandNode command,
         int parameterIndex,
@@ -578,6 +1100,141 @@ public sealed class BattlefieldUnitStatusWriteService
         if (!value.HasValue) return;
         SetParameterValue(command, parameterIndex, value.Value);
         changes.Add($"更新 {command.CommandIdHex} {label}={value.Value}");
+    }
+
+    private static void SetDeploymentSlotIfChanged(
+        LegacyScenarioCommandNode command,
+        int parameterIndex,
+        int? value,
+        string label,
+        List<string> changes)
+    {
+        if (!value.HasValue) return;
+        if (parameterIndex < 0 || parameterIndex >= command.Parameters.Count)
+        {
+            throw new InvalidDataException($"{command.CommandIdHex} {command.CommandName} 缺少参数槽 {parameterIndex}。");
+        }
+
+        if (command.Parameters[parameterIndex].IntValue == value.Value)
+        {
+            return;
+        }
+
+        SetParameterValue(command, parameterIndex, value.Value);
+        changes.Add($"更新 {command.CommandIdHex} {label}={value.Value}");
+    }
+
+    private static int RemoveSamePersonCommands(
+        LegacyScenarioDocument document,
+        IEnumerable<LegacyScenarioCommandNode> commands,
+        int commandId,
+        int personId,
+        string label,
+        List<string> changes)
+    {
+        var removed = 0;
+        foreach (var command in commands
+                     .Where(command => command.CommandId == commandId &&
+                                       command.Parameters.Count > 0 &&
+                                       command.Parameters[0].IntValue == personId)
+                     .ToList())
+        {
+            if (!TryFindCommandList(document, command, out var list, out _))
+            {
+                continue;
+            }
+
+            if (list.Remove(command))
+            {
+                removed++;
+            }
+        }
+
+        if (removed > 0)
+        {
+            changes.Add($"{label}: person={personId}, count={removed}");
+        }
+
+        return removed;
+    }
+
+    private static int RemoveJobOverrides(
+        LegacyScenarioDocument document,
+        IEnumerable<LegacyScenarioCommandNode> commands,
+        int personId,
+        List<string> changes)
+    {
+        var removed = 0;
+        foreach (var command in commands
+                     .Where(command => command.CommandId == 0x52 &&
+                                       command.Parameters.Count > 0 &&
+                                       command.Parameters[0].IntValue == personId)
+                     .ToList())
+        {
+            if (!TryFindCommandList(document, command, out var list, out var index))
+            {
+                continue;
+            }
+
+            var removeIndexes = new SortedSet<int> { index };
+            if (index > 0 && IsAbilityRecalcToggle(list[index - 1], expectedValue: 1))
+            {
+                removeIndexes.Add(index - 1);
+            }
+
+            if (index < list.Count - 1 && IsAbilityRecalcToggle(list[index + 1], expectedValue: 0))
+            {
+                removeIndexes.Add(index + 1);
+            }
+
+            foreach (var removeIndex in removeIndexes.Reverse())
+            {
+                list.RemoveAt(removeIndex);
+                removed++;
+            }
+        }
+
+        if (removed > 0)
+        {
+            changes.Add($"移除 0x52 兵种覆盖和 4081 重算包裹：person={personId}, count={removed}");
+        }
+
+        return removed;
+    }
+
+    private static int RemoveAbilityOverrides(
+        LegacyScenarioDocument document,
+        IEnumerable<LegacyScenarioCommandNode> commands,
+        int personId,
+        int abilityId,
+        List<string> changes)
+    {
+        var removed = 0;
+        foreach (var command in commands
+                     .Where(command => command.CommandId == 0x38 &&
+                                       command.Parameters.Count > 1 &&
+                                       command.Parameters[0].IntValue == personId &&
+                                       command.Parameters[1].IntValue == abilityId)
+                     .ToList())
+        {
+            if (!TryFindCommandList(document, command, out var list, out _))
+            {
+                continue;
+            }
+
+            if (list.Remove(command))
+            {
+                removed++;
+            }
+        }
+
+        if (removed > 0)
+        {
+            var name = AbilityNames.TryGetValue(abilityId, out var abilityName) ? abilityName : abilityId.ToString(CultureInfo.InvariantCulture);
+            changes.Add($"移除 0x38 {name} 覆盖：person={personId}, count={removed}");
+        }
+
+        return removed;
     }
 
     private static void SetCommandValues(LegacyScenarioCommandNode command, IReadOnlyList<int> values)

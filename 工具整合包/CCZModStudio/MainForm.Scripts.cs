@@ -8,6 +8,7 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -632,14 +633,14 @@ public sealed partial class MainForm
         _deleteScriptCommandButton.Enabled = canDelete;
         _cutScriptCommandButton.Enabled = CanCutLegacyScriptSelection(LegacyScriptEditorScope.Script, out _, out _);
         _copyScriptCommandButton.Enabled = hasCopySource;
+        var pasteBeforeValidation = ValidateLegacyScriptPaste(LegacyScriptEditorScope.Script, beforeSelected: true);
+        var pasteAfterValidation = ValidateLegacyScriptPaste(LegacyScriptEditorScope.Script, beforeSelected: false);
         _previewPasteScriptCommandButton.Enabled = hasPasteTarget &&
                                                    (_scriptCommandClipboardItem != null ||
-                                                    _legacyScriptCommandClipboardItems.Count > 0 ||
-                                                    _legacyScriptSceneClipboardItems.Count > 0 ||
-                                                    _legacyScriptSectionClipboardItems.Count > 0 ||
-                                                    TryEnsureLegacyScriptClipboardAvailable(out _));
-        _pasteScriptCommandBeforeButton.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true, out _);
-        _pasteScriptCommandAfterButton.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false, out _);
+                                                    (pasteBeforeValidation.PayloadKind != LegacyScriptClipboardPayloadKind.None &&
+                                                     TryHasLegacyScriptClipboardCache()));
+        _pasteScriptCommandBeforeButton.Enabled = pasteBeforeValidation.CanPaste;
+        _pasteScriptCommandAfterButton.Enabled = pasteAfterValidation.CanPaste;
         _moveScriptCommandUpButton.Enabled = false;
         _moveScriptCommandDownButton.Enabled = false;
         _editScriptParametersButton.Enabled = TryGetSelectedLegacyItemData(out var itemData) && LegacyCommandEditDispatcher.CanEdit(itemData.Id);
@@ -1170,10 +1171,10 @@ public sealed partial class MainForm
 
     private void PasteCopiedLegacyScriptCommandAtDefaultTarget(LegacyScriptEditorScope scope)
     {
-        if (_legacyScriptSceneClipboardItems.Count == 0 &&
-            _legacyScriptSectionClipboardItems.Count == 0)
+        if (!TryEnsureLegacyScriptClipboardAvailable(out var reason))
         {
-            _ = TryEnsureLegacyScriptClipboardAvailable(out _);
+            MessageBox.Show(this, reason, "无法粘贴", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
         }
 
         var pasteSceneAfterSelected = _legacyScriptSceneClipboardItems.Count > 0 &&
@@ -1191,9 +1192,10 @@ public sealed partial class MainForm
 
     private void PasteCopiedLegacyScriptCommandNearSelected(LegacyScriptEditorScope scope, bool beforeSelected)
     {
-        if (!CanPasteCopiedLegacyScriptCommandNearSelected(scope, beforeSelected, out var reason))
+        var validation = ValidateLegacyScriptPaste(scope, beforeSelected);
+        if (!validation.CanPaste)
         {
-            MessageBox.Show(this, reason, "无法粘贴", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, validation.Reason, "无法粘贴", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -1226,9 +1228,10 @@ public sealed partial class MainForm
                 scope,
                 () => document.Scenes.InsertRange(sceneInsertIndex, scenesToInsert),
                 preferredSceneSelection,
-                scenesToInsert.Count == 1
+                AppendLegacyScriptClipboardWarningToStatus(scenesToInsert.Count == 1
                     ? $"已粘贴 Scene 到 Scene {selectedScene.SceneIndex} {(beforeSelected ? "前面" : "后面")}。"
-                    : $"已粘贴 {scenesToInsert.Count} 个 Scene，来源：{_legacyScriptCommandClipboardScenarioName}。");
+                    : $"已粘贴 {scenesToInsert.Count} 个 Scene，来源：{_legacyScriptCommandClipboardScenarioName}。",
+                    validation));
             return;
         }
 
@@ -1250,9 +1253,10 @@ public sealed partial class MainForm
                 scope,
                 () => sections.InsertRange(sectionInsertIndex, sectionsToInsert),
                 preferredSectionSelection,
-                sectionsToInsert.Count == 1
+                AppendLegacyScriptClipboardWarningToStatus(sectionsToInsert.Count == 1
                     ? $"已粘贴 Section 到 Scene {selectedSection.SceneIndex} / Section {selectedSection.SectionIndex} {(beforeSelected ? "前面" : "后面")}。"
-                    : $"已粘贴 {sectionsToInsert.Count} 个 Section，来源：{_legacyScriptCommandClipboardScenarioName}。");
+                    : $"已粘贴 {sectionsToInsert.Count} 个 Section，来源：{_legacyScriptCommandClipboardScenarioName}。",
+                    validation));
             return;
         }
 
@@ -1288,9 +1292,10 @@ public sealed partial class MainForm
                 }
             },
             preferredSelection,
-            commands.Count == 1
+            AppendLegacyScriptClipboardWarningToStatus(commands.Count == 1
                 ? $"已{target.StatusActionText}：{commands[0].CommandIdHex} {commands[0].CommandName}。"
                 : $"已{target.StatusActionText} {commands.Count} 条命令，来源：{_legacyScriptCommandClipboardScenarioName}。",
+                validation),
             new LegacyScriptStructureEditOptions(affectedSection));
     }
 
@@ -1299,42 +1304,142 @@ public sealed partial class MainForm
 
     private bool CanPasteCopiedLegacyScriptCommandNearSelected(LegacyScriptEditorScope scope, bool beforeSelected, out string reason)
     {
+        var result = ValidateLegacyScriptPaste(scope, beforeSelected);
+        reason = result.Reason;
+        return result.CanPaste;
+    }
+
+    private static string AppendLegacyScriptClipboardWarningToStatus(
+        string statusText,
+        LegacyScriptPasteValidationResult validation)
+        => string.IsNullOrWhiteSpace(validation.ClipboardWarning)
+            ? statusText
+            : statusText + "（" + validation.ClipboardWarning + "）";
+
+    private LegacyScriptPasteValidationResult ValidateLegacyScriptPaste(LegacyScriptEditorScope scope, bool beforeSelected)
+    {
         var document = GetCurrentLegacyScriptDocument(scope);
+        var sourceProjectName = _legacyScriptCommandClipboardProjectName;
+        var sourceScenarioName = _legacyScriptCommandClipboardScenarioName;
+        var sourceGameRoot = _legacyScriptCommandClipboardGameRoot;
+        var targetProjectName = _project?.Name ?? string.Empty;
+        var targetScenarioName = GetLegacyScriptScenarioName(scope);
+        var targetGameRoot = _project?.GameRoot ?? string.Empty;
         if (document == null)
         {
-            reason = "当前没有可编辑的旧版完整剧本树。";
-            return false;
+            var clipboardWarning = _legacyScriptClipboardWarning;
+            return BuildLegacyScriptPasteValidationResult(
+                false,
+                "当前没有可编辑的旧版完整剧本树。",
+                LegacyScriptClipboardPayloadKind.None,
+                false,
+                Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                0,
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                clipboardWarning);
         }
 
-        if (!TryEnsureLegacyScriptClipboardAvailable(out reason))
+        if (!TryEnsureLegacyScriptClipboardAvailable(out var reason))
         {
-            return false;
+            var clipboardWarning = _legacyScriptClipboardWarning;
+            return BuildLegacyScriptPasteValidationResult(
+                false,
+                reason,
+                LegacyScriptClipboardPayloadKind.None,
+                false,
+                Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                0,
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                clipboardWarning);
         }
 
+        sourceProjectName = _legacyScriptCommandClipboardProjectName;
+        sourceScenarioName = _legacyScriptCommandClipboardScenarioName;
+        sourceGameRoot = _legacyScriptCommandClipboardGameRoot;
+        var successfulClipboardWarning = _legacyScriptClipboardWarning;
+        var isCrossScenario = !IsLegacyScriptClipboardFromSameScenario(scope);
         var sourceScenes = GetLegacyScriptClipboardScenesForPaste();
         if (sourceScenes.Count > 0)
         {
             if (!TryGetSelectedLegacyScriptSceneNode(scope, out var selectedScene))
             {
-                reason = "请先选择要粘贴到其前面或后面的 Scene。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    "请先选择要粘贴到其前面或后面的 Scene。",
+                    LegacyScriptClipboardPayloadKind.Scenes,
+                    isCrossScenario,
+                    Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                    CountLegacyScriptSafeCommands(sourceScenes),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
             if (!document.Scenes.Contains(selectedScene))
             {
-                reason = "没有在当前旧版剧本树中定位到粘贴目标 Scene。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    "没有在当前旧版剧本树中定位到粘贴目标 Scene。",
+                    LegacyScriptClipboardPayloadKind.Scenes,
+                    isCrossScenario,
+                    Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                    CountLegacyScriptSafeCommands(sourceScenes),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
-            if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-                sourceScenes.Any(scene => scene.Sections.Any(section => LegacyScriptSectionContainsCommandId(section, 0x76))))
+            var blocked = CollectLegacyScriptBlockedJumpCommands(sourceScenes);
+            if (isCrossScenario && blocked.Count > 0)
             {
-                reason = "跨剧本粘贴包含 0x76 跳转命令的 Scene。跳转目标 ord 只在来源剧本内有效，请在目标剧本中手工新建并重设跳转。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    BuildLegacyScriptBlockedJumpReason(scope, LegacyScriptClipboardPayloadKind.Scenes, blocked),
+                    LegacyScriptClipboardPayloadKind.Scenes,
+                    true,
+                    blocked,
+                    CountLegacyScriptSafeCommands(sourceScenes),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
-            reason = string.Empty;
-            return true;
+            return BuildLegacyScriptPasteValidationResult(
+                true,
+                string.Empty,
+                LegacyScriptClipboardPayloadKind.Scenes,
+                isCrossScenario,
+                blocked,
+                CountLegacyScriptSafeCommands(sourceScenes),
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                successfulClipboardWarning);
         }
 
         var sourceSections = GetLegacyScriptClipboardSectionsForPaste();
@@ -1342,58 +1447,185 @@ public sealed partial class MainForm
         {
             if (!TryGetSelectedLegacyScriptSectionNode(scope, out var selectedSection))
             {
-                reason = "请先选择要粘贴到其前面或后面的 Section。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    "请先选择要粘贴到其前面或后面的 Section。",
+                    LegacyScriptClipboardPayloadKind.Sections,
+                    isCrossScenario,
+                    Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                    CountLegacyScriptSafeCommands(sourceSections),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
             if (!TryFindLegacySectionList(document, selectedSection, out _, out _))
             {
-                reason = "没有在当前旧版剧本树中定位到粘贴目标 Section。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    "没有在当前旧版剧本树中定位到粘贴目标 Section。",
+                    LegacyScriptClipboardPayloadKind.Sections,
+                    isCrossScenario,
+                    Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                    CountLegacyScriptSafeCommands(sourceSections),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
-            if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-                sourceSections.Any(section => LegacyScriptSectionContainsCommandId(section, 0x76)))
+            var blocked = CollectLegacyScriptBlockedJumpCommands(sourceSections);
+            if (isCrossScenario && blocked.Count > 0)
             {
-                reason = "跨剧本粘贴包含 0x76 跳转命令的 Section。跳转目标 ord 只在来源剧本内有效，请在目标剧本中手工新建并重设跳转。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    BuildLegacyScriptBlockedJumpReason(scope, LegacyScriptClipboardPayloadKind.Sections, blocked),
+                    LegacyScriptClipboardPayloadKind.Sections,
+                    true,
+                    blocked,
+                    CountLegacyScriptSafeCommands(sourceSections),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
-            reason = string.Empty;
-            return true;
+            return BuildLegacyScriptPasteValidationResult(
+                true,
+                string.Empty,
+                LegacyScriptClipboardPayloadKind.Sections,
+                isCrossScenario,
+                blocked,
+                CountLegacyScriptSafeCommands(sourceSections),
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                successfulClipboardWarning);
         }
 
         var sourceCommands = GetLegacyScriptClipboardCommandsForPaste();
+        if (sourceCommands.Count == 0)
+        {
+            return BuildLegacyScriptPasteValidationResult(
+                false,
+                "系统剪贴板没有可粘贴的剧本命令、Section 或 Scene 结构数据。",
+                LegacyScriptClipboardPayloadKind.None,
+                isCrossScenario,
+                Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                0,
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                successfulClipboardWarning);
+        }
+
         if (!TryGetLegacyScriptCommandPasteTarget(scope, beforeSelected, out var target, out reason))
         {
-            return false;
+            return BuildLegacyScriptPasteValidationResult(
+                false,
+                reason,
+                LegacyScriptClipboardPayloadKind.Commands,
+                isCrossScenario,
+                Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                CountLegacyScriptSafeCommands(sourceCommands),
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                successfulClipboardWarning);
         }
 
         foreach (var command in sourceCommands)
         {
             if (!CanCopyLegacyScriptCommand(command, out reason))
             {
-                reason = "当前复制的命令不能作为普通命令粘贴：" + reason;
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    "当前复制的命令不能作为普通命令粘贴：" + reason,
+                    LegacyScriptClipboardPayloadKind.Commands,
+                    isCrossScenario,
+                    Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                    CountLegacyScriptSafeCommands(sourceCommands),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
 
             if (IsLegacyScriptSectionTopLevelList(document, target.Commands) &&
                 !IsLegacyScriptTopLevelCommandId(command.CommandId))
             {
-                reason = $"旧版不允许在 Section 顶层粘贴该类型指令：{command.CommandIdHex} {command.CommandName}。";
-                return false;
+                return BuildLegacyScriptPasteValidationResult(
+                    false,
+                    $"旧版不允许在 Section 顶层粘贴该类型指令：{command.CommandIdHex} {command.CommandName}。",
+                    LegacyScriptClipboardPayloadKind.Commands,
+                    isCrossScenario,
+                    Array.Empty<LegacyScriptBlockedJumpInfo>(),
+                    CountLegacyScriptSafeCommands(sourceCommands),
+                    sourceProjectName,
+                    sourceScenarioName,
+                    sourceGameRoot,
+                    targetProjectName,
+                    targetScenarioName,
+                    targetGameRoot,
+                    successfulClipboardWarning);
             }
         }
 
-        if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-            sourceCommands.Any(command => LegacyScriptCommandTreeContainsCommandId(command, 0x76)))
+        var blockedCommands = CollectLegacyScriptBlockedJumpCommands(sourceCommands);
+        if (isCrossScenario && blockedCommands.Count > 0)
         {
-            reason = "跨剧本粘贴包含 0x76 跳转命令。跳转目标 ord 只在来源剧本内有效，请取消勾选该命令或在目标剧本中手工新建并重设跳转。";
-            return false;
+            return BuildLegacyScriptPasteValidationResult(
+                false,
+                BuildLegacyScriptBlockedJumpReason(scope, LegacyScriptClipboardPayloadKind.Commands, blockedCommands),
+                LegacyScriptClipboardPayloadKind.Commands,
+                true,
+                blockedCommands,
+                CountLegacyScriptSafeCommands(sourceCommands),
+                sourceProjectName,
+                sourceScenarioName,
+                sourceGameRoot,
+                targetProjectName,
+                targetScenarioName,
+                targetGameRoot,
+                successfulClipboardWarning);
         }
 
-        reason = string.Empty;
-        return true;
+        return BuildLegacyScriptPasteValidationResult(
+            true,
+            string.Empty,
+            LegacyScriptClipboardPayloadKind.Commands,
+            isCrossScenario,
+            blockedCommands,
+            CountLegacyScriptSafeCommands(sourceCommands),
+            sourceProjectName,
+            sourceScenarioName,
+            sourceGameRoot,
+            targetProjectName,
+            targetScenarioName,
+            targetGameRoot,
+            successfulClipboardWarning);
     }
 
     private IReadOnlyList<LegacyScenarioCommandNode> GetLegacyScriptClipboardCommandsForPaste()
@@ -1409,21 +1641,199 @@ public sealed partial class MainForm
     private IReadOnlyList<LegacyScenarioSection> GetLegacyScriptClipboardSectionsForPaste()
         => _legacyScriptSectionClipboardItems;
 
-    private bool TryEnsureLegacyScriptClipboardAvailable(out string reason)
-    {
-        if (_legacyScriptSceneClipboardItems.Count > 0 ||
-            _legacyScriptSectionClipboardItems.Count > 0 ||
-            _legacyScriptCommandClipboardItems.Count > 0 ||
-            _legacyScriptCommandClipboard != null)
-        {
-            reason = string.Empty;
-            return true;
-        }
+    private static LegacyScriptPasteValidationResult BuildLegacyScriptPasteValidationResult(
+        bool canPaste,
+        string reason,
+        LegacyScriptClipboardPayloadKind payloadKind,
+        bool isCrossScenario,
+        IReadOnlyList<LegacyScriptBlockedJumpInfo> blockedJumpCommands,
+        int safeCommandCount,
+        string sourceProjectName,
+        string sourceScenarioName,
+        string sourceGameRoot,
+        string targetProjectName,
+        string targetScenarioName,
+        string targetGameRoot,
+        string? clipboardWarning = null)
+        => new(
+            canPaste,
+            reason,
+            payloadKind,
+            isCrossScenario,
+            blockedJumpCommands,
+            safeCommandCount,
+            sourceProjectName,
+            sourceScenarioName,
+            sourceGameRoot,
+            targetProjectName,
+            targetScenarioName,
+            targetGameRoot,
+            clipboardWarning);
 
-        return TryLoadLegacyScriptClipboardFromSystemClipboard(out reason);
+    private string BuildLegacyScriptBlockedJumpReason(
+        LegacyScriptEditorScope scope,
+        LegacyScriptClipboardPayloadKind payloadKind,
+        IReadOnlyList<LegacyScriptBlockedJumpInfo> blocked)
+    {
+        var payloadText = payloadKind switch
+        {
+            LegacyScriptClipboardPayloadKind.Scenes => "Scene",
+            LegacyScriptClipboardPayloadKind.Sections => "Section",
+            LegacyScriptClipboardPayloadKind.Commands => "命令",
+            _ => "内容"
+        };
+        var source = string.IsNullOrWhiteSpace(_legacyScriptCommandClipboardScenarioName)
+            ? "未知剧本"
+            : _legacyScriptCommandClipboardScenarioName;
+        var target = GetLegacyScriptScenarioName(scope);
+        var sourceProject = FormatLegacyScriptProjectDisplay(
+            _legacyScriptCommandClipboardProjectName,
+            _legacyScriptCommandClipboardGameRoot);
+        var targetProject = FormatLegacyScriptProjectDisplay(
+            _project?.Name ?? string.Empty,
+            _project?.GameRoot ?? string.Empty);
+        var countText = blocked.Count == 1 ? "1 条" : $"{blocked.Count} 条";
+        var actionText = payloadKind == LegacyScriptClipboardPayloadKind.Commands
+            ? "请在来源中取消勾选 0x76，或在目标剧本中手工新建并重设跳转。"
+            : "Scene/Section 粘贴不会自动删除内部 0x76；请回到来源只勾选安全命令，或在目标剧本中手工新建并重设跳转。";
+        return $"跨项目粘贴包含 {countText} 0x76 跳转命令的 {payloadText}。跳转目标 ord 只在来源剧本内有效。来源项目：{sourceProject}，来源剧本：{source}；目标项目：{targetProject}，目标剧本：{target}。{actionText}";
     }
 
-    private bool TryLoadLegacyScriptClipboardFromSystemClipboard(out string reason)
+    private void AppendLegacyScriptPasteValidationSummary(
+        StringBuilder builder,
+        LegacyScriptPasteValidationResult validation)
+    {
+        builder.AppendLine();
+        builder.AppendLine($"来源项目：{FormatLegacyScriptProjectDisplay(validation.SourceProjectName, validation.SourceGameRoot)}");
+        builder.AppendLine($"来源剧本：{(string.IsNullOrWhiteSpace(validation.SourceScenarioName) ? "未知" : validation.SourceScenarioName)}");
+        builder.AppendLine($"目标项目：{FormatLegacyScriptProjectDisplay(validation.TargetProjectName, validation.TargetGameRoot)}");
+        builder.AppendLine($"目标剧本：{(string.IsNullOrWhiteSpace(validation.TargetScenarioName) ? "未知" : validation.TargetScenarioName)}");
+        builder.AppendLine($"跨项目判定：{(validation.IsCrossScenario ? "是" : "否")}");
+        if (!string.IsNullOrWhiteSpace(validation.ClipboardWarning))
+        {
+            builder.AppendLine("剪贴板提示：" + validation.ClipboardWarning);
+        }
+
+        if (validation.PayloadKind == LegacyScriptClipboardPayloadKind.Commands)
+        {
+            builder.AppendLine($"可安全粘贴命令数（排除 0x76）：{validation.SafeCommandCount}");
+        }
+
+        if (validation.BlockedJumpCommands.Count > 0)
+        {
+            builder.AppendLine(validation.IsCrossScenario && !validation.CanPaste
+                ? $"阻止原因：包含 {validation.BlockedJumpCommands.Count} 条 0x76 跳转命令。"
+                : $"跳转提示：包含 {validation.BlockedJumpCommands.Count} 条 0x76 跳转命令；同项目内粘贴后仍需核对跳转目标。");
+            foreach (var blocked in validation.BlockedJumpCommands.Take(20))
+            {
+                builder.AppendLine(
+                    $"- Scene {blocked.SceneIndex} / Section {blocked.SectionIndex} / Command {blocked.CommandIndex} / {blocked.CommandIdHex} / JumpTargetOrdinal={FormatNullableInt(blocked.JumpTargetOrdinal)} / JumpTargetCommandIndex={FormatNullableInt(blocked.JumpTargetCommandIndex)}");
+            }
+            if (validation.BlockedJumpCommands.Count > 20)
+            {
+                builder.AppendLine($"- ... 其余 {validation.BlockedJumpCommands.Count - 20} 条 0x76 已省略");
+            }
+        }
+
+        if (!validation.CanPaste && !string.IsNullOrWhiteSpace(validation.Reason))
+        {
+            builder.AppendLine("预览结论：" + validation.Reason);
+        }
+        else
+        {
+            builder.AppendLine("预览结论：可粘贴；粘贴后仍需点击对应的“完整保存剧本”写入文件。");
+        }
+    }
+
+    private static string FormatNullableInt(int? value)
+        => value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : "无";
+
+    private static string FormatLegacyScriptProjectDisplay(string projectName, string gameRoot)
+    {
+        if (!string.IsNullOrWhiteSpace(projectName) && !string.IsNullOrWhiteSpace(gameRoot))
+        {
+            return $"{projectName} ({gameRoot})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(projectName))
+        {
+            return projectName;
+        }
+
+        return string.IsNullOrWhiteSpace(gameRoot) ? "未知" : gameRoot;
+    }
+
+    private static IReadOnlyList<LegacyScriptBlockedJumpInfo> CollectLegacyScriptBlockedJumpCommands(
+        IEnumerable<LegacyScenarioScene> scenes)
+        => scenes
+            .SelectMany(scene => scene.Sections)
+            .SelectMany(section => section.EnumerateCommands())
+            .Where(command => command.CommandId == 0x76)
+            .Select(CreateLegacyScriptBlockedJumpInfo)
+            .ToList();
+
+    private static IReadOnlyList<LegacyScriptBlockedJumpInfo> CollectLegacyScriptBlockedJumpCommands(
+        IEnumerable<LegacyScenarioSection> sections)
+        => sections
+            .SelectMany(section => section.EnumerateCommands())
+            .Where(command => command.CommandId == 0x76)
+            .Select(CreateLegacyScriptBlockedJumpInfo)
+            .ToList();
+
+    private static IReadOnlyList<LegacyScriptBlockedJumpInfo> CollectLegacyScriptBlockedJumpCommands(
+        IEnumerable<LegacyScenarioCommandNode> commands)
+        => commands
+            .SelectMany(EnumerateLegacyScriptCommandTree)
+            .Where(command => command.CommandId == 0x76)
+            .Select(CreateLegacyScriptBlockedJumpInfo)
+            .ToList();
+
+    private static LegacyScriptBlockedJumpInfo CreateLegacyScriptBlockedJumpInfo(LegacyScenarioCommandNode command)
+        => new(
+            command.SceneIndex,
+            command.SectionIndex,
+            command.CommandIndex,
+            command.CommandIdHex,
+            command.JumpTargetOrdinal,
+            command.JumpTargetCommandIndex);
+
+    private static IEnumerable<LegacyScenarioCommandNode> EnumerateLegacyScriptCommandTree(LegacyScenarioCommandNode command)
+    {
+        yield return command;
+        if (command.ChildBlock == null)
+        {
+            yield break;
+        }
+
+        foreach (var child in command.ChildBlock.Commands)
+        {
+            foreach (var nested in EnumerateLegacyScriptCommandTree(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    private static int CountLegacyScriptSafeCommands(IEnumerable<LegacyScenarioScene> scenes)
+        => scenes
+            .SelectMany(scene => scene.Sections)
+            .SelectMany(section => section.EnumerateCommands())
+            .Count(command => command.CommandId != 0x76);
+
+    private static int CountLegacyScriptSafeCommands(IEnumerable<LegacyScenarioSection> sections)
+        => sections
+            .SelectMany(section => section.EnumerateCommands())
+            .Count(command => command.CommandId != 0x76);
+
+    private static int CountLegacyScriptSafeCommands(IEnumerable<LegacyScenarioCommandNode> commands)
+        => commands
+            .SelectMany(EnumerateLegacyScriptCommandTree)
+            .Count(command => command.CommandId != 0x76);
+
+    private bool TryEnsureLegacyScriptClipboardAvailable(out string reason)
+        => TryLoadLegacyScriptClipboardFromSystemClipboard(out reason, allowMemoryFallback: true);
+
+    private bool TryLoadLegacyScriptClipboardFromSystemClipboard(out string reason, bool allowMemoryFallback = false)
     {
         reason = string.Empty;
         string text;
@@ -1431,7 +1841,14 @@ public sealed partial class MainForm
         {
             if (!Clipboard.ContainsText())
             {
-                reason = "请先复制一条可粘贴的剧本命令、Section 或 Scene。";
+                reason = "系统剪贴板没有文本，也没有可粘贴的 CCZModStudio 剧本结构数据。请先复制命令、Section 或 Scene。";
+                if (_legacyScriptClipboardMemoryOnly)
+                {
+                    _legacyScriptClipboardWarning = reason + " 已保留本窗口内存剪贴板；只有系统剪贴板读取失败时才会回退使用。";
+                    return false;
+                }
+
+                ClearLegacyScriptClipboardCache();
                 return false;
             }
 
@@ -1440,12 +1857,31 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             reason = "读取系统剪贴板失败：" + ex.Message;
-            return false;
+            return TryUseLegacyScriptMemoryClipboardFallback(ref reason, allowMemoryFallback);
         }
 
         if (!TryReadLegacyScriptClipboardEnvelope(text, out var envelope, out reason))
         {
+            if (_legacyScriptClipboardMemoryOnly)
+            {
+                reason = "系统剪贴板没有 CCZModStudio 剧本命令/Section/Scene 结构数据；已保留本窗口内存剪贴板，但普通粘贴不会使用它，只有系统剪贴板读取失败时才会回退。";
+                _legacyScriptClipboardWarning = reason;
+                return false;
+            }
+
+            ClearLegacyScriptClipboardCache();
+            reason = "系统剪贴板没有 CCZModStudio 剧本命令/Section/Scene 结构数据；已清空旧的内存剪贴板，避免粘贴过期内容。请用新版剧本制作页重新复制。";
             return false;
+        }
+
+        var fingerprint = BuildLegacyScriptClipboardFingerprint(text);
+        if (string.Equals(_legacyScriptClipboardFingerprint, fingerprint, StringComparison.Ordinal) &&
+            !_legacyScriptClipboardMemoryOnly &&
+            TryHasLegacyScriptClipboardCache())
+        {
+            _legacyScriptClipboardWarning = string.Empty;
+            reason = string.Empty;
+            return true;
         }
 
         var commands = envelope.Commands
@@ -1467,14 +1903,59 @@ public sealed partial class MainForm
         _legacyScriptCommandClipboard = commands.FirstOrDefault();
         _legacyScriptSceneClipboardItems = scenes;
         _legacyScriptSectionClipboardItems = sections;
+        _legacyScriptCommandClipboardProjectName = string.IsNullOrWhiteSpace(envelope.SourceProjectName)
+            ? "外部项目"
+            : envelope.SourceProjectName;
         _legacyScriptCommandClipboardScenarioName = string.IsNullOrWhiteSpace(envelope.SourceScenarioName)
             ? "外部项目"
             : envelope.SourceScenarioName;
         _legacyScriptCommandClipboardGameRoot = envelope.SourceGameRoot ?? string.Empty;
+        _legacyScriptClipboardFingerprint = fingerprint;
+        _legacyScriptClipboardWarning = string.Empty;
+        _legacyScriptClipboardMemoryOnly = false;
         _scriptCommandClipboardItem = null;
         reason = string.Empty;
         return true;
     }
+
+    private bool TryUseLegacyScriptMemoryClipboardFallback(ref string reason, bool allowMemoryFallback)
+    {
+        if (!allowMemoryFallback || !TryHasLegacyScriptClipboardCache())
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            reason += " ";
+        }
+        reason += "正在使用本窗口内存剪贴板。";
+        _legacyScriptClipboardWarning = reason;
+        return true;
+    }
+
+    private bool TryHasLegacyScriptClipboardCache()
+        => _legacyScriptSceneClipboardItems.Count > 0 ||
+           _legacyScriptSectionClipboardItems.Count > 0 ||
+           _legacyScriptCommandClipboardItems.Count > 0 ||
+           _legacyScriptCommandClipboard != null;
+
+    private void ClearLegacyScriptClipboardCache()
+    {
+        _legacyScriptCommandClipboard = null;
+        _legacyScriptCommandClipboardItems = Array.Empty<LegacyScenarioCommandNode>();
+        _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
+        _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+        _legacyScriptCommandClipboardProjectName = string.Empty;
+        _legacyScriptCommandClipboardScenarioName = string.Empty;
+        _legacyScriptCommandClipboardGameRoot = string.Empty;
+        _legacyScriptClipboardFingerprint = string.Empty;
+        _legacyScriptClipboardWarning = string.Empty;
+        _legacyScriptClipboardMemoryOnly = false;
+    }
+
+    private static string BuildLegacyScriptClipboardFingerprint(string text)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     private static bool TryReadLegacyScriptClipboardEnvelope(
         string text,
@@ -2973,6 +3454,7 @@ public sealed partial class MainForm
 
     private void MarkLegacyScriptStructureDirty(LegacyScriptEditorScope scope)
     {
+        SetLegacyStructureDirtyFlag(scope, true);
         switch (scope)
         {
             case LegacyScriptEditorScope.Script:
@@ -2993,6 +3475,7 @@ public sealed partial class MainForm
     private void MarkLegacyScriptEditorSavedInPlace(LegacyScriptEditorScope scope, LegacyScenarioWriteResult result)
     {
         ClearLegacyScenarioHistory(scope);
+        SetLegacyStructureDirtyFlag(scope, false);
         var detailText =
             $"\r\n\r\n完整保存完成：变化 {result.ChangedBytes} 字节。\r\n校验：{result.ValidationSummary}\r\n备份：{result.BackupPath}\r\n报告：{result.ReportJsonPath}";
         switch (scope)
@@ -8445,6 +8928,7 @@ public sealed partial class MainForm
             _legacyScriptCommandClipboardItems = new[] { _legacyScriptCommandClipboard };
             _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
             _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+            _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
             _legacyScriptCommandClipboardScenarioName = _currentScriptScenario?.FileName ?? "RS";
             _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         }
@@ -8454,19 +8938,19 @@ public sealed partial class MainForm
             _legacyScriptCommandClipboardItems = Array.Empty<LegacyScenarioCommandNode>();
             _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
             _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+            _legacyScriptCommandClipboardProjectName = string.Empty;
             _legacyScriptCommandClipboardScenarioName = string.Empty;
             _legacyScriptCommandClipboardGameRoot = string.Empty;
         }
 
         _previewPasteScriptCommandButton.Enabled = true;
-        UpdateScriptStructureEditButtons();
         var text = _scenarioCommandClipboardService.BuildCommandCopyText(_currentScriptScenario?.FileName ?? "RS", row, parameters);
         var clipboardText = TryGetLegacyScriptCommand(row, out legacyCommand)
             ? BuildLegacyScriptCommandClipboardText(text, _currentScriptScenario?.FileName ?? "RS", new[] { legacyCommand })
             : text;
         try
         {
-            Clipboard.SetText(clipboardText);
+            SetLegacyScriptStructuredClipboardTextOrThrow(clipboardText);
             _scriptDetailBox.Text = text + "\r\n\r\n已复制到剪贴板。";
             SetStatus($"剧本制作：已复制命令摘要 {row.CommandName} {row.OffsetHex}");
         }
@@ -8475,6 +8959,7 @@ public sealed partial class MainForm
             _scriptDetailBox.Text = text + "\r\n\r\n剪贴板写入失败，可从此处手动复制。\r\n" + ex.Message;
             SetStatus("剧本制作：命令摘要已生成，剪贴板写入失败");
         }
+        UpdateScriptStructureEditButtons();
     }
 
     private void CopySelectedLegacyScriptCommandSummary(LegacyScriptEditorScope scope)
@@ -8569,19 +9054,19 @@ public sealed partial class MainForm
         _legacyScriptCommandClipboard = clipboardItems[0];
         _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
         _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = _scriptCommandClipboardItem != null ||
                                                    _legacyScriptCommandClipboardItems.Count > 0 ||
                                                    _legacyScriptSceneClipboardItems.Count > 0 ||
                                                    _legacyScriptSectionClipboardItems.Count > 0;
-        UpdateScriptStructureEditButtons();
 
         var text = BuildLegacyScriptCommandBatchCopyText(scenarioName, commands);
         var clipboardText = BuildLegacyScriptCommandClipboardText(text, scenarioName, commands);
         try
         {
-            Clipboard.SetText(clipboardText);
+            SetLegacyScriptStructuredClipboardTextOrThrow(clipboardText);
             _scriptDetailBox.Text = text + "\r\n\r\n已复制到剪贴板。";
             SetStatus($"剧本制作：已批量复制 {commands.Count} 条命令，可切换剧本后粘贴");
         }
@@ -8590,6 +9075,7 @@ public sealed partial class MainForm
             _scriptDetailBox.Text = text + "\r\n\r\n剪贴板写入失败，可从此处手动复制。\r\n" + ex.Message;
             SetStatus($"剧本制作：已生成 {commands.Count} 条命令批量复制摘要，剪贴板写入失败");
         }
+        UpdateScriptStructureEditButtons();
     }
 
     private void CopyLegacyScriptCommandBatch(LegacyScriptEditorScope scope, IReadOnlyList<LegacyScenarioCommandNode> commands)
@@ -8628,18 +9114,18 @@ public sealed partial class MainForm
         _legacyScriptCommandClipboard = clipboardItems[0];
         _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
         _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = string.IsNullOrWhiteSpace(scenarioName) ? GetLegacyScriptScopeStatusPrefix(scope) : scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = _legacyScriptCommandClipboardItems.Count > 0 ||
                                                    _legacyScriptSceneClipboardItems.Count > 0 ||
                                                    _legacyScriptSectionClipboardItems.Count > 0;
-        UpdateScriptStructureEditButtons();
 
         var text = BuildLegacyScriptCommandBatchCopyText(_legacyScriptCommandClipboardScenarioName, commands);
         var clipboardText = BuildLegacyScriptCommandClipboardText(text, _legacyScriptCommandClipboardScenarioName, commands);
         try
         {
-            Clipboard.SetText(clipboardText);
+            SetLegacyScriptStructuredClipboardTextOrThrow(clipboardText);
             SetLegacyScriptDetailText(scope, text + "\r\n\r\n已复制到剪贴板。");
             SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：已复制 {commands.Count} 条命令，可切换剧本后粘贴");
         }
@@ -8648,6 +9134,7 @@ public sealed partial class MainForm
             SetLegacyScriptDetailText(scope, text + "\r\n\r\n剪贴板写入失败，可从此处手动复制。\r\n" + ex.Message);
             SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：已生成 {commands.Count} 条命令复制摘要，剪贴板写入失败");
         }
+        UpdateScriptStructureEditButtons();
     }
 
     private void CopyLegacyScriptSectionBatch(LegacyScriptEditorScope scope, IReadOnlyList<LegacyScenarioSection> sections)
@@ -8668,16 +9155,16 @@ public sealed partial class MainForm
         _legacyScriptSectionClipboardItems = sections
             .Select(section => CloneLegacyScriptSectionForPaste(section, section.SceneIndex, section.SectionIndex))
             .ToList();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = string.IsNullOrWhiteSpace(scenarioName) ? GetLegacyScriptScopeStatusPrefix(scope) : scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = _legacyScriptSectionClipboardItems.Count > 0;
-        UpdateScriptStructureEditButtons();
 
         var text = BuildLegacyScriptSectionBatchCopyText(_legacyScriptCommandClipboardScenarioName, sections);
         var clipboardText = BuildLegacyScriptSectionClipboardText(text, _legacyScriptCommandClipboardScenarioName, sections);
         try
         {
-            Clipboard.SetText(clipboardText);
+            SetLegacyScriptStructuredClipboardTextOrThrow(clipboardText);
             SetLegacyScriptDetailText(scope, text + "\r\n\r\n已复制到剪贴板。");
             SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：已复制 {sections.Count} 个 Section，可切换剧本后粘贴到 Section 前后");
         }
@@ -8686,6 +9173,7 @@ public sealed partial class MainForm
             SetLegacyScriptDetailText(scope, text + "\r\n\r\n剪贴板写入失败，可从此处手动复制。\r\n" + ex.Message);
             SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：已生成 {sections.Count} 个 Section 复制摘要，剪贴板写入失败");
         }
+        UpdateScriptStructureEditButtons();
     }
 
     private void CopyLegacyScriptSceneBatch(LegacyScriptEditorScope scope, IReadOnlyList<LegacyScenarioScene> scenes)
@@ -8706,16 +9194,16 @@ public sealed partial class MainForm
         _legacyScriptSceneClipboardItems = scenes
             .Select(CloneLegacyScriptSceneForPaste)
             .ToList();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = string.IsNullOrWhiteSpace(scenarioName) ? GetLegacyScriptScopeStatusPrefix(scope) : scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = _legacyScriptSceneClipboardItems.Count > 0;
-        UpdateScriptStructureEditButtons();
 
         var text = BuildLegacyScriptSceneBatchCopyText(_legacyScriptCommandClipboardScenarioName, scenes);
         var clipboardText = BuildLegacyScriptSceneClipboardText(text, _legacyScriptCommandClipboardScenarioName, scenes);
         try
         {
-            Clipboard.SetText(clipboardText);
+            SetLegacyScriptStructuredClipboardTextOrThrow(clipboardText);
             SetLegacyScriptDetailText(scope, text + "\r\n\r\n已复制到剪贴板。");
             SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：已复制 {scenes.Count} 个 Scene，可切换剧本后粘贴到 Scene 前后");
         }
@@ -8724,6 +9212,7 @@ public sealed partial class MainForm
             SetLegacyScriptDetailText(scope, text + "\r\n\r\n剪贴板写入失败，可从此处手动复制。\r\n" + ex.Message);
             SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：已生成 {scenes.Count} 个 Scene 复制摘要，剪贴板写入失败");
         }
+        UpdateScriptStructureEditButtons();
     }
 
     private string BuildLegacyScriptCommandBatchCopyText(string scenarioName, IReadOnlyList<LegacyScenarioCommandNode> commands)
@@ -8882,6 +9371,33 @@ public sealed partial class MainForm
                json +
                "\r\n" +
                LegacyScriptClipboardEndMarker;
+    }
+
+    private bool TrySetLegacyScriptStructuredClipboardText(string clipboardText, out string error)
+    {
+        try
+        {
+            Clipboard.SetText(clipboardText);
+            _legacyScriptClipboardFingerprint = BuildLegacyScriptClipboardFingerprint(clipboardText);
+            _legacyScriptClipboardMemoryOnly = false;
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _legacyScriptClipboardFingerprint = BuildLegacyScriptClipboardFingerprint(clipboardText);
+            _legacyScriptClipboardMemoryOnly = true;
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    private void SetLegacyScriptStructuredClipboardTextOrThrow(string clipboardText)
+    {
+        if (!TrySetLegacyScriptStructuredClipboardText(clipboardText, out var error))
+        {
+            throw new InvalidOperationException(error);
+        }
     }
 
     private static LegacyScriptClipboardScene CreateLegacyScriptClipboardScene(LegacyScenarioScene scene)
@@ -9119,17 +9635,7 @@ public sealed partial class MainForm
             builder.AppendLine($"- ... 其余 {sourceCommands.Count - 20} 条省略");
         }
 
-        builder.AppendLine();
-        if (!IsLegacyScriptClipboardFromSameScenario(LegacyScriptEditorScope.Script) &&
-            sourceCommands.Any(command => LegacyScriptCommandTreeContainsCommandId(command, 0x76)))
-        {
-            builder.AppendLine("预览结论：来源包含 0x76 跳转命令，跨剧本粘贴会被阻止。请先在来源中取消勾选 0x76，或在目标剧本中手工新建并重设跳转。");
-        }
-        else
-        {
-            builder.AppendLine("预览结论：可按右键菜单或 Ctrl+V 粘贴到目标命令前；粘贴后仍需点击“完整保存剧本”写入文件。");
-        }
-
+        AppendLegacyScriptPasteValidationSummary(builder, ValidateLegacyScriptPaste(LegacyScriptEditorScope.Script, beforeSelected: true));
         return builder.ToString().TrimEnd();
     }
 
@@ -9154,17 +9660,7 @@ public sealed partial class MainForm
             builder.AppendLine($"- ... 其余 {sourceCommands.Count - 20} 条省略");
         }
 
-        builder.AppendLine();
-        if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-            sourceCommands.Any(command => LegacyScriptCommandTreeContainsCommandId(command, 0x76)))
-        {
-            builder.AppendLine("预览结论：来源包含 0x76 跳转命令，跨剧本粘贴会被阻止。请先在来源中取消勾选 0x76，或在目标剧本中手工新建并重设跳转。");
-        }
-        else
-        {
-            builder.AppendLine("预览结论：可按右键菜单或 Ctrl+V 粘贴到目标命令前；粘贴后仍需点击对应的“完整保存剧本”写入文件。");
-        }
-
+        AppendLegacyScriptPasteValidationSummary(builder, ValidateLegacyScriptPaste(scope, beforeSelected: true));
         return builder.ToString().TrimEnd();
     }
 
@@ -9190,17 +9686,7 @@ public sealed partial class MainForm
             builder.AppendLine($"- ... 其余 {sourceCommands.Count - 20} 条省略");
         }
 
-        builder.AppendLine();
-        if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-            sourceCommands.Any(command => LegacyScriptCommandTreeContainsCommandId(command, 0x76)))
-        {
-            builder.AppendLine("预览结论：来源包含 0x76 跳转命令，跨剧本粘贴会被阻止。请先在来源中取消勾选 0x76，或在目标剧本中手工新建并重设跳转。");
-        }
-        else
-        {
-            builder.AppendLine("预览结论：可按右键菜单或 Ctrl+V 粘贴；粘贴后仍需点击对应的“完整保存剧本”写入文件。");
-        }
-
+        AppendLegacyScriptPasteValidationSummary(builder, ValidateLegacyScriptPaste(scope, beforeSelected: true));
         return builder.ToString().TrimEnd();
     }
 
@@ -9231,16 +9717,7 @@ public sealed partial class MainForm
             builder.AppendLine($"- ... 其余 {sourceSections.Count - 12} 个 Section 省略");
         }
 
-        builder.AppendLine();
-        if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-            sourceSections.Any(section => LegacyScriptSectionContainsCommandId(section, 0x76)))
-        {
-            builder.AppendLine("预览结论：来源包含 0x76 跳转命令，跨剧本粘贴会被阻止。请在目标剧本中手工新建并重设跳转。");
-        }
-        else
-        {
-            builder.AppendLine("预览结论：可按右键菜单或 Ctrl+V 粘贴 Section；粘贴后会重建 Scene/Section 编号，仍需点击对应的“完整保存剧本”写入文件。");
-        }
+        AppendLegacyScriptPasteValidationSummary(builder, ValidateLegacyScriptPaste(scope, beforeSelected));
         return builder.ToString().TrimEnd();
     }
 
@@ -9271,17 +9748,7 @@ public sealed partial class MainForm
             builder.AppendLine($"- ... 其余 {sourceScenes.Count - 8} 个 Scene 省略");
         }
 
-        builder.AppendLine();
-        if (!IsLegacyScriptClipboardFromSameScenario(scope) &&
-            sourceScenes.Any(scene => scene.Sections.Any(section => LegacyScriptSectionContainsCommandId(section, 0x76))))
-        {
-            builder.AppendLine("预览结论：来源包含 0x76 跳转命令，跨剧本粘贴会被阻止。请在目标剧本中手工新建并重设跳转。");
-        }
-        else
-        {
-            builder.AppendLine("预览结论：可按右键菜单或 Ctrl+V 粘贴 Scene；粘贴后会重建 Scene/Section 编号，仍需点击对应的“完整保存剧本”写入文件。");
-        }
-
+        AppendLegacyScriptPasteValidationSummary(builder, ValidateLegacyScriptPaste(scope, beforeSelected));
         return builder.ToString().TrimEnd();
     }
 
@@ -9475,6 +9942,14 @@ public sealed partial class MainForm
         var number = parameter.Index + 1;
         var name = command.CommandId switch
         {
+            0x05 => parameter.Kind == LegacyScenarioParameterKind.VariableArray
+                ? parameter.Index switch
+                {
+                    0 => "true 变量数组",
+                    1 => "false 变量数组",
+                    _ => "变量列表"
+                }
+                : $"参数{number}",
             0x76 => parameter.Index == 0 ? "跳转到" : $"参数{number}",
             0x77 => parameter.Index switch
             {

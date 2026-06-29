@@ -65,6 +65,7 @@ public sealed partial class MainForm
             e.ThrowException = false;
             SetStatus("角色设定单元格显示值无法匹配，请重新导入或检查职业等下拉字段。");
         };
+        _roleEditorGrid.CellValidating += (_, e) => ValidateRoleEditorCell(e);
         _roleEditorGrid.CellEndEdit += (_, e) =>
         {
             UpdateRoleEditorDerivedCells(e.RowIndex, e.ColumnIndex);
@@ -405,7 +406,7 @@ public sealed partial class MainForm
             ContinueBattlefieldPlacedUnitInteraction(e);
         };
         _battlefieldMapPreviewBox.MouseUp += (_, _) => EndBattlefieldPlacedUnitInteraction();
-        _battlefieldMapPreviewBox.MouseDoubleClick += (_, e) => OpenBattlefieldUnitStatusDialog(e);
+        _battlefieldMapPreviewBox.MouseDoubleClick += (_, e) => FocusBattlefieldConsoleFromMapDoubleClick(e);
         _battlefieldMapPreviewBox.MouseLeave += (_, _) =>
         {
             ClearBattlefieldMapHover();
@@ -473,6 +474,22 @@ public sealed partial class MainForm
             ApplyBattlefieldControlPanelToSelectedUnit();
             RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
         };
+        _battlefieldConsoleWeaponCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleWeaponLevelInput.ValueChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleArmorCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleArmorLevelInput.ValueChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleAssistCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleJobCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleAbilityGrid.CurrentCellDirtyStateChanged += (_, _) =>
+        {
+            if (_battlefieldConsoleAbilityGrid.IsCurrentCellDirty)
+            {
+                _battlefieldConsoleAbilityGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            }
+        };
+        _battlefieldConsoleAbilityGrid.CellValueChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleAbilityGrid.CellEndEdit += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleAbilityGrid.DataError += (_, e) => e.ThrowException = false;
         _loadRSceneButton.Click += async (_, _) => await LoadRSceneScenariosAsync();
         _rSceneScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedRSceneScenarioAsync();
         _saveRSceneDraftButton.Click += (_, _) => SaveRSceneDraft();

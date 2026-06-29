@@ -17,6 +17,13 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private enum RoleEquipmentSlot
+    {
+        Weapon,
+        Armor,
+        Assist
+    }
+
     private void OpenRoleEditor()
     {
         if (_project == null)
@@ -117,11 +124,16 @@ public sealed partial class MainForm
         }
         output.Columns.Add("职业名称", typeof(string));
         output.Columns.Add("头像说明", typeof(string));
+        output.Columns.Add("武器名", typeof(string));
+        output.Columns.Add("防具名", typeof(string));
+        output.Columns.Add("辅助名", typeof(string));
         output.Columns.Add("R形象编号", typeof(int));
         output.Columns.Add("S形象编号", typeof(int));
         output.Columns.Add("R资源状态", typeof(string));
         output.Columns.Add("S资源状态", typeof(string));
 
+        var itemNames = BuildItemNameLookup(project, tables);
+        var itemClassifications = new ItemClassificationService().BuildLookup(project, tables);
         var count = Math.Min(personRead.Data.Rows.Count, Math.Min(rRead.Data.Rows.Count, sRead.Data.Rows.Count));
         for (var i = 0; i < count; i++)
         {
@@ -136,6 +148,7 @@ public sealed partial class MainForm
             var sId = Convert.ToInt32(sRead.Data.Rows[i]["S形象编号"], CultureInfo.InvariantCulture);
             row["职业名称"] = BuildRoleJobName(jobId);
             row["头像说明"] = BuildRoleFaceHint(faceId);
+            RefreshRoleEquipmentNameCells(row, itemNames, itemClassifications);
             row["R形象编号"] = rId;
             row["S形象编号"] = sId;
             row["R资源状态"] = ImageAssignmentService.GetImageResourceStatus(project, "R", rId);
@@ -146,7 +159,7 @@ public sealed partial class MainForm
         output.AcceptChanges();
         foreach (DataColumn column in output.Columns)
         {
-            column.ReadOnly = column.ColumnName is "ID";
+            column.ReadOnly = column.ColumnName is "ID" or "武器名" or "防具名" or "辅助名";
         }
         return output;
     }
@@ -197,6 +210,7 @@ public sealed partial class MainForm
 
         _roleEditorGrid.ReadOnly = false;
         ReplaceRoleJobColumnWithCombo();
+        ReplaceRoleEquipmentColumnsWithCombos();
         var hiddenColumns = new HashSet<string>(StringComparer.Ordinal)
         {
             "Army",
@@ -204,12 +218,15 @@ public sealed partial class MainForm
             "经验",
             "职业名称",
             "头像说明",
+            "武器名",
+            "防具名",
+            "辅助名",
             "R资源状态",
             "S资源状态"
         };
         foreach (DataGridViewColumn column in _roleEditorGrid.Columns)
         {
-            column.ReadOnly = column.DataPropertyName is "ID" or "职业名称" or "头像说明" or "R资源状态" or "S资源状态";
+            column.ReadOnly = column.DataPropertyName is "ID" or "职业名称" or "头像说明" or "武器名" or "防具名" or "辅助名" or "R资源状态" or "S资源状态";
             column.Visible = !hiddenColumns.Contains(column.DataPropertyName);
             column.ToolTipText = BuildRoleColumnAnnotation(column.DataPropertyName);
             column.HeaderText = column.DataPropertyName switch
@@ -217,6 +234,10 @@ public sealed partial class MainForm
                 "职业" => "职业\n详细兵种",
                 "职业名称" => "职业名称\n引用",
                 "头像说明" => "头像说明\n资源",
+                "武器" => "默认武器\n物品ID",
+                "防具" => "默认防具\n物品ID",
+                "辅助" => "默认辅助\n物品ID",
+                "武器名" or "防具名" or "辅助名" => column.DataPropertyName + "\n引用",
                 "R形象编号" => "R形象编号\n资源",
                 "S形象编号" => "S形象编号\n资源",
                 "R资源状态" or "S资源状态" => column.DataPropertyName,
@@ -255,10 +276,92 @@ public sealed partial class MainForm
         _roleEditorGrid.Columns.Insert(index, combo);
     }
 
+    private void ReplaceRoleEquipmentColumnsWithCombos()
+    {
+        if (_project == null) return;
+        var boundary = ItemCategoryBoundaryService.Resolve(_project);
+        var itemNames = BuildItemNameLookup(_project, _tables);
+        var classifications = new ItemClassificationService().BuildLookup(_project, _tables);
+        ReplaceRoleEquipmentColumnWithCombo("武器", BuildRoleEquipmentLookup(RoleEquipmentSlot.Weapon, boundary, itemNames, classifications));
+        ReplaceRoleEquipmentColumnWithCombo("防具", BuildRoleEquipmentLookup(RoleEquipmentSlot.Armor, boundary, itemNames, classifications));
+        ReplaceRoleEquipmentColumnWithCombo("辅助", BuildRoleEquipmentLookup(RoleEquipmentSlot.Assist, boundary, itemNames, classifications));
+    }
+
+    private void ReplaceRoleEquipmentColumnWithCombo(string columnName, DataTable lookup)
+    {
+        if (!_roleEditorGrid.Columns.Contains(columnName)) return;
+        if (_roleEditorGrid.Columns[columnName] is DataGridViewComboBoxColumn) return;
+
+        var old = _roleEditorGrid.Columns[columnName];
+        var index = old.Index;
+        _roleEditorGrid.Columns.Remove(old);
+        var combo = new DataGridViewComboBoxColumn
+        {
+            Name = columnName,
+            DataPropertyName = columnName,
+            DataSource = lookup,
+            ValueMember = "ID",
+            DisplayMember = "显示",
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.ComboBox,
+            FlatStyle = FlatStyle.Flat,
+            SortMode = DataGridViewColumnSortMode.Automatic,
+            Width = 170
+        };
+        _roleEditorGrid.Columns.Insert(index, combo);
+    }
+
+    private static DataTable BuildRoleEquipmentLookup(
+        RoleEquipmentSlot slot,
+        ItemCategoryBoundary boundary,
+        IReadOnlyDictionary<int, string> itemNames,
+        IReadOnlyDictionary<int, ItemClassification> classifications)
+    {
+        var lookup = new DataTable("RoleEquipmentLookup");
+        lookup.Columns.Add("ID", typeof(int));
+        lookup.Columns.Add("显示", typeof(string));
+        lookup.Rows.Add(255, "255：空/未指定");
+
+        var (start, endExclusive) = slot switch
+        {
+            RoleEquipmentSlot.Weapon => (boundary.WeaponStartId, boundary.DefenseStartId),
+            RoleEquipmentSlot.Armor => (boundary.DefenseStartId, boundary.AccessoryStartId),
+            RoleEquipmentSlot.Assist => (boundary.AccessoryStartId, 256),
+            _ => (0, 0)
+        };
+
+        for (var itemId = start; itemId < endExclusive; itemId++)
+        {
+            var classification = classifications.TryGetValue(itemId, out var known)
+                ? known
+                : new ItemClassification(itemId, RoleEquipmentSlotToItemKind(slot), boundary.GetMajorCategory(itemId), true, false, 0, 0, 0);
+            if (slot == RoleEquipmentSlot.Assist &&
+                classification.Kind is ItemKind.Consumable or ItemKind.Reserved)
+            {
+                continue;
+            }
+
+            var name = itemNames.TryGetValue(itemId, out var itemName) && !string.IsNullOrWhiteSpace(itemName)
+                ? itemName
+                : "未命名";
+            lookup.Rows.Add(itemId, $"{itemId}：{name}（{classification.DisplayName}/类型{classification.TypeId}）");
+        }
+
+        return lookup;
+    }
+
+    private static ItemKind RoleEquipmentSlotToItemKind(RoleEquipmentSlot slot)
+        => slot switch
+        {
+            RoleEquipmentSlot.Weapon => ItemKind.Weapon,
+            RoleEquipmentSlot.Armor => ItemKind.Armor,
+            RoleEquipmentSlot.Assist => ItemKind.AccessoryEquipment,
+            _ => ItemKind.Unknown
+        };
+
     private string BuildRoleColumnHeader(string columnName)
     {
         if (columnName == "ID") return "ID\n行号";
-        if (columnName is "职业名称" or "头像说明") return columnName;
+        if (columnName is "职业名称" or "头像说明" or "武器名" or "防具名" or "辅助名") return columnName;
         var personTable = _project != null && HexTableNameResolver.TryResolveForProject(_project, _tables, "6.5-0 人物", out var resolvedPersonTable)
             ? resolvedPersonTable
             : null;
@@ -273,6 +376,8 @@ public sealed partial class MainForm
         if (columnName == "ID") return "人物行号/编号，用于和曹操传人物表下标对应。";
         if (columnName == "职业名称") return "根据人物表“职业”编号自动引用 `6.5-4 详细兵种` 的名称，便于确认角色当前兵种。";
         if (columnName == "头像说明") return "根据人物表“头像”编号生成的头像映射说明：Data 头像号 -> Face.e5 小头像号（0 号使用 1-8 候选）以及 Tou.dll 真彩资源号（=小头像号+300，语言2052）。";
+        if (columnName is "武器" or "防具" or "辅助") return BuildRoleEquipmentColumnAnnotation(columnName);
+        if (columnName is "武器名" or "防具名" or "辅助名") return "只读显示列：根据人物默认装备物品 ID 和当前物品表解析名称。";
         if (columnName == "暴击台词") return "暴击台词类型号，不是直接文本行号。若人物命中 Ekd5.exe @ 0x89C30 的 21 组特殊人物表，则使用对应特殊台词行 #0..#20；否则按 `21 + 类型号 * 3` 起连续 3 行作为普通暴击随机台词。";
         if (columnName == "撤退台词") return "6.5 实机显示撤退台词时通常按人物行 ID 读取 `6.5-0-3 撤退台词` 同 ID 行（仅 0..48），不是直接使用该字段值定位文本行；该字段保留为兼容/旧工具数据。";
         if (columnName is "R形象编号") return "人物 R 形象编号：对应 Pmapobj.e5 的正/反两张图（正=2n+1，反=2n+2，按 1-based 图号解释）。";
@@ -295,14 +400,37 @@ public sealed partial class MainForm
         return new CharacterImageResourceService().BuildFaceHint(_project, faceId);
     }
 
-    private static string BuildRoleEditorSummary(DataTable data)
+    private string BuildRoleEquipmentColumnAnnotation(string columnName)
+    {
+        var boundary = _project != null
+            ? ItemCategoryBoundaryService.Resolve(_project)
+            : new ItemCategoryBoundary(ItemCategoryBoundaryService.MinItemId, ItemCategoryBoundaryService.DefaultDefenseStartId, ItemCategoryBoundaryService.DefaultAccessoryStartId, "默认边界", IsFallback: true);
+        var range = columnName switch
+        {
+            "武器" => $"{boundary.WeaponStartId}..{boundary.DefenseStartId - 1}",
+            "防具" => $"{boundary.DefenseStartId}..{boundary.AccessoryStartId - 1}",
+            "辅助" => $"{boundary.AccessoryStartId}..255",
+            _ => "0..255"
+        };
+        return $"{columnName}：Data.e5 人物记录尾部默认装备槽，保存为物品绝对 ID；255 表示空/未指定，0 是合法物品 ID。允许范围：{range}。不要和 R/S 0x3E 战场装备设定的 0=默认、1=卸去、2+=分段相对编号混用。装备分段：{boundary.DisplayText}";
+    }
+
+    private string BuildRoleEditorSummary(DataTable data)
     {
         var named = data.Rows.Cast<DataRow>().Count(row => !string.IsNullOrWhiteSpace(Convert.ToString(row["名称"], CultureInfo.InvariantCulture)));
         var missingR = data.Rows.Cast<DataRow>().Count(row => Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture)?.StartsWith("缺失", StringComparison.Ordinal) == true);
         var missingS = data.Rows.Cast<DataRow>().Count(row => Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture)?.StartsWith("缺失", StringComparison.Ordinal) == true);
+        var equipped = data.Rows.Cast<DataRow>().Count(row =>
+            ReadRoleEquipmentCell(row, "武器") != 255 ||
+            ReadRoleEquipmentCell(row, "防具") != 255 ||
+            ReadRoleEquipmentCell(row, "辅助") != 255);
+        var boundary = _project != null
+            ? ItemCategoryBoundaryService.Resolve(_project).DisplayText
+            : "DefID=70, AssID=109";
         return
             $"角色设定已读取：总行 {data.Rows.Count}，有名称 {named}。\r\n" +
             $"R 资源缺失 {missingR}，S 资源缺失 {missingS}。\r\n" +
+            $"人物默认装备：已设置 {equipped} 行；武器/防具/辅助为 Data.e5 绝对物品 ID，255 为空。装备分段：{boundary}。\r\n" +
             "可编辑字段来自 `6.5-0 人物`、`6.5-0-4 R形象`、`6.5-0-5 S形象`；保存前自动备份 Data.e5/Ekd5.exe，保存后重新读取校验。";
     }
 
@@ -318,7 +446,7 @@ public sealed partial class MainForm
         }
 
         var escaped = EscapeDataViewLikeValue(keyword);
-        var searchableColumns = new[] { "ID", "名称", "职业", "职业名称", "头像", "头像说明", "R形象编号", "S形象编号", "R资源状态", "S资源状态" }
+        var searchableColumns = new[] { "ID", "名称", "职业", "职业名称", "头像", "头像说明", "武器", "武器名", "防具", "防具名", "辅助", "辅助名", "R形象编号", "S形象编号", "R资源状态", "S资源状态" }
             .Where(name => _currentRoleEditorData.Columns.Contains(name))
             .Select(name => $"CONVERT([{name}], 'System.String') LIKE '*{escaped}*'");
         _currentRoleEditorData.DefaultView.RowFilter = string.Join(" OR ", searchableColumns);
@@ -418,6 +546,10 @@ public sealed partial class MainForm
             var sId = Convert.ToInt32(dataRow["S形象编号"], CultureInfo.InvariantCulture);
             dataRow["S资源状态"] = ImageAssignmentService.GetImageResourceStatus(_project, "S", sId);
         }
+        if (IsRoleEquipmentColumn(columnName))
+        {
+            RefreshRoleEquipmentNameCells(dataRow);
+        }
     }
 
     private void RefreshRoleEditorDerivedCells(DataRow dataRow)
@@ -445,6 +577,207 @@ public sealed partial class MainForm
         {
             var sId = Convert.ToInt32(dataRow["S形象编号"], CultureInfo.InvariantCulture);
             dataRow["S资源状态"] = ImageAssignmentService.GetImageResourceStatus(_project, "S", sId);
+        }
+
+        RefreshRoleEquipmentNameCells(dataRow);
+    }
+
+    private void RefreshRoleEquipmentNameCells(DataRow row)
+    {
+        if (_project == null) return;
+        RefreshRoleEquipmentNameCells(
+            row,
+            BuildItemNameLookup(_project, _tables),
+            new ItemClassificationService().BuildLookup(_project, _tables));
+    }
+
+    private static void RefreshRoleEquipmentNameCells(
+        DataRow row,
+        IReadOnlyDictionary<int, string> itemNames,
+        IReadOnlyDictionary<int, ItemClassification> classifications)
+    {
+        RefreshRoleEquipmentNameCell(row, "武器", "武器名", itemNames, classifications);
+        RefreshRoleEquipmentNameCell(row, "防具", "防具名", itemNames, classifications);
+        RefreshRoleEquipmentNameCell(row, "辅助", "辅助名", itemNames, classifications);
+    }
+
+    private static void RefreshRoleEquipmentNameCell(
+        DataRow row,
+        string valueColumn,
+        string nameColumn,
+        IReadOnlyDictionary<int, string> itemNames,
+        IReadOnlyDictionary<int, ItemClassification> classifications)
+    {
+        if (!row.Table.Columns.Contains(valueColumn) || !row.Table.Columns.Contains(nameColumn)) return;
+        var itemId = ReadRoleEquipmentCell(row, valueColumn);
+        SetReadOnlyDerivedCell(row, nameColumn, BuildRoleEquipmentDisplayName(itemId, itemNames, classifications));
+    }
+
+    private static void SetReadOnlyDerivedCell(DataRow row, string columnName, object value)
+    {
+        var current = row[columnName];
+        if (string.Equals(
+                Convert.ToString(current, CultureInfo.InvariantCulture) ?? string.Empty,
+                Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var column = row.Table.Columns[columnName]!;
+        var wasReadOnly = column.ReadOnly;
+        var rowState = row.RowState;
+        if (wasReadOnly) column.ReadOnly = false;
+        try
+        {
+            row[columnName] = value;
+        }
+        finally
+        {
+            column.ReadOnly = wasReadOnly;
+        }
+
+        if (rowState == DataRowState.Unchanged && row.RowState == DataRowState.Modified)
+        {
+            row.AcceptChanges();
+        }
+    }
+
+    private static string BuildRoleEquipmentDisplayName(
+        int itemId,
+        IReadOnlyDictionary<int, string> itemNames,
+        IReadOnlyDictionary<int, ItemClassification> classifications)
+    {
+        if (itemId == 255) return "空/未指定";
+        var name = itemNames.TryGetValue(itemId, out var itemName) && !string.IsNullOrWhiteSpace(itemName)
+            ? itemName
+            : "未找到物品名";
+        var kind = classifications.TryGetValue(itemId, out var classification)
+            ? classification.DisplayName
+            : "未知";
+        return $"{itemId}：{name}（{kind}）";
+    }
+
+    private static int ReadRoleEquipmentCell(DataRow row, string columnName)
+    {
+        if (!row.Table.Columns.Contains(columnName)) return 255;
+        var value = row[columnName];
+        if (value == null || value == DBNull.Value) return 255;
+        return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+    }
+
+    private static bool IsRoleEquipmentColumn(string columnName)
+        => columnName is "武器" or "防具" or "辅助";
+
+    private void ValidateRoleEditorCell(DataGridViewCellValidatingEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0 || _project == null || _currentRoleEditorData == null) return;
+        var column = _roleEditorGrid.Columns[e.ColumnIndex];
+        var columnName = column.DataPropertyName;
+        if (!IsRoleEquipmentColumn(columnName)) return;
+
+        var text = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (!TryValidateRoleEquipmentValue(columnName, text, out var error))
+        {
+            e.Cancel = true;
+            _roleEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error;
+            SetStatus(error);
+            return;
+        }
+
+        _roleEditorGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = string.Empty;
+    }
+
+    private bool TryValidateRoleEquipmentValue(string columnName, string text, out string error)
+    {
+        error = string.Empty;
+        if (_project == null) return true;
+        if (!TryParseRoleEquipmentInput(text, out var value))
+        {
+            error = $"{columnName} 必须是 0..255 的物品绝对 ID，255 表示空/未指定。";
+            return false;
+        }
+
+        return TryValidateRoleEquipmentValue(columnName, value, out error);
+    }
+
+    private static bool TryParseRoleEquipmentInput(string text, out int value)
+    {
+        text = text.Trim();
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)) return true;
+        var separatorIndex = text.IndexOfAny(['：', ':']);
+        if (separatorIndex > 0 &&
+            int.TryParse(text[..separatorIndex].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private bool TryValidateRoleEquipmentValue(string columnName, int value, out string error)
+    {
+        error = string.Empty;
+        if (_project == null) return true;
+        if (!IsRoleEquipmentColumn(columnName)) return true;
+        if (value == 255) return true;
+
+        var boundary = ItemCategoryBoundaryService.Resolve(_project);
+        var slot = columnName switch
+        {
+            "武器" => RoleEquipmentSlot.Weapon,
+            "防具" => RoleEquipmentSlot.Armor,
+            "辅助" => RoleEquipmentSlot.Assist,
+            _ => RoleEquipmentSlot.Weapon
+        };
+        var allowed = slot switch
+        {
+            RoleEquipmentSlot.Weapon => value >= boundary.WeaponStartId && value < boundary.DefenseStartId,
+            RoleEquipmentSlot.Armor => value >= boundary.DefenseStartId && value < boundary.AccessoryStartId,
+            RoleEquipmentSlot.Assist => value >= boundary.AccessoryStartId && value <= 255,
+            _ => false
+        };
+        if (!allowed)
+        {
+            error = $"{columnName}={value} 不在当前装备分段内。{BuildRoleEquipmentColumnAnnotation(columnName)}";
+            return false;
+        }
+
+        if (slot == RoleEquipmentSlot.Assist)
+        {
+            var classifications = new ItemClassificationService().BuildLookup(_project, _tables);
+            if (classifications.TryGetValue(value, out var classification) &&
+                classification.Kind is ItemKind.Consumable or ItemKind.Reserved)
+            {
+                error = $"辅助={value} 是{classification.DisplayName}，不能作为人物默认辅助装备。";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void ValidateRoleEditorEquipmentValues(DataTable roleData)
+    {
+        foreach (DataRow row in roleData.Rows)
+        {
+            foreach (var columnName in new[] { "武器", "防具", "辅助" })
+            {
+                if (!roleData.Columns.Contains(columnName)) continue;
+                if (row.RowState != DataRowState.Modified || !IsRoleColumnChanged(row, columnName)) continue;
+                var value = ReadRoleEquipmentCell(row, columnName);
+                if (!TryValidateRoleEquipmentValue(columnName, value, out var error))
+                {
+                    var id = row.Table.Columns.Contains("ID")
+                        ? Convert.ToString(row["ID"], CultureInfo.InvariantCulture)
+                        : "?";
+                    var name = row.Table.Columns.Contains("名称")
+                        ? Convert.ToString(row["名称"], CultureInfo.InvariantCulture)
+                        : string.Empty;
+                    throw new InvalidOperationException($"角色设定默认装备非法：ID={id} {name}，{error}");
+                }
+            }
         }
     }
 
@@ -651,6 +984,7 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            ValidateRoleEditorEquipmentValues(_currentRoleEditorData);
             var changedCells = GetChangedCellKeys(_currentRoleEditorData);
             var saves = SaveRoleEditorData(_project, _tables, _currentRoleEditorData);
             AcceptSavedDataTable(_currentRoleEditorData);

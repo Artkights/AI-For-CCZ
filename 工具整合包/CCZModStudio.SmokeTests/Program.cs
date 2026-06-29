@@ -18,6 +18,7 @@ var migrationSmokeOnly = args.Contains("--migration-smoke", StringComparer.Ordin
 var legacyE5sSmokeOnly = args.Contains("--legacy-e5s-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScenarioDepthSmokeOnly = args.Contains("--legacy-scenario-depth-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyScriptEditSmokeOnly = args.Contains("--legacy-script-edit-smoke", StringComparer.OrdinalIgnoreCase);
+var legacyVariableTestDisplaySmokeOnly = args.Contains("--legacy-variable-test-display-smoke", StringComparer.OrdinalIgnoreCase);
 var scriptVariableUsageSmokeOnly = args.Contains("--script-variable-usage-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyMfcDialogSmokeOnly = args.Contains("--legacy-mfc-dialog-smoke", StringComparer.OrdinalIgnoreCase);
 var rSceneDialogPreviewSmokeOnly = args.Contains("--rscene-dialog-preview-smoke", StringComparer.OrdinalIgnoreCase);
@@ -66,6 +67,7 @@ var exclusiveSetScenarioSmokeOnly = args.Contains("--exclusive-set-smoke", Strin
 var scenarioTextImportSmokeOnly = args.Contains("--scenario-text-import-smoke", StringComparer.OrdinalIgnoreCase);
 var scenarioTextWriterSmokeOnly = args.Contains("--scenario-text-writer-smoke", StringComparer.OrdinalIgnoreCase);
 var roleCriticalQuoteUiSmokeOnly = args.Contains("--role-critical-quote-ui-smoke", StringComparer.OrdinalIgnoreCase);
+var roleDefaultEquipmentSmokeOnly = args.Contains("--role-default-equipment-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66SmokeOnly = args.Contains("--66-revised-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66RegressionSmokeOnly = args.Contains("--66-regression-smoke", StringComparer.OrdinalIgnoreCase);
 var dongwuLegacyLayoutSmokeOnly = args.Contains("--dongwu-legacy-layout-smoke", StringComparer.OrdinalIgnoreCase);
@@ -140,6 +142,12 @@ if (legacyScenarioDepthSmokeOnly)
 if (legacyScriptEditSmokeOnly)
 {
     RunLegacyScriptEditSmoke(project);
+    return;
+}
+
+if (legacyVariableTestDisplaySmokeOnly)
+{
+    RunLegacyVariableTestDisplaySmoke(project, tables);
     return;
 }
 
@@ -434,6 +442,12 @@ if (scenarioTextWriterSmokeOnly)
 if (roleCriticalQuoteUiSmokeOnly)
 {
     RunRoleCriticalQuoteUiSmoke();
+    return;
+}
+
+if (roleDefaultEquipmentSmokeOnly)
+{
+    RunRoleDefaultEquipmentSmoke(project, tables);
     return;
 }
 

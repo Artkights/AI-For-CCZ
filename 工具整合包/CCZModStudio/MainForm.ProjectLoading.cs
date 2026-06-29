@@ -95,7 +95,7 @@ public sealed partial class MainForm
         InvalidateScriptVariableProjectCache();
 
         var mode = project.IsTestCopy ? "测试副本" : "当前项目";
-        _projectLabel.Text = $"项目：{project.Name}    模式：{mode}    GameRoot：{project.GameRoot}    HexTable：{project.HexTableXmlPath}";
+        _projectLabel.Text = $"项目：{project.Name}    模式：{mode}";
 
         ResetProjectBoundState();
 

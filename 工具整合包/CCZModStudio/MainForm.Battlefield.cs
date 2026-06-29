@@ -944,6 +944,12 @@ public sealed partial class MainForm
             return;
         }
 
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            MessageBox.Show(this, "Current S script is not in legacy full-tree mode; unit status cannot be edited from the left script tree.", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         if (!TryHitBattlefieldPlacedUnit(e.Location, out var unit))
         {
             if (TryMapPreviewPointToGrid(e.Location, out var x, out var y))
@@ -968,11 +974,15 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var scenarioFileName = _currentBattlefieldDocument.Scenario.FileName;
+            if (_currentBattlefieldLegacyScriptDocument == null)
+            {
+                throw new InvalidOperationException("当前 S 剧本没有进入旧版完整树模式，无法从左侧树读写战场单位状态。");
+            }
             var dictionary = _currentSceneStringDocument ?? TryReadSceneDictionaryForProbe()
                 ?? throw new InvalidOperationException("缺少 CczString.ini，无法按旧版完整树写回并校验 S 剧本。");
             var draft = _battlefieldUnitStatusWriteService.LoadDraft(
-                _currentBattlefieldDocument.Scenario,
-                dictionary,
+                _currentBattlefieldLegacyScriptDocument,
+                scenarioFileName,
                 unit);
             var itemBoundary = ItemCategoryBoundaryService.Resolve(_project);
             draft.EquipmentBoundarySummary = itemBoundary.DisplayText;
@@ -1023,6 +1033,7 @@ public sealed partial class MainForm
                 _project,
                 _currentBattlefieldDocument.Scenario,
                 dictionary,
+                _currentBattlefieldLegacyScriptDocument,
                 dialog.Draft);
 
             ReloadBattlefieldScenarioAfterWrite(scenarioFileName, dictionary);
@@ -1051,6 +1062,24 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.Default;
         }
+    }
+
+    private void FocusBattlefieldConsoleFromMapDoubleClick(MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left) return;
+        if (_currentBattlefieldDocument == null) return;
+        if (!TryHitBattlefieldPlacedUnit(e.Location, out var unit))
+        {
+            if (TryMapPreviewPointToGrid(e.Location, out var x, out var y))
+            {
+                SetStatus($"战场控制台：({x},{y}) 没有已摆放单位。");
+            }
+            return;
+        }
+
+        SelectBattlefieldPlacedUnit(unit, enterEdit: true);
+        _battlefieldConsoleAbilityGrid.Focus();
+        SetStatus($"战场控制台：已选中 {unit.Name}，可直接在右侧控制台修改 Data 默认差异覆盖。");
     }
 
     private static string BuildBattlefieldUnitStatusWriteDetail(BattlefieldUnitStatusWriteResult result)
@@ -1189,7 +1218,7 @@ public sealed partial class MainForm
         unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
             unit.PlacementNote,
             $"地图拖拽：({oldGrid.X},{oldGrid.Y}) -> ({unit.GridX},{unit.GridY})。");
-        var synced = SyncBattlefieldInstructionPreviewAfterPlacement(unit, "地图拖动");
+        var synced = ApplyBattlefieldPlacementToCurrentScript(unit, "地图拖动");
         if (_currentBattlefieldDocument != null)
         {
             RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
@@ -1200,14 +1229,14 @@ public sealed partial class MainForm
                 $"职业={unit.JobId?.ToString(CultureInfo.InvariantCulture) ?? "?"} {unit.JobName}  R={unit.RImageId}  S={unit.SImageId}\r\n" +
                 $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  转向={unit.Direction}\r\n" +
                 (synced
-                    ? "右侧候选和左侧 S 剧本预览已同步；点击“写回出场到S剧本”后写入指令。"
+                    ? "已写入左侧 S 剧本树；点击“写回出场到S剧本”后完整保存到文件。"
                     : "未绑定到可写 46/47/4B 出场设置；只能保存为布阵草稿记录。");
         }
 
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
         SetStatus(synced
-            ? $"战场布阵：已移动 {unit.Name} -> ({unit.GridX},{unit.GridY})，候选和 S 剧本预览已同步，尚未写回。"
+            ? $"战场布阵：已移动 {unit.Name} -> ({unit.GridX},{unit.GridY})，已同步到左侧 S 剧本树，尚未保存。"
             : $"战场布阵：已移动 {unit.Name} -> ({unit.GridX},{unit.GridY})；未绑定可写出场设置。");
     }
 
@@ -2304,12 +2333,12 @@ public sealed partial class MainForm
         _battlefieldPlacedUnitDragStart = null;
         _battlefieldPlacedUnitDragMoved = false;
         SyncBattlefieldControlPanelFromPlacedUnit(placed);
-        var synced = SyncBattlefieldInstructionPreviewAfterPlacement(placed, "拖放");
+        var synced = ApplyBattlefieldPlacementToCurrentScript(placed, "拖放");
         RenderBattlefieldMapPreview(_currentBattlefieldDocument);
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
         SetStatus(synced
-            ? $"战场布阵：{item.DisplayText} -> ({x},{y})，已同步右侧候选和左侧 S 剧本预览，尚未写回。"
+            ? $"战场布阵：{item.DisplayText} -> ({x},{y})，已写入左侧 S 剧本树，尚未完整保存。"
             : $"战场布阵：{item.DisplayText} -> ({x},{y})；未找到可用的 46/47/4B 出场设置槽，左右指令不改，需保存为布阵草稿。");
     }
 
@@ -2574,6 +2603,64 @@ public sealed partial class MainForm
         return true;
     }
 
+    private bool ApplyBattlefieldPlacementToCurrentScript(BattlefieldPlacedUnit placed, string action)
+    {
+        if (_currentBattlefieldDocument == null)
+        {
+            return false;
+        }
+
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            ClearBattlefieldInstructionPreviewForTarget(placed.TargetKey);
+            SetStatus($"战场布阵：{action}没有可写入的左侧 S 剧本完整树，仅保留为布阵草稿。");
+            return false;
+        }
+
+        if (!BattlefieldDeploymentWriteService.IsScriptPlacementWritable(placed))
+        {
+            ClearBattlefieldInstructionPreviewForTarget(placed.TargetKey);
+            return false;
+        }
+
+        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        BattlefieldDeploymentWriteResult result;
+        try
+        {
+            result = _battlefieldDeploymentWriteService.ApplyScriptPlacements(
+                _currentBattlefieldLegacyScriptDocument,
+                new[] { placed });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Apply battlefield placement to current S tree failed: {ex}");
+            ClearBattlefieldInstructionPreviewForTarget(placed.TargetKey);
+            SetStatus($"战场布阵：{action}未能写入左侧 S 剧本树：{ex.Message}；仅保留为布阵草稿。");
+            return false;
+        }
+
+        if (result.Changes.Count == 0)
+        {
+            ClearBattlefieldInstructionPreviewForTarget(placed.TargetKey);
+            SetStatus($"战场布阵：{action}没有实际 S 剧本字段变化。");
+            return false;
+        }
+
+        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+        ClearBattlefieldInstructionPreviewForTarget(placed.TargetKey);
+        var changed = FindBattlefieldDeploymentSourceCommand(placed.TargetKey);
+        RefreshBattlefieldLegacyScriptView(changed);
+        RefreshBattlefieldDocumentFromLegacyScript(placed.TargetKey);
+        MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+        UpdateBattlefieldDeploymentWriteButton();
+
+        var summary = result.Changes.FirstOrDefault()?.Summary;
+        SetStatus(string.IsNullOrWhiteSpace(summary)
+            ? $"战场布阵：{action}已写入左侧 S 剧本树，尚未完整保存。"
+            : $"战场布阵：{action}已写入左侧 S 剧本树：{summary}，尚未完整保存。");
+        return true;
+    }
+
     private BattlefieldUnitCandidate BuildBattlefieldUnitCandidatePreview(BattlefieldUnitCandidate original, BattlefieldPlacedUnit placed, string action)
     {
         var reviewStatus = string.IsNullOrWhiteSpace(original.ReviewStatus) ? "已调整待写回" : original.ReviewStatus + " / 已调整待写回";
@@ -2795,7 +2882,6 @@ public sealed partial class MainForm
     {
         if (_bindingBattlefieldControlPanel) return;
         if (_selectedBattlefieldPlacedUnit == null) return;
-        _selectedBattlefieldPlacedUnit.Faction = GetSelectedBattlefieldFaction();
         _selectedBattlefieldPlacedUnit.LevelOffset = (int)_battlefieldLevelOffsetInput.Value;
         _selectedBattlefieldPlacedUnit.LevelMode = _battlefieldLevelModeCombo.SelectedItem?.ToString() ?? "初级";
         _selectedBattlefieldPlacedUnit.AiMode = _battlefieldAiModeCombo.SelectedItem?.ToString() ?? "被动";
@@ -2803,7 +2889,10 @@ public sealed partial class MainForm
         _selectedBattlefieldPlacedUnit.Direction = _battlefieldDirectionCombo.SelectedItem?.ToString() ?? "下";
         if (_currentBattlefieldDocument != null)
         {
-            SyncBattlefieldInstructionPreviewAfterPlacement(_selectedBattlefieldPlacedUnit, "控制面板调整");
+            var targetKey = _selectedBattlefieldPlacedUnit.TargetKey;
+            ApplyBattlefieldDeploymentStatusFieldsToCurrentScript(_selectedBattlefieldPlacedUnit, "控制面板调整");
+            ApplyBattlefieldPlacementToCurrentScript(_selectedBattlefieldPlacedUnit, "控制面板调整");
+            ReloadBattlefieldConsoleStatusAfterScriptChange(targetKey);
             RenderBattlefieldMapPreview(_currentBattlefieldDocument);
         }
         _saveBattlefieldUnitReviewsButton.Enabled = true;
@@ -2813,8 +2902,236 @@ public sealed partial class MainForm
     private void HandleBattlefieldFactionChanged()
     {
         if (_bindingBattlefieldControlPanel) return;
+        if (_selectedBattlefieldPlacedUnit != null)
+        {
+            ApplyBattlefieldFactionChangeToSelectedUnit(GetSelectedBattlefieldFaction());
+            return;
+        }
+
         RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
-        ApplyBattlefieldControlPanelToSelectedUnit();
+    }
+
+    private void ApplyBattlefieldFactionChangeToSelectedUnit(string requestedFaction)
+    {
+        var unit = _selectedBattlefieldPlacedUnit;
+        if (unit == null) return;
+        if (unit.Faction.Equals(requestedFaction, StringComparison.Ordinal))
+        {
+            ApplyBattlefieldControlPanelToSelectedUnit();
+            return;
+        }
+
+        var oldFaction = unit.Faction;
+        var oldTargetKey = unit.TargetKey;
+        if (_currentBattlefieldDocument == null ||
+            _currentBattlefieldLegacyScriptDocument == null)
+        {
+            RestoreBattlefieldFactionSelection(oldFaction);
+            SetStatus("战场控制台：当前没有可写入的 S 剧本树，不能迁移阵营槽。");
+            return;
+        }
+
+        var candidate = FindBattlefieldMigrationCandidate(unit, requestedFaction);
+        if (candidate == null)
+        {
+            RestoreBattlefieldFactionSelection(oldFaction);
+            SetStatus($"战场控制台：没有可绑定的 {requestedFaction} S 剧本出场槽，阵营未改变。");
+            return;
+        }
+
+        var targetKey = candidate.TargetKey;
+        var oldSnapshot = CloneBattlefieldPlacedUnit(unit);
+        var replaced = _battlefieldPlacedUnits
+            .FirstOrDefault(item => !ReferenceEquals(item, unit) &&
+                                    item.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+        if (replaced != null)
+        {
+            _battlefieldPlacedUnits.Remove(replaced);
+        }
+
+        unit.TargetKey = targetKey;
+        unit.Faction = InferBattlefieldFaction(candidate);
+        unit.Source = "S剧本出场设置(控制台阵营迁移)";
+        unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
+            unit.PlacementNote,
+            $"控制台阵营迁移：{oldFaction} -> {unit.Faction}，绑定 {targetKey}。");
+        unit.LevelOffset = (int)_battlefieldLevelOffsetInput.Value;
+        unit.LevelMode = _battlefieldLevelModeCombo.SelectedItem?.ToString() ?? unit.LevelMode;
+        unit.AiMode = _battlefieldAiModeCombo.SelectedItem?.ToString() ?? unit.AiMode;
+        unit.Hidden = _battlefieldHiddenCheckBox.Checked;
+        unit.Direction = _battlefieldDirectionCombo.SelectedItem?.ToString() ?? unit.Direction;
+
+        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        try
+        {
+            _battlefieldDeploymentWriteService.ApplyScriptPlacements(
+                _currentBattlefieldLegacyScriptDocument,
+                new[] { unit });
+
+            if (BattlefieldDeploymentWriteService.IsFriendOrEnemyScriptPlacementWritable(oldSnapshot))
+            {
+                _battlefieldDeploymentWriteService.ClearFriendEnemyScriptPlacements(
+                    _currentBattlefieldLegacyScriptDocument,
+                    new[] { oldSnapshot });
+            }
+
+            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+            ClearBattlefieldInstructionPreviewForTarget(oldTargetKey);
+            ClearBattlefieldInstructionPreviewForTarget(targetKey);
+            var changed = FindBattlefieldDeploymentSourceCommand(targetKey)
+                          ?? FindBattlefieldDeploymentSourceCommand(oldTargetKey);
+            RefreshBattlefieldLegacyScriptView(changed);
+            RefreshBattlefieldDocumentFromLegacyScript(targetKey);
+            MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+            _saveBattlefieldUnitReviewsButton.Enabled = true;
+            UpdateBattlefieldDeploymentWriteButton();
+            SelectBattlefieldPlacedUnitByTargetKey(targetKey, enterEdit: true);
+            SetStatus($"战场控制台：{unit.Name} 已迁移到 {unit.Faction} 出场槽，左侧 S 剧本树已更新，尚未完整保存。");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Battlefield faction migration failed: " + ex);
+            RestoreLegacyScenarioSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit, "阵营迁移失败，已恢复操作前 S 剧本树。");
+            unit.TargetKey = oldSnapshot.TargetKey;
+            unit.Faction = oldSnapshot.Faction;
+            unit.Source = oldSnapshot.Source;
+            unit.PlacementNote = oldSnapshot.PlacementNote;
+            if (replaced != null && !_battlefieldPlacedUnits.Contains(replaced))
+            {
+                _battlefieldPlacedUnits.Add(replaced);
+            }
+
+            RestoreBattlefieldFactionSelection(oldFaction);
+            RenderBattlefieldMapPreview(_currentBattlefieldDocument);
+            SetStatus("战场控制台：阵营迁移失败：" + ex.Message);
+        }
+    }
+
+    private BattlefieldUnitCandidate? FindBattlefieldMigrationCandidate(BattlefieldPlacedUnit unit, string requestedFaction)
+    {
+        var item = new BattlefieldUnitPaletteItem
+        {
+            PersonId = unit.PersonId,
+            Name = unit.Name,
+            JobId = unit.JobId,
+            JobName = unit.JobName,
+            RImageId = unit.RImageId,
+            SImageId = unit.SImageId
+        };
+
+        return FindBestBattlefieldDeploymentCandidateForDrop(item, unit.GridX, unit.GridY, requestedFaction);
+    }
+
+    private void RestoreBattlefieldFactionSelection(string faction)
+    {
+        _bindingBattlefieldControlPanel = true;
+        try
+        {
+            _battlefieldFactionAllyRadio.Checked = faction == "我军";
+            _battlefieldFactionFriendRadio.Checked = faction == "友军";
+            _battlefieldFactionEnemyRadio.Checked = faction == "敌军";
+        }
+        finally
+        {
+            _bindingBattlefieldControlPanel = false;
+        }
+
+        RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
+    }
+
+    private bool ApplyBattlefieldDeploymentStatusFieldsToCurrentScript(BattlefieldPlacedUnit unit, string action)
+    {
+        if (_project == null ||
+            _currentBattlefieldLegacyScriptDocument == null ||
+            !BattlefieldUnitStatusWriteService.IsWritableStatusTarget(unit))
+        {
+            return false;
+        }
+
+        try
+        {
+            var draft = _battlefieldUnitStatusWriteService.LoadDraft(
+                _project,
+                _tables,
+                _currentBattlefieldLegacyScriptDocument,
+                _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
+                unit);
+            var originalLevelBonus = draft.LevelBonus;
+            var originalJobLevel = draft.JobLevel;
+            var originalAiPolicy = draft.AiPolicy;
+            draft.LevelBonus = unit.LevelOffset;
+            draft.JobLevel = MapBattlefieldJobLevel(unit.LevelMode);
+            draft.AiPolicy = MapBattlefieldAiMode(unit.AiMode);
+            draft.Weapon = null;
+            draft.WeaponLevel = null;
+            draft.Armor = null;
+            draft.ArmorLevel = null;
+            draft.Assist = null;
+            draft.JobId = null;
+            draft.RemoveEquipmentOverride = false;
+            draft.RemoveJobOverride = false;
+            draft.RemoveAbilityOverrides.Clear();
+            foreach (var ability in draft.Abilities)
+            {
+                ability.Value = null;
+                ability.Operation = null;
+                ability.RemoveOverride = false;
+            }
+
+            if (draft.LevelBonus == originalLevelBonus &&
+                draft.JobLevel == originalJobLevel &&
+                draft.AiPolicy == originalAiPolicy)
+            {
+                return false;
+            }
+
+            var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+            var result = _battlefieldUnitStatusWriteService.Apply(_project, _currentBattlefieldLegacyScriptDocument, draft);
+            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+            var changed = FindBattlefieldDeploymentSourceCommand(unit.TargetKey);
+            RefreshBattlefieldLegacyScriptView(changed);
+            RefreshBattlefieldDocumentFromLegacyScript(unit.TargetKey);
+            MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+            _battlefieldConsoleStatusPreviewBox.Text = BuildBattlefieldUnitStatusWriteDetail(result);
+            ReloadBattlefieldConsoleStatusAfterScriptChange(unit.TargetKey);
+            SetStatus($"战场控制台：{action}已写入 46/47 出场字段，尚未完整保存。");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Apply battlefield deployment status fields failed: " + ex);
+            SetStatus($"战场控制台：{action}未能写入 46/47 出场字段：" + ex.Message);
+            return false;
+        }
+    }
+
+    private static int MapBattlefieldJobLevel(string levelMode)
+        => levelMode switch
+        {
+            "中级" => 1,
+            "高级" => 2,
+            _ => 0
+        };
+
+    private static int MapBattlefieldAiMode(string aiMode)
+        => aiMode switch
+        {
+            "主动" => 1,
+            "坚守" => 2,
+            "攻击" => 3,
+            "到点" => 4,
+            "跟随" => 5,
+            "逃离" => 6,
+            _ => 0
+        };
+
+    private bool SelectBattlefieldPlacedUnitByTargetKey(string targetKey, bool enterEdit)
+    {
+        var unit = _battlefieldPlacedUnits.FirstOrDefault(item =>
+            item.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+        if (unit == null) return false;
+        SelectBattlefieldPlacedUnit(unit, enterEdit);
+        return true;
     }
 
     private void SyncBattlefieldControlPanelFromPlacedUnit(BattlefieldPlacedUnit unit)
@@ -2830,6 +3147,7 @@ public sealed partial class MainForm
             SelectComboText(_battlefieldLevelModeCombo, unit.LevelMode);
             SelectComboText(_battlefieldAiModeCombo, unit.AiMode);
             SelectComboText(_battlefieldDirectionCombo, unit.Direction);
+            LoadBattlefieldConsoleStatusFromPlacedUnit(unit);
         }
         finally
         {
@@ -2837,6 +3155,399 @@ public sealed partial class MainForm
         }
 
         RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
+    }
+
+    private void LoadBattlefieldConsoleStatusFromPlacedUnit(BattlefieldPlacedUnit unit)
+    {
+        _currentBattlefieldConsoleStatusDraft = null;
+        _currentBattlefieldConsoleDataDefaults = null;
+        _battlefieldConsoleSummaryLabel.Text =
+            $"{unit.PersonId} {unit.Name}  阵营={unit.Faction}  坐标=({unit.GridX},{unit.GridY})\r\n绑定：{unit.TargetKey}";
+        SetBattlefieldConsoleStatusControlsEnabled(false);
+        _battlefieldDataDefaultsBox.Text = "Data.e5 默认值：未读取。";
+        _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：当前单位没有可编辑的 46/47 状态绑定。";
+        BindBattlefieldConsoleAbilityGrid(Array.Empty<BattlefieldConsoleAbilityRow>());
+
+        if (_project == null)
+        {
+            _battlefieldDataDefaultsBox.Text = "Data.e5 默认值：项目未加载。";
+            return;
+        }
+
+        var dataDefaults = new BattlefieldUnitDataDefaultService().LoadPersonDefaults(_project, _tables, unit.PersonId);
+        _currentBattlefieldConsoleDataDefaults = dataDefaults;
+        _battlefieldDataDefaultsBox.Text = BuildBattlefieldDataDefaultsText(dataDefaults);
+        if (!dataDefaults.Found)
+        {
+            _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：未读到 Data.e5 人物默认值，装备/兵种/五维控制台暂不写入 S 剧本覆盖。";
+            return;
+        }
+
+        if (_currentBattlefieldLegacyScriptDocument == null ||
+            !BattlefieldUnitStatusWriteService.IsWritableStatusTarget(unit))
+        {
+            _battlefieldConsoleStatusPreviewBox.Text = IsBattlefieldAllyDeploymentTargetKey(unit.TargetKey)
+                ? "脚本覆盖摘要：0x4B 我军出战位只允许控制台写坐标、方向、隐藏，不写装备/兵种/五维。"
+                : "脚本覆盖摘要：本地草稿尚未绑定 0x46/0x47，不能写装备/兵种/五维。";
+            return;
+        }
+
+        try
+        {
+            var draft = _battlefieldUnitStatusWriteService.LoadDraft(
+                _project,
+                _tables,
+                _currentBattlefieldLegacyScriptDocument,
+                _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
+                unit);
+            draft.EquipmentBoundarySummary = ItemCategoryBoundaryService.Resolve(_project).DisplayText;
+            _currentBattlefieldConsoleStatusDraft = draft;
+            _currentBattlefieldConsoleDataDefaults = draft.DataDefaults ?? dataDefaults;
+            PopulateBattlefieldConsoleStatusEditors(draft, _currentBattlefieldConsoleDataDefaults);
+            SetBattlefieldConsoleStatusControlsEnabled(true);
+            _battlefieldConsoleStatusPreviewBox.Text = BuildBattlefieldConsolePreviewText(draft, _currentBattlefieldConsoleDataDefaults);
+        }
+        catch (Exception ex)
+        {
+            _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：读取 46/47 状态失败：" + ex.Message;
+            System.Diagnostics.Debug.WriteLine("Load battlefield console status failed: " + ex);
+        }
+    }
+
+    private void SetBattlefieldConsoleStatusControlsEnabled(bool enabled)
+    {
+        _battlefieldConsoleWeaponCombo.Enabled = enabled;
+        _battlefieldConsoleWeaponLevelInput.Enabled = enabled;
+        _battlefieldConsoleArmorCombo.Enabled = enabled;
+        _battlefieldConsoleArmorLevelInput.Enabled = enabled;
+        _battlefieldConsoleAssistCombo.Enabled = enabled;
+        _battlefieldConsoleJobCombo.Enabled = enabled;
+        _battlefieldConsoleAbilityGrid.Enabled = enabled;
+    }
+
+    private string BuildBattlefieldDataDefaultsText(BattlefieldUnitDataDefaults defaults)
+    {
+        if (!defaults.Found)
+        {
+            return $"Data.e5 默认值：{defaults.Source}";
+        }
+
+        var abilityText = string.Join("  ", defaults.Abilities
+            .OrderBy(pair => pair.Key)
+            .Select(pair => $"{GetBattlefieldAbilityName(pair.Key)}={pair.Value}"));
+        return
+            $"Data.e5 默认值：{defaults.Source}\r\n" +
+            $"人物：{defaults.PersonId} {defaults.PersonName}  兵种={defaults.FormatJob()}  等级={FormatNullableBattlefieldInt(defaults.Level)}  经验={FormatNullableBattlefieldInt(defaults.Experience)}\r\n" +
+            $"五维：{abilityText}\r\n" +
+            $"装备：武器={defaults.FormatItem(defaults.WeaponId)} Lv{FormatNullableBattlefieldInt(defaults.WeaponLevel)}；" +
+            $"防具={defaults.FormatItem(defaults.ArmorId)} Lv{FormatNullableBattlefieldInt(defaults.ArmorLevel)}；辅助={defaults.FormatItem(defaults.AssistId)}";
+    }
+
+    private void PopulateBattlefieldConsoleStatusEditors(BattlefieldUnitStatusDraft draft, BattlefieldUnitDataDefaults defaults)
+    {
+        PopulateBattlefieldConsoleItemCombo(_battlefieldConsoleWeaponCombo, defaults, BattlefieldEquipmentSlot.Weapon);
+        PopulateBattlefieldConsoleItemCombo(_battlefieldConsoleArmorCombo, defaults, BattlefieldEquipmentSlot.Armor);
+        PopulateBattlefieldConsoleItemCombo(_battlefieldConsoleAssistCombo, defaults, BattlefieldEquipmentSlot.Assist);
+        PopulateBattlefieldConsoleJobCombo(defaults);
+        var boundary = ItemCategoryBoundaryService.Resolve(_project!);
+        SelectBattlefieldComboValue(
+            _battlefieldConsoleWeaponCombo,
+            BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(draft.HasEquipmentCommand ? draft.Weapon : null, boundary, BattlefieldEquipmentSlot.Weapon, defaults.WeaponId));
+        _battlefieldConsoleWeaponLevelInput.Value = Math.Clamp(draft.HasEquipmentCommand ? draft.WeaponLevel ?? defaults.WeaponLevel ?? 0 : defaults.WeaponLevel ?? 0, 0, 16);
+        SelectBattlefieldComboValue(
+            _battlefieldConsoleArmorCombo,
+            BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(draft.HasEquipmentCommand ? draft.Armor : null, boundary, BattlefieldEquipmentSlot.Armor, defaults.ArmorId));
+        _battlefieldConsoleArmorLevelInput.Value = Math.Clamp(draft.HasEquipmentCommand ? draft.ArmorLevel ?? defaults.ArmorLevel ?? 0 : defaults.ArmorLevel ?? 0, 0, 16);
+        SelectBattlefieldComboValue(
+            _battlefieldConsoleAssistCombo,
+            BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(draft.HasEquipmentCommand ? draft.Assist : null, boundary, BattlefieldEquipmentSlot.Assist, defaults.AssistId));
+        SelectBattlefieldComboValue(_battlefieldConsoleJobCombo, draft.HasJobCommand ? draft.JobId : defaults.JobId);
+
+        var rows = draft.Abilities.Select(ability =>
+        {
+            var dataDefault = defaults.GetAbility(ability.AbilityId);
+            var operation = ability.HasCommand ? ability.Operation ?? 0 : 0;
+            var value = ability.HasCommand && ability.Value.HasValue
+                ? ability.Value.Value
+                : dataDefault;
+            return new BattlefieldConsoleAbilityRow
+            {
+                AbilityId = ability.AbilityId,
+                Name = ability.Name,
+                Source = ability.HasCommand ? "S覆盖" : "Data默认",
+                Operation = OperationToConsoleText(operation),
+                Value = value?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                DataDefault = dataDefault?.ToString(CultureInfo.InvariantCulture) ?? string.Empty
+            };
+        }).ToList();
+        BindBattlefieldConsoleAbilityGrid(rows);
+    }
+
+    private void PopulateBattlefieldConsoleItemCombo(ComboBox combo, BattlefieldUnitDataDefaults defaults, BattlefieldEquipmentSlot slot)
+    {
+        combo.DropDownStyle = ComboBoxStyle.DropDownList;
+        combo.Items.Clear();
+        combo.Items.Add(new BattlefieldUnitStatusLookupItem { Value = int.MinValue, Text = "Data默认/未读取" });
+        combo.Items.Add(new BattlefieldUnitStatusLookupItem { Value = -1, Text = "卸去装备" });
+        var boundary = _project != null
+            ? ItemCategoryBoundaryService.Resolve(_project)
+            : new ItemCategoryBoundary(
+                ItemCategoryBoundaryService.MinItemId,
+                ItemCategoryBoundaryService.DefaultDefenseStartId,
+                ItemCategoryBoundaryService.DefaultAccessoryStartId,
+                "控制台物品分类默认边界",
+                IsFallback: true);
+        var ids = defaults.ItemNames.Keys
+            .Where(id => IsBattlefieldEquipmentSlotItem(id, boundary, slot))
+            .OrderBy(id => id)
+            .ToList();
+        foreach (var id in ids)
+        {
+            combo.Items.Add(new BattlefieldUnitStatusLookupItem { Value = id, Text = $"{id}：{defaults.FormatItem(id)}" });
+        }
+    }
+
+    private static bool IsBattlefieldEquipmentSlotItem(int itemId, ItemCategoryBoundary boundary, BattlefieldEquipmentSlot slot)
+        => slot switch
+        {
+            BattlefieldEquipmentSlot.Weapon => itemId >= boundary.WeaponStartId && itemId < boundary.DefenseStartId,
+            BattlefieldEquipmentSlot.Armor => itemId >= boundary.DefenseStartId && itemId < boundary.AccessoryStartId,
+            BattlefieldEquipmentSlot.Assist => itemId >= boundary.AccessoryStartId,
+            _ => false
+        };
+
+    private void PopulateBattlefieldConsoleJobCombo(BattlefieldUnitDataDefaults defaults)
+    {
+        _battlefieldConsoleJobCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _battlefieldConsoleJobCombo.Items.Clear();
+        foreach (var pair in defaults.JobNames.OrderBy(pair => pair.Key))
+        {
+            _battlefieldConsoleJobCombo.Items.Add(new BattlefieldUnitStatusLookupItem { Value = pair.Key, Text = $"{pair.Key}：{pair.Value}" });
+        }
+    }
+
+    private void BindBattlefieldConsoleAbilityGrid(IReadOnlyList<BattlefieldConsoleAbilityRow> rows)
+    {
+        _battlefieldConsoleAbilityGrid.AutoGenerateColumns = false;
+        if (_battlefieldConsoleAbilityGrid.Columns.Count == 0)
+        {
+            _battlefieldConsoleAbilityGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(BattlefieldConsoleAbilityRow.Name), HeaderText = "五维", ReadOnly = true, FillWeight = 58 });
+            _battlefieldConsoleAbilityGrid.Columns.Add(new DataGridViewComboBoxColumn { DataPropertyName = nameof(BattlefieldConsoleAbilityRow.Operation), HeaderText = "操作", DataSource = new[] { "=", "+", "-" }, FillWeight = 48 });
+            _battlefieldConsoleAbilityGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(BattlefieldConsoleAbilityRow.Value), HeaderText = "目标值", FillWeight = 70 });
+            _battlefieldConsoleAbilityGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(BattlefieldConsoleAbilityRow.DataDefault), HeaderText = "Data", ReadOnly = true, FillWeight = 58 });
+            _battlefieldConsoleAbilityGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = nameof(BattlefieldConsoleAbilityRow.Source), HeaderText = "来源", ReadOnly = true, FillWeight = 72 });
+        }
+
+        _battlefieldConsoleAbilityGrid.DataSource = new BindingList<BattlefieldConsoleAbilityRow>(rows.ToList());
+    }
+
+    private static string OperationToConsoleText(int operation)
+        => operation switch
+        {
+            1 => "+",
+            2 => "-",
+            _ => "="
+        };
+
+    private static int ConsoleTextToOperation(string? operation)
+        => operation switch
+        {
+            "+" => 1,
+            "-" => 2,
+            _ => 0
+        };
+
+    private static string GetBattlefieldAbilityName(int abilityId)
+        => abilityId switch
+        {
+            10 => "武力",
+            11 => "统帅",
+            12 => "智力",
+            13 => "敏捷",
+            14 => "运气",
+            _ => abilityId.ToString(CultureInfo.InvariantCulture)
+        };
+
+    private static string FormatNullableBattlefieldInt(int? value)
+        => value?.ToString(CultureInfo.InvariantCulture) ?? "?";
+
+    private static void SelectBattlefieldComboValue(ComboBox combo, int? value)
+    {
+        for (var i = 0; i < combo.Items.Count; i++)
+        {
+            if (combo.Items[i] is BattlefieldUnitStatusLookupItem item && item.Value == value)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        }
+
+        if (value.HasValue)
+        {
+            combo.Items.Add(new BattlefieldUnitStatusLookupItem { Value = value.Value, Text = $"{value.Value}：自定义" });
+            combo.SelectedIndex = combo.Items.Count - 1;
+        }
+        else
+        {
+            combo.SelectedIndex = combo.Items.Count > 0 ? 0 : -1;
+        }
+    }
+
+    private string BuildBattlefieldConsolePreviewText(BattlefieldUnitStatusDraft draft, BattlefieldUnitDataDefaults defaults)
+    {
+        var parts = new List<string>
+        {
+            "脚本覆盖摘要：",
+            draft.HasEquipmentCommand ? "装备：S覆盖存在；改回 Data 默认会移除 0x48。" : "装备：Data默认，未写 0x48。",
+            draft.HasJobCommand ? "兵种：S覆盖存在；改回 Data 默认会移除 0x52 和 4081 包裹。" : "兵种：Data默认，未写 0x52。"
+        };
+        foreach (var ability in draft.Abilities)
+        {
+            parts.Add($"{ability.Name}：{(ability.HasCommand ? "S覆盖" : "Data默认")} 当前={FormatNullableBattlefieldInt(ability.Value ?? defaults.GetAbility(ability.AbilityId))}");
+        }
+
+        return string.Join("\r\n", parts);
+    }
+
+    private void ApplyBattlefieldConsoleStatusToSelectedUnit()
+    {
+        if (_bindingBattlefieldControlPanel) return;
+        if (_project == null ||
+            _selectedBattlefieldPlacedUnit == null ||
+            _currentBattlefieldLegacyScriptDocument == null ||
+            _currentBattlefieldConsoleStatusDraft == null ||
+            _currentBattlefieldConsoleDataDefaults == null)
+        {
+            return;
+        }
+
+        try
+        {
+            _battlefieldConsoleAbilityGrid.EndEdit();
+            var boundary = ItemCategoryBoundaryService.Resolve(_project);
+            var abilities = new Dictionary<int, (int Operation, int? Value)>();
+            foreach (DataGridViewRow gridRow in _battlefieldConsoleAbilityGrid.Rows)
+            {
+                if (gridRow.DataBoundItem is not BattlefieldConsoleAbilityRow row) continue;
+                int? value = null;
+                if (!string.IsNullOrWhiteSpace(row.Value))
+                {
+                    if (!int.TryParse(row.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                    {
+                        SetStatus($"战场控制台：{row.Name} 数值必须是整数。");
+                        return;
+                    }
+                    value = parsed;
+                }
+                abilities[row.AbilityId] = (ConsoleTextToOperation(row.Operation), value);
+            }
+
+            var delta = _battlefieldUnitStatusWriteService.BuildDeltaDraftFromEffectiveValues(
+                _currentBattlefieldConsoleStatusDraft,
+                _currentBattlefieldConsoleDataDefaults,
+                boundary,
+                GetSelectedEquipmentLookupValue(_battlefieldConsoleWeaponCombo, _currentBattlefieldConsoleDataDefaults.WeaponId),
+                (int)_battlefieldConsoleWeaponLevelInput.Value,
+                GetSelectedEquipmentLookupValue(_battlefieldConsoleArmorCombo, _currentBattlefieldConsoleDataDefaults.ArmorId),
+                (int)_battlefieldConsoleArmorLevelInput.Value,
+                GetSelectedEquipmentLookupValue(_battlefieldConsoleAssistCombo, _currentBattlefieldConsoleDataDefaults.AssistId),
+                GetSelectedLookupValue(_battlefieldConsoleJobCombo),
+                abilities);
+
+            if (!BattlefieldConsoleDeltaHasChanges(delta))
+            {
+                _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：当前值与 Data.e5 默认一致，未写入额外 S 剧本覆盖。";
+                return;
+            }
+
+            var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+            var result = _battlefieldUnitStatusWriteService.Apply(_project, _currentBattlefieldLegacyScriptDocument, delta);
+            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+            var changed = FindBattlefieldUnitStatusWritebackBlock(delta)
+                          ?? FindBattlefieldDeploymentSourceCommand(delta.TargetKey);
+            RefreshBattlefieldLegacyScriptView(changed);
+            RefreshBattlefieldDocumentFromLegacyScript(delta.TargetKey);
+            MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+            UpdateBattlefieldDeploymentWriteButton();
+            ReloadBattlefieldConsoleStatusAfterScriptChange(delta.TargetKey);
+            _battlefieldConsoleStatusPreviewBox.Text = BuildBattlefieldUnitStatusWriteDetail(result);
+            SetStatus($"战场控制台：{_selectedBattlefieldPlacedUnit.Name} 状态已写入左侧 S 剧本树，尚未完整保存。");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Apply battlefield console status failed: " + ex);
+            SetStatus("战场控制台：状态写入失败：" + ex.Message);
+            _bindingBattlefieldControlPanel = true;
+            try
+            {
+                if (_selectedBattlefieldPlacedUnit != null)
+                {
+                    LoadBattlefieldConsoleStatusFromPlacedUnit(_selectedBattlefieldPlacedUnit);
+                }
+            }
+            finally
+            {
+                _bindingBattlefieldControlPanel = false;
+            }
+        }
+    }
+
+    private static int? GetSelectedLookupValue(ComboBox combo)
+        => combo.SelectedItem is BattlefieldUnitStatusLookupItem item
+            ? item.Value == int.MinValue ? null : item.Value
+            : null;
+
+    private static int? GetSelectedEquipmentLookupValue(ComboBox combo, int? dataDefaultItemId)
+        => combo.SelectedItem is BattlefieldUnitStatusLookupItem item
+            ? item.Value == int.MinValue ? dataDefaultItemId : item.Value
+            : dataDefaultItemId;
+
+    private void ReloadBattlefieldConsoleStatusAfterScriptChange(string preferredTargetKey)
+    {
+        if (string.IsNullOrWhiteSpace(preferredTargetKey))
+        {
+            return;
+        }
+
+        var unit = _battlefieldPlacedUnits.FirstOrDefault(item =>
+            item.TargetKey.Equals(preferredTargetKey, StringComparison.OrdinalIgnoreCase));
+        if (unit == null)
+        {
+            return;
+        }
+
+        _selectedBattlefieldPlacedUnit = unit;
+        _bindingBattlefieldControlPanel = true;
+        try
+        {
+            SyncBattlefieldControlPanelFromPlacedUnit(unit);
+        }
+        finally
+        {
+            _bindingBattlefieldControlPanel = false;
+        }
+    }
+
+    private static bool BattlefieldConsoleDeltaHasChanges(BattlefieldUnitStatusDraft draft)
+        => draft.RemoveEquipmentOverride ||
+           draft.RemoveJobOverride ||
+           draft.RemoveAbilityOverrides.Count > 0 ||
+           draft.Weapon.HasValue ||
+           draft.WeaponLevel.HasValue ||
+           draft.Armor.HasValue ||
+           draft.ArmorLevel.HasValue ||
+           draft.Assist.HasValue ||
+           draft.JobId.HasValue ||
+           draft.Abilities.Any(ability => ability.Value.HasValue);
+
+    private sealed class BattlefieldConsoleAbilityRow
+    {
+        public int AbilityId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Operation { get; set; } = "=";
+        public string Value { get; set; } = string.Empty;
+        public string DataDefault { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
     }
 
     private static void SelectComboText(ComboBox combo, string text)
@@ -2852,23 +3563,36 @@ public sealed partial class MainForm
     private void RemoveSelectedBattlefieldPlacedUnit()
     {
         if (_selectedBattlefieldPlacedUnit == null) return;
-        var targetKey = _selectedBattlefieldPlacedUnit.TargetKey;
-        _battlefieldPlacedUnits.Remove(_selectedBattlefieldPlacedUnit);
+        var selected = _selectedBattlefieldPlacedUnit;
+        var targetKey = selected.TargetKey;
+        _battlefieldPlacedUnits.Remove(selected);
         ClearBattlefieldPlacedUnitSelection();
         ClearBattlefieldInstructionPreviewForTarget(targetKey);
+        var scriptCleared = ClearBattlefieldFriendEnemyPlacementsFromCurrentScript(new[] { selected }, "移除摆放");
         if (_currentBattlefieldDocument != null)
         {
             RenderBattlefieldMapPreview(_currentBattlefieldDocument);
         }
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
-        SetStatus("战场布阵：已移除选中单位。");
+        SetStatus(scriptCleared
+            ? "战场布阵：已移除选中单位，并清空左侧 S 剧本树中的对应 46/47 友/敌军出场槽；尚未完整保存。"
+            : "战场布阵：已移除选中单位；未绑定 46/47 友/敌军出场槽，S 剧本树不改。");
     }
 
     private void ClearBattlefieldPlacedUnits()
     {
         if (_battlefieldPlacedUnits.Count == 0) return;
-        if (MessageBox.Show(this, "将清空当前关卡的地图摆放草稿，不修改 S 剧本。是否继续？", "确认清空摆放", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+        var scriptPlacements = _battlefieldPlacedUnits
+            .Where(BattlefieldDeploymentWriteService.IsFriendOrEnemyScriptPlacementWritable)
+            .ToList();
+        if (MessageBox.Show(this,
+                scriptPlacements.Count > 0
+                    ? $"将清空当前关卡的地图摆放草稿，并清空左侧 S 剧本树中 {scriptPlacements.Count} 个已绑定 46/47 友/敌军出场槽。\r\n\r\n0x4B 我军出战位和本地草稿只从地图预览移除，不改 S 剧本。是否继续？"
+                    : "将清空当前关卡的地图摆放草稿；未发现已绑定 46/47 友/敌军出场槽，S 剧本树不改。是否继续？",
+                "确认清空摆放",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
         {
             return;
         }
@@ -2876,19 +3600,74 @@ public sealed partial class MainForm
         _battlefieldPlacedUnits.Clear();
         ClearBattlefieldPlacedUnitSelection();
         ClearBattlefieldInstructionPreviewState();
+        var scriptCleared = ClearBattlefieldFriendEnemyPlacementsFromCurrentScript(scriptPlacements, "清空摆放");
         if (_currentBattlefieldDocument != null)
         {
             BindBattlefieldUnitCandidates(GetBattlefieldUnitCandidatesForDisplay());
             BindBattlefieldCommandCandidates(GetBattlefieldCommandCandidatesForDisplay());
             RefreshBattlefieldScriptPreviewTree();
-        }
-        if (_currentBattlefieldDocument != null)
-        {
             RenderBattlefieldMapPreview(_currentBattlefieldDocument);
         }
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
-        SetStatus("战场布阵：已清空摆放。");
+        SetStatus(scriptCleared
+            ? $"战场布阵：已清空摆放，并清空左侧 S 剧本树中的 {scriptPlacements.Count} 个 46/47 友/敌军出场槽；尚未完整保存。"
+            : "战场布阵：已清空摆放；没有可清空的 46/47 友/敌军出场槽。");
+    }
+
+    private bool ClearBattlefieldFriendEnemyPlacementsFromCurrentScript(IReadOnlyList<BattlefieldPlacedUnit> placements, string action)
+    {
+        if (placements.Count == 0 || _currentBattlefieldDocument == null)
+        {
+            return false;
+        }
+
+        var scriptPlacements = placements
+            .Where(BattlefieldDeploymentWriteService.IsFriendOrEnemyScriptPlacementWritable)
+            .ToList();
+        if (scriptPlacements.Count == 0)
+        {
+            return false;
+        }
+
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            SetStatus($"战场布阵：{action}没有可写入的左侧 S 剧本完整树，仅移除地图摆放草稿。");
+            return false;
+        }
+
+        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        BattlefieldDeploymentWriteResult result;
+        try
+        {
+            result = _battlefieldDeploymentWriteService.ClearFriendEnemyScriptPlacements(
+                _currentBattlefieldLegacyScriptDocument,
+                scriptPlacements);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Clear battlefield placement from current S tree failed: {ex}");
+            SetStatus($"战场布阵：{action}未能清空左侧 S 剧本树中的 46/47 出场槽：{ex.Message}；仅移除地图摆放草稿。");
+            return false;
+        }
+
+        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+        foreach (var placement in scriptPlacements)
+        {
+            ClearBattlefieldInstructionPreviewForTarget(placement.TargetKey);
+        }
+
+        var changed = FindBattlefieldDeploymentSourceCommand(scriptPlacements[0].TargetKey);
+        RefreshBattlefieldLegacyScriptView(changed);
+        RefreshBattlefieldDocumentFromLegacyScript(scriptPlacements[0].TargetKey);
+        MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+        UpdateBattlefieldDeploymentWriteButton();
+
+        var summary = result.Changes.Count == 1
+            ? result.Changes[0].Summary
+            : $"清空 {result.Changes.Count} 个 46/47 友/敌军出场槽";
+        SetStatus($"战场布阵：{action}已同步到左侧 S 剧本树：{summary}，尚未完整保存。");
+        return true;
     }
 
     private void ClearBattlefieldInstructionPreviewForTarget(string targetKey)
@@ -3954,10 +4733,13 @@ public sealed partial class MainForm
         SetStatus($"战场制作出场块修改：{commandTitle}，{oldSummary} -> {BuildLegacyScriptParameterPreview(command)}，需完整保存S剧本");
     }
 
-    private void RefreshBattlefieldDocumentFromLegacyScript()
+    private void RefreshBattlefieldDocumentFromLegacyScript(string? preferredTargetKey = null)
     {
         if (_project == null || _currentBattlefieldDocument == null || _currentBattlefieldLegacyScriptDocument == null) return;
 
+        preferredTargetKey = string.IsNullOrWhiteSpace(preferredTargetKey)
+            ? GetSelectedBattlefieldUnitCandidate()?.TargetKey
+            : preferredTargetKey;
         _currentBattlefieldDocument = BattlefieldEditorService.RebuildFromLegacyDocument(
             _currentBattlefieldDocument,
             _currentBattlefieldLegacyScriptDocument,
@@ -3970,6 +4752,10 @@ public sealed partial class MainForm
         PopulateBattlefieldUnitCategoryFilter(_currentBattlefieldDocument.UnitCandidates);
         BindBattlefieldUnitCandidates(GetBattlefieldUnitCandidatesForDisplay());
         BindBattlefieldCommandCandidates(GetBattlefieldCommandCandidatesForDisplay());
+        if (!string.IsNullOrWhiteSpace(preferredTargetKey))
+        {
+            SelectBattlefieldUnitCandidateGridRow(preferredTargetKey);
+        }
         RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
         UpdateBattlefieldDeploymentWriteButton();
         _battlefieldInfoBox.Text = BuildBattlefieldInfo(_currentBattlefieldDocument) +
@@ -4609,7 +5395,28 @@ public sealed partial class MainForm
             return;
         }
 
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            MessageBox.Show(this, "Current S script is not in legacy full-tree mode; deployment cannot be saved from the left script tree.", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         var writableCount = _battlefieldPlacedUnits.Count(BattlefieldDeploymentWriteService.IsScriptPlacementWritable);
+        if (writableCount == 0 && IsLegacyStructureDirty(LegacyScriptEditorScope.Battlefield))
+        {
+            if (MessageBox.Show(this,
+                    $"即将把当前左侧 S 剧本树中的出场删除/清空改动保存到 RS\\{_currentBattlefieldDocument.Scenario.FileName}。\r\n\r\n当前地图上没有可再次校准的摆放项，将直接保存内存中的 S 剧本树；保存前自动备份，保存后复读校验。是否继续？",
+                    "确认保存当前 S 剧本树",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            await SaveCurrentBattlefieldLegacyScriptStructureAsync();
+            return;
+        }
+
         if (writableCount == 0)
         {
             MessageBox.Show(this,
@@ -4641,6 +5448,7 @@ public sealed partial class MainForm
                 _project,
                 _currentBattlefieldDocument.Scenario,
                 dictionary,
+                _currentBattlefieldLegacyScriptDocument,
                 _battlefieldPlacedUnits);
             var notePath = _battlefieldUnitReviewService.Save(_project, _currentBattlefieldDocument, rows, _battlefieldPlacedUnits);
 
@@ -4697,7 +5505,9 @@ public sealed partial class MainForm
     private void UpdateBattlefieldDeploymentWriteButton()
         => _writeBattlefieldDeploymentButton.Enabled =
             _currentBattlefieldDocument != null &&
-            _battlefieldPlacedUnits.Any(BattlefieldDeploymentWriteService.IsScriptPlacementWritable);
+            _currentBattlefieldLegacyScriptDocument != null &&
+            (_battlefieldPlacedUnits.Any(BattlefieldDeploymentWriteService.IsScriptPlacementWritable) ||
+             IsLegacyStructureDirty(LegacyScriptEditorScope.Battlefield));
 
     private void SaveBattlefieldTexts()
     {

@@ -278,17 +278,23 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
 
     private string FormatVariableArrayTest(LegacyScenarioCommandNode command)
     {
-        var values = FlattenIntData(command);
-        return $"{FormatVarGroup(values, 0)};{FormatVarGroup(values, 25)}";
+        var variableArrays = command.Parameters
+            .Where(parameter => parameter.Kind == LegacyScenarioParameterKind.VariableArray)
+            .Take(2)
+            .ToList();
+        return $"{FormatVarGroup(variableArrays.ElementAtOrDefault(0)?.Values)};{FormatVarGroup(variableArrays.ElementAtOrDefault(1)?.Values)}";
     }
 
-    private static string FormatVarGroup(IReadOnlyList<int> values, int start)
+    private static string FormatVarGroup(IReadOnlyList<int>? values)
     {
         var parts = new List<string>();
-        for (var i = start; i < start + 25 && i < values.Count; i++)
+        if (values != null)
         {
-            if (values[i] == -1) break;
-            parts.Add("Var" + values[i].ToString(CultureInfo.InvariantCulture));
+            for (var i = 0; i < values.Count && i < 25; i++)
+            {
+                if (values[i] == -1) break;
+                parts.Add("Var" + values[i].ToString(CultureInfo.InvariantCulture));
+            }
         }
 
         return parts.Count == 0 ? "无" : string.Join(" ", parts);

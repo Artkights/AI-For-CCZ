@@ -31,6 +31,7 @@ public sealed partial class MainForm
         Redo,
         Cut,
         Copy,
+        PastePreview,
         Paste
     }
 
@@ -135,6 +136,7 @@ public sealed partial class MainForm
         _legacyScriptContextRedoItem.Tag = LegacyScriptContextMenuRole.Redo.ToString();
         _legacyScriptContextCutItem.Tag = LegacyScriptContextMenuRole.Cut.ToString();
         _legacyScriptContextCopyItem.Tag = LegacyScriptContextMenuRole.Copy.ToString();
+        _legacyScriptContextPreviewPasteItem.Tag = LegacyScriptContextMenuRole.PastePreview.ToString();
         _legacyScriptContextPasteItem.Tag = LegacyScriptContextMenuRole.Paste.ToString();
 
         _legacyScriptContextEditItem.Click += (_, _) => EditSelectedLegacyItemDataCommand(LegacyScriptEditorScope.Script);
@@ -150,6 +152,7 @@ public sealed partial class MainForm
         _legacyScriptContextRedoItem.Click += (_, _) => RedoLegacyScenarioEdit(LegacyScriptEditorScope.Script);
         _legacyScriptContextCutItem.Click += (_, _) => CutSelectedLegacyScriptCommand(LegacyScriptEditorScope.Script);
         _legacyScriptContextCopyItem.Click += (_, _) => CopySelectedScriptCommandSummary(LegacyScriptEditorScope.Script);
+        _legacyScriptContextPreviewPasteItem.Click += (_, _) => PreviewPasteScriptCommandCandidate(LegacyScriptEditorScope.Script);
         _legacyScriptContextPasteItem.Click += (_, _) => PasteCopiedLegacyScriptCommandAtDefaultTarget(LegacyScriptEditorScope.Script);
         _legacyScriptContextTextImportItem.Click += (_, _) => ImportScenarioTextBelowSelected(LegacyScriptEditorScope.Script);
         _legacyScriptContextExpandItem.Click += (_, _) => ExpandSelectedLegacyScriptTreeNode(LegacyScriptEditorScope.Script);
@@ -182,6 +185,7 @@ public sealed partial class MainForm
             new ToolStripSeparator(),
             _legacyScriptContextCutItem,
             _legacyScriptContextCopyItem,
+            _legacyScriptContextPreviewPasteItem,
             _legacyScriptContextPasteItem,
             _legacyScriptContextTextImportItem,
             new ToolStripSeparator(),
@@ -222,6 +226,7 @@ public sealed partial class MainForm
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(CreateLegacyScriptContextMenuItem("剪切(&T)\tCtrl+X", () => CutSelectedLegacyScriptCommand(scope), LegacyScriptContextMenuRole.Cut));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("复制(&C)\tCtrl+C", () => CopySelectedScriptCommandSummary(scope), LegacyScriptContextMenuRole.Copy));
+        menu.Items.Add(CreateLegacyScriptContextMenuItem("粘贴预览", () => PreviewPasteScriptCommandCandidate(scope), LegacyScriptContextMenuRole.PastePreview));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("粘贴(&P)\tCtrl+V", () => PasteCopiedLegacyScriptCommandAtDefaultTarget(scope), LegacyScriptContextMenuRole.Paste));
         menu.Items.Add(CreateLegacyScriptContextMenuItem("文本导入...", () => ImportScenarioTextBelowSelected(scope), "TextImport"));
         menu.Items.Add(new ToolStripSeparator());
@@ -294,7 +299,10 @@ public sealed partial class MainForm
             checkedCommands.Count > 0
             ? checkedCommands.All(candidate => CanCopyLegacyScriptCommand(candidate, out _))
             : selectedSceneNode || selectedSectionNode || (selectedCommand && CanCopyLegacyScriptCommand(command, out _));
-        var canPaste = CanPasteCopiedLegacyScriptCommandNearSelected(scope, beforeSelected: true, out _);
+        var pasteValidation = ValidateLegacyScriptPaste(scope, beforeSelected: true);
+        var canPaste = pasteValidation.CanPaste;
+        var canPreviewPaste = pasteValidation.PayloadKind != LegacyScriptClipboardPayloadKind.None &&
+                              TryHasLegacyScriptClipboardCache();
         var pasteSceneCount = GetLegacyScriptClipboardScenesForPaste().Count;
         var pasteSectionCount = GetLegacyScriptClipboardSectionsForPaste().Count;
         var pasteCommandCount = GetLegacyScriptClipboardCommandsForPaste().Count;
@@ -314,6 +322,7 @@ public sealed partial class MainForm
         var redoItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextRedoItem, LegacyScriptContextMenuRole.Redo);
         var cutItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextCutItem, LegacyScriptContextMenuRole.Cut);
         var copyItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextCopyItem, LegacyScriptContextMenuRole.Copy);
+        var pastePreviewItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextPreviewPasteItem, LegacyScriptContextMenuRole.PastePreview);
         var pasteItem = FindLegacyScriptMenuItem(menu, _legacyScriptContextPasteItem, LegacyScriptContextMenuRole.Paste);
 
         if (editItem != null)
@@ -418,6 +427,22 @@ public sealed partial class MainForm
                     : selectedSectionNode
                     ? "复制 Section(&C)\tCtrl+C"
                     : "复制(&C)\tCtrl+C";
+        }
+
+        if (pastePreviewItem != null)
+        {
+            pastePreviewItem.Enabled = canPreviewPaste;
+            pastePreviewItem.Text = pasteSceneCount > 0
+                ? pasteSceneCount > 1
+                    ? $"粘贴预览 {pasteSceneCount} 个 Scene"
+                    : "粘贴预览 Scene"
+                : pasteSectionCount > 0
+                ? pasteSectionCount > 1
+                    ? $"粘贴预览 {pasteSectionCount} 个 Section"
+                    : "粘贴预览 Section"
+                : pasteCommandCount > 1
+                    ? $"粘贴预览 {pasteCommandCount} 条"
+                    : "粘贴预览";
         }
 
         if (pasteItem != null)
@@ -679,13 +704,14 @@ public sealed partial class MainForm
                 : selectedSectionNode
                 ? "复制 Section"
                 : "复制命令";
+        var pasteBeforeValidation = ValidateLegacyScriptPaste(LegacyScriptEditorScope.Script, beforeSelected: true);
+        var pasteAfterValidation = ValidateLegacyScriptPaste(LegacyScriptEditorScope.Script, beforeSelected: false);
         _scriptContextPreviewPasteItem.Enabled = (selectedCommand || selectedSceneNode || selectedSectionNode) &&
                                                  (_scriptCommandClipboardItem != null ||
-                                                  _legacyScriptCommandClipboardItems.Count > 0 ||
-                                                  _legacyScriptSceneClipboardItems.Count > 0 ||
-                                                  _legacyScriptSectionClipboardItems.Count > 0);
-        _scriptContextPasteBeforeItem.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: true, out _);
-        _scriptContextPasteAfterItem.Enabled = CanPasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false, out _);
+                                                  (pasteBeforeValidation.PayloadKind != LegacyScriptClipboardPayloadKind.None &&
+                                                   TryHasLegacyScriptClipboardCache()));
+        _scriptContextPasteBeforeItem.Enabled = pasteBeforeValidation.CanPaste;
+        _scriptContextPasteAfterItem.Enabled = pasteAfterValidation.CanPaste;
         _scriptContextMoveUpItem.Enabled = selectedCommand && CanMoveLegacyScriptCommand(LegacyScriptEditorScope.Script, command, up: true, out _);
         _scriptContextMoveDownItem.Enabled = selectedCommand && CanMoveLegacyScriptCommand(LegacyScriptEditorScope.Script, command, up: false, out _);
 
@@ -1601,6 +1627,7 @@ public sealed partial class MainForm
         _legacyScriptCommandClipboard = clipboardItems[0];
         _legacyScriptSceneClipboardItems = Array.Empty<LegacyScenarioScene>();
         _legacyScriptSectionClipboardItems = Array.Empty<LegacyScenarioSection>();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = true;
@@ -1643,6 +1670,7 @@ public sealed partial class MainForm
         _legacyScriptSectionClipboardItems = sections
             .Select(section => CloneLegacyScriptSectionForPaste(section, section.SceneIndex, section.SectionIndex))
             .ToList();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = true;
@@ -1685,6 +1713,7 @@ public sealed partial class MainForm
         _legacyScriptSceneClipboardItems = scenes
             .Select(CloneLegacyScriptSceneForPaste)
             .ToList();
+        _legacyScriptCommandClipboardProjectName = _project?.Name ?? string.Empty;
         _legacyScriptCommandClipboardScenarioName = scenarioName;
         _legacyScriptCommandClipboardGameRoot = _project?.GameRoot ?? string.Empty;
         _previewPasteScriptCommandButton.Enabled = true;
@@ -1716,22 +1745,20 @@ public sealed partial class MainForm
         string clipboardText,
         string detailText)
     {
-        try
+        if (TrySetLegacyScriptStructuredClipboardText(clipboardText, out var error))
         {
-            Clipboard.SetText(clipboardText);
             return true;
         }
-        catch (Exception ex)
-        {
-            SetLegacyScriptDetailText(scope, detailText + "\r\n\r\n剪贴板写入失败，已取消剪切，来源未删除。\r\n" + ex.Message);
-            SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：剪贴板写入失败，已取消剪切");
-            MessageBox.Show(this,
-                "剪贴板写入失败，已取消剪切，来源未删除。\r\n\r\n" + ex.Message,
-                "无法剪切",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-            return false;
-        }
+
+        ClearLegacyScriptClipboardCache();
+        SetLegacyScriptDetailText(scope, detailText + "\r\n\r\n剪贴板写入失败，已取消剪切，来源未删除。\r\n" + error);
+        SetStatus($"{GetLegacyScriptScopeStatusPrefix(scope)}：剪贴板写入失败，已取消剪切");
+        MessageBox.Show(this,
+            "剪贴板写入失败，已取消剪切，来源未删除。\r\n\r\n" + error,
+            "无法剪切",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+        return false;
     }
 
     private void ExpandSelectedLegacyScriptTreeNode()

@@ -22,6 +22,10 @@ public sealed class BattlefieldUnitStatusDraft
     public int? JobId { get; set; }
     public bool HasEquipmentCommand { get; set; }
     public bool HasJobCommand { get; set; }
+    public BattlefieldUnitDataDefaults? DataDefaults { get; set; }
+    public bool RemoveEquipmentOverride { get; set; }
+    public bool RemoveJobOverride { get; set; }
+    public List<int> RemoveAbilityOverrides { get; } = [];
     public string EquipmentBoundarySummary { get; set; } = string.Empty;
 
     public List<BattlefieldUnitAbilityDraft> Abilities { get; } =
@@ -44,6 +48,8 @@ public sealed class BattlefieldUnitAbilityDraft
     public int? Operation { get; set; }
     public int? Value { get; set; }
     public bool HasCommand { get; set; }
+    public int? DataDefaultValue { get; set; }
+    public bool RemoveOverride { get; set; }
 }
 
 public sealed class BattlefieldUnitStatusWriteResult
