@@ -16,11 +16,9 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
-    private enum ImageAssignmentResourceKind
+    private void ClearImageAssignmentCaches()
     {
-        Face,
-        R,
-        S
+        _imageAssignmentFreeIdService.ClearCache();
     }
 
     private void LoadImageResources()
@@ -878,6 +876,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             _currentImageAssignments = _imageAssignmentService.Load(_project, _tables);
+            ClearImageAssignmentCaches();
             _imageAssignmentSearchBox.Clear();
             _imageAssignmentMissingOnlyCheckBox.Checked = false;
             _imageAssignmentGrid.DataSource = _currentImageAssignments;
@@ -885,6 +884,9 @@ public sealed partial class MainForm
             var canEdit = true;
             _imageAssignmentGrid.ReadOnly = !canEdit;
             _saveImageAssignmentsButton.Enabled = canEdit;
+            _queryFreeFaceIdsButton.Enabled = true;
+            _queryFreeRImageIdsButton.Enabled = true;
+            _queryFreeSImageIdsButton.Enabled = true;
             _importImageAssignmentFaceButton.Enabled = true;
             _batchImportImageAssignmentFaceButton.Enabled = true;
             _exportRImageBmpButton.Enabled = true;
@@ -892,11 +894,11 @@ public sealed partial class MainForm
             _exportImageAssignmentFaceBmpButton.Enabled = true;
             foreach (DataGridViewColumn column in _imageAssignmentGrid.Columns)
             {
-                column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "头像编号" or "职业" or "职业名称" or "R资源状态" or "S资源状态";
+                column.ReadOnly = !canEdit || column.DataPropertyName is "ID" or "名称" or "职业" or "职业名称" or "R资源状态" or "S资源状态";
                 if (column.DataPropertyName == "头像编号")
                 {
                     column.Width = 76;
-                    column.ToolTipText = "来自人物表“头像”字段；右侧会尝试从 E5\\Face.e5 抽取对应 PNG 头像作为人物确认预览。";
+                    column.ToolTipText = "来自人物表“头像”字段；可直接编辑，右侧会从 E5\\Face.e5 抽取对应头像预览。";
                 }
                 if (column.DataPropertyName == "职业")
                 {
@@ -919,19 +921,19 @@ public sealed partial class MainForm
             var missingR = _currentImageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
             var missingS = _currentImageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
             _imageAssignmentSummaryText =
-                $"已读取人物 R/S 形象联动表：{_currentImageAssignments.Rows.Count} 行。\r\n" +
+                $"已读取人物形象设定表：{_currentImageAssignments.Rows.Count} 行。\r\n" +
                 $"资源解释检查：R 未定位 {missingR} 项，S 未/部分定位 {missingS} 项。\r\n" +
-                "右侧显示人物表头像预览，并按 E5 0x110 索引表显示 R/S 形象预览：R=n 取 Pmapobj.e5 图 2n+1；S=0 按职业和预览阵营取默认兵种图，S=1..32 取三转特殊三张图，S>=33 取一转特殊单张图。当前项目可直接编辑 R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
+                "右侧显示人物表头像预览，并按 E5 0x110 索引表显示 R/S 形象预览：R=n 取 Pmapobj.e5 图 2n+1；S=0 按职业和预览阵营取默认兵种图，S=1..32 取三转特殊三张图，S>=33 取一转特殊单张图。当前项目可直接编辑 头像编号 / R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
             _imageAssignmentInfoBox.Text = _imageAssignmentSummaryText;
             ShowSelectedImageAssignmentDetail();
-            System.Diagnostics.Debug.WriteLine("已读取人物 R/S 形象联动表。");
-            SetStatus("人物 R/S 形象读取完成");
+            System.Diagnostics.Debug.WriteLine("已读取人物形象设定表。");
+            SetStatus("人物形象设定读取完成");
         }
         catch (Exception ex)
         {
             _imageAssignmentInfoBox.Text = ex.ToString();
-            System.Diagnostics.Debug.WriteLine("读取人物 R/S 形象失败：" + ex);
-            MessageBox.Show(this, ex.Message, "读取人物 R/S 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            System.Diagnostics.Debug.WriteLine("读取人物形象设定失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取人物形象设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -954,7 +956,7 @@ public sealed partial class MainForm
             _clearImageAssignmentFilterButton.Enabled = false;
             ColorImageAssignmentResourceRows();
             ShowSelectedImageAssignmentDetail();
-            SetStatus("人物 R/S 筛选已清除");
+            SetStatus("人物形象筛选已清除");
             return;
         }
 
@@ -981,7 +983,7 @@ public sealed partial class MainForm
         _clearImageAssignmentFilterButton.Enabled = true;
         ColorImageAssignmentResourceRows();
         ShowSelectedImageAssignmentDetail();
-        SetStatus($"人物 R/S 筛选：显示 {_currentImageAssignments.DefaultView.Count}/{_currentImageAssignments.Rows.Count} 行");
+        SetStatus($"人物形象筛选：显示 {_currentImageAssignments.DefaultView.Count}/{_currentImageAssignments.Rows.Count} 行");
     }
 
     private void ClearImageAssignmentFilter()
@@ -1000,7 +1002,7 @@ public sealed partial class MainForm
         _clearImageAssignmentFilterButton.Enabled = false;
         ColorImageAssignmentResourceRows();
         ShowSelectedImageAssignmentDetail();
-        SetStatus("人物 R/S 筛选已清除，已显示全部人物。");
+        SetStatus("人物形象筛选已清除，已显示全部人物。");
     }
 
     private void UpdateImageAssignmentResourceStatus(int rowIndex)
@@ -1076,6 +1078,38 @@ public sealed partial class MainForm
         }
     }
 
+    private void ShowFreeImageAssignmentIdsDialog(ImageAssignmentResourceKind kind)
+    {
+        if (_project == null || _currentImageAssignments == null)
+        {
+            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _imageAssignmentFreeIdService.Build(_project, _currentImageAssignments, kind, GetImageAssignmentSPreviewFactionSlot());
+            using var dialog = new FreeImageAssignmentDialog(_project, _imageAssignmentFreeIdService, result, GetImageAssignmentSPreviewFactionSlot());
+            Cursor = Cursors.Default;
+            dialog.ShowDialog(this);
+            var cacheText = result.AvailableIdsFromCache ? "缓存命中" : "已建立缓存";
+            SetStatus(kind == ImageAssignmentResourceKind.Face
+                ? $"空闲头像编号：{result.FreeCandidates.Count} 个（{cacheText}）"
+                : $"空闲{GetImageAssignmentResourceKindText(kind)}编号：{result.FreeCandidates.Count} 个（{cacheText}）");
+        }
+        catch (Exception ex)
+        {
+            Cursor = Cursors.Default;
+            System.Diagnostics.Debug.WriteLine("查询空闲人物形象编号失败：" + ex);
+            MessageBox.Show(this, ex.Message, "查询空闲人物形象编号失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
     private void ShowSelectedImageAssignmentDetail()
     {
         if (_currentImageAssignments == null || _project == null)
@@ -1108,7 +1142,7 @@ public sealed partial class MainForm
         var sStatus = Convert.ToString(row["S\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture) ?? string.Empty;
         var detail =
             $"\u5f53\u524d\u9009\u4e2d\uff1aID={id}  \u540d\u79f0={name}\r\n" +
-            $"头像={faceId?.ToString(CultureInfo.InvariantCulture) ?? "未读取"}  来源：人物表“头像”字段，预览来自 E5\\Face.e5\r\n" +
+            $"头像={faceId?.ToString(CultureInfo.InvariantCulture) ?? "未读取"}  来源：人物表“头像”字段，预览来自 E5\\Face.e5 映射\r\n" +
             $"职业={jobId?.ToString(CultureInfo.InvariantCulture) ?? "未读取"} {jobName}  S预览阵营={CharacterImageResourceService.BuildSPreviewFactionText(sFactionSlot)}\r\n" +
             $"R={rId:00}  {rStatus}  \u8def\u5f84\uff1a{rPath}\r\n" +
             $"S={sId:00}  {sStatus}  \u8def\u5f84\uff1a{sPath}\r\n" +
@@ -1224,7 +1258,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1327,7 +1361,7 @@ public sealed partial class MainForm
             var result = restoreMode
                 ? _e5ImageReplaceService.ReplaceFromEntry(_project, target.FilePath, target.ImageNumber, sourcePath)
                 : _e5ImageReplaceService.Replace(_project, target.FilePath, target.ImageNumber, sourcePath);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildE5ImageReplaceResultText(result));
             System.Diagnostics.Debug.WriteLine($"E5 条目{(restoreMode ? "还原" : "替换")}完成：{result.TargetRelativePath} #{result.ImageNumber}，备份 {result.BackupPath}，结构化报告 {result.ReportJsonPath}");
@@ -1355,7 +1389,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1422,7 +1456,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _rImageReplaceService.Replace(_project, request);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildRImageReplaceResultText(result));
             System.Diagnostics.Debug.WriteLine($"一键替换 R 形象完成：R={rImageId} count={result.TotalOperationCount} report={result.AggregateReportPath}");
@@ -1467,7 +1501,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1533,7 +1567,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _sImageReplaceService.Replace(_project, request);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildSImageReplaceResultText(result));
             System.Diagnostics.Debug.WriteLine($"一键替换 S 形象完成：S={sImageId} count={result.TotalOperationCount} report={result.AggregateReportPath}");
@@ -1576,7 +1610,7 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物 R/S。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1633,7 +1667,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _batchRImageReplaceService.Replace(_project, request);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildBatchRImageReplaceResultText(result));
             SetStatus($"批量导入 R 形象完成：写入 {result.TotalOperationCount} 条");
@@ -1763,7 +1797,7 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物 R/S。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1821,7 +1855,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _batchSImageReplaceService.Replace(_project, request);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.AppendText("\r\n\r\n" + BuildBatchSImageReplaceResultText(result));
             SetStatus($"批量导入 S 形象完成：写入 {result.TotalOperationCount} 条");
@@ -2266,14 +2300,14 @@ public sealed partial class MainForm
         _imageAssignmentGrid.EndEdit();
         if (_currentImageAssignments.GetChanges() == null)
         {
-            MessageBox.Show(this, "人物 R/S 形象没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "人物形象设定没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var preview = BuildChangePreview(_currentImageAssignments, maxItems: 40);
         if (MessageBox.Show(this,
-                $"即将保存人物 R/S 形象到当前 MOD 项目的 Ekd5.exe。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
-                "确认保存人物 R/S",
+                $"即将保存人物形象设定到当前 MOD 项目的 Ekd5.exe，包括头像编号、R形象编号、S形象编号。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
+                "确认保存人物形象",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
         {
@@ -2286,9 +2320,9 @@ public sealed partial class MainForm
             var result = _imageAssignmentService.Save(_project, _tables, _currentImageAssignments);
             ColorImageAssignmentResourceRows();
             ShowSelectedImageAssignmentDetail();
-            System.Diagnostics.Debug.WriteLine($"已保存人物 R/S 形象：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");
+            System.Diagnostics.Debug.WriteLine($"已保存人物形象设定：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");
             System.Diagnostics.Debug.WriteLine("备份：" + result.BackupSummary);
-            SetStatus($"人物 R/S 保存完成并已复读：变化 {result.ChangedBytes} 字节");
+            SetStatus($"人物形象设定保存完成并已复读：变化 {result.ChangedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{result.Saves.Count}\r\n变化字节：{result.ChangedBytes}\r\n备份：{result.BackupSummary}",
                 "保存完成",
@@ -2297,8 +2331,8 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("保存人物 R/S 形象失败：" + ex);
-            MessageBox.Show(this, ex.Message, "保存人物 R/S 形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            System.Diagnostics.Debug.WriteLine("保存人物形象设定失败：" + ex);
+            MessageBox.Show(this, ex.Message, "保存人物形象设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -2311,10 +2345,10 @@ public sealed partial class MainForm
         if (_imageAssignmentGrid.ReadOnly || e.RowIndex < 0 || e.ColumnIndex < 0) return;
         if (_imageAssignmentGrid.Columns[e.ColumnIndex].ReadOnly) return;
         var columnName = _imageAssignmentGrid.Columns[e.ColumnIndex].DataPropertyName;
-        if (columnName is not ("R形象编号" or "S形象编号")) return;
+        if (columnName is not ("头像编号" or "R形象编号" or "S形象编号")) return;
 
         var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
-        var error = TryParseInteger(value, 0, ushort.MaxValue, columnName, _currentPageHexButton.Checked);
+        var error = TryParseInteger(value, 0, int.MaxValue, columnName, _currentPageHexButton.Checked);
         _imageAssignmentGrid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
         if (error != null)
         {

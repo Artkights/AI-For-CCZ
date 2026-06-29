@@ -220,6 +220,7 @@ public sealed partial class MainForm : Form
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
     private readonly MapImageReplaceService _mapImageReplaceService = new();
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService = new();
+    private readonly ImageAssignmentFreeIdService _imageAssignmentFreeIdService;
     private readonly FieldAnnotationService _fieldAnnotationService = new();
     private readonly ProPatchParser _patchParser = new();
     private readonly PatchApplyService _patchService = new();    private readonly SceneStringParser _sceneStringParser = new();
@@ -831,6 +832,9 @@ public sealed partial class MainForm : Form
     private readonly TextBox _imageResourceEntryInfoBox = new();
     private readonly Button _loadImageAssignmentsButton = new();
     private readonly Button _saveImageAssignmentsButton = new();
+    private readonly Button _queryFreeFaceIdsButton = new();
+    private readonly Button _queryFreeRImageIdsButton = new();
+    private readonly Button _queryFreeSImageIdsButton = new();
     private readonly Button _openRsDirectoryButton = new();
     private readonly TextBox _imageAssignmentSearchBox = new();
     private readonly CheckBox _imageAssignmentMissingOnlyCheckBox = new();
@@ -1190,6 +1194,7 @@ public sealed partial class MainForm : Form
 
     public MainForm()
     {
+        _imageAssignmentFreeIdService = new ImageAssignmentFreeIdService(_imageAssignmentPreviewService);
         _materialLibraryCache = new MaterialLibraryCache(_materialLibraryIndexer);
         Text = "CCZModStudio 6.5 - V0.6 集成原型";
         Icon = LoadApplicationIcon();
@@ -1730,7 +1735,7 @@ public sealed partial class MainForm : Form
         imageResourceLayout.Controls.Add(imageResourceSplit, 0, 1);
         imageTabs.TabPages.Add(imageResourcePage);
 
-        var imageAssignmentPage = new TabPage("人物R/S指定");
+        var imageAssignmentPage = new TabPage("人物形象设定");
         var imageLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1742,11 +1747,20 @@ public sealed partial class MainForm : Form
         imageLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         imageAssignmentPage.Controls.Add(imageLayout);
         var imageToolbarLayout = CreateToolbarStack(2);
-        _loadImageAssignmentsButton.Text = "读取人物R/S";
+        _loadImageAssignmentsButton.Text = "读取人物形象";
         ConfigureToolbarButton(_loadImageAssignmentsButton, 104);
-        _saveImageAssignmentsButton.Text = "保存R/S";
+        _saveImageAssignmentsButton.Text = "保存形象";
         ConfigureToolbarButton(_saveImageAssignmentsButton, 72);
         _saveImageAssignmentsButton.Enabled = false;
+        _queryFreeFaceIdsButton.Text = "查询空闲头像";
+        ConfigureToolbarButton(_queryFreeFaceIdsButton, 118);
+        _queryFreeFaceIdsButton.Enabled = false;
+        _queryFreeRImageIdsButton.Text = "查询空闲R形象编号";
+        ConfigureToolbarButton(_queryFreeRImageIdsButton, 150);
+        _queryFreeRImageIdsButton.Enabled = false;
+        _queryFreeSImageIdsButton.Text = "查询空闲S形象编号";
+        ConfigureToolbarButton(_queryFreeSImageIdsButton, 150);
+        _queryFreeSImageIdsButton.Enabled = false;
         _openRsDirectoryButton.Text = "打开RS目录";
         ConfigureToolbarButton(_openRsDirectoryButton, 104);
         _openRsDirectoryButton.Visible = false;
@@ -1801,6 +1815,9 @@ public sealed partial class MainForm : Form
         AddToolbarRow(imageToolbarLayout, 0,
             _loadImageAssignmentsButton,
             _saveImageAssignmentsButton,
+            _queryFreeFaceIdsButton,
+            _queryFreeRImageIdsButton,
+            _queryFreeSImageIdsButton,
             _imageAssignmentSearchBox,
             _imageAssignmentMissingOnlyCheckBox,
             CreateToolbarLabel("S预览阵营："),
@@ -1843,7 +1860,7 @@ public sealed partial class MainForm : Form
         _imageAssignmentGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _imageAssignmentGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
         _imageAssignmentGrid.MultiSelect = true;
-        AddCollapsibleSplitPanel(imageSplit, 1, "人物R/S表", _imageAssignmentGrid, "BuildImageAssignmentPage.GridPreview.Grid");
+        AddCollapsibleSplitPanel(imageSplit, 1, "人物形象表", _imageAssignmentGrid, "BuildImageAssignmentPage.GridPreview.Grid");
 
         var imagePreviewLayout = new TableLayoutPanel
         {

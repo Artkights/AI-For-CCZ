@@ -216,21 +216,31 @@ internal partial class Program
     
         var imageAssignmentService = new ImageAssignmentService();
         var imageData = imageAssignmentService.Load(testProject, tables);
+        if (imageData.Columns["头像编号"]!.ReadOnly)
+        {
+            throw new InvalidOperationException("人物形象设定写回烟测要求头像编号列可编辑。");
+        }
+
+        var originalFace = Convert.ToInt32(imageData.Rows[0]["头像编号"], CultureInfo.InvariantCulture);
+        var changedFace = originalFace == 1 ? 2 : 1;
         var originalR = Convert.ToInt32(imageData.Rows[0]["R形象编号"], CultureInfo.InvariantCulture);
         var changedR = originalR == 0 ? 1 : 0;
+        imageData.Rows[0]["头像编号"] = changedFace;
         imageData.Rows[0]["R形象编号"] = changedR;
         var imageSave = imageAssignmentService.SaveToTestCopy(testProject, tables, imageData);
         var imageVerify = imageAssignmentService.Load(testProject, tables);
+        var actualFace = Convert.ToInt32(imageVerify.Rows[0]["头像编号"], CultureInfo.InvariantCulture);
         var actualR = Convert.ToInt32(imageVerify.Rows[0]["R形象编号"], CultureInfo.InvariantCulture);
-        if (actualR != changedR ||
+        if (actualFace != changedFace ||
+            actualR != changedR ||
             imageSave.Saves.Count == 0 ||
             imageSave.Saves.Any(x => string.IsNullOrWhiteSpace(x.BackupPath) || !File.Exists(x.BackupPath)))
         {
-            throw new InvalidOperationException($"人物 R/S 形象指定写回复读失败：expected={changedR}, actual={actualR}");
+            throw new InvalidOperationException($"人物形象设定写回复读失败：face expected={changedFace}, actual={actualFace}; R expected={changedR}, actual={actualR}");
         }
     
         Console.WriteLine($"RS_WRITE_TEXT_OK file={scenarioFileName} offset={writableText.OffsetHex} '{originalText}'->'{textVerify.Text}' changedBytes={textSave.ChangedBytes} backup={Path.GetFileName(textSave.BackupPath)}");
-        Console.WriteLine($"RS_WRITE_IMAGE_ASSIGN_OK row=0 R={originalR}->{actualR} saves={imageSave.Saves.Count} backups={imageSave.BackupSummary}");
+        Console.WriteLine($"RS_WRITE_IMAGE_ASSIGN_OK row=0 Face={originalFace}->{actualFace} R={originalR}->{actualR} saves={imageSave.Saves.Count} backups={imageSave.BackupSummary}");
     
         RunRoleWriteSmoke(testProject, tables);
         RunItemWriteSmoke(testProject, tables);

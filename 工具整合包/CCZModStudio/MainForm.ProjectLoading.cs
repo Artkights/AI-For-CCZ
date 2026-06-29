@@ -88,7 +88,7 @@ public sealed partial class MainForm
         }
         _attackAreaPreviewService.ClearCache();
         _strategyAnimationPreviewService.ClearCache();
-        _imageAssignmentPreviewService.ClearCache();
+        ClearImageAssignmentCaches();
         ClearBattlefieldUnitFrameCache();
         ClearRSceneImageCache();
         ClearRSceneDocumentView();
@@ -259,6 +259,9 @@ public sealed partial class MainForm
         _currentImageAssignments = null;
         _imageAssignmentGrid.DataSource = null;
         _saveImageAssignmentsButton.Enabled = false;
+        _queryFreeFaceIdsButton.Enabled = false;
+        _queryFreeRImageIdsButton.Enabled = false;
+        _queryFreeSImageIdsButton.Enabled = false;
         _importImageAssignmentFaceButton.Enabled = false;
         _batchImportImageAssignmentFaceButton.Enabled = false;
         _exportRImageBmpButton.Enabled = false;

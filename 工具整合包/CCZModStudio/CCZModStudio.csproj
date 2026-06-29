@@ -157,6 +157,7 @@
       <LauncherName ParameterType="System.String" Required="true" />
       <AssemblyName ParameterType="System.String" Required="true" />
       <NativeExecutableExtension ParameterType="System.String" Required="true" />
+      <RootCompanionFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
     </ParameterGroup>
     <Task>
       <Using Namespace="System" />
@@ -220,6 +221,21 @@
                     Log.LogError("GUI portable package root must only expose the launcher; remove root apphost: {0}", assemblyAppHostPath);
                 }
             }
+
+            foreach (var item in RootCompanionFiles ?? Array.Empty<Microsoft.Build.Framework.ITaskItem>())
+            {
+                var targetPath = item.GetMetadata("TargetPath");
+                if (string.IsNullOrWhiteSpace(targetPath))
+                {
+                    targetPath = Path.GetFileName(item.ItemSpec);
+                }
+
+                var fullPath = Path.Combine(root, targetPath);
+                if (!File.Exists(fullPath))
+                {
+                    Log.LogError("GUI portable package missing root companion file: {0}", fullPath);
+                }
+            }
         }
 
       ]]></Code>
@@ -243,6 +259,18 @@
     <MaterialLibraryEmptyDirectory Include="建筑\19：关隘" />
     <MaterialLibraryEmptyDirectory Include="建筑\26：火" />
     <MaterialLibraryEmptyDirectory Include="建筑\28：祭坛" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <RootPackageCompanionFiles Include="Assets\Package\RootDocs\说明.txt">
+      <TargetPath>说明.txt</TargetPath>
+    </RootPackageCompanionFiles>
+    <RootPackageCompanionFiles Include="..\本地知识库\08-剧本与战场\剧本文本导入AI说明模板.md">
+      <TargetPath>剧本文本导入AI说明模板.md</TargetPath>
+    </RootPackageCompanionFiles>
+    <RootPackageCompanionFiles Include="Assets\Package\RootDocs\普罗工具整合包使用说明.md">
+      <TargetPath>普罗工具整合包使用说明.md</TargetPath>
+    </RootPackageCompanionFiles>
   </ItemGroup>
 
   <Target Name="CleanMaterialLibraryOutputBeforeCopy"
@@ -336,6 +364,10 @@
     <MovePortableLayoutFilesUnder Root="$(_CczBuildLayoutRoot)"
                                   RuntimeDirectory="$(_CczBuildRuntimeDirectory)" />
 
+    <Copy SourceFiles="@(RootPackageCompanionFiles)"
+          DestinationFiles="@(RootPackageCompanionFiles->'$(_CczBuildLayoutRoot)%(TargetPath)')"
+          SkipUnchangedFiles="true" />
+
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczBuildLayoutRoot)"
                                        ExcludedRoot="$(_CczBuildRuntimeDirectory)" />
 
@@ -351,7 +383,8 @@
                                RuntimeSubdirectory="$(CczPublishRuntimeSubdirectory)"
                                LauncherName="$(CczLauncherName)"
                                AssemblyName="$(AssemblyName)"
-                               NativeExecutableExtension="$(_NativeExecutableExtension)" />
+                               NativeExecutableExtension="$(_NativeExecutableExtension)"
+                               RootCompanionFiles="@(RootPackageCompanionFiles)" />
   </Target>
 
   <Target Name="ArrangeSelfContainedPublishLayout"
@@ -368,6 +401,10 @@
     <MovePortableLayoutFilesUnder Root="$(_CczPublishLayoutRoot)"
                                   RuntimeDirectory="$(_CczPublishRuntimeDirectory)" />
 
+    <Copy SourceFiles="@(RootPackageCompanionFiles)"
+          DestinationFiles="@(RootPackageCompanionFiles->'$(_CczPublishLayoutRoot)%(TargetPath)')"
+          SkipUnchangedFiles="true" />
+
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPublishLayoutRoot)"
                                        ExcludedRoot="$(_CczPublishRuntimeDirectory)" />
 
@@ -383,7 +420,8 @@
                                RuntimeSubdirectory="$(CczPublishRuntimeSubdirectory)"
                                LauncherName="$(CczLauncherName)"
                                AssemblyName="$(AssemblyName)"
-                               NativeExecutableExtension="$(_NativeExecutableExtension)" />
+                               NativeExecutableExtension="$(_NativeExecutableExtension)"
+                               RootCompanionFiles="@(RootPackageCompanionFiles)" />
   </Target>
 
   <Target Name="ArrangeSelfContainedBuildLayoutAfterPublish"
@@ -403,6 +441,10 @@
                                   RuntimeDirectory="$(_CczPostPublishRuntimeDirectory)"
                                   ExcludedRoot="$(_CczPostPublishDirectory)" />
 
+    <Copy SourceFiles="@(RootPackageCompanionFiles)"
+          DestinationFiles="@(RootPackageCompanionFiles->'$(_CczPostPublishBuildLayoutRoot)%(TargetPath)')"
+          SkipUnchangedFiles="true" />
+
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPostPublishBuildLayoutRoot)"
                                        ExcludedRoot="$(_CczPostPublishRuntimeDirectory)" />
 
@@ -418,7 +460,8 @@
                                RuntimeSubdirectory="$(CczPublishRuntimeSubdirectory)"
                                LauncherName="$(CczLauncherName)"
                                AssemblyName="$(AssemblyName)"
-                               NativeExecutableExtension="$(_NativeExecutableExtension)" />
+                               NativeExecutableExtension="$(_NativeExecutableExtension)"
+                               RootCompanionFiles="@(RootPackageCompanionFiles)" />
   </Target>
 
 </Project>

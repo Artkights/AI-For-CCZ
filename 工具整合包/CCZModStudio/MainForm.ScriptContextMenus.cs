@@ -252,11 +252,16 @@ public sealed partial class MainForm
         var menu = GetLegacyScriptContextMenu(scope);
         var selectedItemData = TryGetSelectedLegacyItemData(scope, out var itemData) ? itemData : null;
         var selectedSceneNode = TryGetSelectedLegacyScriptSceneNode(scope, out var selectedScene);
-        var selectedSectionNode = TryGetSelectedLegacyScriptSectionNode(scope, out _);
+        var selectedSectionNode = TryGetSelectedLegacyScriptSectionNode(scope, out var selectedSection);
         LegacyScenarioCommandNode command = null!;
         var selectedCommand = !selectedSceneNode && !selectedSectionNode && TryGetSelectedLegacyScriptCommand(scope, out command);
-        var checkedCommands = GetCheckedLegacyScriptCommands(scope);
-        var copySourceCount = checkedCommands.Count > 0 ? checkedCommands.Count : selectedCommand || selectedSceneNode || selectedSectionNode ? 1 : 0;
+        var checkedScenes = GetCheckedLegacyScriptScenes(scope);
+        var checkedSections = checkedScenes.Count == 0
+            ? GetCheckedLegacyScriptSections(scope)
+            : Array.Empty<LegacyScenarioSection>();
+        var checkedCommands = checkedScenes.Count == 0 && checkedSections.Count == 0
+            ? GetCheckedLegacyScriptCommands(scope)
+            : Array.Empty<LegacyScenarioCommandNode>();
         var canEdit = selectedItemData?.Command != null && LegacyCommandEditDispatcher.CanEdit(selectedItemData.Id);
         var canAddBefore = (selectedItemData?.Scene != null || selectedItemData?.Section != null) ||
                            (selectedCommand && CanAddLegacyScriptCommandNearSelected(scope, command, beforeSelected: true, out _));
@@ -266,19 +271,27 @@ public sealed partial class MainForm
         var canAddSubEventAfter = selectedCommand && CanAddLegacySubEventNearSelected(scope, command, beforeSelected: false, out _);
         var canDuplicate = selectedCommand && CanStepDuplicateLegacyScriptCommand(command, out _);
         var document = GetCurrentLegacyScriptDocument(scope);
-        var deleteCommands = GetLegacyScriptCommandDeleteSelection(scope);
+        var deleteCommands = checkedScenes.Count == 0 && checkedSections.Count == 0
+            ? GetLegacyScriptCommandDeleteSelection(scope)
+            : Array.Empty<LegacyScenarioCommandNode>();
         var canDeleteCommandBatch = deleteCommands.Count > 0 &&
                                     deleteCommands.All(candidate => CanDeleteLegacyScriptCommand(scope, candidate, out _));
-        var canDelete = deleteCommands.Count > 0
-            ? canDeleteCommandBatch
-            : selectedSceneNode && document != null
+        var canDelete = checkedScenes.Count > 0 && document != null
+            ? CanDeleteLegacyScriptSceneBatch(document, checkedScenes, out _)
+            : checkedSections.Count > 0 && document != null
+                ? CanDeleteLegacyScriptSectionBatch(document, checkedSections, out _)
+                : deleteCommands.Count > 0
+                    ? canDeleteCommandBatch
+                    : selectedSceneNode && document != null
             ? CanDeleteLegacyScriptScene(document, selectedScene, out _)
-            : selectedSectionNode && document != null && TryGetSelectedLegacyScriptSectionNode(scope, out var selectedSection)
+            : selectedSectionNode && document != null
                 ? CanDeleteLegacyScriptSection(document, selectedSection, out _)
                 : selectedCommand && CanDeleteLegacyScriptCommand(scope, command, out _);
         var canMoveUp = selectedCommand && CanMoveLegacyScriptCommand(scope, command, up: true, out _);
         var canMoveDown = selectedCommand && CanMoveLegacyScriptCommand(scope, command, up: false, out _);
-        var canCopy = checkedCommands.Count > 0
+        var canCopy = checkedScenes.Count > 0 ||
+            checkedSections.Count > 0 ||
+            checkedCommands.Count > 0
             ? checkedCommands.All(candidate => CanCopyLegacyScriptCommand(candidate, out _))
             : selectedSceneNode || selectedSectionNode || (selectedCommand && CanCopyLegacyScriptCommand(command, out _));
         var canPaste = CanPasteCopiedLegacyScriptCommandNearSelected(scope, beforeSelected: true, out _);
@@ -348,7 +361,11 @@ public sealed partial class MainForm
         if (deleteItem != null)
         {
             deleteItem.Enabled = canDelete;
-            deleteItem.Text = deleteCommands.Count > 1
+            deleteItem.Text = checkedScenes.Count > 0
+                ? $"删除选中 {checkedScenes.Count} 个 Scene(&D)\tDelete"
+                : checkedSections.Count > 0
+                    ? $"删除选中 {checkedSections.Count} 个 Section(&D)\tDelete"
+                    : deleteCommands.Count > 1
                 ? $"删除选中 {deleteCommands.Count} 条命令(&D)\tDelete"
                 : deleteCommands.Count == 1
                     ? "删除命令(&D)\tDelete"
@@ -390,8 +407,12 @@ public sealed partial class MainForm
         if (copyItem != null)
         {
             copyItem.Enabled = canCopy;
-            copyItem.Text = checkedCommands.Count > 1
-                ? $"复制选中 {copySourceCount} 条(&C)\tCtrl+C"
+            copyItem.Text = checkedScenes.Count > 0
+                ? $"复制选中 {checkedScenes.Count} 个 Scene(&C)\tCtrl+C"
+                : checkedSections.Count > 0
+                    ? $"复制选中 {checkedSections.Count} 个 Section(&C)\tCtrl+C"
+                    : checkedCommands.Count > 1
+                ? $"复制选中 {checkedCommands.Count} 条命令(&C)\tCtrl+C"
                 : selectedSceneNode
                     ? "复制 Scene(&C)\tCtrl+C"
                     : selectedSectionNode
@@ -533,6 +554,26 @@ public sealed partial class MainForm
         }
     }
 
+    private void HandleLegacyScriptTreeNodeAfterCheck(LegacyScriptEditorScope scope, TreeViewEventArgs e)
+    {
+        if (_updatingScriptTreeChecks || e.Node == null) return;
+
+        _updatingScriptTreeChecks = true;
+        try
+        {
+            SetScriptTreeChildChecks(e.Node, e.Node.Checked);
+            UpdateLegacyStyleScriptTreeContextMenuItems(scope);
+            if (scope == LegacyScriptEditorScope.Script)
+            {
+                UpdateScriptStructureEditButtons();
+            }
+        }
+        finally
+        {
+            _updatingScriptTreeChecks = false;
+        }
+    }
+
     private static void SetScriptTreeChildChecks(TreeNode node, bool isChecked)
     {
         foreach (TreeNode child in node.Nodes)
@@ -562,10 +603,18 @@ public sealed partial class MainForm
         var hasCommandTemplate = _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem;
         var selectedCommand = TryGetSelectedLegacyScriptCommand(out var command);
         var selectedSceneNode = TryGetSelectedLegacyScriptSceneNode(LegacyScriptEditorScope.Script, out var selectedScene);
-        var selectedSectionNode = TryGetSelectedLegacyScriptSectionNode(LegacyScriptEditorScope.Script, out _);
+        var selectedSectionNode = TryGetSelectedLegacyScriptSectionNode(LegacyScriptEditorScope.Script, out var selectedSection);
         var selectedText = GetSelectedScriptTextEntry();
-        var checkedCommands = GetCheckedLegacyScriptCommands();
-        var deleteCommands = GetLegacyScriptCommandDeleteSelection(LegacyScriptEditorScope.Script);
+        var checkedScenes = GetCheckedLegacyScriptScenes(LegacyScriptEditorScope.Script);
+        var checkedSections = checkedScenes.Count == 0
+            ? GetCheckedLegacyScriptSections(LegacyScriptEditorScope.Script)
+            : Array.Empty<LegacyScenarioSection>();
+        var checkedCommands = checkedScenes.Count == 0 && checkedSections.Count == 0
+            ? GetCheckedLegacyScriptCommands()
+            : Array.Empty<LegacyScenarioCommandNode>();
+        var deleteCommands = checkedScenes.Count == 0 && checkedSections.Count == 0
+            ? GetLegacyScriptCommandDeleteSelection(LegacyScriptEditorScope.Script)
+            : Array.Empty<LegacyScenarioCommandNode>();
         var canInsertNear = hasLegacyDocument &&
                             hasCommandTemplate &&
                             selectedCommand &&
@@ -586,14 +635,22 @@ public sealed partial class MainForm
                                                hasCommandTemplate &&
                                                selectedCommand &&
                                                command.ChildBlock != null;
-        _scriptContextDeleteItem.Enabled = deleteCommands.Count > 0
+        _scriptContextDeleteItem.Enabled = checkedScenes.Count > 0 && _currentLegacyScriptDocument != null
+            ? CanDeleteLegacyScriptSceneBatch(_currentLegacyScriptDocument, checkedScenes, out _)
+            : checkedSections.Count > 0 && _currentLegacyScriptDocument != null
+                ? CanDeleteLegacyScriptSectionBatch(_currentLegacyScriptDocument, checkedSections, out _)
+                : deleteCommands.Count > 0
             ? CanDeleteLegacyScriptCommandBatch(LegacyScriptEditorScope.Script, out _)
             : selectedSceneNode && _currentLegacyScriptDocument != null
             ? CanDeleteLegacyScriptScene(_currentLegacyScriptDocument, selectedScene, out _)
-            : selectedSectionNode && _currentLegacyScriptDocument != null && TryGetSelectedLegacyScriptSectionNode(LegacyScriptEditorScope.Script, out var selectedSection)
+            : selectedSectionNode && _currentLegacyScriptDocument != null
                 ? CanDeleteLegacyScriptSection(_currentLegacyScriptDocument, selectedSection, out _)
                 : selectedCommand && CanDeleteLegacyScriptCommand(command, out _);
-        _scriptContextDeleteItem.Text = deleteCommands.Count > 1
+        _scriptContextDeleteItem.Text = checkedScenes.Count > 0
+            ? $"删除选中 {checkedScenes.Count} 个 Scene"
+            : checkedSections.Count > 0
+                ? $"删除选中 {checkedSections.Count} 个 Section"
+                : deleteCommands.Count > 1
             ? $"删除选中 {deleteCommands.Count} 条命令"
             : deleteCommands.Count == 1
                 ? "删除命令"
@@ -605,8 +662,17 @@ public sealed partial class MainForm
         _scriptContextApplyParameterItem.Enabled = TryGetSelectedLegacyItemData(out var selectedItemData) && LegacyCommandEditDispatcher.CanEdit(selectedItemData.Id);
         _scriptContextSaveTextItem.Text = "保存当前文本";
         _scriptContextSaveTextItem.Enabled = _saveScriptTextButton.Enabled;
-        _scriptContextCopyItem.Enabled = selectedCommand || selectedSceneNode || selectedSectionNode || checkedCommands.Count > 0;
-        _scriptContextCopyItem.Text = checkedCommands.Count > 1
+        _scriptContextCopyItem.Enabled = selectedCommand ||
+                                         selectedSceneNode ||
+                                         selectedSectionNode ||
+                                         checkedScenes.Count > 0 ||
+                                         checkedSections.Count > 0 ||
+                                         checkedCommands.Count > 0;
+        _scriptContextCopyItem.Text = checkedScenes.Count > 0
+            ? $"复制选中 {checkedScenes.Count} 个 Scene"
+            : checkedSections.Count > 0
+                ? $"复制选中 {checkedSections.Count} 个 Section"
+                : checkedCommands.Count > 1
             ? $"复制选中 {checkedCommands.Count} 条"
             : selectedSceneNode
                 ? "复制 Scene"
@@ -1303,8 +1369,8 @@ public sealed partial class MainForm
     private sealed record LegacyScriptCutSelection(
         LegacyScriptCutSelectionKind Kind,
         IReadOnlyList<LegacyScenarioCommandNode> Commands,
-        LegacyScenarioScene? Scene,
-        LegacyScenarioSection? Section);
+        IReadOnlyList<LegacyScenarioScene> Scenes,
+        IReadOnlyList<LegacyScenarioSection> Sections);
 
     private sealed record LegacyScriptCutClipboardResult(
         string DetailText,
@@ -1338,11 +1404,11 @@ public sealed partial class MainForm
             case LegacyScriptCutSelectionKind.CommandBatch:
                 DeleteLegacyScriptCommandBatch(scope, document, selection.Commands);
                 break;
-            case LegacyScriptCutSelectionKind.Scene when selection.Scene != null:
-                DeleteSelectedLegacyScriptScene(scope, document, selection.Scene);
+            case LegacyScriptCutSelectionKind.Scene when selection.Scenes.Count > 0:
+                DeleteLegacyScriptSceneBatch(scope, document, selection.Scenes);
                 break;
-            case LegacyScriptCutSelectionKind.Section when selection.Section != null:
-                DeleteSelectedLegacyScriptSection(scope, document, selection.Section);
+            case LegacyScriptCutSelectionKind.Section when selection.Sections.Count > 0:
+                DeleteLegacyScriptSectionBatch(scope, document, selection.Sections);
                 break;
         }
 
@@ -1373,6 +1439,40 @@ public sealed partial class MainForm
             return false;
         }
 
+        var checkedScenes = GetCheckedLegacyScriptScenes(scope);
+        if (checkedScenes.Count > 0)
+        {
+            if (!CanDeleteLegacyScriptSceneBatch(document, checkedScenes, out reason))
+            {
+                return false;
+            }
+
+            selection = new LegacyScriptCutSelection(
+                LegacyScriptCutSelectionKind.Scene,
+                Array.Empty<LegacyScenarioCommandNode>(),
+                checkedScenes,
+                Array.Empty<LegacyScenarioSection>());
+            reason = string.Empty;
+            return true;
+        }
+
+        var checkedSections = GetCheckedLegacyScriptSections(scope);
+        if (checkedSections.Count > 0)
+        {
+            if (!CanDeleteLegacyScriptSectionBatch(document, checkedSections, out reason))
+            {
+                return false;
+            }
+
+            selection = new LegacyScriptCutSelection(
+                LegacyScriptCutSelectionKind.Section,
+                Array.Empty<LegacyScenarioCommandNode>(),
+                Array.Empty<LegacyScenarioScene>(),
+                checkedSections);
+            reason = string.Empty;
+            return true;
+        }
+
         var commands = GetLegacyScriptCommandDeleteSelection(scope);
         if (commands.Count > 0)
         {
@@ -1393,8 +1493,8 @@ public sealed partial class MainForm
             selection = new LegacyScriptCutSelection(
                 LegacyScriptCutSelectionKind.CommandBatch,
                 commands,
-                null,
-                null);
+                Array.Empty<LegacyScenarioScene>(),
+                Array.Empty<LegacyScenarioSection>());
             reason = string.Empty;
             return true;
         }
@@ -1409,8 +1509,8 @@ public sealed partial class MainForm
             selection = new LegacyScriptCutSelection(
                 LegacyScriptCutSelectionKind.Scene,
                 Array.Empty<LegacyScenarioCommandNode>(),
-                scene,
-                null);
+                new[] { scene },
+                Array.Empty<LegacyScenarioSection>());
             reason = string.Empty;
             return true;
         }
@@ -1425,13 +1525,13 @@ public sealed partial class MainForm
             selection = new LegacyScriptCutSelection(
                 LegacyScriptCutSelectionKind.Section,
                 Array.Empty<LegacyScenarioCommandNode>(),
-                null,
-                section);
+                Array.Empty<LegacyScenarioScene>(),
+                new[] { section });
             reason = string.Empty;
             return true;
         }
 
-        reason = "请先选择要剪切的命令、Section 或 Scene，也可以勾选多条命令后批量剪切。";
+        reason = "请先选择要剪切的命令、Section 或 Scene，也可以勾选多个 Scene、Section 或命令后批量剪切。";
         return false;
     }
 
@@ -1440,7 +1540,9 @@ public sealed partial class MainForm
         {
             LegacyScriptCutSelectionKind.CommandBatch when selection.Commands.Count > 1 => $"剪切选中 {selection.Commands.Count} 条命令(&T)\tCtrl+X",
             LegacyScriptCutSelectionKind.CommandBatch => "剪切命令(&T)\tCtrl+X",
+            LegacyScriptCutSelectionKind.Scene when selection.Scenes.Count > 1 => $"剪切选中 {selection.Scenes.Count} 个 Scene(&T)\tCtrl+X",
             LegacyScriptCutSelectionKind.Scene => "剪切 Scene(&T)\tCtrl+X",
+            LegacyScriptCutSelectionKind.Section when selection.Sections.Count > 1 => $"剪切选中 {selection.Sections.Count} 个 Section(&T)\tCtrl+X",
             LegacyScriptCutSelectionKind.Section => "剪切 Section(&T)\tCtrl+X",
             _ => "剪切(&T)\tCtrl+X"
         };
@@ -1454,8 +1556,8 @@ public sealed partial class MainForm
         return selection.Kind switch
         {
             LegacyScriptCutSelectionKind.CommandBatch => TryCopyLegacyScriptCommandsForCut(scope, selection.Commands, out result),
-            LegacyScriptCutSelectionKind.Scene when selection.Scene != null => TryCopyLegacyScriptScenesForCut(scope, new[] { selection.Scene! }, out result),
-            LegacyScriptCutSelectionKind.Section when selection.Section != null => TryCopyLegacyScriptSectionsForCut(scope, new[] { selection.Section! }, out result),
+            LegacyScriptCutSelectionKind.Scene => TryCopyLegacyScriptScenesForCut(scope, selection.Scenes, out result),
+            LegacyScriptCutSelectionKind.Section => TryCopyLegacyScriptSectionsForCut(scope, selection.Sections, out result),
             _ => false
         };
     }

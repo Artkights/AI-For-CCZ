@@ -588,8 +588,17 @@ public sealed partial class MainForm
         var selectedRow = GetSelectedScriptCommandRow();
         var selectedScene = TryGetSelectedLegacyScriptSceneNode(LegacyScriptEditorScope.Script, out _);
         var selectedSection = TryGetSelectedLegacyScriptSectionNode(LegacyScriptEditorScope.Script, out _);
+        var checkedScenes = GetCheckedLegacyScriptScenes(LegacyScriptEditorScope.Script);
+        var checkedSections = checkedScenes.Count == 0
+            ? GetCheckedLegacyScriptSections(LegacyScriptEditorScope.Script)
+            : Array.Empty<LegacyScenarioSection>();
         var checkedCommands = GetCheckedLegacyScriptCommands();
-        var hasCopySource = checkedCommands.Count > 0 || selectedRow != null || selectedScene || selectedSection;
+        var hasCopySource = checkedScenes.Count > 0 ||
+                            checkedSections.Count > 0 ||
+                            checkedCommands.Count > 0 ||
+                            selectedRow != null ||
+                            selectedScene ||
+                            selectedSection;
         var hasPasteTarget = selectedRow != null || selectedScene || selectedSection;
         var hasLegacyDocument = _currentLegacyScriptDocument != null;
         var hasCommandTemplate = _scriptNewCommandCombo.SelectedItem is ScriptCommandComboItem;
@@ -599,7 +608,12 @@ public sealed partial class MainForm
                             selectedCommand &&
                             CanInsertNearLegacyScriptCommand(command, out _) &&
                             TryFindLegacyCommandList(_currentLegacyScriptDocument!, command, out _, out _);
-        var canDelete = GetLegacyScriptCommandDeleteSelection(LegacyScriptEditorScope.Script).Count > 0
+        var deleteCommands = GetLegacyScriptCommandDeleteSelection(LegacyScriptEditorScope.Script);
+        var canDelete = checkedScenes.Count > 0 && _currentLegacyScriptDocument != null
+            ? CanDeleteLegacyScriptSceneBatch(_currentLegacyScriptDocument, checkedScenes, out _)
+            : checkedSections.Count > 0 && _currentLegacyScriptDocument != null
+                ? CanDeleteLegacyScriptSectionBatch(_currentLegacyScriptDocument, checkedSections, out _)
+                : deleteCommands.Count > 0
             ? CanDeleteLegacyScriptCommandBatch(LegacyScriptEditorScope.Script, out _)
             : selectedScene && _currentLegacyScriptDocument != null && TryGetSelectedLegacyScriptSceneNode(LegacyScriptEditorScope.Script, out var scene)
                 ? CanDeleteLegacyScriptScene(_currentLegacyScriptDocument, scene, out _)
@@ -694,6 +708,21 @@ public sealed partial class MainForm
     {
         var document = GetCurrentLegacyScriptDocument(scope);
         if (document == null) return;
+
+        var scenesToDelete = GetCheckedLegacyScriptScenes(scope);
+        if (scenesToDelete.Count > 0)
+        {
+            DeleteLegacyScriptSceneBatch(scope, document, scenesToDelete);
+            return;
+        }
+
+        var sectionsToDelete = GetCheckedLegacyScriptSections(scope);
+        if (sectionsToDelete.Count > 0)
+        {
+            DeleteLegacyScriptSectionBatch(scope, document, sectionsToDelete);
+            return;
+        }
+
         var commandsToDelete = GetLegacyScriptCommandDeleteSelection(scope);
         if (commandsToDelete.Count > 0)
         {
@@ -996,6 +1025,141 @@ public sealed partial class MainForm
             () => scene.Sections.RemoveAt(sectionIndex),
             nextSelection,
             $"已删除 Scene {selectedSection.SceneIndex} / Section {selectedSection.SectionIndex}。");
+    }
+
+    private void DeleteLegacyScriptSceneBatch(
+        LegacyScriptEditorScope scope,
+        LegacyScenarioDocument document,
+        IReadOnlyList<LegacyScenarioScene> sourceScenes)
+    {
+        var scenes = sourceScenes
+            .Distinct()
+            .ToList();
+        if (scenes.Count == 0) return;
+
+        if (!CanDeleteLegacyScriptSceneBatch(document, scenes, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法批量删除 Scene", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var indexes = scenes
+            .Select(scene => document.Scenes.IndexOf(scene))
+            .Where(index => index >= 0)
+            .Distinct()
+            .OrderBy(index => index)
+            .ToList();
+        if (indexes.Count == 0)
+        {
+            MessageBox.Show(this, "没有在当前旧版剧本树中定位到要删除的 Scene。", "无法批量删除 Scene", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var deletedIndexes = indexes.ToHashSet();
+        var firstIndex = indexes[0];
+        var nextSelection = document.Scenes
+            .Skip(firstIndex)
+            .Where((_, relativeIndex) => !deletedIndexes.Contains(firstIndex + relativeIndex))
+            .SelectMany(scene => scene.Sections)
+            .SelectMany(section => section.Commands)
+            .FirstOrDefault()
+            ?? document.Scenes
+                .Take(firstIndex)
+                .Reverse()
+                .Where((_, relativeIndex) => !deletedIndexes.Contains(firstIndex - relativeIndex - 1))
+                .SelectMany(scene => scene.Sections)
+                .SelectMany(section => section.Commands)
+                .FirstOrDefault();
+
+        ApplyLegacyScriptStructureEdit(
+            scope,
+            () =>
+            {
+                foreach (var index in indexes.OrderByDescending(index => index))
+                {
+                    document.Scenes.RemoveAt(index);
+                }
+            },
+            nextSelection,
+            indexes.Count == 1
+                ? $"已删除 Scene {scenes[0].SceneIndex}。"
+                : $"已批量删除 {indexes.Count} 个 Scene。");
+    }
+
+    private void DeleteLegacyScriptSectionBatch(
+        LegacyScriptEditorScope scope,
+        LegacyScenarioDocument document,
+        IReadOnlyList<LegacyScenarioSection> sourceSections)
+    {
+        var sections = sourceSections
+            .Distinct()
+            .ToList();
+        if (sections.Count == 0) return;
+
+        if (!CanDeleteLegacyScriptSectionBatch(document, sections, out var reason))
+        {
+            MessageBox.Show(this, reason, "无法批量删除 Section", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var locations = sections
+            .Select(section =>
+            {
+                var scene = document.Scenes.FirstOrDefault(candidate => candidate.Sections.Contains(section));
+                var index = scene?.Sections.IndexOf(section) ?? -1;
+                return (Scene: scene, Section: section, Index: index);
+            })
+            .Where(location => location.Scene != null && location.Index >= 0)
+            .Select(location => (Scene: location.Scene!, location.Section, location.Index))
+            .ToList();
+        if (locations.Count == 0)
+        {
+            MessageBox.Show(this, "没有在当前旧版剧本树中定位到要删除的 Section。", "无法批量删除 Section", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var firstLocation = locations
+            .OrderBy(location => document.Scenes.IndexOf(location.Scene))
+            .ThenBy(location => location.Index)
+            .First();
+        var deletedByScene = locations
+            .GroupBy(location => location.Scene)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(location => location.Index).ToHashSet());
+        var nextSelection = firstLocation.Scene.Sections
+            .Skip(firstLocation.Index)
+            .Where((_, relativeIndex) => !deletedByScene[firstLocation.Scene].Contains(firstLocation.Index + relativeIndex))
+            .SelectMany(section => section.Commands)
+            .FirstOrDefault()
+            ?? firstLocation.Scene.Sections
+                .Take(firstLocation.Index)
+                .Reverse()
+                .Where((_, relativeIndex) => !deletedByScene[firstLocation.Scene].Contains(firstLocation.Index - relativeIndex - 1))
+                .SelectMany(section => section.Commands)
+                .FirstOrDefault()
+            ?? document.Scenes
+                .SelectMany(scene => scene.Sections)
+                .Where(section => !sections.Contains(section))
+                .SelectMany(section => section.Commands)
+                .FirstOrDefault();
+
+        ApplyLegacyScriptStructureEdit(
+            scope,
+            () =>
+            {
+                foreach (var group in locations.GroupBy(location => location.Scene))
+                {
+                    foreach (var index in group.Select(location => location.Index).Distinct().OrderByDescending(index => index))
+                    {
+                        group.Key.Sections.RemoveAt(index);
+                    }
+                }
+            },
+            nextSelection,
+            locations.Count == 1
+                ? $"已删除 Scene {locations[0].Section.SceneIndex} / Section {locations[0].Section.SectionIndex}。"
+                : $"已批量删除 {locations.Count} 个 Section。");
     }
 
     private void PasteCopiedLegacyScriptCommandNearSelected(bool beforeSelected)
@@ -3156,17 +3320,7 @@ public sealed partial class MainForm
     }
 
     private IReadOnlyList<LegacyScenarioCommandNode> GetCheckedLegacyScriptCommands()
-    {
-        if (_scriptTree.Nodes.Count == 0)
-        {
-            return Array.Empty<LegacyScenarioCommandNode>();
-        }
-
-        var result = new List<LegacyScenarioCommandNode>();
-        var seen = new HashSet<LegacyScenarioCommandNode>();
-        CollectCheckedLegacyScriptCommands(_scriptTree.Nodes, result, seen, hasCheckedCommandAncestor: false);
-        return result;
-    }
+        => GetCheckedLegacyScriptCommands(LegacyScriptEditorScope.Script);
 
     private IReadOnlyList<LegacyScenarioCommandNode> GetCheckedLegacyScriptCommands(LegacyScriptEditorScope scope)
     {
@@ -3178,29 +3332,91 @@ public sealed partial class MainForm
 
         var result = new List<LegacyScenarioCommandNode>();
         var seen = new HashSet<LegacyScenarioCommandNode>();
-        CollectCheckedLegacyScriptCommands(scope, tree.Nodes, result, seen, hasCheckedCommandAncestor: false);
+        CollectCheckedLegacyScriptCommands(
+            scope,
+            tree.Nodes,
+            result,
+            seen,
+            hasCheckedCommandAncestor: false,
+            hasCheckedStructureAncestor: false);
         return result;
     }
 
-    private void CollectCheckedLegacyScriptCommands(
+    private IReadOnlyList<LegacyScenarioScene> GetCheckedLegacyScriptScenes(LegacyScriptEditorScope scope)
+    {
+        var tree = GetLegacyScriptTree(scope);
+        if (tree.Nodes.Count == 0)
+        {
+            return Array.Empty<LegacyScenarioScene>();
+        }
+
+        var result = new List<LegacyScenarioScene>();
+        var seen = new HashSet<LegacyScenarioScene>();
+        CollectCheckedLegacyScriptScenes(scope, tree.Nodes, result, seen);
+        return result;
+    }
+
+    private void CollectCheckedLegacyScriptScenes(
+        LegacyScriptEditorScope scope,
         TreeNodeCollection nodes,
-        List<LegacyScenarioCommandNode> result,
-        HashSet<LegacyScenarioCommandNode> seen,
-        bool hasCheckedCommandAncestor)
+        List<LegacyScenarioScene> result,
+        HashSet<LegacyScenarioScene> seen)
     {
         foreach (TreeNode node in nodes)
         {
-            LegacyScenarioCommandNode? command = null;
-            var nodeIsCheckedCommand = node.Checked && TryGetLegacyScriptCommandFromTreeNode(node, out command);
-            var descendantHasCheckedCommandAncestor = hasCheckedCommandAncestor || nodeIsCheckedCommand;
-            if (nodeIsCheckedCommand && command != null && !hasCheckedCommandAncestor && seen.Add(command))
+            if (node.Checked &&
+                TryGetLegacyScriptSceneFromTreeNode(scope, node, out var scene) &&
+                seen.Add(scene))
             {
-                result.Add(command);
+                result.Add(scene);
+                continue;
             }
 
             if (node.Nodes.Count > 0)
             {
-                CollectCheckedLegacyScriptCommands(node.Nodes, result, seen, descendantHasCheckedCommandAncestor);
+                CollectCheckedLegacyScriptScenes(scope, node.Nodes, result, seen);
+            }
+        }
+    }
+
+    private IReadOnlyList<LegacyScenarioSection> GetCheckedLegacyScriptSections(LegacyScriptEditorScope scope)
+    {
+        var tree = GetLegacyScriptTree(scope);
+        if (tree.Nodes.Count == 0)
+        {
+            return Array.Empty<LegacyScenarioSection>();
+        }
+
+        var result = new List<LegacyScenarioSection>();
+        var seen = new HashSet<LegacyScenarioSection>();
+        CollectCheckedLegacyScriptSections(scope, tree.Nodes, result, seen, hasCheckedSceneAncestor: false);
+        return result;
+    }
+
+    private void CollectCheckedLegacyScriptSections(
+        LegacyScriptEditorScope scope,
+        TreeNodeCollection nodes,
+        List<LegacyScenarioSection> result,
+        HashSet<LegacyScenarioSection> seen,
+        bool hasCheckedSceneAncestor)
+    {
+        foreach (TreeNode node in nodes)
+        {
+            var nodeIsCheckedScene = node.Checked && TryGetLegacyScriptSceneFromTreeNode(scope, node, out _);
+            var descendantHasCheckedSceneAncestor = hasCheckedSceneAncestor || nodeIsCheckedScene;
+
+            if (node.Checked &&
+                !hasCheckedSceneAncestor &&
+                TryGetLegacyScriptSectionFromTreeNode(scope, node, out var section) &&
+                seen.Add(section))
+            {
+                result.Add(section);
+                continue;
+            }
+
+            if (node.Nodes.Count > 0 && !nodeIsCheckedScene)
+            {
+                CollectCheckedLegacyScriptSections(scope, node.Nodes, result, seen, descendantHasCheckedSceneAncestor);
             }
         }
     }
@@ -3210,23 +3426,84 @@ public sealed partial class MainForm
         TreeNodeCollection nodes,
         List<LegacyScenarioCommandNode> result,
         HashSet<LegacyScenarioCommandNode> seen,
-        bool hasCheckedCommandAncestor)
+        bool hasCheckedCommandAncestor,
+        bool hasCheckedStructureAncestor)
     {
         foreach (TreeNode node in nodes)
         {
+            var nodeIsCheckedStructure = node.Checked &&
+                (TryGetLegacyScriptSceneFromTreeNode(scope, node, out _) ||
+                 TryGetLegacyScriptSectionFromTreeNode(scope, node, out _));
             LegacyScenarioCommandNode? command = null;
             var nodeIsCheckedCommand = node.Checked && TryGetLegacyScriptCommandFromTreeNode(scope, node, out command);
             var descendantHasCheckedCommandAncestor = hasCheckedCommandAncestor || nodeIsCheckedCommand;
-            if (nodeIsCheckedCommand && command != null && !hasCheckedCommandAncestor && seen.Add(command))
+            var descendantHasCheckedStructureAncestor = hasCheckedStructureAncestor || nodeIsCheckedStructure;
+            if (nodeIsCheckedCommand &&
+                command != null &&
+                !hasCheckedCommandAncestor &&
+                !hasCheckedStructureAncestor &&
+                seen.Add(command))
             {
                 result.Add(command);
             }
 
             if (node.Nodes.Count > 0)
             {
-                CollectCheckedLegacyScriptCommands(scope, node.Nodes, result, seen, descendantHasCheckedCommandAncestor);
+                CollectCheckedLegacyScriptCommands(
+                    scope,
+                    node.Nodes,
+                    result,
+                    seen,
+                    descendantHasCheckedCommandAncestor,
+                    descendantHasCheckedStructureAncestor);
             }
         }
+    }
+
+    private bool TryGetLegacyScriptSceneFromTreeNode(
+        LegacyScriptEditorScope scope,
+        TreeNode? node,
+        out LegacyScenarioScene scene)
+    {
+        scene = null!;
+        if (node?.Tag is LegacyScenarioItemData { Scene: { } itemScene })
+        {
+            scene = itemScene;
+            return true;
+        }
+
+        if (!TryGetScriptTreeRow(node, out var row) || row.NodeType != "Scene候选")
+        {
+            return false;
+        }
+
+        var document = GetCurrentLegacyScriptDocument(scope);
+        scene = document?.Scenes.FirstOrDefault(candidate => candidate.SceneIndex == row.SceneIndex)!;
+        return scene != null;
+    }
+
+    private bool TryGetLegacyScriptSectionFromTreeNode(
+        LegacyScriptEditorScope scope,
+        TreeNode? node,
+        out LegacyScenarioSection section)
+    {
+        section = null!;
+        if (node?.Tag is LegacyScenarioItemData { Section: { } itemSection })
+        {
+            section = itemSection;
+            return true;
+        }
+
+        if (!TryGetScriptTreeRow(node, out var row) || row.NodeType != "Section候选")
+        {
+            return false;
+        }
+
+        var document = GetCurrentLegacyScriptDocument(scope);
+        section = document?.Scenes
+            .FirstOrDefault(scene => scene.SceneIndex == row.SceneIndex)?
+            .Sections.FirstOrDefault(candidate => candidate.SectionIndex == row.SectionIndex)!;
+        return section != null;
     }
 
     private bool TryGetLegacyScriptCommandFromTreeNode(TreeNode? node, out LegacyScenarioCommandNode command)
@@ -3411,6 +3688,37 @@ public sealed partial class MainForm
         return true;
     }
 
+    private static bool CanDeleteLegacyScriptSceneBatch(
+        LegacyScenarioDocument document,
+        IReadOnlyList<LegacyScenarioScene> scenes,
+        out string reason)
+    {
+        var distinctScenes = scenes.Distinct().ToList();
+        if (distinctScenes.Count == 0)
+        {
+            reason = "请先勾选要删除的 Scene。";
+            return false;
+        }
+
+        foreach (var scene in distinctScenes)
+        {
+            if (!document.Scenes.Contains(scene))
+            {
+                reason = "勾选列表中包含当前旧版剧本树中不存在的 Scene。";
+                return false;
+            }
+        }
+
+        if (document.Scenes.Count - distinctScenes.Count < 1)
+        {
+            reason = "不能删除全部 Scene，旧版剧本至少需要保留一个 Scene。";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
     private static bool CanDeleteLegacyScriptSection(
         LegacyScenarioDocument document,
         LegacyScenarioSection section,
@@ -3427,6 +3735,50 @@ public sealed partial class MainForm
         {
             reason = "不能删除 Scene 中最后一个 Section，旧版 Scene 至少需要保留一个 Section。";
             return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static bool CanDeleteLegacyScriptSectionBatch(
+        LegacyScenarioDocument document,
+        IReadOnlyList<LegacyScenarioSection> sections,
+        out string reason)
+    {
+        var distinctSections = sections.Distinct().ToList();
+        if (distinctSections.Count == 0)
+        {
+            reason = "请先勾选要删除的 Section。";
+            return false;
+        }
+
+        var selectedByScene = new Dictionary<LegacyScenarioScene, HashSet<LegacyScenarioSection>>();
+        foreach (var section in distinctSections)
+        {
+            var scene = document.Scenes.FirstOrDefault(candidate => candidate.Sections.Contains(section));
+            if (scene == null)
+            {
+                reason = "勾选列表中包含当前旧版剧本树中不存在的 Section。";
+                return false;
+            }
+
+            if (!selectedByScene.TryGetValue(scene, out var selectedSections))
+            {
+                selectedSections = [];
+                selectedByScene[scene] = selectedSections;
+            }
+
+            selectedSections.Add(section);
+        }
+
+        foreach (var (scene, selectedSections) in selectedByScene)
+        {
+            if (scene.Sections.Count - selectedSections.Count < 1)
+            {
+                reason = $"不能删除 Scene {scene.SceneIndex} 中的全部 Section，旧版 Scene 至少需要保留一个 Section。";
+                return false;
+            }
         }
 
         reason = string.Empty;
@@ -8045,7 +8397,21 @@ public sealed partial class MainForm
             return;
         }
 
-        var checkedCommands = GetCheckedLegacyScriptCommands();
+        var checkedScenes = GetCheckedLegacyScriptScenes(scope);
+        if (checkedScenes.Count > 0)
+        {
+            CopyLegacyScriptSceneBatch(scope, checkedScenes);
+            return;
+        }
+
+        var checkedSections = GetCheckedLegacyScriptSections(scope);
+        if (checkedSections.Count > 0)
+        {
+            CopyLegacyScriptSectionBatch(scope, checkedSections);
+            return;
+        }
+
+        var checkedCommands = GetCheckedLegacyScriptCommands(scope);
         if (checkedCommands.Count > 0)
         {
             CopyLegacyScriptCommandBatch(checkedCommands);
@@ -8113,6 +8479,20 @@ public sealed partial class MainForm
 
     private void CopySelectedLegacyScriptCommandSummary(LegacyScriptEditorScope scope)
     {
+        var checkedScenes = GetCheckedLegacyScriptScenes(scope);
+        if (checkedScenes.Count > 0)
+        {
+            CopyLegacyScriptSceneBatch(scope, checkedScenes);
+            return;
+        }
+
+        var checkedSections = GetCheckedLegacyScriptSections(scope);
+        if (checkedSections.Count > 0)
+        {
+            CopyLegacyScriptSectionBatch(scope, checkedSections);
+            return;
+        }
+
         var checkedCommands = GetCheckedLegacyScriptCommands(scope);
         if (checkedCommands.Count > 0)
         {

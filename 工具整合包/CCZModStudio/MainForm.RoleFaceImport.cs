@@ -98,7 +98,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var result = _batchRoleFaceImportService.Replace(_project, request);
             _imageResourceCatalogService.ClearCache();
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedRoleEditorCell();
             _roleEditorInfoBox.Text = BuildBatchRoleFaceImportResultText(result);
             SetStatus($"角色头像导入完成：{result.TotalOperationCount} 条");
@@ -206,7 +206,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var result = _batchRoleFaceImportService.Replace(_project, request);
             _imageResourceCatalogService.ClearCache();
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedRoleEditorCell();
             _roleEditorInfoBox.Text = BuildBatchRoleFaceImportResultText(result);
             SetStatus($"角色头像批量导入完成：{result.TotalOperationCount} 条");
@@ -294,7 +294,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var result = _batchRoleFaceImportService.Replace(_project, request);
             _imageResourceCatalogService.ClearCache();
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedRoleEditorCell();
             _roleEditorInfoBox.Text = BuildBatchRoleFaceImportResultText(result);
             SetStatus($"角色头像导入完成：{result.TotalOperationCount} 条");
@@ -320,14 +320,14 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null || _imageAssignmentGrid.CurrentRow == null)
         {
-            MessageBox.Show(this, "请先读取人物 R/S 并选中一行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取人物形象设定并选中一行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var targetRows = BuildImageAssignmentFaceImportTargetRows([_imageAssignmentGrid.CurrentRow]);
         if (targetRows.Count == 0)
         {
-            MessageBox.Show(this, "当前行无法解析为人物 R/S 数据行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "当前行无法解析为人物形象设定数据行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -361,14 +361,14 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物 R/S。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var selectedRows = GetSelectedImageAssignmentRowsForFaceImport();
         if (selectedRows.Count == 0)
         {
-            MessageBox.Show(this, "请先在人物 R/S 表中选中要导入头像的行。", "批量导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先在人物形象设定表中选中要导入头像的行。", "批量导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -447,7 +447,7 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("人物 R/S 头像导入预览失败: " + ex);
+            System.Diagnostics.Debug.WriteLine("人物形象头像导入预览失败: " + ex);
             MessageBox.Show(this, ex.Message, "头像导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
@@ -478,14 +478,14 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var result = _batchRoleFaceImportService.Replace(_project, request);
             _imageResourceCatalogService.ClearCache();
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             ShowSelectedImageAssignmentDetail();
             _imageAssignmentInfoBox.Text = BuildBatchRoleFaceImportResultText(result);
-            SetStatus($"{(singleMode ? "人物 R/S 头像导入" : "人物 R/S 头像批量导入")}完成：{result.TotalOperationCount} 条");
+            SetStatus($"{(singleMode ? "人物形象头像导入" : "人物形象头像批量导入")}完成：{result.TotalOperationCount} 条");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("人物 R/S 头像导入失败: " + ex);
+            System.Diagnostics.Debug.WriteLine("人物形象头像导入失败: " + ex);
             MessageBox.Show(this, ex.Message, "头像导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -569,12 +569,12 @@ public sealed partial class MainForm
         var targets = new List<BatchRoleFaceTargetRow>();
         foreach (var row in selectedRows)
         {
-            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为人物 R/S 数据行。");
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为人物形象设定数据行。");
             var roleId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
             var displayName = TryGetRoleDisplayName(dataRow);
             if (!dataRow.Table.Columns.Contains("头像编号") || !TryConvertToInt(dataRow["头像编号"], out var faceId))
             {
-                throw new InvalidOperationException($"人物 R/S 行 ID={roleId} 的头像编号不是有效整数。");
+                throw new InvalidOperationException($"人物形象设定行 ID={roleId} 的头像编号不是有效整数。");
             }
 
             targets.Add(new BatchRoleFaceTargetRow(roleId, displayName, faceId));

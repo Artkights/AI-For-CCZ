@@ -3290,7 +3290,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = service.Replace(_project, request);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             UpdateJobSImagePreview(row);
             _jobAreaPreviewInfoBox.AppendText("\r\n\r\n" + BuildJobSImageReplaceResultText(result, name));
             SetStatus($"一键替换兵种形象完成：写入 {result.TotalOperationCount} 条");
@@ -3427,7 +3427,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var result = _batchJobSImageReplaceService.Replace(_project, request);
-            _imageAssignmentPreviewService.ClearCache();
+            ClearImageAssignmentCaches();
             if (_jobEditorGrid.CurrentRow != null)
             {
                 UpdateJobSImagePreview(_jobEditorGrid.CurrentRow);

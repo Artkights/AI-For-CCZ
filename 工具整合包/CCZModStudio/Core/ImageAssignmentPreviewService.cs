@@ -24,11 +24,13 @@ public sealed class ImageAssignmentPreviewService
     private const int LsDictionaryLength = 256;
     private readonly Dictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, RawPalette> _rawPaletteCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<int>> _availableImageIdCache = new(StringComparer.OrdinalIgnoreCase);
 
     public void ClearCache()
     {
         _e5ImageIndexCache.Clear();
         _rawPaletteCache.Clear();
+        _availableImageIdCache.Clear();
     }
 
     public Bitmap RenderResourcePreview(CczProject project, string prefix, int id, string personName, int? faceId = null)
@@ -129,6 +131,36 @@ public sealed class ImageAssignmentPreviewService
     {
         prefix = NormalizePrefix(prefix);
         return TryLoadMappedE5Image(project, prefix, id, jobId, sFactionSlot, out _);
+    }
+
+    public IReadOnlyList<int> GetAvailableCharacterImageIds(CczProject project, string prefix, bool includeZero = false)
+        => GetAvailableCharacterImageIds(project, prefix, includeZero, out _);
+
+    public IReadOnlyList<int> GetAvailableCharacterImageIds(CczProject project, string prefix, bool includeZero, out bool fromCache)
+    {
+        fromCache = false;
+        var cacheKey = BuildAvailableImageIdCacheKey(project, prefix, includeZero);
+        if (_availableImageIdCache.TryGetValue(cacheKey, out var cached))
+        {
+            fromCache = true;
+            return cached;
+        }
+
+        IReadOnlyList<int> result;
+        if (prefix.Equals("Face", StringComparison.OrdinalIgnoreCase))
+        {
+            result = GetAvailableFaceIds(project, includeZero);
+        }
+        else
+        {
+            prefix = NormalizePrefix(prefix);
+            result = prefix == "S"
+                ? GetAvailableSImageIds(project, includeZero)
+                : GetAvailableRImageIds(project, includeZero);
+        }
+
+        _availableImageIdCache[cacheKey] = result;
+        return result;
     }
 
     public Bitmap? TryRenderSImageFactionStackPreview(CczProject project, int sImageId, int? jobId, out string detail)
@@ -504,11 +536,12 @@ public sealed class ImageAssignmentPreviewService
     private IReadOnlyList<E5ImageEntry> GetE5ImageIndex(string path)
     {
         path = Path.GetFullPath(path);
-        if (_e5ImageIndexCache.TryGetValue(path, out var cached)) return cached;
+        var key = BuildFileCacheKey(path);
+        if (_e5ImageIndexCache.TryGetValue(key, out var cached)) return cached;
         if (!File.Exists(path))
         {
-            _e5ImageIndexCache[path] = Array.Empty<E5ImageEntry>();
-            return _e5ImageIndexCache[path];
+            _e5ImageIndexCache[key] = Array.Empty<E5ImageEntry>();
+            return _e5ImageIndexCache[key];
         }
 
         var data = File.ReadAllBytes(path);
@@ -550,8 +583,157 @@ public sealed class ImageAssignmentPreviewService
                     : DetectE5ImageKind(data, checked((int)imageOffset), checked((int)storedSize))));
         }
 
-        _e5ImageIndexCache[path] = result;
+        _e5ImageIndexCache[key] = result;
         return result;
+    }
+
+    private static string BuildAvailableImageIdCacheKey(CczProject project, string prefix, bool includeZero)
+    {
+        var normalizedPrefix = prefix.Equals("Face", StringComparison.OrdinalIgnoreCase)
+            ? "Face"
+            : NormalizePrefix(prefix);
+        var paths = normalizedPrefix switch
+        {
+            "Face" => new[] { ResolveFaceFile(project) ?? Path.Combine(project.GameRoot, "E5", "Face.e5") },
+            "S" => UnitPreviewSpecs
+                .Select(spec => CharacterImageResourceService.ResolveGameFile(project, spec.FileName))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            _ => new[] { CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5") }
+        };
+
+        return string.Join("|",
+            new[] { "available", Path.GetFullPath(project.GameRoot), normalizedPrefix, includeZero ? "1" : "0" }
+                .Concat(paths.Select(BuildFileCacheKey)));
+    }
+
+    private static string BuildFileCacheKey(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            return fullPath + "|missing";
+        }
+
+        try
+        {
+            var info = new FileInfo(fullPath);
+            return $"{fullPath}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+        }
+        catch
+        {
+            return fullPath + "|unknown";
+        }
+    }
+
+    private IReadOnlyList<int> GetAvailableRImageIds(CczProject project, bool includeZero)
+    {
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        if (!File.Exists(path)) return Array.Empty<int>();
+
+        var entries = GetE5ImageIndex(path);
+        var result = new List<int>();
+        for (var rImageId = includeZero ? 0 : 1; ; rImageId++)
+        {
+            var frontNumber = checked(rImageId * 2 + 1);
+            var backNumber = checked(rImageId * 2 + 2);
+            if (backNumber > entries.Count) break;
+
+            if (CanRenderE5EntryFrame(project, path, frontNumber, RawPreviewSpecs.PmapObjWidth, RawPreviewSpecs.PmapObjFrameHeight))
+            {
+                result.Add(rImageId);
+            }
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<int> GetAvailableFaceIds(CczProject project, bool includeZero)
+    {
+        var path = CharacterImageResourceService.ResolveFaceFile(project) ?? Path.Combine(project.GameRoot, "E5", "Face.e5");
+        if (!File.Exists(path)) return Array.Empty<int>();
+
+        var entries = GetE5ImageIndex(path);
+        var result = new List<int>();
+        for (var faceId = includeZero ? 0 : 1; ; faceId++)
+        {
+            var mapping = new CharacterImageResourceService().MapFaceId(faceId);
+            if (mapping.FaceImageNumbers.Count == 0) break;
+
+            var maxFaceImageNumber = mapping.FaceImageNumbers.Max();
+            if (maxFaceImageNumber > entries.Count) break;
+
+            var preferredFaceNumber = mapping.FaceImageNumbers.First();
+            if (CanRenderE5EntryFrame(project, path, preferredFaceNumber, 64, 80))
+            {
+                result.Add(faceId);
+            }
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<int> GetAvailableSImageIds(CczProject project, bool includeZero)
+    {
+        var unitPaths = UnitPreviewSpecs
+            .Select(spec => CharacterImageResourceService.ResolveGameFile(project, spec.FileName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (unitPaths.Length == 0 || unitPaths.Any(path => !File.Exists(path))) return Array.Empty<int>();
+
+        var entryCounts = unitPaths
+            .Select(path => GetE5ImageIndex(path).Count)
+            .ToArray();
+        if (entryCounts.Length == 0 || entryCounts.Any(count => count <= 0)) return Array.Empty<int>();
+
+        var maxSharedUnitImageNumber = entryCounts.Min();
+        var maxSImageId = Math.Max(0, maxSharedUnitImageNumber - 336 + 32);
+        var result = new List<int>();
+        for (var sImageId = includeZero ? 0 : 1; sImageId <= maxSImageId; sImageId++)
+        {
+            if (sImageId == 0)
+            {
+                continue;
+            }
+
+            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId: null, CharacterImageResourceService.DefaultSPreviewFactionSlot);
+            if (mapping.ImageNumbers.Count == 0 ||
+                mapping.ImageNumbers.Any(number => number <= 0 || number > maxSharedUnitImageNumber))
+            {
+                continue;
+            }
+
+            var canRenderAll = true;
+            foreach (var imageNumber in mapping.ImageNumbers)
+            {
+                foreach (var spec in UnitPreviewSpecs)
+                {
+                    var path = CharacterImageResourceService.ResolveGameFile(project, spec.FileName);
+                    if (CanRenderE5EntryFrame(project, path, imageNumber, spec.RawWidth, spec.FrameHeight))
+                    {
+                        continue;
+                    }
+
+                    canRenderAll = false;
+                    break;
+                }
+
+                if (!canRenderAll) break;
+            }
+
+            if (canRenderAll)
+            {
+                result.Add(sImageId);
+            }
+        }
+
+        return result;
+    }
+
+    private bool CanRenderE5EntryFrame(CczProject project, string path, int imageNumber, int rawWidth, int frameHeight)
+    {
+        using var frame = TryRenderE5EntryFrame(project, path, imageNumber, rawWidth, frameHeight, out _);
+        return frame != null;
     }
 
     private static byte[]? TryReadEntryBytes(string path, E5ImageEntry entry, out string detail)

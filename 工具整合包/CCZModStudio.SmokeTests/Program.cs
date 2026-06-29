@@ -25,6 +25,8 @@ var rSceneFramePreviewSmokeOnly = args.Contains("--rscene-frame-preview-smoke", 
 var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var pixelEditorCodecSmokeOnly = args.Contains("--pixel-editor-codec-smoke", StringComparer.OrdinalIgnoreCase);
 var bmpExportSmokeOnly = args.Contains("--bmp-export-smoke", StringComparer.OrdinalIgnoreCase);
+var imageAssignmentFreeIdSmokeOnly = args.Contains("--image-assignment-free-id-smoke", StringComparer.OrdinalIgnoreCase);
+var imageAssignmentWriteSmokeOnly = args.Contains("--image-assignment-write-smoke", StringComparer.OrdinalIgnoreCase);
 var rImageRawReplaceSmokeOnly = args.Contains("--r-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var batchImageImportSmokeOnly = args.Contains("--batch-image-import-smoke", StringComparer.OrdinalIgnoreCase);
@@ -180,6 +182,18 @@ if (pixelEditorCodecSmokeOnly)
 if (bmpExportSmokeOnly)
 {
     RunBmpExportSmoke(project);
+    return;
+}
+
+if (imageAssignmentFreeIdSmokeOnly)
+{
+    RunImageAssignmentFreeIdSmoke(project, tables);
+    return;
+}
+
+if (imageAssignmentWriteSmokeOnly)
+{
+    RunImageAssignmentWriteSmoke(project, tables);
     return;
 }
 

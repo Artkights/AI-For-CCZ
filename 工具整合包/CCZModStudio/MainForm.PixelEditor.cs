@@ -144,7 +144,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物 R/S 页面选择一行。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -173,14 +173,14 @@ public sealed partial class MainForm
             var target = BuildImageAssignmentEditableTarget(selected);
             OpenPixelEditor(target, _imageAssignmentInfoBox, () =>
             {
-                _imageAssignmentPreviewService.ClearCache();
+                ClearImageAssignmentCaches();
                 _imageResourceCatalogService.ClearCache();
                 ShowSelectedImageAssignmentDetail();
             });
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("人物 R/S 像素编辑打开失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("人物形象像素编辑打开失败：" + ex);
             MessageBox.Show(this, ex.Message, "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
@@ -251,7 +251,7 @@ public sealed partial class MainForm
                 var result = _editableImageCodecService.Write(_project, target, dialog.EditedBitmap);
                 _itemIconPreviewService.ClearCache();
                 _imageResourceCatalogService.ClearCache();
-                _imageAssignmentPreviewService.ClearCache();
+                ClearImageAssignmentCaches();
                 refreshAfterWrite();
                 infoBox.AppendText("\r\n\r\n" + BuildPixelEditorResultText(result));
                 SetStatus("像素编辑写回完成：" + result.TargetRelativePath);

@@ -41,7 +41,7 @@ public sealed partial class MainForm
         }
 
         SelectTabPageByText("图片设定");
-        SelectTabPageByText("人物R/S指定");
+        SelectTabPageByText("人物形象设定");
         LoadImageAssignments();
     }
 

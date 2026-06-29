@@ -335,6 +335,9 @@ public sealed partial class MainForm
         _imageResourceFileGrid.SelectionChanged += (_, _) => ShowSelectedImageResourceFile();
         _imageResourceEntryGrid.SelectionChanged += (_, _) => ShowSelectedImageResourceEntry();
         _saveImageAssignmentsButton.Click += (_, _) => SaveImageAssignments();
+        _queryFreeFaceIdsButton.Click += (_, _) => ShowFreeImageAssignmentIdsDialog(ImageAssignmentResourceKind.Face);
+        _queryFreeRImageIdsButton.Click += (_, _) => ShowFreeImageAssignmentIdsDialog(ImageAssignmentResourceKind.R);
+        _queryFreeSImageIdsButton.Click += (_, _) => ShowFreeImageAssignmentIdsDialog(ImageAssignmentResourceKind.S);
         _openRsDirectoryButton.Click += (_, _) => OpenRsDirectory();
         _filterImageAssignmentsButton.Click += (_, _) => ApplyImageAssignmentFilter();
         _clearImageAssignmentFilterButton.Click += (_, _) => ClearImageAssignmentFilter();
@@ -402,6 +405,7 @@ public sealed partial class MainForm
         _battlefieldMapZoomResetButton.Click += (_, _) => ResetBattlefieldMapZoom();
         _markBattlefieldCommand25Button.Click += (_, _) => ToggleBattlefieldCommand25Preview();
         _battlefieldScriptTree.AfterSelect += (_, _) => ShowSelectedBattlefieldScriptNode();
+        _battlefieldScriptTree.AfterCheck += (_, e) => HandleLegacyScriptTreeNodeAfterCheck(LegacyScriptEditorScope.Battlefield, e);
         _battlefieldScriptTree.NodeMouseClick += (_, e) => HandleLegacyScriptTreeNodeMouseClick(LegacyScriptEditorScope.Battlefield, e);
         _battlefieldScriptTree.NodeMouseDoubleClick += (_, e) =>
         {
@@ -465,6 +469,7 @@ public sealed partial class MainForm
         _applyRSceneInlineDialogButton.Click += (_, _) => ApplyInlineRSceneScriptDialog();
         _resetRSceneInlineDialogButton.Click += (_, _) => LoadInlineRSceneScriptDialogForSelection();
         _rSceneScriptTree.AfterSelect += (_, _) => ShowSelectedRSceneScriptNode();
+        _rSceneScriptTree.AfterCheck += (_, e) => HandleLegacyScriptTreeNodeAfterCheck(LegacyScriptEditorScope.RScene, e);
         _rSceneScriptTree.NodeMouseClick += (_, e) => HandleLegacyScriptTreeNodeMouseClick(LegacyScriptEditorScope.RScene, e);
         _rSceneScriptTree.NodeMouseDoubleClick += (_, e) =>
         {

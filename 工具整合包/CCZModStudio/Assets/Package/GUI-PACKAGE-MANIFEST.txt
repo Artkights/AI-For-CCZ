@@ -2,10 +2,14 @@ CCZModStudio GUI portable package manifest
 
 Distribution shape:
 - 普罗工具整合包.exe
+- 说明.txt
+- 剧本文本导入AI说明模板.md
+- 普罗工具整合包使用说明.md
 - net\
 
 The GUI runtime must resolve bundled dependencies from the net directory only.
-Do not rely on source folders, MCP/debug folders, or files beside the launcher.
+Do not rely on source folders or MCP/debug folders.
+Root companion documents are for users only; they are not runtime dependencies.
 
 Required files under net:
 - ConfigTable\HexTable.xml

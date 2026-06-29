@@ -26,7 +26,7 @@ public sealed class ImageAssignmentService
         var s = _reader.Read(project, sTable, tables);
         if (!person.Validation.IsUsable || !r.Validation.IsUsable || !s.Validation.IsUsable)
         {
-            throw new InvalidOperationException("人物/R/S 形象表有不可读取项，请先查看数据表诊断。 ");
+            throw new InvalidOperationException("人物形象设定相关表有不可读取项，请先查看数据表诊断。 ");
         }
 
         var output = new DataTable("ImageAssignments");
@@ -41,7 +41,6 @@ public sealed class ImageAssignmentService
         output.Columns.Add("S资源状态", typeof(string));
         output.Columns["ID"]!.ReadOnly = true;
         output.Columns["名称"]!.ReadOnly = true;
-        output.Columns["头像编号"]!.ReadOnly = true;
         output.Columns["职业"]!.ReadOnly = true;
         output.Columns["职业名称"]!.ReadOnly = true;
 
@@ -73,49 +72,66 @@ public sealed class ImageAssignmentService
 
     public ImageAssignmentSaveResult Save(CczProject project, IReadOnlyList<HexTableDefinition> tables, DataTable assignments)
     {
+        var personTable = Find(project, tables, "6.5-0 人物");
         var rTable = Find(project, tables, "6.5-0-4 R形象");
         var sTable = Find(project, tables, "6.5-0-5 S形象");
         EnsureImageTablesMatchBImageAssigner(rTable, sTable);
+        var personRead = _reader.Read(project, personTable, tables);
         var rRead = _reader.Read(project, rTable, tables);
         var sRead = _reader.Read(project, sTable, tables);
-        var changedRows = new List<DataRow>();
+        EnsureWritablePersonFaceField(personTable, personRead.Data);
+        var changedFaceRows = new List<DataRow>();
+        var changedRRows = new List<DataRow>();
+        var changedSRows = new List<DataRow>();
 
         foreach (DataRow row in assignments.Rows)
         {
             if (row.RowState != DataRowState.Modified) continue;
             var index = assignments.Rows.IndexOf(row);
+            var originalFace = Convert.ToInt32(row["头像编号", DataRowVersion.Original], CultureInfo.InvariantCulture);
+            var currentFace = Convert.ToInt32(row["头像编号", DataRowVersion.Current], CultureInfo.InvariantCulture);
             var originalR = Convert.ToInt32(row["R形象编号", DataRowVersion.Original], CultureInfo.InvariantCulture);
             var currentR = Convert.ToInt32(row["R形象编号", DataRowVersion.Current], CultureInfo.InvariantCulture);
             var originalS = Convert.ToInt32(row["S形象编号", DataRowVersion.Original], CultureInfo.InvariantCulture);
             var currentS = Convert.ToInt32(row["S形象编号", DataRowVersion.Current], CultureInfo.InvariantCulture);
 
+            if (originalFace != currentFace)
+            {
+                ValidateFieldValue(personTable, "头像", currentFace);
+                personRead.Data.Rows[index]["头像"] = currentFace;
+                changedFaceRows.Add(row);
+            }
+
             if (originalR != currentR)
             {
                 rRead.Data.Rows[index]["R形象编号"] = currentR;
+                changedRRows.Add(row);
             }
 
             if (originalS != currentS)
             {
                 sRead.Data.Rows[index]["S形象编号"] = currentS;
-            }
-
-            if (originalR != currentR || originalS != currentS)
-            {
-                changedRows.Add(row);
+                changedSRows.Add(row);
             }
         }
 
         var saves = new List<TableSaveResult>();
+        if (personRead.Data.GetChanges() != null)
+        {
+            saves.Add(_writer.Save(project, personTable, personRead.Data));
+            VerifyImageAssignmentSave(project, tables, personTable, changedFaceRows, "头像编号", "头像");
+        }
+
         if (rRead.Data.GetChanges() != null)
         {
             saves.Add(_writer.Save(project, rTable, rRead.Data));
-            VerifyImageAssignmentSave(project, tables, rTable, rRead.Data, changedRows, "R形象编号");
+            VerifyImageAssignmentSave(project, tables, rTable, changedRRows, "R形象编号", "R形象编号");
         }
 
         if (sRead.Data.GetChanges() != null)
         {
             saves.Add(_writer.Save(project, sTable, sRead.Data));
-            VerifyImageAssignmentSave(project, tables, sTable, sRead.Data, changedRows, "S形象编号");
+            VerifyImageAssignmentSave(project, tables, sTable, changedSRows, "S形象编号", "S形象编号");
         }
 
         assignments.AcceptChanges();
@@ -130,34 +146,78 @@ public sealed class ImageAssignmentService
         CczProject project,
         IReadOnlyList<HexTableDefinition> tables,
         HexTableDefinition table,
-        DataTable expected,
         IReadOnlyList<DataRow> changedRows,
-        string columnName)
+        string assignmentColumnName,
+        string rereadColumnName)
     {
         var reread = _reader.Read(project, table, tables);
         if (!reread.Validation.IsUsable)
         {
-            throw new InvalidOperationException("人物 R/S 形象保存后重新读取失败，请查看诊断和备份。");
+            throw new InvalidOperationException("人物形象设定保存后重新读取失败，请查看诊断和备份。");
         }
 
         foreach (var row in changedRows)
         {
             var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
-            var expectedRow = FindRowById(expected, id);
             var actualRow = FindRowById(reread.Data, id);
-            if (expectedRow == null || actualRow == null)
+            if (actualRow == null)
             {
-                throw new InvalidOperationException($"人物 R/S 形象保存后复读校验失败：找不到 ID={id}。");
+                throw new InvalidOperationException($"人物形象设定保存后复读校验失败：找不到 ID={id}。");
             }
 
-            var expectedValue = Convert.ToString(expectedRow[columnName], CultureInfo.InvariantCulture) ?? string.Empty;
-            var actualValue = Convert.ToString(actualRow[columnName], CultureInfo.InvariantCulture) ?? string.Empty;
+            var expectedValue = Convert.ToString(row[assignmentColumnName, DataRowVersion.Current], CultureInfo.InvariantCulture) ?? string.Empty;
+            var actualValue = Convert.ToString(actualRow[rereadColumnName], CultureInfo.InvariantCulture) ?? string.Empty;
             if (!string.Equals(expectedValue, actualValue, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"人物 R/S 形象保存后复读校验失败：ID={id} {columnName} 期望 {expectedValue}，实际 {actualValue}。");
+                throw new InvalidOperationException($"人物形象设定保存后复读校验失败：ID={id} {assignmentColumnName} 期望 {expectedValue}，实际 {actualValue}。");
             }
         }
     }
+
+    private static void EnsureWritablePersonFaceField(HexTableDefinition personTable, DataTable personData)
+    {
+        if (!personData.Columns.Contains("头像"))
+        {
+            throw new InvalidOperationException("人物形象设定保存失败：人物表缺少“头像”字段。");
+        }
+
+        var field = FindField(personTable, "头像");
+        if (field is not { ConsumesBytes: true })
+        {
+            throw new InvalidOperationException("人物形象设定保存失败：人物表“头像”字段不可写。");
+        }
+    }
+
+    private static void ValidateFieldValue(HexTableDefinition table, string columnName, int value)
+    {
+        var field = FindField(table, columnName);
+        if (field == null)
+        {
+            throw new InvalidOperationException($"人物形象设定保存失败：找不到字段“{columnName}”。");
+        }
+
+        if (value < 0)
+        {
+            throw new InvalidOperationException($"人物形象设定保存失败：{columnName} 不能小于 0。");
+        }
+
+        var max = field.Kind switch
+        {
+            HexFieldKind.UInt8 => byte.MaxValue,
+            HexFieldKind.UInt16 => ushort.MaxValue,
+            HexFieldKind.UInt32 => uint.MaxValue,
+            _ => field.Size > 0 && field.Size < sizeof(long)
+                ? (1L << Math.Min(field.Size * 8, 62)) - 1
+                : long.MaxValue
+        };
+        if (value > max)
+        {
+            throw new InvalidOperationException($"人物形象设定保存失败：{columnName}={value} 超出字段上限 {max}。");
+        }
+    }
+
+    private static HexFieldDefinition? FindField(HexTableDefinition table, string columnName)
+        => table.Fields.FirstOrDefault(field => field.ColumnName.Equals(columnName, StringComparison.Ordinal));
 
     private static DataRow? FindRowById(DataTable table, int id)
     {
@@ -200,7 +260,7 @@ public sealed class ImageAssignmentService
             sTable.DataPos != ExpectedSImageOffset)
         {
             throw new InvalidOperationException(
-                "人物 R/S 形象表与 B形象指定器 6.5 配置不一致，已停止读取/写入。"
+                "人物形象设定表与 B形象指定器 6.5 配置不一致，已停止读取/写入。"
                 + $" 期望 R=Ekd5.exe:{HexDisplayFormatter.FormatOffset(ExpectedRImageOffset)}，S=Ekd5.exe:{HexDisplayFormatter.FormatOffset(ExpectedSImageOffset)}；"
                 + $" 实际 R={rTable.FileName}:{HexDisplayFormatter.FormatOffset(rTable.DataPos)}，S={sTable.FileName}:{HexDisplayFormatter.FormatOffset(sTable.DataPos)}。");
         }
