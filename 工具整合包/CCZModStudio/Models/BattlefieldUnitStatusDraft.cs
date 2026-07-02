@@ -68,5 +68,6 @@ public sealed class BattlefieldUnitStatusLookupItem
 {
     public int Value { get; init; }
     public string Text { get; init; } = string.Empty;
+    public int? EquipmentDefaultItemId { get; init; }
     public override string ToString() => Text;
 }

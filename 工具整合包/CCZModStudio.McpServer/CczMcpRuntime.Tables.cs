@@ -142,6 +142,13 @@ public sealed partial class CczMcpRuntime
             }
         }
 
+        _shopEditorService.EnsureShopDataTableValidForSave(
+            project,
+            tables,
+            table,
+            result.Data,
+            changedItemSlotsOnly: true);
+
         var save = _tableWriter.Save(project, table, result.Data);
         return new
         {

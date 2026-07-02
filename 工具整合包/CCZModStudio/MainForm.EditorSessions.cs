@@ -679,7 +679,7 @@ public sealed partial class MainForm
         if (_project == null || _currentBattlefieldDocument == null) return false;
         var persistedReviews = _battlefieldUnitReviewService.Load(_project)
             .Where(review => !review.IsPlacement && review.ScenarioFileName.Equals(_currentBattlefieldDocument.Scenario.FileName, StringComparison.OrdinalIgnoreCase))
-            .ToDictionary(review => review.TargetKey, StringComparer.OrdinalIgnoreCase);
+            .ToDictionaryFirstByKey(review => review.TargetKey, review => review, StringComparer.OrdinalIgnoreCase);
         foreach (var candidate in GetBattlefieldUnitCandidatesForDisplay())
         {
             persistedReviews.TryGetValue(candidate.TargetKey, out var review);

@@ -7,10 +7,34 @@ namespace CCZModStudio.Core;
 
 public sealed class ShopEditorService
 {
+    public const int EmptyShopItemId = 255;
+    public const int UnsetShopPersonId = 65535;
+
+    private static readonly string[] PlaceholderShopItemNames =
+    {
+        "空闲",
+        "空槽",
+        "未使用",
+        "保留",
+        "FF-End",
+        "End"
+    };
+
     private readonly HexTableReader _tableReader = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
     private readonly CczEngineProfileService _engineProfile = new();
+
+    public IReadOnlyDictionary<int, ShopItemInfo> BuildShopItemInfoLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+        => BuildItemInfoLookup(project, tables);
+
+    public bool IsShopDataTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, HexTableDefinition table)
+    {
+        var hints = _engineProfile.Detect(project).TableHints;
+        var shopTable = FindTable(project, tables, hints.ShopDataTable);
+        return table.Id == shopTable.Id ||
+               table.TableName.Equals(shopTable.TableName, StringComparison.OrdinalIgnoreCase);
+    }
 
     public ShopEditorBuildResult Build(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
@@ -40,7 +64,7 @@ public sealed class ShopEditorService
 
     public string BuildPersonName(IReadOnlyDictionary<int, string> personNames, int id)
     {
-        if (id is 255 or 65535) return "无/不指定";
+        if (id is EmptyShopItemId or UnsetShopPersonId) return "无/不指定";
         return personNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
             ? name
             : $"{id}：未找到人物名";
@@ -51,12 +75,13 @@ public sealed class ShopEditorService
         IReadOnlyDictionary<int, string> itemNames,
         int id)
     {
+        if (id == EmptyShopItemId) return "空槽";
+
         if (itemInfos.TryGetValue(id, out var item) && !string.IsNullOrWhiteSpace(item.Name))
         {
             return item.Name;
         }
 
-        if (id == 255) return "空槽";
         return itemNames.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)
             ? name
             : $"{id}：未找到物品名";
@@ -64,14 +89,14 @@ public sealed class ShopEditorService
 
     public string BuildItemDetailText(IReadOnlyDictionary<int, ShopItemInfo> itemInfos, int id)
     {
+        if (id == EmptyShopItemId)
+        {
+            return "物品预览：255 / 空槽，不会出现在商店。";
+        }
+
         if (!itemInfos.TryGetValue(id, out var item))
         {
             return $"物品预览：{id} 未在 6.5 物品表中找到。";
-        }
-
-        if (id == 255)
-        {
-            return "物品预览：255 / 空槽。";
         }
 
         return
@@ -115,6 +140,167 @@ public sealed class ShopEditorService
         return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out slot) && slot is >= 1 and <= 32;
     }
 
+    public static bool IsShopPersonColumnName(string columnName)
+        => columnName is "开关仓库人物" or "买卖物品人物";
+
+    public static bool IsPlaceholderShopItemName(string? name)
+    {
+        var normalized = (name ?? string.Empty).Trim();
+        return normalized.Length == 0 ||
+               PlaceholderShopItemNames.Any(placeholder => string.Equals(normalized, placeholder, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public bool TryValidateShopItemSlotValue(
+        IReadOnlyDictionary<int, ShopItemInfo> itemInfos,
+        int itemId,
+        out string error)
+    {
+        error = string.Empty;
+        if (itemId == EmptyShopItemId) return true;
+        if (itemId is < 0 or > EmptyShopItemId)
+        {
+            error = "占位物品不能入店；空槽用 255。";
+            return false;
+        }
+
+        if (!itemInfos.TryGetValue(itemId, out var item))
+        {
+            error = "占位物品不能入店；空槽用 255。";
+            return false;
+        }
+
+        if (IsPlaceholderShopItemName(item.Name))
+        {
+            error = "占位物品不能入店；空槽用 255。";
+            return false;
+        }
+
+        return true;
+    }
+
+    public IReadOnlyList<ShopSlotValidationIssue> ValidateShopItemSlots(
+        DataTable data,
+        IReadOnlyDictionary<int, ShopItemInfo> itemInfos,
+        Predicate<DataRow>? rowFilter = null,
+        bool changedItemSlotsOnly = false,
+        Func<int, string, bool>? slotFilter = null)
+    {
+        var issues = new List<ShopSlotValidationIssue>();
+        foreach (DataRow row in data.Rows)
+        {
+            if (row.RowState is DataRowState.Detached or DataRowState.Deleted) continue;
+            if (rowFilter != null && !rowFilter(row)) continue;
+
+            var rowId = row.Table.Columns.Contains("ID") ? Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture) : data.Rows.IndexOf(row);
+            foreach (DataColumn column in data.Columns)
+            {
+                if (!TryGetSlotNumber(column.ColumnName, out var slot)) continue;
+                if (slotFilter != null && !slotFilter(rowId, column.ColumnName)) continue;
+                if (changedItemSlotsOnly && row.RowState != DataRowState.Added && !IsDataColumnChanged(row, column.ColumnName)) continue;
+                if (!TryConvertShopItemId(row[column.ColumnName, DataRowVersion.Current], out var itemId))
+                {
+                    var rawText = Convert.ToString(row[column.ColumnName, DataRowVersion.Current], CultureInfo.InvariantCulture) ?? string.Empty;
+                    issues.Add(new ShopSlotValidationIssue(
+                        rowId,
+                        slot,
+                        column.ColumnName,
+                        -1,
+                        rawText,
+                        $"第 {rowId} 行 {BuildSlotDisplayName(slot)} 的物品槽值无法解析为 0..255。空商品槽请使用 255。"));
+                    continue;
+                }
+
+                if (TryValidateShopItemSlotValue(itemInfos, itemId, out var error)) continue;
+                issues.Add(new ShopSlotValidationIssue(
+                    rowId,
+                    slot,
+                    column.ColumnName,
+                    itemId,
+                    BuildShopItemValidationName(itemInfos, itemId),
+                    $"第 {rowId} 行 {BuildSlotDisplayName(slot)}：{error}"));
+            }
+        }
+
+        return issues;
+    }
+
+    public IReadOnlyList<ShopSlotValidationIssue> ValidateShopDataTable(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        HexTableDefinition table,
+        DataTable data,
+        bool changedItemSlotsOnly = false,
+        Func<int, string, bool>? slotFilter = null)
+    {
+        if (!IsShopDataTable(project, tables, table)) return Array.Empty<ShopSlotValidationIssue>();
+        var itemInfos = BuildShopItemInfoLookup(project, tables);
+        return ValidateShopItemSlots(data, itemInfos, changedItemSlotsOnly: changedItemSlotsOnly, slotFilter: slotFilter);
+    }
+
+    public void EnsureShopDataTableValidForSave(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        HexTableDefinition table,
+        DataTable data,
+        bool changedItemSlotsOnly = true,
+        Func<int, string, bool>? slotFilter = null)
+    {
+        var issues = ValidateShopDataTable(project, tables, table, data, changedItemSlotsOnly, slotFilter);
+        if (issues.Count > 0)
+        {
+            throw new InvalidOperationException(BuildShopSlotValidationErrorText(issues));
+        }
+    }
+
+    public static string BuildShopSlotValidationErrorText(IReadOnlyList<ShopSlotValidationIssue> issues, int maxIssues = 40)
+    {
+        var lines = new List<string> { "占位物品不能入店；空槽用 255。" };
+        lines.AddRange(issues
+            .Take(maxIssues)
+            .Select(issue => $"row={issue.RowId}, slot={issue.Slot}, value={issue.ItemId}, name={issue.ItemName}"));
+        if (issues.Count > maxIssues) lines.Add($"... 另有 {issues.Count - maxIssues} 项");
+        return string.Join("\r\n", lines);
+    }
+
+    private static bool TryConvertShopItemId(object? value, out int itemId)
+    {
+        itemId = 0;
+        if (value == null || value == DBNull.Value) return false;
+
+        try
+        {
+            itemId = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+            return itemId is >= 0 and <= EmptyShopItemId;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+        catch (InvalidCastException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsDataColumnChanged(DataRow row, string columnName)
+    {
+        if (!row.Table.Columns.Contains(columnName)) return false;
+        if (row.RowState == DataRowState.Added || !row.HasVersion(DataRowVersion.Original)) return true;
+        var original = Convert.ToString(row[columnName, DataRowVersion.Original], CultureInfo.InvariantCulture) ?? string.Empty;
+        var current = Convert.ToString(row[columnName, DataRowVersion.Current], CultureInfo.InvariantCulture) ?? string.Empty;
+        return !string.Equals(original, current, StringComparison.Ordinal);
+    }
+
+    private static string BuildShopItemValidationName(IReadOnlyDictionary<int, ShopItemInfo> itemInfos, int itemId)
+        => itemInfos.TryGetValue(itemId, out var item) ? BuildShopItemValidationName(item) : "未找到物品名";
+
+    private static string BuildShopItemValidationName(ShopItemInfo item)
+        => string.IsNullOrWhiteSpace(item.Name) ? "空白名" : item.Name;
+
     public string BuildSlotDisplayName(string columnName)
         => TryGetSlotNumber(columnName, out var slot) ? BuildSlotDisplayName(slot) : columnName;
 
@@ -131,7 +317,7 @@ public sealed class ShopEditorService
         {
             if (!TryGetSlotNumber(column.ColumnName, out _)) continue;
             if (!int.TryParse(Convert.ToString(row[column], CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)) continue;
-            if (id != 255) count++;
+            if (id != EmptyShopItemId) count++;
         }
         return count;
     }
@@ -180,7 +366,7 @@ public sealed class ShopEditorService
                 foreach (DataColumn column in shopDataRead.Data.Columns)
                 {
                     if (column.ColumnName == "ID") continue;
-                    row[column.ColumnName] = column.DataType == typeof(string) ? string.Empty : 0;
+                    row[column.ColumnName] = GetDefaultShopRawValueForColumn(column.ColumnName, column.DataType);
                 }
             }
 
@@ -194,6 +380,13 @@ public sealed class ShopEditorService
             column.ReadOnly = column.ColumnName is "ID" or "槽位类型";
         }
         return output;
+    }
+
+    public object GetDefaultShopRawValueForColumn(string columnName, Type dataType)
+    {
+        if (TryGetSlotNumber(columnName, out _)) return EmptyShopItemId;
+        if (IsShopPersonColumnName(columnName)) return UnsetShopPersonId;
+        return dataType == typeof(string) ? string.Empty : 0;
     }
 
     private IReadOnlyDictionary<int, ShopItemInfo> BuildItemInfoLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -220,6 +413,7 @@ public sealed class ShopEditorService
             foreach (DataRow row in itemRead.Data.Rows)
             {
                 var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+                if (id == EmptyShopItemId) continue;
                 var name = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
                 var typeId = row.Table.Columns.Contains("类型") ? Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture) : 0;
                 var price = row.Table.Columns.Contains("价格（/100）") ? Convert.ToInt32(row["价格（/100）"], CultureInfo.InvariantCulture) : 0;
@@ -253,7 +447,7 @@ public sealed class ShopEditorService
             if (!TryGetSlotNumber(column.ColumnName, out var slot)) continue;
             if ((slot <= 16) != equipmentSlots) continue;
             var itemId = Convert.ToInt32(row[column.ColumnName], CultureInfo.InvariantCulture);
-            if (itemId == 255) continue;
+            if (itemId == EmptyShopItemId) continue;
             parts.Add($"{BuildSlotDisplayName(slot)}:{itemId}-{BuildItemName(itemInfos, itemNames, itemId)}");
             if (parts.Count >= 8) break;
         }

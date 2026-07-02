@@ -7,24 +7,38 @@ namespace CCZModStudio.Core;
 
 public sealed class BattlefieldUnitStatusWriteService
 {
+    public const int ManagedSceneIndex = 1;
+    public const string Scene2PlusStatusWriteDisabledMessage = "Scene2 及之后属于剧情脚本，不受初始出场设置管理，请在左侧剧本树手动编辑。";
+    public const string FriendEquipmentStatusBlockTitle = "友军装备设定";
+    public const string EnemyEquipmentStatusBlockTitle = "敌军装备设定";
+    public const string FriendRuntimeStatusBlockTitle = "友军战场能力设定";
+    public const string EnemyRuntimeStatusBlockTitle = "敌军战场能力设定";
     public const string EquipmentStatusBlockTitle = "个人装备设定";
     public const string RuntimeStatusBlockTitle = "个人战场能力设定";
     public const string CombinedStatusBlockTitle = "个人装备与能力设定";
 
     private static readonly IReadOnlySet<string> EquipmentStatusBlockTitles = new HashSet<string>(StringComparer.Ordinal)
     {
+        FriendEquipmentStatusBlockTitle,
+        EnemyEquipmentStatusBlockTitle,
         EquipmentStatusBlockTitle,
         CombinedStatusBlockTitle
     };
 
     private static readonly IReadOnlySet<string> RuntimeStatusBlockTitles = new HashSet<string>(StringComparer.Ordinal)
     {
+        FriendRuntimeStatusBlockTitle,
+        EnemyRuntimeStatusBlockTitle,
         RuntimeStatusBlockTitle,
         CombinedStatusBlockTitle
     };
 
     private static readonly IReadOnlySet<string> AnyStatusBlockTitles = new HashSet<string>(StringComparer.Ordinal)
     {
+        FriendEquipmentStatusBlockTitle,
+        EnemyEquipmentStatusBlockTitle,
+        FriendRuntimeStatusBlockTitle,
+        EnemyRuntimeStatusBlockTitle,
         EquipmentStatusBlockTitle,
         RuntimeStatusBlockTitle,
         CombinedStatusBlockTitle
@@ -46,9 +60,20 @@ public sealed class BattlefieldUnitStatusWriteService
 
     public static bool IsWritableStatusTarget(BattlefieldPlacedUnit placement)
         => TryParseLocator(placement.TargetKey, out var locator) &&
+           locator.SceneIndex == ManagedSceneIndex &&
            TryParseCommandId(locator.CommandIdHex, out var commandId) &&
            commandId is 0x46 or 0x47 &&
            locator.RecordIndex >= 0;
+
+    public static bool IsScene2PlusStatusTarget(BattlefieldPlacedUnit placement)
+        => TryParseLocator(placement.TargetKey, out var locator) &&
+           locator.SceneIndex > ManagedSceneIndex;
+
+    public static string GetEquipmentStatusBlockTitle(int commandId)
+        => commandId == 0x47 ? EnemyEquipmentStatusBlockTitle : FriendEquipmentStatusBlockTitle;
+
+    public static string GetRuntimeStatusBlockTitle(int commandId)
+        => commandId == 0x47 ? EnemyRuntimeStatusBlockTitle : FriendRuntimeStatusBlockTitle;
 
     public BattlefieldUnitStatusDraft LoadDraft(
         ScenarioFileInfo scenario,
@@ -83,7 +108,7 @@ public sealed class BattlefieldUnitStatusWriteService
         var locator = BuildWritableLocator(placement);
         var target = FindCommand(document, locator)
             ?? throw new InvalidOperationException("未在当前 S 剧本树中找到该单位绑定的 46/47 出场设定。");
-        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(target.CommandId)
             ?? throw new InvalidOperationException("战场单位状态弹窗只支持 46/47 友军/敌军出场设定。");
         ValidateRecordRange(target, definition, locator.RecordIndex);
 
@@ -109,18 +134,8 @@ public sealed class BattlefieldUnitStatusWriteService
             SourceSummary = $"{target.CommandIdHex} {target.CommandName} Scene={target.SceneIndex} Section={target.SectionIndex} Command={target.CommandIndex} Record={locator.RecordIndex}"
         };
 
-        if (!TryFindCommandList(document, target, out var commandList, out var targetListIndex))
-        {
-            throw new InvalidOperationException("未能定位 46/47 所在命令列表，无法读取同一部署段状态命令。");
-        }
-
-        var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
-        var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
-        var drawingCommands = TryFindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex, out var drawingSegment)
-            ? GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment)
-            : [];
-        var scopeCommands = deploymentCommands.Concat(drawingCommands).ToList();
-        if (FindLastSamePersonCommand(deploymentCommands, 0x48, personId) is { } equipment)
+        var sceneStatusCommands = GetManagedSceneLogicalCommands(document, target.SceneIndex);
+        if (FindLastSamePersonCommand(sceneStatusCommands, 0x48, personId) is { } equipment)
         {
             draft.HasEquipmentCommand = true;
             draft.Weapon = GetIntOrNull(equipment, 1);
@@ -130,7 +145,7 @@ public sealed class BattlefieldUnitStatusWriteService
             draft.Assist = GetIntOrNull(equipment, 5);
         }
 
-        if (FindLastSamePersonCommand(scopeCommands, 0x52, personId) is { } job)
+        if (FindLastSamePersonCommand(sceneStatusCommands, 0x52, personId) is { } job)
         {
             draft.HasJobCommand = true;
             draft.JobId = GetIntOrNull(job, 1);
@@ -139,7 +154,7 @@ public sealed class BattlefieldUnitStatusWriteService
         foreach (var ability in draft.Abilities)
         {
             ability.DataDefaultValue = dataDefaults?.GetAbility(ability.AbilityId);
-            if (FindLastAbilityCommand(scopeCommands, personId, ability.AbilityId) is not { } command) continue;
+            if (FindLastAbilityCommand(sceneStatusCommands, personId, ability.AbilityId) is not { } command) continue;
             ability.HasCommand = true;
             ability.Operation = GetIntOrNull(command, 2);
             ability.Value = GetIntOrNull(command, 3);
@@ -164,7 +179,7 @@ public sealed class BattlefieldUnitStatusWriteService
         var locator = BuildWritableLocator(draft.TargetKey);
         var target = FindCommand(document, locator)
             ?? throw new InvalidOperationException("The bound 46/47 deployment command was not found in the current S script tree.");
-        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(target.CommandId)
             ?? throw new InvalidOperationException("Battlefield unit status write only supports 46/47 deployment commands.");
         ValidateRecordRange(target, definition, locator.RecordIndex);
         var start = locator.RecordIndex * definition.GroupSize;
@@ -202,7 +217,7 @@ public sealed class BattlefieldUnitStatusWriteService
         var locator = BuildWritableLocator(draft.TargetKey);
         var target = FindCommand(document, locator)
             ?? throw new InvalidOperationException("The bound 46/47 deployment command was not found in the current S script tree.");
-        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(target.CommandId)
             ?? throw new InvalidOperationException("Battlefield unit status write only supports 46/47 deployment commands.");
         var itemBoundary = ItemCategoryBoundaryService.Resolve(project);
         ValidateDraftRanges(draft, itemBoundary);
@@ -220,8 +235,8 @@ public sealed class BattlefieldUnitStatusWriteService
         var insertedCommandCount = 0;
         var writesEquipment = HasAnyEquipmentValue(draft);
         var writesRuntimeStatus = HasAnyRuntimeStatusValue(draft);
-        var equipmentBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : EquipmentStatusBlockTitle;
-        var runtimeBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : RuntimeStatusBlockTitle;
+        var equipmentBlockTitle = GetEquipmentStatusBlockTitle(target.CommandId);
+        var runtimeBlockTitle = GetRuntimeStatusBlockTitle(target.CommandId);
 
         SetDeploymentSlotIfChanged(target, start + definition.LevelIndex, draft.LevelBonus, "Level bonus", changes);
         SetDeploymentSlotIfChanged(target, start + definition.JobLevelIndex, draft.JobLevel, "Job level", changes);
@@ -234,9 +249,10 @@ public sealed class BattlefieldUnitStatusWriteService
 
         var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
         var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
+        var sceneStatusCommands = GetManagedSceneLogicalCommands(document, target.SceneIndex);
         if (draft.RemoveEquipmentOverride)
         {
-            updatedCommandCount += RemoveSamePersonCommands(document, deploymentCommands, 0x48, personId, "Remove 0x48 equipment override", changes);
+            updatedCommandCount += RemoveSamePersonCommands(document, sceneStatusCommands, 0x48, personId, "Remove 0x48 equipment override", changes);
             writesEquipment = false;
         }
 
@@ -264,7 +280,7 @@ public sealed class BattlefieldUnitStatusWriteService
             insertedCommandCount += block.InsertedCommandCount;
             var blockCommands = GetInternalInfoBlockCommands(block.Command);
 
-            if (FindLastSamePersonCommand(deploymentCommands, 0x48, personId) is { } existing)
+            if (FindLastSamePersonCommand(sceneStatusCommands, 0x48, personId) is { } existing)
             {
                 SetCommandValues(existing, values);
                 if (!TryFindCommandList(document, existing, out var existingList, out _) ||
@@ -292,16 +308,17 @@ public sealed class BattlefieldUnitStatusWriteService
         {
             drawingSegment = FindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex);
             drawingCommands = GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment);
+            sceneStatusCommands = GetManagedSceneLogicalCommands(document, target.SceneIndex);
         }
 
         if (draft.RemoveJobOverride)
         {
-            updatedCommandCount += RemoveJobOverrides(document, drawingCommands, personId, changes);
+            updatedCommandCount += RemoveJobOverrides(document, sceneStatusCommands, personId, changes);
         }
 
         foreach (var abilityId in draft.RemoveAbilityOverrides.Distinct())
         {
-            updatedCommandCount += RemoveAbilityOverrides(document, drawingCommands, personId, abilityId, changes);
+            updatedCommandCount += RemoveAbilityOverrides(document, sceneStatusCommands, personId, abilityId, changes);
         }
 
         InternalInfoBlockResult? runtimeBlock = null;
@@ -329,7 +346,7 @@ public sealed class BattlefieldUnitStatusWriteService
             var blockCommands = runtimeBlockCommands
                 ?? throw new InvalidOperationException("Could not locate the 0x52/0x38 internal info block command list.");
             var values = new[] { personId, draft.JobId.Value };
-            if (FindLastSamePersonCommand(drawingCommands, 0x52, personId) is { } existing)
+            if (FindLastSamePersonCommand(sceneStatusCommands, 0x52, personId) is { } existing)
             {
                 SetCommandValues(existing, values);
                 if (!TryFindCommandList(document, existing, out var existingList, out _) ||
@@ -369,7 +386,7 @@ public sealed class BattlefieldUnitStatusWriteService
             var operation = ability.Operation ?? 0;
             var value = ability.Value!.Value;
             var values = new[] { personId, ability.AbilityId, operation, value };
-            if (FindLastAbilityCommand(drawingCommands, personId, ability.AbilityId) is { } existing)
+            if (FindLastAbilityCommand(sceneStatusCommands, personId, ability.AbilityId) is { } existing)
             {
                 SetCommandValues(existing, values);
                 if (!TryFindCommandList(document, existing, out var existingList, out _) ||
@@ -389,6 +406,11 @@ public sealed class BattlefieldUnitStatusWriteService
                 insertedCommandCount++;
                 changes.Add($"Insert 0x38 {ability.Name} under 0x1C drawing block: {DescribeOperation(operation)} {value}");
             }
+        }
+
+        if (changes.Count > 0)
+        {
+            updatedCommandCount += RemoveEmptyStatusBlocks(document, target.SceneIndex, target.SectionIndex, changes);
         }
 
         if (changes.Count == 0)
@@ -435,23 +457,26 @@ public sealed class BattlefieldUnitStatusWriteService
         var dataWeapon = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(dataDefaults.WeaponId, itemBoundary, BattlefieldEquipmentSlot.Weapon);
         var dataArmor = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(dataDefaults.ArmorId, itemBoundary, BattlefieldEquipmentSlot.Armor);
         var dataAssist = BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(dataDefaults.AssistId, itemBoundary, BattlefieldEquipmentSlot.Assist);
-        var currentWeapon = BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(
-            current.HasEquipmentCommand ? current.Weapon : null,
+        var currentWeapon = ResolveCurrentEquipmentSelection(
+            current.HasEquipmentCommand,
+            current.Weapon,
             itemBoundary,
             BattlefieldEquipmentSlot.Weapon,
             dataDefaults.WeaponId);
-        var currentArmor = BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(
-            current.HasEquipmentCommand ? current.Armor : null,
+        var currentArmor = ResolveCurrentEquipmentSelection(
+            current.HasEquipmentCommand,
+            current.Armor,
             itemBoundary,
             BattlefieldEquipmentSlot.Armor,
             dataDefaults.ArmorId);
-        var currentAssist = BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(
-            current.HasEquipmentCommand ? current.Assist : null,
+        var currentAssist = ResolveCurrentEquipmentSelection(
+            current.HasEquipmentCommand,
+            current.Assist,
             itemBoundary,
             BattlefieldEquipmentSlot.Assist,
             dataDefaults.AssistId);
-        var currentWeaponLevel = ResolveEquipmentLevel(current.HasEquipmentCommand ? current.WeaponLevel : null, dataDefaults.WeaponLevel);
-        var currentArmorLevel = ResolveEquipmentLevel(current.HasEquipmentCommand ? current.ArmorLevel : null, dataDefaults.ArmorLevel);
+        var currentWeaponLevel = current.HasEquipmentCommand ? current.WeaponLevel ?? 0 : dataDefaults.WeaponLevel ?? 0;
+        var currentArmorLevel = current.HasEquipmentCommand ? current.ArmorLevel ?? 0 : dataDefaults.ArmorLevel ?? 0;
         var requestedWeaponLevel = weaponLevel ?? 0;
         var requestedArmorLevel = armorLevel ?? 0;
 
@@ -467,7 +492,17 @@ public sealed class BattlefieldUnitStatusWriteService
             !Nullable.Equals(armorId, currentArmor) ||
             requestedArmorLevel != currentArmorLevel ||
             !Nullable.Equals(assistId, currentAssist);
-        if (equipmentChanged && equipmentDiffers)
+        var requestedAllScriptDefault =
+            scriptWeapon == 0 &&
+            requestedWeaponLevel == 0 &&
+            scriptArmor == 0 &&
+            requestedArmorLevel == 0 &&
+            scriptAssist == 0;
+        if (equipmentChanged && current.HasEquipmentCommand && requestedAllScriptDefault)
+        {
+            draft.RemoveEquipmentOverride = true;
+        }
+        else if (equipmentChanged && equipmentDiffers)
         {
             draft.Weapon = scriptWeapon == dataWeapon ? 0 : scriptWeapon;
             draft.WeaponLevel = requestedWeaponLevel == (dataDefaults.WeaponLevel ?? 0) ? 0 : requestedWeaponLevel;
@@ -547,10 +582,25 @@ public sealed class BattlefieldUnitStatusWriteService
         return draft;
     }
 
-    private static int ResolveEquipmentLevel(int? scriptLevel, int? dataDefaultLevel)
-        => scriptLevel.HasValue && scriptLevel.Value != 0
-            ? scriptLevel.Value
-            : dataDefaultLevel ?? 0;
+    private static int? ResolveCurrentEquipmentSelection(
+        bool hasEquipmentCommand,
+        int? scriptCode,
+        ItemCategoryBoundary itemBoundary,
+        BattlefieldEquipmentSlot slot,
+        int? dataDefaultItemId)
+    {
+        if (hasEquipmentCommand)
+        {
+            if (!scriptCode.HasValue || scriptCode.Value == 0)
+            {
+                return null;
+            }
+
+            return BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(scriptCode, itemBoundary, slot, dataDefaultItemId);
+        }
+
+        return BattlefieldUnitDataDefaultService.NormalizeDataEquipmentId(dataDefaultItemId);
+    }
 
     public BattlefieldUnitStatusWriteResult Save(
         CczProject project,
@@ -563,225 +613,8 @@ public sealed class BattlefieldUnitStatusWriteService
             throw new InvalidOperationException("战场单位状态写回只支持 RS\\S_XX.eex。");
         }
 
-        var locator = BuildWritableLocator(draft.TargetKey);
         var document = _reader.Read(scenario.Path, dictionary);
-        var target = FindCommand(document, locator)
-            ?? throw new InvalidOperationException("未在当前 S 剧本树中找到该单位绑定的 46/47 出场设定。");
-        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
-            ?? throw new InvalidOperationException("战场单位状态写回只支持 46/47 友军/敌军出场设定。");
-        var itemBoundary = ItemCategoryBoundaryService.Resolve(project);
-        ValidateDraftRanges(draft, itemBoundary);
-        ValidateRecordRange(target, definition, locator.RecordIndex);
-
-        var start = locator.RecordIndex * definition.GroupSize;
-        var personId = GetInt(target, start + definition.PersonIndex);
-        if (draft.PersonId != 0 && draft.PersonId != personId)
-        {
-            throw new InvalidOperationException($"当前绑定记录人物已变化：弹窗人物={draft.PersonId}，剧本人物={personId}。请刷新后重试。");
-        }
-
-        var changes = new List<string>();
-        var updatedCommandCount = 0;
-        var insertedCommandCount = 0;
-        var writesEquipment = HasAnyEquipmentValue(draft);
-        var writesRuntimeStatus = HasAnyRuntimeStatusValue(draft);
-        var equipmentBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : EquipmentStatusBlockTitle;
-        var runtimeBlockTitle = writesEquipment && writesRuntimeStatus ? CombinedStatusBlockTitle : RuntimeStatusBlockTitle;
-
-        SetDeploymentSlotIfChanged(target, start + definition.LevelIndex, draft.LevelBonus, "等级加成", changes);
-        SetDeploymentSlotIfChanged(target, start + definition.JobLevelIndex, draft.JobLevel, "兵种级", changes);
-        SetDeploymentSlotIfChanged(target, start + definition.AiIndex, draft.AiPolicy, "AI方针", changes);
-
-        if (!TryFindCommandList(document, target, out var commandList, out var targetListIndex))
-        {
-            throw new InvalidOperationException("未能定位 46/47 所在命令列表，无法安全插入状态命令。");
-        }
-
-        var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
-        var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
-        if (draft.RemoveEquipmentOverride)
-        {
-            updatedCommandCount += RemoveSamePersonCommands(document, deploymentCommands, 0x48, personId, "移除 0x48 装备覆盖", changes);
-            writesEquipment = false;
-        }
-
-        if (writesEquipment)
-        {
-            var values = new[]
-            {
-                personId,
-                draft.Weapon ?? 0,
-                draft.WeaponLevel ?? 0,
-                draft.Armor ?? 0,
-                draft.ArmorLevel ?? 0,
-                draft.Assist ?? 0
-            };
-            var block = EnsureInternalInfoBlock(
-                commandList,
-                deploymentSegment,
-                deploymentSegment.EndIndex,
-                EquipmentStatusBlockTitles,
-                equipmentBlockTitle,
-                target.SceneIndex,
-                target.SectionIndex,
-                personId,
-                StatusBlockContent.Equipment);
-            insertedCommandCount += block.InsertedCommandCount;
-            var blockCommands = GetInternalInfoBlockCommands(block.Command);
-
-            if (FindLastSamePersonCommand(deploymentCommands, 0x48, personId) is { } existing)
-            {
-                SetCommandValues(existing, values);
-                if (!TryFindCommandList(document, existing, out var existingList, out _) ||
-                    !ReferenceEquals(existingList, blockCommands))
-                {
-                    if (TryFindCommandList(document, existing, out existingList, out _))
-                    {
-                        MoveCommandIntoInternalInfoBlock(existingList, existing, block.Command);
-                    }
-                }
-                updatedCommandCount++;
-                changes.Add($"更新 0x48 装备设定：武器={values[1]} Lv={values[2]} 防具={values[3]} Lv={values[4]} 辅助={values[5]}");
-            }
-            else
-            {
-                InsertCommandIntoInternalInfoBlock(block.Command, CreateCommand(0x48, target.SceneIndex, target.SectionIndex, values));
-                insertedCommandCount++;
-                changes.Add($"在 0x02「{GetInternalInfoBlockTitle(block.Command)}」子块中插入 0x48 装备设定：武器={values[1]} Lv={values[2]} 防具={values[3]} Lv={values[4]} 辅助={values[5]}");
-            }
-        }
-
-        var drawingSegment = default(StatusCommandSegment);
-        var drawingCommands = new List<LegacyScenarioCommandNode>();
-        if (writesRuntimeStatus || draft.RemoveJobOverride || draft.RemoveAbilityOverrides.Count > 0)
-        {
-            drawingSegment = FindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex);
-            drawingCommands = GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment);
-        }
-
-        if (draft.RemoveJobOverride)
-        {
-            updatedCommandCount += RemoveJobOverrides(document, drawingCommands, personId, changes);
-        }
-
-        foreach (var abilityId in draft.RemoveAbilityOverrides.Distinct())
-        {
-            updatedCommandCount += RemoveAbilityOverrides(document, drawingCommands, personId, abilityId, changes);
-        }
-
-        InternalInfoBlockResult? runtimeBlock = null;
-        List<LegacyScenarioCommandNode>? runtimeBlockCommands = null;
-        if (writesRuntimeStatus)
-        {
-            runtimeBlock = EnsureInternalInfoBlock(
-                drawingSegment.CommandList,
-                drawingSegment.Segment,
-                drawingSegment.Segment.EndIndex,
-                RuntimeStatusBlockTitles,
-                runtimeBlockTitle,
-                target.SceneIndex,
-                target.SectionIndex,
-                personId,
-                StatusBlockContent.Runtime);
-            insertedCommandCount += runtimeBlock.Value.InsertedCommandCount;
-            runtimeBlockCommands = GetInternalInfoBlockCommands(runtimeBlock.Value.Command);
-        }
-
-        if (draft.JobId.HasValue)
-        {
-            var blockCommand = runtimeBlock?.Command
-                ?? throw new InvalidOperationException("未能创建 0x52/0x38 的内部信息子块。");
-            var blockCommands = runtimeBlockCommands
-                ?? throw new InvalidOperationException("未能定位 0x52/0x38 的内部信息子块命令列表。");
-            var values = new[] { personId, draft.JobId.Value };
-            if (FindLastSamePersonCommand(drawingCommands, 0x52, personId) is { } existing)
-            {
-                SetCommandValues(existing, values);
-                if (!TryFindCommandList(document, existing, out var existingList, out _) ||
-                    !ReferenceEquals(existingList, blockCommands))
-                {
-                    if (TryFindCommandList(document, existing, out existingList, out _))
-                    {
-                        MoveJobCommandGroupIntoInternalInfoBlock(existingList, existing, blockCommand);
-                    }
-                }
-                var insertedToggles = EnsureAbilityRecalcToggles(blockCommands, existing, target.SceneIndex, target.SectionIndex);
-                if (insertedToggles > 0)
-                {
-                    insertedCommandCount += insertedToggles;
-                }
-                updatedCommandCount++;
-                changes.Add(insertedToggles > 0
-                    ? $"更新 0x52 兵种改变：兵种={draft.JobId.Value}，并在 0x02「{GetInternalInfoBlockTitle(blockCommand)}」子块中补齐 4081 能力重算开关"
-                    : $"更新 0x52 兵种改变：兵种={draft.JobId.Value}，保留 0x02「{GetInternalInfoBlockTitle(blockCommand)}」子块中的 4081 能力重算开关");
-            }
-            else
-            {
-                InsertCommandIntoInternalInfoBlock(blockCommand, CreateVariableOperationCommand(target.SceneIndex, target.SectionIndex, 4081, 1));
-                InsertCommandIntoInternalInfoBlock(blockCommand, CreateCommand(0x52, target.SceneIndex, target.SectionIndex, values));
-                InsertCommandIntoInternalInfoBlock(blockCommand, CreateVariableOperationCommand(target.SceneIndex, target.SectionIndex, 4081, 0));
-                insertedCommandCount += 3;
-                changes.Add($"在 0x1C 绘图下方的 0x02「{GetInternalInfoBlockTitle(blockCommand)}」子块中插入 0x77/0x52/0x77 兵种改变并启用 4081 能力重算：兵种={draft.JobId.Value}");
-            }
-        }
-
-        foreach (var ability in draft.Abilities.Where(ability => ability.Value.HasValue))
-        {
-            var blockCommand = runtimeBlock?.Command
-                ?? throw new InvalidOperationException("未能创建 0x52/0x38 的内部信息子块。");
-            var blockCommands = runtimeBlockCommands
-                ?? throw new InvalidOperationException("未能定位 0x52/0x38 的内部信息子块命令列表。");
-            var operation = ability.Operation ?? 0;
-            var value = ability.Value!.Value;
-            var values = new[] { personId, ability.AbilityId, operation, value };
-            if (FindLastAbilityCommand(drawingCommands, personId, ability.AbilityId) is { } existing)
-            {
-                SetCommandValues(existing, values);
-                if (!TryFindCommandList(document, existing, out var existingList, out _) ||
-                    !ReferenceEquals(existingList, blockCommands))
-                {
-                    if (TryFindCommandList(document, existing, out existingList, out _))
-                    {
-                        MoveCommandIntoInternalInfoBlock(existingList, existing, blockCommand);
-                    }
-                }
-                updatedCommandCount++;
-                changes.Add($"更新 0x38 {ability.Name}：{DescribeOperation(operation)} {value}");
-            }
-            else
-            {
-                InsertCommandIntoInternalInfoBlock(blockCommand, CreateCommand(0x38, target.SceneIndex, target.SectionIndex, values));
-                insertedCommandCount++;
-                changes.Add($"在 0x1C 绘图下方的 0x02「{GetInternalInfoBlockTitle(blockCommand)}」子块中插入 0x38 {ability.Name}：{DescribeOperation(operation)} {value}");
-            }
-        }
-
-        if (changes.Count == 0)
-        {
-            throw new InvalidOperationException("没有可写回的状态字段。请修改至少一个字段，或为装备/兵种/五维填写数值。");
-        }
-
-        var write = _writer.Save(
-            project,
-            Path.Combine("RS", scenario.FileName),
-            document,
-            dictionary,
-            $"战场单位状态写回 46/47 + 48/52/38 person={personId}");
-
-        var verify = _reader.Read(scenario.Path, dictionary);
-        ValidateReread(verify, locator, draft, personId);
-
-        return new BattlefieldUnitStatusWriteResult
-        {
-            FilePath = write.FilePath,
-            BackupPath = write.BackupPath,
-            ReportJsonPath = write.ReportJsonPath,
-            ChangedBytes = write.ChangedBytes,
-            UpdatedCommandCount = updatedCommandCount,
-            InsertedCommandCount = insertedCommandCount,
-            ValidationSummary = write.ValidationSummary + $"; unit status reread OK: person={personId}",
-            Changes = changes
-        };
+        return Save(project, scenario, dictionary, document, draft);
     }
 
     public static string BuildPreview(BattlefieldUnitStatusDraft draft)
@@ -926,7 +759,7 @@ public sealed class BattlefieldUnitStatusWriteService
     {
         var target = FindCommand(document, locator)
             ?? throw new InvalidDataException("战场单位状态复读失败：找不到原 46/47 命令。");
-        var definition = DeploymentStatusDefinition.FromCommandId(target.CommandId)
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(target.CommandId)
             ?? throw new InvalidDataException("战场单位状态复读失败：原命令不再是 46/47。");
         ValidateRecordRange(target, definition, locator.RecordIndex);
         var start = locator.RecordIndex * definition.GroupSize;
@@ -940,31 +773,28 @@ public sealed class BattlefieldUnitStatusWriteService
             throw new InvalidDataException("战场单位状态复读失败：找不到原 46/47 所在命令列表。");
         }
 
-        var deploymentSegment = FindDeploymentSegment(commandList, targetListIndex);
-        var deploymentCommands = GetSegmentLogicalCommands(commandList, deploymentSegment);
+        var sceneStatusCommands = GetManagedSceneLogicalCommands(document, target.SceneIndex);
         if (draft.RemoveEquipmentOverride &&
-            FindLastSamePersonCommand(deploymentCommands, 0x48, personId) != null)
+            FindLastSamePersonCommand(sceneStatusCommands, 0x48, personId) != null)
         {
             throw new InvalidDataException("战场单位状态复读失败：0x48 装备覆盖仍然存在。");
         }
 
         var hasRuntimeStatusValue = HasAnyRuntimeStatusValue(draft);
-        var drawingCommands = new List<LegacyScenarioCommandNode>();
         if (hasRuntimeStatusValue || draft.RemoveJobOverride || draft.RemoveAbilityOverrides.Count > 0)
         {
-            var drawingSegment = FindDrawingStatusSegment(document, target.SceneIndex, target.SectionIndex);
-            drawingCommands = GetSegmentLogicalCommands(drawingSegment.CommandList, drawingSegment.Segment);
+            sceneStatusCommands = GetManagedSceneLogicalCommands(document, target.SceneIndex);
         }
 
         if (draft.RemoveJobOverride &&
-            FindLastSamePersonCommand(drawingCommands, 0x52, personId) != null)
+            FindLastSamePersonCommand(sceneStatusCommands, 0x52, personId) != null)
         {
             throw new InvalidDataException("战场单位状态复读失败：0x52 兵种覆盖仍然存在。");
         }
 
         foreach (var abilityId in draft.RemoveAbilityOverrides)
         {
-            if (FindLastAbilityCommand(drawingCommands, personId, abilityId) != null)
+            if (FindLastAbilityCommand(sceneStatusCommands, personId, abilityId) != null)
             {
                 var name = AbilityNames.TryGetValue(abilityId, out var abilityName)
                     ? abilityName
@@ -975,7 +805,7 @@ public sealed class BattlefieldUnitStatusWriteService
 
         if (HasAnyEquipmentValue(draft))
         {
-            var equipment = FindLastSamePersonCommand(deploymentCommands, 0x48, personId)
+            var equipment = FindLastSamePersonCommand(sceneStatusCommands, 0x48, personId)
                 ?? throw new InvalidDataException("战场单位状态复读失败：找不到 0x48 装备设定。");
             AssertValue(equipment, 1, draft.Weapon ?? 0, "武器");
             AssertValue(equipment, 2, draft.WeaponLevel ?? 0, "武器等级");
@@ -986,15 +816,20 @@ public sealed class BattlefieldUnitStatusWriteService
 
         if (draft.JobId.HasValue)
         {
-            var job = FindLastSamePersonCommand(drawingCommands, 0x52, personId)
+            var job = FindLastSamePersonCommand(sceneStatusCommands, 0x52, personId)
                 ?? throw new InvalidDataException("战场单位状态复读失败：找不到 0x52 兵种改变。");
             AssertValue(job, 1, draft.JobId.Value, "兵种");
-            AssertAbilityRecalcToggles(drawingCommands, job);
+            if (!TryFindCommandList(document, job, out var jobList, out _))
+            {
+                throw new InvalidDataException("战场单位状态复读失败：找不到 0x52 所在命令列表。");
+            }
+
+            AssertAbilityRecalcToggles(jobList, job);
         }
 
         foreach (var ability in draft.Abilities.Where(ability => ability.Value.HasValue))
         {
-            var command = FindLastAbilityCommand(drawingCommands, personId, ability.AbilityId)
+            var command = FindLastAbilityCommand(sceneStatusCommands, personId, ability.AbilityId)
                 ?? throw new InvalidDataException($"战场单位状态复读失败：找不到 0x38 {ability.Name}。");
             AssertValue(command, 2, ability.Operation ?? 0, ability.Name + "操作");
             AssertValue(command, 3, ability.Value!.Value, ability.Name);
@@ -1237,6 +1072,66 @@ public sealed class BattlefieldUnitStatusWriteService
         return removed;
     }
 
+    private static int RemoveEmptyStatusBlocks(
+        LegacyScenarioDocument document,
+        int sceneIndex,
+        int sectionIndex,
+        List<string> changes)
+    {
+        var removed = 0;
+        foreach (var section in document.Scenes
+                     .Where(scene => scene.SceneIndex == sceneIndex)
+                     .SelectMany(scene => scene.Sections)
+                     .Where(section => section.SceneIndex == sceneIndex && section.SectionIndex == sectionIndex))
+        {
+            removed += RemoveEmptyStatusBlocksFromList(section.Commands);
+        }
+
+        if (removed > 0)
+        {
+            changes.Add($"移除空状态子块：count={removed}");
+        }
+
+        return removed;
+    }
+
+    private static int RemoveEmptyStatusBlocksFromList(List<LegacyScenarioCommandNode> commands)
+    {
+        var removed = 0;
+        for (var index = commands.Count - 1; index >= 0; index--)
+        {
+            var command = commands[index];
+            if (command.ChildBlock != null)
+            {
+                removed += RemoveEmptyStatusBlocksFromList(command.ChildBlock.Commands);
+            }
+
+            if (!IsStatusInternalInfoBlock(command, includeEquipment: true) ||
+                !InternalInfoBlockIsEmpty(command))
+            {
+                continue;
+            }
+
+            commands.RemoveAt(index);
+            removed++;
+            if (index > 0 && commands[index - 1].CommandId == 0x01)
+            {
+                commands.RemoveAt(index - 1);
+                removed++;
+            }
+        }
+
+        return removed;
+    }
+
+    private static bool InternalInfoBlockIsEmpty(LegacyScenarioCommandNode blockCommand)
+    {
+        if (blockCommand.ChildBlock == null) return true;
+        var logicalCommands = new List<LegacyScenarioCommandNode>();
+        AddLogicalCommands(blockCommand, logicalCommands);
+        return logicalCommands.Count == 0;
+    }
+
     private static void SetCommandValues(LegacyScenarioCommandNode command, IReadOnlyList<int> values)
     {
         for (var i = 0; i < values.Count; i++)
@@ -1369,8 +1264,18 @@ public sealed class BattlefieldUnitStatusWriteService
         for (var index = searchSegment.StartIndex; index < Math.Min(searchSegment.EndIndex, commandList.Count); index++)
         {
             var command = commandList[index];
-            if (IsAcceptedInternalInfoBlock(command, acceptedTitles) &&
+            if (IsExactInternalInfoBlock(command, title) &&
                 InternalInfoBlockContainsPersonStatus(command, personId, content))
+            {
+                var insertedMarkerCount = EnsureSubEventMarkerBefore(commandList, index, sceneIndex, sectionIndex);
+                return new InternalInfoBlockResult(command, insertedMarkerCount);
+            }
+        }
+
+        for (var index = searchSegment.StartIndex; index < Math.Min(searchSegment.EndIndex, commandList.Count); index++)
+        {
+            var command = commandList[index];
+            if (IsExactInternalInfoBlock(command, title))
             {
                 var insertedMarkerCount = EnsureSubEventMarkerBefore(commandList, index, sceneIndex, sectionIndex);
                 return new InternalInfoBlockResult(command, insertedMarkerCount);
@@ -1528,6 +1433,13 @@ public sealed class BattlefieldUnitStatusWriteService
         => command.CommandId == 0x02 &&
            command.ChildBlock != null &&
            acceptedTitles.Contains(GetInternalInfoBlockTitle(command));
+
+    private static bool IsExactInternalInfoBlock(
+        LegacyScenarioCommandNode command,
+        string title)
+        => command.CommandId == 0x02 &&
+           command.ChildBlock != null &&
+           string.Equals(GetInternalInfoBlockTitle(command), title, StringComparison.Ordinal);
 
     private static bool InternalInfoBlockContainsPersonStatus(
         LegacyScenarioCommandNode blockCommand,
@@ -1713,6 +1625,13 @@ public sealed class BattlefieldUnitStatusWriteService
         return result;
     }
 
+    private static List<LegacyScenarioCommandNode> GetManagedSceneLogicalCommands(
+        LegacyScenarioDocument document,
+        int sceneIndex)
+        => document.EnumerateCommands()
+            .Where(command => command.SceneIndex == sceneIndex && IsStatusCommand(command))
+            .ToList();
+
     private static void AddLogicalCommands(LegacyScenarioCommandNode command, List<LegacyScenarioCommandNode> result)
     {
         if (command.CommandId != 0x01 && command.CommandId != 0x02 && command.CommandId != 0x00)
@@ -1815,6 +1734,11 @@ public sealed class BattlefieldUnitStatusWriteService
             throw new InvalidOperationException("该单位没有可写回的 S 剧本 TargetKey。");
         }
 
+        if (locator.SceneIndex != ManagedSceneIndex)
+        {
+            throw new InvalidOperationException(Scene2PlusStatusWriteDisabledMessage);
+        }
+
         if (!TryParseCommandId(locator.CommandIdHex, out var commandId) || commandId is not (0x46 or 0x47))
         {
             throw new InvalidOperationException("战场单位状态弹窗只对 0x46 友军出场设定和 0x47 敌军出场设定开放写回。");
@@ -1868,7 +1792,7 @@ public sealed class BattlefieldUnitStatusWriteService
         return int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out commandId);
     }
 
-    private static void ValidateRecordRange(LegacyScenarioCommandNode command, DeploymentStatusDefinition definition, int recordIndex)
+    private static void ValidateRecordRange(LegacyScenarioCommandNode command, BattlefieldDeploymentRecordDefinition definition, int recordIndex)
     {
         if (recordIndex < 0 || recordIndex >= definition.RecordCount)
         {
@@ -2064,37 +1988,4 @@ public sealed class BattlefieldUnitStatusWriteService
         Runtime
     }
 
-    private sealed class DeploymentStatusDefinition
-    {
-        public int GroupSize { get; init; }
-        public int RecordCount { get; init; }
-        public int PersonIndex { get; init; }
-        public int LevelIndex { get; init; }
-        public int JobLevelIndex { get; init; }
-        public int AiIndex { get; init; }
-
-        public static DeploymentStatusDefinition? FromCommandId(int commandId)
-            => commandId switch
-            {
-                0x46 => new DeploymentStatusDefinition
-                {
-                    GroupSize = 11,
-                    RecordCount = 20,
-                    PersonIndex = 0,
-                    LevelIndex = 5,
-                    JobLevelIndex = 6,
-                    AiIndex = 7
-                },
-                0x47 => new DeploymentStatusDefinition
-                {
-                    GroupSize = 12,
-                    RecordCount = 80,
-                    PersonIndex = 0,
-                    LevelIndex = 6,
-                    JobLevelIndex = 7,
-                    AiIndex = 8
-                },
-                _ => null
-            };
-    }
 }

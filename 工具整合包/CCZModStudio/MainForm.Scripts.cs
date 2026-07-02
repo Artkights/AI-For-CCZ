@@ -17,6 +17,8 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    internal static Action<LegacyScenarioCommandNode>? ScriptCommandEditInterceptForSmoke { get; set; }
+
     private async Task LoadScriptScenariosAsync()
     {
         if (_loadingScriptScenarioList) return;
@@ -2384,7 +2386,7 @@ public sealed partial class MainForm
         itemDataByRow.Clear();
         var rowByKey = structure.Rows
             .Where(row => row.NodeType == "Command候选")
-            .ToDictionary(BuildLegacyCommandKey, StringComparer.OrdinalIgnoreCase);
+            .ToDictionaryFirstByKey(BuildLegacyCommandKey, row => row, StringComparer.OrdinalIgnoreCase);
         foreach (var command in activeCommands)
         {
             rowByKey.TryGetValue(BuildLegacyCommandKey(command), out var row);
@@ -3533,7 +3535,7 @@ public sealed partial class MainForm
 
             var rowByKey = structure.Rows
                 .Where(row => row.NodeType == "Command候选")
-                .ToDictionary(BuildLegacyCommandKey, StringComparer.OrdinalIgnoreCase);
+                .ToDictionaryFirstByKey(BuildLegacyCommandKey, row => row, StringComparer.OrdinalIgnoreCase);
             var sectionRow = structure.Rows.FirstOrDefault(row =>
                 row.NodeType == "Section候选" &&
                 row.SceneIndex == affectedSection.SceneIndex &&
@@ -4695,7 +4697,7 @@ public sealed partial class MainForm
 
     private static Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode> CaptureLegacyJumpTargets(LegacyScenarioDocument document)
     {
-        var byOrdinal = document.EnumerateCommands().ToDictionary(command => command.CommandOrdinal);
+        var byOrdinal = document.EnumerateCommands().ToDictionaryFirstByKey(command => command.CommandOrdinal, command => command);
         var result = new Dictionary<LegacyScenarioCommandNode, LegacyScenarioCommandNode>();
         foreach (var command in byOrdinal.Values.Where(command => command.CommandId == 0x76))
         {
@@ -5252,13 +5254,13 @@ public sealed partial class MainForm
             RebuildLegacyScriptItemDataIndex(document, structure);
             var rowByKey = structure.Rows
                 .Where(row => row.NodeType == "Command候选")
-                .ToDictionary(BuildLegacyCommandKey, StringComparer.OrdinalIgnoreCase);
+                .ToDictionaryFirstByKey(BuildLegacyCommandKey, row => row, StringComparer.OrdinalIgnoreCase);
             var sceneRows = structure.Rows
                 .Where(row => row.NodeType == "Scene候选")
-                .ToDictionary(row => row.SceneIndex);
+                .ToDictionaryFirstByKey(row => row.SceneIndex, row => row);
             var sectionRows = structure.Rows
                 .Where(row => row.NodeType == "Section候选")
-                .ToDictionary(row => (row.SceneIndex, row.SectionIndex));
+                .ToDictionaryFirstByKey(row => (row.SceneIndex, row.SectionIndex), row => row);
 
             var rootNode = new TreeNode(document.FilePath)
             {
@@ -5487,13 +5489,13 @@ public sealed partial class MainForm
             RebuildLegacyEditorItemDataIndex(document, structure, itemDataByCommand, itemDataByRow);
             var rowByKey = structure.Rows
                 .Where(row => row.NodeType == "Command候选")
-                .ToDictionary(BuildLegacyCommandKey, StringComparer.OrdinalIgnoreCase);
+                .ToDictionaryFirstByKey(BuildLegacyCommandKey, row => row, StringComparer.OrdinalIgnoreCase);
             var sceneRows = structure.Rows
                 .Where(row => row.NodeType == "Scene候选")
-                .ToDictionary(row => row.SceneIndex);
+                .ToDictionaryFirstByKey(row => row.SceneIndex, row => row);
             var sectionRows = structure.Rows
                 .Where(row => row.NodeType == "Section候选")
-                .ToDictionary(row => (row.SceneIndex, row.SectionIndex));
+                .ToDictionaryFirstByKey(row => (row.SceneIndex, row.SectionIndex), row => row);
 
             var rootNode = new TreeNode(document.FilePath)
             {
@@ -5579,7 +5581,7 @@ public sealed partial class MainForm
 
         var rowByKey = structure.Rows
             .Where(row => row.NodeType == "Command候选")
-            .ToDictionary(BuildLegacyCommandKey, StringComparer.OrdinalIgnoreCase);
+            .ToDictionaryFirstByKey(BuildLegacyCommandKey, row => row, StringComparer.OrdinalIgnoreCase);
 
         foreach (var command in document.EnumerateCommands())
         {
@@ -5700,7 +5702,7 @@ public sealed partial class MainForm
 
         var rowByKey = structure.Rows
             .Where(row => row.NodeType == "Command候选")
-            .ToDictionary(BuildLegacyCommandKey, StringComparer.OrdinalIgnoreCase);
+            .ToDictionaryFirstByKey(BuildLegacyCommandKey, row => row, StringComparer.OrdinalIgnoreCase);
         foreach (var command in document.EnumerateCommands())
         {
             rowByKey.TryGetValue(BuildLegacyCommandKey(command), out var row);
@@ -5831,10 +5833,22 @@ public sealed partial class MainForm
         var command = itemData.Command;
         if (command == null) return;
 
+        var commandParameterLimit = command.CommandId switch
+        {
+            0x46 => 11 * 20,
+            0x47 => 12 * 80,
+            _ => int.MaxValue
+        };
         var longCharCount = 0;
         var variableArraySeen = false;
-        foreach (var parameter in command.Parameters)
+        foreach (var parameter in command.Parameters.ToArray())
         {
+            if (parameter.Index >= commandParameterLimit)
+            {
+                command.Parameters.Remove(parameter);
+                continue;
+            }
+
             switch (parameter.Kind)
             {
                 case LegacyScenarioParameterKind.Text:
@@ -5883,6 +5897,78 @@ public sealed partial class MainForm
         {
             itemData.IntData.Add(0);
         }
+    }
+
+    private static LegacyItemDataCommandSnapshot CaptureLegacyItemDataCommandSnapshot(LegacyScenarioItemData itemData)
+    {
+        var command = itemData.Command;
+        return new LegacyItemDataCommandSnapshot
+        {
+            IntData = itemData.IntData.ToList(),
+            LongCharData = itemData.LongCharData ?? string.Empty,
+            JumpTargetOrdinal = command?.JumpTargetOrdinal,
+            JumpTargetCommandIndex = command?.JumpTargetCommandIndex,
+            OriginalJumpDisplacement = command?.OriginalJumpDisplacement,
+            Parameters = command?.Parameters.Select(parameter => new LegacyScriptParameterSnapshot
+            {
+                Index = parameter.Index,
+                Kind = parameter.Kind,
+                IntValue = parameter.IntValue,
+                Text = parameter.Text,
+                Values = parameter.Values.ToList(),
+                ByteLength = parameter.ByteLength
+            }).ToList() ?? []
+        };
+    }
+
+    private static bool LegacyItemDataCommandChanged(
+        LegacyScenarioItemData itemData,
+        LegacyItemDataCommandSnapshot before)
+    {
+        var after = CaptureLegacyItemDataCommandSnapshot(itemData);
+        return !before.IntData.SequenceEqual(after.IntData) ||
+               !string.Equals(before.LongCharData, after.LongCharData, StringComparison.Ordinal) ||
+               before.JumpTargetOrdinal != after.JumpTargetOrdinal ||
+               before.JumpTargetCommandIndex != after.JumpTargetCommandIndex ||
+               before.OriginalJumpDisplacement != after.OriginalJumpDisplacement ||
+               !LegacyParameterSnapshotsEqual(before.Parameters, after.Parameters);
+    }
+
+    private static bool LegacyParameterSnapshotsEqual(
+        IReadOnlyList<LegacyScriptParameterSnapshot> left,
+        IReadOnlyList<LegacyScriptParameterSnapshot> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < left.Count; i++)
+        {
+            var a = left[i];
+            var b = right[i];
+            if (a.Index != b.Index ||
+                a.Kind != b.Kind ||
+                a.IntValue != b.IntValue ||
+                !string.Equals(a.Text, b.Text, StringComparison.Ordinal) ||
+                a.ByteLength != b.ByteLength ||
+                !a.Values.SequenceEqual(b.Values))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class LegacyItemDataCommandSnapshot
+    {
+        public List<int> IntData { get; init; } = [];
+        public string LongCharData { get; init; } = string.Empty;
+        public int? JumpTargetOrdinal { get; init; }
+        public int? JumpTargetCommandIndex { get; init; }
+        public int? OriginalJumpDisplacement { get; init; }
+        public List<LegacyScriptParameterSnapshot> Parameters { get; init; } = [];
     }
 
     private static string BuildLegacyCommandKey(LegacyScenarioCommandNode command)
@@ -6710,7 +6796,7 @@ public sealed partial class MainForm
             .Where(context => context.Rows.Count > 0)
             .ToList();
 
-        var assignments = contexts.ToDictionary(
+        var assignments = contexts.ToDictionaryFirstByKey(
             context => (context.Section.SceneIndex, context.Section.SectionIndex),
             _ => (IReadOnlyList<ScenarioTextEntry>)Array.Empty<ScenarioTextEntry>());
         if (contexts.Count == 0 || texts.Count == 0)
@@ -6718,7 +6804,7 @@ public sealed partial class MainForm
             return assignments;
         }
 
-        var buckets = contexts.ToDictionary(
+        var buckets = contexts.ToDictionaryFirstByKey(
             context => (context.Section.SceneIndex, context.Section.SectionIndex),
             _ => new List<ScenarioTextEntry>());
 
@@ -6746,7 +6832,7 @@ public sealed partial class MainForm
             buckets[(bestMatch.SceneIndex, bestMatch.SectionIndex)].Add(text);
         }
 
-        return buckets.ToDictionary(
+        return buckets.ToDictionaryFirstByKey(
             pair => pair.Key,
             pair => (IReadOnlyList<ScenarioTextEntry>)pair.Value
                 .OrderBy(text => text.Offset)
@@ -6772,7 +6858,7 @@ public sealed partial class MainForm
             .Where(context => context.Rows.Count > 0)
             .ToList();
 
-        var assignments = contexts.ToDictionary(
+        var assignments = contexts.ToDictionaryFirstByKey(
             context => context.Scene.SceneIndex,
             _ => (IReadOnlyList<ScenarioTextEntry>)Array.Empty<ScenarioTextEntry>());
         if (contexts.Count == 0 || texts.Count == 0)
@@ -6780,7 +6866,7 @@ public sealed partial class MainForm
             return assignments;
         }
 
-        var buckets = contexts.ToDictionary(
+        var buckets = contexts.ToDictionaryFirstByKey(
             context => context.Scene.SceneIndex,
             _ => new List<ScenarioTextEntry>());
 
@@ -6807,7 +6893,7 @@ public sealed partial class MainForm
             attachedOffsets.Add(text.Offset);
         }
 
-        return buckets.ToDictionary(
+        return buckets.ToDictionaryFirstByKey(
             pair => pair.Key,
             pair => (IReadOnlyList<ScenarioTextEntry>)pair.Value
                 .OrderBy(text => text.Offset)
@@ -7292,6 +7378,7 @@ public sealed partial class MainForm
         }
 
         var oldSummary = BuildLegacyScriptParameterPreview(itemData.Command);
+        var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Script, _currentLegacyScriptDocument!);
         var error = _scriptInlineDialogHost.CommitToTarget();
         if (!string.IsNullOrWhiteSpace(error))
@@ -7302,16 +7389,13 @@ public sealed partial class MainForm
 
         CopyLegacyItemDataToCommand(itemData);
         var newSummary = BuildLegacyScriptParameterPreview(itemData.Command);
-        if (oldSummary == newSummary)
+        if (!LegacyItemDataCommandChanged(itemData, beforeCommand))
         {
             SetStatus($"旧版内嵌修改：{itemData.Command.CommandIdHex} {itemData.Command.CommandName} 未检测到改动");
             return;
         }
 
-        if (oldSummary != newSummary)
-        {
-            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Script, beforeEdit);
-        }
+        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Script, beforeEdit);
 
         if (!RefreshLegacyScriptCommandInPlace(itemData.Command))
         {
@@ -7322,23 +7406,7 @@ public sealed partial class MainForm
     }
 
     private bool TryGetSelectedLegacyItemData(out LegacyScenarioItemData itemData)
-    {
-        if (_scriptTree.SelectedNode?.Tag is LegacyScenarioItemData selected)
-        {
-            itemData = selected;
-            return true;
-        }
-
-        if (TryGetScriptTreeRow(_scriptTree.SelectedNode, out var row) &&
-            _legacyScriptItemDataByRow.TryGetValue(row, out var byRow))
-        {
-            itemData = byRow;
-            return true;
-        }
-
-        itemData = null!;
-        return false;
-    }
+        => TryGetLegacyItemDataFromScriptTreeNode(_scriptTree.SelectedNode, out itemData);
 
     private void EditSelectedLegacyItemDataCommand()
         => EditSelectedLegacyItemDataCommand(LegacyScriptEditorScope.Script);
@@ -7363,6 +7431,17 @@ public sealed partial class MainForm
             return;
         }
 
+        EditSelectedLegacyItemDataCommand(itemData);
+    }
+
+    private void EditSelectedLegacyItemDataCommand(LegacyScenarioItemData itemData)
+    {
+        if (itemData.Command == null)
+        {
+            MessageBox.Show(this, "请先在旧版完整树中选择一条命令。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         if (!LegacyCommandEditDispatcher.CanEdit(itemData.Id))
         {
             MessageBox.Show(this, "旧版源码的 OnEditModify() 没有为该命令提供修改窗口。", "该命令暂不可修改", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -7370,9 +7449,16 @@ public sealed partial class MainForm
         }
 
         var oldSummary = BuildLegacyScriptParameterPreview(itemData.Command);
+        var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
         var commandTitle = $"{itemData.Command.CommandIdHex} {itemData.Command.CommandName} / ord {itemData.Ord}";
         var dialogDataSources = LegacyMfcDialogDataSources.Create(_project, _tables);
         var precedingSameCommandCount = CountPrecedingSameLegacyCommands(itemData.Command);
+        if (ScriptCommandEditInterceptForSmoke != null)
+        {
+            ScriptCommandEditInterceptForSmoke(itemData.Command);
+            return;
+        }
+
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Script, _currentLegacyScriptDocument!);
         if (!LegacyCommandEditDispatcher.Edit(this, itemData, commandTitle, _currentLegacyScriptDocument?.CommandCount ?? 0, precedingSameCommandCount, dialogDataSources))
         {
@@ -7381,16 +7467,13 @@ public sealed partial class MainForm
 
         CopyLegacyItemDataToCommand(itemData);
         var newSummary = BuildLegacyScriptParameterPreview(itemData.Command);
-        if (oldSummary == newSummary)
+        if (!LegacyItemDataCommandChanged(itemData, beforeCommand))
         {
             SetStatus($"旧版修改指令：{commandTitle} 未检测到改动");
             return;
         }
 
-        if (oldSummary != newSummary)
-        {
-            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Script, beforeEdit);
-        }
+        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Script, beforeEdit);
         if (!RefreshLegacyScriptCommandInPlace(itemData.Command))
         {
             RefreshLegacyScriptView(itemData.Command);
@@ -7601,7 +7684,10 @@ public sealed partial class MainForm
 
     private IReadOnlyList<LegacyScriptParameterEditRow> BuildLegacyScriptParameterEditRows(LegacyScenarioCommandNode command)
     {
-        var parameterRows = BuildLegacyScriptParameterRows(command).ToDictionary(row => row.Index);
+        var parameterRows = DictionaryBuild.ToDictionaryFirstByKey(
+            BuildLegacyScriptParameterRows(command),
+            row => row.Index,
+            row => row);
         return command.Parameters.Select(parameter =>
         {
             parameterRows.TryGetValue(parameter.Index, out var row);
@@ -7656,16 +7742,17 @@ public sealed partial class MainForm
             JumpTargetOrdinal = command.JumpTargetOrdinal,
             JumpTargetCommandIndex = command.JumpTargetCommandIndex,
             OriginalJumpDisplacement = command.OriginalJumpDisplacement,
-            Parameters = command.Parameters.ToDictionary(
-                parameter => parameter.Index,
-                parameter => new LegacyScriptParameterSnapshot
+            Parameters = command.Parameters
+                .Select(parameter => new LegacyScriptParameterSnapshot
                 {
+                    Index = parameter.Index,
                     Kind = parameter.Kind,
                     IntValue = parameter.IntValue,
                     Text = parameter.Text,
                     Values = parameter.Values.ToList(),
                     ByteLength = parameter.ByteLength
                 })
+                .ToList()
         };
 
     private static void RestoreLegacyScriptParameterState(
@@ -7676,13 +7763,10 @@ public sealed partial class MainForm
         command.JumpTargetCommandIndex = snapshot.JumpTargetCommandIndex;
         command.OriginalJumpDisplacement = snapshot.OriginalJumpDisplacement;
 
-        foreach (var parameter in command.Parameters)
+        for (var i = 0; i < command.Parameters.Count && i < snapshot.Parameters.Count; i++)
         {
-            if (!snapshot.Parameters.TryGetValue(parameter.Index, out var state))
-            {
-                continue;
-            }
-
+            var parameter = command.Parameters[i];
+            var state = snapshot.Parameters[i];
             parameter.Kind = state.Kind;
             parameter.IntValue = state.IntValue;
             parameter.Text = state.Text;
@@ -7697,11 +7781,12 @@ public sealed partial class MainForm
         public int? JumpTargetOrdinal { get; init; }
         public int? JumpTargetCommandIndex { get; init; }
         public int? OriginalJumpDisplacement { get; init; }
-        public Dictionary<int, LegacyScriptParameterSnapshot> Parameters { get; init; } = [];
+        public List<LegacyScriptParameterSnapshot> Parameters { get; init; } = [];
     }
 
     private sealed class LegacyScriptParameterSnapshot
     {
+        public int Index { get; init; }
         public LegacyScenarioParameterKind Kind { get; init; }
         public int IntValue { get; init; }
         public string Text { get; init; } = string.Empty;
@@ -8250,6 +8335,25 @@ public sealed partial class MainForm
             UpdateScriptTextCapacityLabel();
             UpdateScriptStructureEditButtons();
         }
+    }
+
+    private bool TryGetLegacyItemDataFromScriptTreeNode(TreeNode? node, out LegacyScenarioItemData itemData)
+    {
+        if (node?.Tag is LegacyScenarioItemData selected)
+        {
+            itemData = selected;
+            return true;
+        }
+
+        if (TryGetScriptTreeRow(node, out var row) &&
+            _legacyScriptItemDataByRow.TryGetValue(row, out var byRow))
+        {
+            itemData = byRow;
+            return true;
+        }
+
+        itemData = null!;
+        return false;
     }
 
     private IReadOnlyList<ScenarioStructureRow> GetScriptRowsForNode(ScenarioStructureRow row)

@@ -24,6 +24,8 @@ public sealed partial class MainForm
         Assist
     }
 
+    private bool _updatingRoleEquipmentDetailControls;
+
     private void OpenRoleEditor()
     {
         if (_project == null)
@@ -81,6 +83,8 @@ public sealed partial class MainForm
             LoadRoleTextTables();
             _roleEditorGrid.DataSource = _currentRoleEditorData;
             ConfigureRoleEditorGrid();
+            ConfigureRoleEquipmentDetailControls();
+            ShowSelectedRoleEditorCell();
             _saveRoleEditorButton.Enabled = true;
             _importRoleFaceButton.Enabled = true;
             _batchImportRoleFaceButton.Enabled = true;
@@ -218,9 +222,14 @@ public sealed partial class MainForm
             "经验",
             "职业名称",
             "头像说明",
+            "武器",
+            "防具",
+            "辅助",
             "武器名",
             "防具名",
             "辅助名",
+            "R形象编号",
+            "S形象编号",
             "R资源状态",
             "S资源状态"
         };
@@ -285,6 +294,63 @@ public sealed partial class MainForm
         ReplaceRoleEquipmentColumnWithCombo("武器", BuildRoleEquipmentLookup(RoleEquipmentSlot.Weapon, boundary, itemNames, classifications));
         ReplaceRoleEquipmentColumnWithCombo("防具", BuildRoleEquipmentLookup(RoleEquipmentSlot.Armor, boundary, itemNames, classifications));
         ReplaceRoleEquipmentColumnWithCombo("辅助", BuildRoleEquipmentLookup(RoleEquipmentSlot.Assist, boundary, itemNames, classifications));
+    }
+
+    private void ConfigureRoleEquipmentDetailControls()
+    {
+        if (_project == null)
+        {
+            ClearRoleEquipmentDetailControls();
+            return;
+        }
+
+        var boundary = ItemCategoryBoundaryService.Resolve(_project);
+        var itemNames = BuildItemNameLookup(_project, _tables);
+        var classifications = new ItemClassificationService().BuildLookup(_project, _tables);
+
+        _updatingRoleEquipmentDetailControls = true;
+        try
+        {
+            ConfigureRoleEquipmentDetailCombo(_roleWeaponCombo, BuildRoleEquipmentLookup(RoleEquipmentSlot.Weapon, boundary, itemNames, classifications));
+            ConfigureRoleEquipmentDetailCombo(_roleArmorCombo, BuildRoleEquipmentLookup(RoleEquipmentSlot.Armor, boundary, itemNames, classifications));
+            ConfigureRoleEquipmentDetailCombo(_roleAssistCombo, BuildRoleEquipmentLookup(RoleEquipmentSlot.Assist, boundary, itemNames, classifications));
+            SetRoleEquipmentDetailControlsEnabled(false);
+        }
+        finally
+        {
+            _updatingRoleEquipmentDetailControls = false;
+        }
+    }
+
+    private static void ConfigureRoleEquipmentDetailCombo(ComboBox combo, DataTable lookup)
+    {
+        combo.DisplayMember = "显示";
+        combo.ValueMember = "ID";
+        combo.DataSource = lookup;
+        combo.SelectedValue = 255;
+    }
+
+    private void ClearRoleEquipmentDetailControls()
+    {
+        _updatingRoleEquipmentDetailControls = true;
+        try
+        {
+            _roleWeaponCombo.DataSource = null;
+            _roleArmorCombo.DataSource = null;
+            _roleAssistCombo.DataSource = null;
+            SetRoleEquipmentDetailControlsEnabled(false);
+        }
+        finally
+        {
+            _updatingRoleEquipmentDetailControls = false;
+        }
+    }
+
+    private void SetRoleEquipmentDetailControlsEnabled(bool enabled)
+    {
+        _roleWeaponCombo.Enabled = enabled;
+        _roleArmorCombo.Enabled = enabled;
+        _roleAssistCombo.Enabled = enabled;
     }
 
     private void ReplaceRoleEquipmentColumnWithCombo(string columnName, DataTable lookup)
@@ -669,6 +735,81 @@ public sealed partial class MainForm
     private static bool IsRoleEquipmentColumn(string columnName)
         => columnName is "武器" or "防具" or "辅助";
 
+    private void ShowRoleEquipmentDetails(DataRow? roleRow)
+    {
+        _updatingRoleEquipmentDetailControls = true;
+        try
+        {
+            if (roleRow == null || _currentRoleEditorData == null)
+            {
+                SetRoleEquipmentDetailControlsEnabled(false);
+                SetRoleEquipmentComboValue(_roleWeaponCombo, 255);
+                SetRoleEquipmentComboValue(_roleArmorCombo, 255);
+                SetRoleEquipmentComboValue(_roleAssistCombo, 255);
+                return;
+            }
+
+            SetRoleEquipmentComboValue(_roleWeaponCombo, ReadRoleEquipmentCell(roleRow, "武器"));
+            SetRoleEquipmentComboValue(_roleArmorCombo, ReadRoleEquipmentCell(roleRow, "防具"));
+            SetRoleEquipmentComboValue(_roleAssistCombo, ReadRoleEquipmentCell(roleRow, "辅助"));
+            SetRoleEquipmentDetailControlsEnabled(true);
+        }
+        finally
+        {
+            _updatingRoleEquipmentDetailControls = false;
+        }
+    }
+
+    private static void SetRoleEquipmentComboValue(ComboBox combo, int value)
+    {
+        if (combo.DataSource == null)
+        {
+            combo.SelectedIndex = -1;
+            return;
+        }
+
+        combo.SelectedValue = value;
+        if (combo.SelectedIndex < 0)
+        {
+            combo.SelectedValue = 255;
+        }
+    }
+
+    private void ApplyRoleEquipmentDetailSelection(string columnName, ComboBox combo)
+    {
+        if (_updatingRoleEquipmentDetailControls || _currentRoleEditorData == null || _roleEditorGrid.CurrentRow == null) return;
+        if (TryGetDataRow(_roleEditorGrid.CurrentRow) is not { } roleRow) return;
+        if (combo.SelectedValue == null || combo.SelectedValue == DBNull.Value) return;
+
+        var value = Convert.ToInt32(combo.SelectedValue, CultureInfo.InvariantCulture);
+        if (!TryValidateRoleEquipmentValue(columnName, value, out var error))
+        {
+            SetStatus(error);
+            _updatingRoleEquipmentDetailControls = true;
+            try
+            {
+                SetRoleEquipmentComboValue(combo, ReadRoleEquipmentCell(roleRow, columnName));
+            }
+            finally
+            {
+                _updatingRoleEquipmentDetailControls = false;
+            }
+            return;
+        }
+
+        var current = ReadRoleEquipmentCell(roleRow, columnName);
+        if (current == value)
+        {
+            return;
+        }
+
+        roleRow[columnName] = value;
+        RefreshRoleEquipmentNameCells(roleRow);
+        RefreshRoleEditorRowStyle(_roleEditorGrid.CurrentRow.Index);
+        _saveRoleEditorButton.Enabled = true;
+        SetStatus($"角色默认装备已更新：{columnName}={value}");
+    }
+
     private void ValidateRoleEditorCell(DataGridViewCellValidatingEventArgs e)
     {
         if (e.RowIndex < 0 || e.ColumnIndex < 0 || _project == null || _currentRoleEditorData == null) return;
@@ -803,6 +944,10 @@ public sealed partial class MainForm
         {
             ShowRoleTextDetails(dataRow);
         }
+        else
+        {
+            ShowRoleEquipmentDetails(null);
+        }
     }
 
     private void ShowRoleTextDetails(DataRow roleRow)
@@ -820,19 +965,10 @@ public sealed partial class MainForm
         _roleBiographyBox.Text = Convert.ToString(bioRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
         ShowCriticalQuoteEditor(criticalMapping);
         _roleRetreatQuoteBox.Text = Convert.ToString(retreatMapping.QuoteRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+        ShowRoleEquipmentDetails(roleRow);
 
         var canSaveAny = bioRow != null || criticalMapping.QuoteRows.Count > 0 || retreatMapping.QuoteRow != null;
         _saveRoleTextDetailButton.Enabled = canSaveAny;
-
-        var criticalByteHint = BuildCriticalQuoteByteHint(criticalMapping);
-        var retreatHint = retreatMapping.QuoteRow == null
-            ? retreatMapping.Explanation
-            : $"{retreatMapping.Explanation} GBK {EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200 字节。";
-        _roleTextDetailInfoBox.Text =
-            $"人物列传：人物 ID={roleId}，GBK {EncodingService.GetGbkByteCount(_roleBiographyBox.Text)}/200 字节。\r\n" +
-            $"{criticalMapping.Explanation} {criticalByteHint}\r\n" +
-            $"{retreatHint}\r\n" +
-            "保存会写回 Imsg.e5，保存前自动备份，保存后复读校验。";
     }
 
     private void ShowCriticalQuoteEditor(RoleCriticalQuoteMapping mapping)
@@ -2302,6 +2438,7 @@ public sealed partial class MainForm
     private void LoadJobEditor()
     {
         if (_project == null) return;
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         if (_tables.Count == 0)
         {
@@ -2312,6 +2449,7 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
+            ClearJobDescriptionBox("读取兵种后，在此编辑当前兵种介绍。");
             _jobEquipmentEditorBoundRow = null;
             HideJobEquipmentEditor();
             _currentJobEditorData = BuildJobEditorData(_project, _tables);
@@ -2410,6 +2548,7 @@ public sealed partial class MainForm
             };
             if (column.DataPropertyName == "介绍") column.Width = 240;
             if (column.DataPropertyName == JobEquipmentSummaryColumn) column.Width = 260;
+            if (column.DataPropertyName == "介绍") column.Visible = false;
             if (IsJobEquipmentCategoryColumn(column.DataPropertyName)) column.Visible = false;
             if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
         }
@@ -2646,6 +2785,7 @@ public sealed partial class MainForm
     private void ApplyJobEditorFilter()
     {
         if (_currentJobEditorData == null) return;
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         var keyword = _jobEditorSearchBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(keyword))
@@ -2667,6 +2807,7 @@ public sealed partial class MainForm
 
     private void ClearJobEditorFilter()
     {
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         _jobEditorSearchBox.Clear();
         if (_currentJobEditorData != null) _currentJobEditorData.DefaultView.RowFilter = string.Empty;
@@ -2675,12 +2816,14 @@ public sealed partial class MainForm
 
     private void ExportJobEditorCsv()
     {
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         ExportDataTableCsv(_currentJobEditorData, "兵种设定.csv");
     }
 
     private void ImportJobEditorCsv()
     {
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         ImportDataTableCsv(
             _currentJobEditorData,
@@ -3016,6 +3159,11 @@ public sealed partial class MainForm
             CommitJobEquipmentEditorChanges();
         }
 
+        if (!IsCurrentJobDescriptionBoxBoundToSelection())
+        {
+            CommitJobDescriptionBoxEdit();
+        }
+
         if (!_applyingJobEditorHistory && !_jobEditorGrid.IsCurrentCellInEditMode)
         {
             var targets = CaptureJobEditorSelectedTargets();
@@ -3039,6 +3187,19 @@ public sealed partial class MainForm
         ShowSelectedJobEditorCell();
     }
 
+    private bool IsCurrentJobDescriptionBoxBoundToSelection()
+    {
+        if (_jobDescriptionEditorBoundRow == null ||
+            _jobDescriptionEditorBoundRow.RowState == DataRowState.Detached ||
+            _jobEditorGrid.CurrentCell == null)
+        {
+            return false;
+        }
+
+        var row = TryGetDataRow(_jobEditorGrid.Rows[_jobEditorGrid.CurrentCell.RowIndex]);
+        return ReferenceEquals(row, _jobDescriptionEditorBoundRow);
+    }
+
     private bool IsCurrentJobEquipmentSummaryCellBoundToEditor()
     {
         if (_jobEquipmentEditorBoundRow == null ||
@@ -3056,6 +3217,7 @@ public sealed partial class MainForm
 
     private void BeginJobEditorCellEdit(int rowIndex, int columnIndex)
     {
+        CommitJobDescriptionBoxEdit();
         if (_applyingJobEditorHistory || rowIndex < 0 || columnIndex < 0)
         {
             _jobEditorPendingCellEditOriginals = [];
@@ -3134,6 +3296,7 @@ public sealed partial class MainForm
 
     private void PasteJobEditorSelection()
     {
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         if (_jobEditorGrid.ReadOnly)
         {
@@ -3192,6 +3355,7 @@ public sealed partial class MainForm
 
     private void FillJobEditorSelectionWithCurrentValue()
     {
+        CommitJobDescriptionBoxEdit();
         CommitJobEquipmentEditorChanges();
         if (_jobEditorGrid.ReadOnly)
         {
@@ -3523,6 +3687,7 @@ public sealed partial class MainForm
 
     private void UndoJobEditorChange()
     {
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
         if (_jobEditorUndoStack.Count == 0)
         {
             SetStatus("兵种设定没有可后退的编辑。");
@@ -3537,6 +3702,7 @@ public sealed partial class MainForm
 
     private void RedoJobEditorChange()
     {
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
         if (_jobEditorRedoStack.Count == 0)
         {
             SetStatus("兵种设定没有可前进的编辑。");
@@ -3575,6 +3741,17 @@ public sealed partial class MainForm
         _jobEditorSelectionSnapshotTargets = [];
         _jobEditorPendingCellEditOriginals = [];
         _jobEditorSelectionChangeStartedByMouse = false;
+        _jobDescriptionEditorHasPendingEdit = false;
+        if (_jobDescriptionEditorBoundRow != null &&
+            _jobDescriptionEditorBoundRow.RowState != DataRowState.Detached &&
+            _jobDescriptionEditorBoundRow.Table.Columns.Contains("介绍"))
+        {
+            _jobDescriptionEditorOriginalValue = NormalizeGridCellValue(_jobDescriptionEditorBoundRow["介绍"]);
+        }
+        else
+        {
+            _jobDescriptionEditorOriginalValue = null;
+        }
         UpdateJobEditorHistoryButtons();
     }
 
@@ -3602,21 +3779,188 @@ public sealed partial class MainForm
 
     private void ShowSelectedJobEditorCell()
     {
-        if (_currentJobEditorData == null || _jobEditorGrid.CurrentCell == null) return;
+        if (_currentJobEditorData == null || _jobEditorGrid.CurrentCell == null)
+        {
+            ClearJobDescriptionBox("读取兵种后，在此编辑当前兵种介绍。");
+            return;
+        }
+
         var cell = _jobEditorGrid.CurrentCell;
         var columnName = _jobEditorGrid.Columns[cell.ColumnIndex].DataPropertyName;
         var row = _jobEditorGrid.Rows[cell.RowIndex];
         var id = row.Cells["ID"].Value;
         var name = row.Cells["名称"].Value;
         var value = cell.Value;
-        var extra = columnName == "介绍"
-            ? $"\r\nGBK 字节：{EncodingService.GetGbkByteCount(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty)}/200"
+        var dataRow = TryGetDataRow(row);
+        var description = dataRow?.Table.Columns.Contains("介绍") == true
+            ? Convert.ToString(dataRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty
             : string.Empty;
+        var descriptionBytes = EncodingService.GetGbkByteCount(description);
         _jobEditorInfoBox.Text =
             $"兵种：ID={id}    名称={name}\r\n" +
-            $"字段：{columnName}    当前值：{value}{extra}\r\n\r\n" +
+            $"字段：{columnName}    当前值：{value}\r\n" +
+            $"介绍 GBK：{descriptionBytes}/200\r\n\r\n" +
             BuildJobColumnAnnotation(columnName);
+        BindJobDescriptionBox(row);
         UpdateJobAreaPreview(row, columnName);
+    }
+
+    private void BindJobDescriptionBox(DataGridViewRow gridRow)
+    {
+        var row = TryGetDataRow(gridRow);
+        if (row == null || !row.Table.Columns.Contains("介绍"))
+        {
+            ClearJobDescriptionBox("读取兵种后，在此编辑当前兵种介绍。");
+            return;
+        }
+
+        var isSameRow = ReferenceEquals(row, _jobDescriptionEditorBoundRow);
+        if (!isSameRow)
+        {
+            if (!CommitJobDescriptionBoxEdit()) return;
+            _jobDescriptionEditorBoundRow = row;
+            _jobDescriptionEditorOriginalValue = NormalizeGridCellValue(row["介绍"]);
+            _jobDescriptionEditorHasPendingEdit = false;
+        }
+        else if (!_jobDescriptionEditorHasPendingEdit)
+        {
+            _jobDescriptionEditorOriginalValue = NormalizeGridCellValue(row["介绍"]);
+        }
+
+        if (isSameRow && _jobDescriptionBoxHasValidationError) return;
+
+        var text = Convert.ToString(row["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+        _bindingJobDescriptionBox = true;
+        try
+        {
+            _jobDescriptionBoxHasValidationError = false;
+            _jobDescriptionBoxValidationError = string.Empty;
+            _jobAreaPreviewInfoBox.ReadOnly = false;
+            _jobAreaPreviewInfoBox.BackColor = SystemColors.Window;
+            if (!string.Equals(_jobAreaPreviewInfoBox.Text, text, StringComparison.Ordinal))
+            {
+                _jobAreaPreviewInfoBox.Text = text;
+            }
+        }
+        finally
+        {
+            _bindingJobDescriptionBox = false;
+        }
+    }
+
+    private void ClearJobDescriptionBox(string text)
+    {
+        _bindingJobDescriptionBox = true;
+        try
+        {
+            _jobDescriptionEditorBoundRow = null;
+            _jobDescriptionEditorOriginalValue = null;
+            _jobDescriptionEditorHasPendingEdit = false;
+            _jobDescriptionBoxHasValidationError = false;
+            _jobDescriptionBoxValidationError = string.Empty;
+            _jobAreaPreviewInfoBox.BackColor = SystemColors.Window;
+            _jobAreaPreviewInfoBox.Text = text;
+        }
+        finally
+        {
+            _bindingJobDescriptionBox = false;
+        }
+    }
+
+    private void ApplyJobDescriptionBoxEdit()
+    {
+        if (_bindingJobDescriptionBox || _applyingJobEditorHistory) return;
+        if (_currentJobEditorData == null ||
+            _jobDescriptionEditorBoundRow == null ||
+            _jobDescriptionEditorBoundRow.RowState == DataRowState.Detached ||
+            !_jobDescriptionEditorBoundRow.Table.Columns.Contains("介绍"))
+        {
+            return;
+        }
+
+        var text = _jobAreaPreviewInfoBox.Text;
+        var bytes = EncodingService.GetGbkByteCount(text);
+        if (bytes > 200)
+        {
+            var error = $"兵种说明超长：GBK {bytes} 字节，容量 200 字节。";
+            var currentValue = Convert.ToString(_jobDescriptionEditorBoundRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+            _bindingJobDescriptionBox = true;
+            try
+            {
+                _jobAreaPreviewInfoBox.Text = currentValue;
+                _jobAreaPreviewInfoBox.SelectionStart = _jobAreaPreviewInfoBox.TextLength;
+                _jobAreaPreviewInfoBox.SelectionLength = 0;
+            }
+            finally
+            {
+                _bindingJobDescriptionBox = false;
+            }
+
+            _jobDescriptionBoxHasValidationError = false;
+            _jobDescriptionBoxValidationError = string.Empty;
+            _jobAreaPreviewInfoBox.BackColor = SystemColors.Window;
+            SetStatus(error);
+            return;
+        }
+
+        _jobDescriptionBoxHasValidationError = false;
+        _jobDescriptionBoxValidationError = string.Empty;
+        _jobAreaPreviewInfoBox.BackColor = SystemColors.Window;
+
+        var oldValue = NormalizeGridCellValue(_jobDescriptionEditorBoundRow["介绍"]);
+        if (Equals(oldValue, text))
+        {
+            _jobDescriptionEditorHasPendingEdit = !Equals(_jobDescriptionEditorOriginalValue, text);
+            SetStatus($"兵种介绍 GBK：{bytes}/200");
+            return;
+        }
+
+        _jobDescriptionEditorBoundRow["介绍"] = text;
+        _jobDescriptionEditorHasPendingEdit = !Equals(_jobDescriptionEditorOriginalValue, text);
+        var rowIndex = FindDataRowGridIndex(_jobEditorGrid, _jobDescriptionEditorBoundRow);
+        if (rowIndex >= 0)
+        {
+            RefreshJobEditorRowStyle(rowIndex);
+            _jobEditorGrid.InvalidateRow(rowIndex);
+        }
+
+        SetStatus($"兵种介绍已更新：GBK {bytes}/200");
+    }
+
+    private bool CommitJobDescriptionBoxEdit(bool showValidationMessage = false)
+    {
+        if (_bindingJobDescriptionBox) return true;
+        if (_jobDescriptionBoxHasValidationError)
+        {
+            SetStatus(_jobDescriptionBoxValidationError);
+            if (showValidationMessage)
+            {
+                MessageBox.Show(this, _jobDescriptionBoxValidationError, "兵种介绍无法保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            return false;
+        }
+
+        if (_jobDescriptionEditorBoundRow == null ||
+            _jobDescriptionEditorBoundRow.RowState == DataRowState.Detached ||
+            !_jobDescriptionEditorBoundRow.Table.Columns.Contains("介绍"))
+        {
+            _jobDescriptionEditorBoundRow = null;
+            _jobDescriptionEditorOriginalValue = null;
+            _jobDescriptionEditorHasPendingEdit = false;
+            return true;
+        }
+
+        if (_jobDescriptionEditorHasPendingEdit)
+        {
+            var newValue = NormalizeGridCellValue(_jobDescriptionEditorBoundRow["介绍"]);
+            PushJobEditorHistory([
+                new JobEditorCellEdit(_jobDescriptionEditorBoundRow, "介绍", _jobDescriptionEditorOriginalValue, newValue)
+            ]);
+            _jobDescriptionEditorOriginalValue = newValue;
+            _jobDescriptionEditorHasPendingEdit = false;
+        }
+
+        return true;
     }
 
     private void UpdateJobAreaPreview(DataGridViewRow row, string columnName)
@@ -3627,23 +3971,16 @@ public sealed partial class MainForm
             return;
         }
 
+        if (columnName == JobEquipmentSummaryColumn)
+        {
+            ShowJobEquipmentEditor(row);
+            return;
+        }
+
         if (columnName is not ("攻击范围" or "穿透"))
         {
-            if (columnName == "名称")
-            {
-                HideJobEquipmentEditor();
-                UpdateJobSImagePreview(row);
-                return;
-            }
-
-            if (columnName == JobEquipmentSummaryColumn)
-            {
-                ShowJobEquipmentEditor(row);
-                return;
-            }
-
             HideJobEquipmentEditor();
-            ClearJobAreaPreview(BuildJobEquipmentPreviewText(row));
+            UpdateJobSImagePreview(row);
             return;
         }
 
@@ -3658,43 +3995,7 @@ public sealed partial class MainForm
         var result = _attackAreaPreviewService.BuildPreview(_project, columnName, fieldValue);
         HideJobEquipmentEditor();
         SetPictureBoxImage(_jobAreaPreviewBox, result.Bitmap);
-        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        _jobAreaPreviewInfoBox.Text =
-            $"兵种 ID={id}  名称={name}\r\n" +
-            $"字段={columnName}  值={fieldValue}\r\n" +
-            result.Message + "\r\n" +
-            $"资源路径：{result.SourcePath}\r\n\r\n" +
-            BuildJobEquipmentPreviewText(row);
-    }
-
-    private string BuildJobEquipmentPreviewText(DataGridViewRow row)
-    {
-        var id = Convert.ToString(row.Cells["ID"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        var name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        var groupText = BuildAccessoryJobGroupPreviewText(id);
-        var enabled = GetJobEquipmentPermissionSlots()
-            .Where(slot => row.DataGridView?.Columns.Contains(slot.StorageColumnName) == true &&
-                           Convert.ToInt32(row.Cells[slot.StorageColumnName].Value, CultureInfo.InvariantCulture) != 0)
-            .ToList();
-        var enabledText = enabled.Count == 0
-            ? "无"
-            : string.Join("\r\n", enabled.Select(slot => "  " + slot.PreviewText));
-        var diagnostics = _currentEquipmentTypeProfile?.Diagnostics.Count > 0
-            ? "\r\n\r\n解析诊断：\r\n" + string.Join("\r\n", _currentEquipmentTypeProfile.Diagnostics.Take(4).Select(item => "  " + item))
-            : string.Empty;
-        var probe = _currentEquipmentTypeProfile?.NameTableProbe == null
-            ? "名称表：未采用，使用物品样例/兜底。"
-            : $"名称表：{_currentEquipmentTypeProfile.NameTableProbe.SummaryText}。";
-        return
-            $"兵种 ID={id}  名称={name}\r\n" +
-            probe + "\r\n" +
-            "可装备类别：\r\n" +
-            enabledText +
-            "\r\n\r\n辅助装备多兵种分组：\r\n" +
-            groupText +
-            diagnostics +
-            "\r\n\r\n单击“可装备类别”列可在右侧勾选，切换到其他单元格或保存兵种时同步主表摘要。";
+        SetStatus($"{columnName}预览：{result.Message}");
     }
 
     private void UpdateJobSImagePreview(DataGridViewRow row)
@@ -3713,15 +4014,9 @@ public sealed partial class MainForm
 
         try
         {
-            var preview = _imageAssignmentPreviewService.TryRenderSImageFactionStackPreview(_project, 0, jobId, out var previewDetail);
+            var preview = _imageAssignmentPreviewService.TryRenderSImageFactionStackPreview(_project, 0, jobId, out _);
             SetPictureBoxImage(_jobAreaPreviewBox, preview);
-            _jobAreaPreviewInfoBox.Text =
-                $"兵种 ID={jobId:D2}  名称={name}\r\n" +
-                "默认 S 形象：S=0 + 当前详细兵种 ID；预览顺序为我军、友军、敌军。\r\n" +
-                BuildJobSImageMappingText(jobId) +
-                "\r\n\r\n渲染详情：\r\n" +
-                previewDetail +
-                "\r\n\r\n点击“一键替换兵种形象”可选择 mov.bmp / atk.bmp / spc.bmp 素材目录，并勾选要替换的我军、友军、敌军槽。";
+            SetStatus($"兵种 S 形象预览：ID={jobId:D2} {name}");
         }
         catch (Exception ex)
         {
@@ -3729,13 +4024,6 @@ public sealed partial class MainForm
             ClearJobAreaPreview("兵种 S 形象预览失败：" + ex.Message);
         }
     }
-
-    private static string BuildJobSImageMappingText(int jobId)
-        => string.Join("\r\n", Enumerable.Range(1, 3).Select(slot =>
-        {
-            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(0, jobId, slot);
-            return $"  {CharacterImageResourceService.BuildSPreviewFactionText(slot)}：Unit 图号 {string.Join("/", mapping.ImageNumbers.Select(x => "#" + x.ToString(CultureInfo.InvariantCulture)))}";
-        }));
 
     private bool TryGetJobEditorRowIdentity(DataGridViewRow row, out int jobId, out string name)
     {
@@ -3753,6 +4041,7 @@ public sealed partial class MainForm
 
     private void ReplaceSelectedJobSImage()
     {
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
         if (_project == null)
         {
             MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -3808,7 +4097,7 @@ public sealed partial class MainForm
         }
 
         var previewText = BuildJobSImageReplacePreviewText(preview, name);
-        _jobAreaPreviewInfoBox.Text = previewText;
+        _jobEditorInfoBox.Text = previewText;
         if (MessageBox.Show(this,
                 previewText + "\r\n\r\n确认后会把素材转为 RAW，并只写入已勾选的阵营槽；写入前自动备份。是否继续？",
                 "确认一键替换兵种形象",
@@ -3824,7 +4113,7 @@ public sealed partial class MainForm
             var result = service.Replace(_project, request);
             ClearImageAssignmentCaches();
             UpdateJobSImagePreview(row);
-            _jobAreaPreviewInfoBox.AppendText("\r\n\r\n" + BuildJobSImageReplaceResultText(result, name));
+            _jobEditorInfoBox.Text = BuildJobSImageReplaceResultText(result, name);
             SetStatus($"一键替换兵种形象完成：写入 {result.TotalOperationCount} 条");
         }
         catch (Exception ex)
@@ -3879,6 +4168,7 @@ public sealed partial class MainForm
 
     private void BatchReplaceSelectedJobSImages()
     {
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
         if (_project == null)
         {
             MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -3938,7 +4228,7 @@ public sealed partial class MainForm
         }
 
         var previewText = BuildBatchJobSImageReplacePreviewText(preview);
-        _jobAreaPreviewInfoBox.Text = previewText;
+        _jobEditorInfoBox.Text = previewText;
         if (!preview.CanWrite)
         {
             MessageBox.Show(this, previewText, "批量导入兵种 S 形象存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -3965,7 +4255,7 @@ public sealed partial class MainForm
                 UpdateJobSImagePreview(_jobEditorGrid.CurrentRow);
             }
 
-            _jobAreaPreviewInfoBox.AppendText("\r\n\r\n" + BuildBatchJobSImageReplaceResultText(result));
+            _jobEditorInfoBox.Text = BuildBatchJobSImageReplaceResultText(result);
             SetStatus($"批量导入兵种 S 形象完成：写入 {result.Results.Sum(item => item.Result.TotalOperationCount)} 条");
         }
         catch (Exception ex)
@@ -4066,37 +4356,11 @@ public sealed partial class MainForm
            string.Join("\r\n", result.Factions.SelectMany(faction =>
                faction.Result.Files.Select(file => $"  {faction.FactionName} {file.TargetFileName}: 备份 {file.WriteResult.BackupPath}")));
 
-    private string BuildAccessoryJobGroupPreviewText(string detailedJobIdText)
-    {
-        if (_currentAccessoryJobGroupProfile == null) return "  未读取。";
-        if (!int.TryParse(detailedJobIdText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var detailedJobId))
-        {
-            return "  当前兵种 ID 无法解析。";
-        }
-
-        var seriesId = detailedJobId / 2;
-        var matched = _currentAccessoryJobGroupProfile.Groups
-            .Where(group => group.JobSeriesIds.Contains(seriesId))
-            .Select(group =>
-            {
-                var role = group.PrimaryJobSeriesId == seriesId ? "主兵种系" : $"跟随主兵种系 {group.PrimaryJobSeriesId:D2}";
-                return "  " + group.SummaryText + $"（当前详细兵种按 ID/2 推定为兵种系 {seriesId:D2}，{role}）";
-            })
-            .ToList();
-        if (matched.Count == 0)
-        {
-            var name = _jobSeriesNames.TryGetValue(seriesId, out var seriesName) ? seriesName : string.Empty;
-            return $"  当前详细兵种按 ID/2 推定为兵种系 {seriesId:D2} {name}，未命中辅助分组。";
-        }
-
-        return string.Join("\r\n", matched);
-    }
-
     private void ClearJobAreaPreview(string message)
     {
         HideJobEquipmentEditor();
         SetPictureBoxImage(_jobAreaPreviewBox, null);
-        _jobAreaPreviewInfoBox.Text = message;
+        SetStatus(message);
     }
 
     private void ValidateJobEditorCell(DataGridViewCellValidatingEventArgs e)
@@ -4134,6 +4398,7 @@ public sealed partial class MainForm
         if (_project == null || _currentJobEditorData == null || _jobNameRead == null || _jobDescriptionRead == null || _jobGrowthRead == null || _jobPierceRead == null) return;
 
         _jobEditorGrid.EndEdit();
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
         CommitJobEquipmentEditorChanges();
         if (_currentJobEditorData.GetChanges() == null)
         {
@@ -6536,12 +6801,19 @@ public sealed partial class MainForm
         lookup.Columns.Add("ID", typeof(int));
         lookup.Columns.Add("显示", typeof(string));
         foreach (var item in _shopEditorItemInfos.Values
-                     .Where(item => includeEmpty || item.Id != 255)
-                     .OrderBy(item => item.Id == 255 ? -1 : item.Id))
+                     .Where(item => includeEmpty || item.Id != ShopEditorService.EmptyShopItemId)
+                     .OrderBy(item => item.Id == ShopEditorService.EmptyShopItemId ? -1 : item.Id))
         {
-            lookup.Rows.Add(item.Id, item.DisplayName);
+            lookup.Rows.Add(item.Id, BuildShopItemLookupDisplayName(item));
         }
         return lookup;
+    }
+
+    private static string BuildShopItemLookupDisplayName(ShopItemInfo item)
+    {
+        if (item.Id == ShopEditorService.EmptyShopItemId) return item.DisplayName;
+        var suffix = ShopEditorService.IsPlaceholderShopItemName(item.Name) ? "｜占位" : string.Empty;
+        return item.DisplayName + suffix;
     }
 
     private void ConfigureShopBatchControls()
@@ -6633,7 +6905,7 @@ public sealed partial class MainForm
         if (columnName == "道具摘要") return "只读预览列，汇总道具 17-32 中非 255 的物品槽。";
         if (IsShopItemSlotColumn(columnName))
         {
-            return "1 字节物品编号，通常引用 6.5 物品表；255 常作为空槽候选。下拉项显示编号、名称、大类和类型说明；选中单元格后下方显示价格、特效和物品说明。修改后建议同步检查物品价格、图标、说明和实机商店显示。";
+            return "物品编号；255 为空槽。";
         }
 
         return string.Empty;
@@ -6679,8 +6951,58 @@ public sealed partial class MainForm
 
     private void ImportShopEditorCsv()
     {
-        ImportDataTableCsv(_currentShopEditorData, "商店编辑", RefreshShopEditorAfterBulkEdit);
-        ValidateAllShopEditorEditableCells();
+        if (_currentShopEditorData == null) return;
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Import CSV",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var changedCells = Array.Empty<GridCellKey>() as IReadOnlyList<GridCellKey>;
+            CsvImportResult result = null!;
+            SuspendGridRepaintPreservingViewport(_shopEditorGrid, () =>
+            {
+                result = CsvService.ImportIntoWithChanges(_currentShopEditorData, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+                NormalizeShopItemSlotEmptyValues(_currentShopEditorData);
+                changedCells = result.ChangedCells
+                    .Select(cell => new GridCellKey(cell.RowKey, cell.RowIndex, cell.ColumnName))
+                    .ToList();
+                RefreshShopEditorCellsAfterEdit(changedCells);
+            });
+
+            ValidateAllShopEditorEditableCells();
+            System.Diagnostics.Debug.WriteLine($"已导入商店 CSV：{dialog.FileName}；行 {result.ImportedRows}；格 {changedCells.Count}");
+            SetStatus($"导入完成：{result.ImportedRows} 行，{changedCells.Count} 格");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("商店 CSV 导入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void NormalizeShopItemSlotEmptyValues(DataTable? data)
+    {
+        if (data == null) return;
+        foreach (DataRow row in data.Rows)
+        {
+            foreach (DataColumn column in data.Columns)
+            {
+                if (!IsShopItemSlotColumn(column.ColumnName)) continue;
+                var value = row[column];
+                if (value != null &&
+                    value != DBNull.Value &&
+                    !string.IsNullOrWhiteSpace(Convert.ToString(value, CultureInfo.InvariantCulture)))
+                {
+                    continue;
+                }
+
+                row[column] = Convert.ChangeType(ShopEditorService.EmptyShopItemId, column.DataType, CultureInfo.InvariantCulture);
+            }
+        }
     }
 
     private void RefreshShopEditorAfterBulkEdit()
@@ -6708,7 +7030,7 @@ public sealed partial class MainForm
 
     private void ApplyShopBatchClear()
     {
-        ApplyShopBatchUpdate("批量清空为空槽", (_, _) => 255, onlyWhenMatches: null);
+        ApplyShopBatchUpdate("批量清空为空槽", (_, _) => ShopEditorService.EmptyShopItemId, onlyWhenMatches: null);
     }
 
     private void ApplyShopBatchReplace()
@@ -6723,7 +7045,7 @@ public sealed partial class MainForm
 
     private bool TryGetSelectedShopBatchItem(ComboBox combo, out int itemId)
     {
-        itemId = 255;
+        itemId = ShopEditorService.EmptyShopItemId;
         if (combo.SelectedValue == null ||
             !int.TryParse(Convert.ToString(combo.SelectedValue, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out itemId))
         {
@@ -6969,7 +7291,12 @@ public sealed partial class MainForm
         SetStatus(error);
     }
 
-    private string? ValidateShopEditorCellText(string columnName, string value, DataRow? row, bool comboBoxColumn = false)
+    private string? ValidateShopEditorCellText(
+        string columnName,
+        string value,
+        DataRow? row,
+        bool comboBoxColumn = false,
+        bool validateShopItemSemantics = true)
     {
         if (columnName == "关卡名称")
         {
@@ -6989,9 +7316,23 @@ public sealed partial class MainForm
         }
         else if (IsShopItemSlotColumn(columnName))
         {
-            return comboBoxColumn
-                ? null
-                : TryParseInteger(value, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
+            var normalizedValue = NormalizeShopItemSlotEditorText(value);
+            var rangeError = TryParseInteger(normalizedValue, 0, byte.MaxValue, columnName, _currentPageHexButton.Checked);
+            if (rangeError != null) return rangeError;
+            if (!TryParseIntegerInput(normalizedValue, _currentPageHexButton.Checked, out var parsed) ||
+                parsed.IsNegative ||
+                parsed.Magnitude > byte.MaxValue)
+            {
+                return $"字段 {columnName} 需要整数。";
+            }
+
+            if (validateShopItemSemantics)
+            {
+                var itemId = (int)parsed.Magnitude;
+                return _shopEditorService.TryValidateShopItemSlotValue(_shopEditorItemInfos, itemId, out var error)
+                    ? null
+                    : error;
+            }
         }
 
         return null;
@@ -7002,6 +7343,17 @@ public sealed partial class MainForm
         if (_currentShopEditorData == null || !_currentShopEditorData.Columns.Contains(columnName)) return text;
         var dataColumn = _currentShopEditorData.Columns[columnName];
         if (dataColumn == null || dataColumn.DataType == typeof(string)) return text;
+        if (IsShopItemSlotColumn(columnName))
+        {
+            text = NormalizeShopItemSlotEditorText(text);
+            if (TryParseIntegerInput(text, _currentPageHexButton.Checked, out var shopItemParsed) &&
+                !shopItemParsed.IsNegative &&
+                shopItemParsed.Magnitude <= byte.MaxValue)
+            {
+                return (int)shopItemParsed.Magnitude;
+            }
+        }
+
         if (IsSupportedIntegerType(dataColumn.DataType) &&
             TryParseIntegerInput(text, _currentPageHexButton.Checked, out var parsed) &&
             TryConvertParsedIntegerToType(parsed, dataColumn.DataType, out var converted))
@@ -7010,6 +7362,16 @@ public sealed partial class MainForm
         }
 
         return Convert.ChangeType(text, dataColumn.DataType, CultureInfo.InvariantCulture);
+    }
+
+    private string NormalizeShopItemSlotEditorText(string text)
+    {
+        text = text.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return ShopEditorService.EmptyShopItemId.ToString(CultureInfo.InvariantCulture);
+        if (TryParseIntegerInput(text, _currentPageHexButton.Checked, out _)) return text;
+
+        var match = Regex.Match(text, @"^\s*(\d{1,3})(?=\s|:|：|｜|$)");
+        return match.Success ? match.Groups[1].Value : text;
     }
 
     private bool TryResolveShopEditorCell(int rowIndex, int columnIndex, out DataRow row, out string columnName)
@@ -7206,7 +7568,8 @@ public sealed partial class MainForm
                     column.ColumnName,
                     value,
                     dataRow,
-                    comboBoxColumn: false);
+                    comboBoxColumn: false,
+                    validateShopItemSemantics: !IsShopItemSlotColumn(column.ColumnName) || IsRoleColumnChanged(dataRow, column.ColumnName));
                 SetShopEditorCellError(dataRow, column.ColumnName, error ?? string.Empty);
                 if (error != null) invalid++;
             }
@@ -7274,9 +7637,9 @@ public sealed partial class MainForm
             var changedBytes = saves.Sum(x => x.ChangedBytes);
             System.Diagnostics.Debug.WriteLine($"已保存商店编辑：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var save in saves) System.Diagnostics.Debug.WriteLine("商店编辑备份：" + save.BackupPath);
-            SetStatus($"商店编辑保存完成并已复读：变化 {changedBytes} 字节");
+            SetStatus($"保存完成：{changedBytes} 字节");
             MessageBox.Show(this,
-                $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
+                $"保存完成：{changedBytes} 字节",
                 "保存完成",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -7295,11 +7658,29 @@ public sealed partial class MainForm
     private IReadOnlyList<TableSaveResult> SaveShopEditorData(CczProject project, DataTable shopEditorData)
     {
         if (_shopCampaignNameRead == null || _shopDataRead == null) return Array.Empty<TableSaveResult>();
+        var changedShopRows = shopEditorData.Rows
+            .Cast<DataRow>()
+            .Where(row => row.RowState == DataRowState.Modified)
+            .ToList();
+        var changedRowIds = changedShopRows
+            .Select(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture))
+            .ToHashSet();
+        var changedShopSlotKeys = BuildChangedShopSlotKeys(changedShopRows);
+        var changedShopSlotIssues = _shopEditorService.ValidateShopItemSlots(
+            shopEditorData,
+            _shopEditorItemInfos,
+            row => row.RowState == DataRowState.Modified,
+            changedItemSlotsOnly: true,
+            slotFilter: (rowId, columnName) => changedShopSlotKeys.Contains((rowId, columnName)));
+        if (changedShopSlotIssues.Count > 0)
+        {
+            throw new InvalidOperationException(BuildShopSlotValidationErrorText(changedShopSlotIssues, null));
+        }
+
         var campaignRowsById = BuildRowsById(_shopCampaignNameRead.Data);
         var shopRowsById = BuildRowsById(_shopDataRead.Data);
-        foreach (DataRow shopRow in shopEditorData.Rows)
+        foreach (DataRow shopRow in changedShopRows)
         {
-            if (shopRow.RowState != DataRowState.Modified) continue;
             var id = Convert.ToInt32(shopRow["ID"], CultureInfo.InvariantCulture);
 
             if (campaignRowsById.TryGetValue(id, out var campaignRow) && IsRoleColumnChanged(shopRow, "关卡名称"))
@@ -7319,13 +7700,87 @@ public sealed partial class MainForm
         var saves = new List<TableSaveResult>();
         if (SaveChangedTableAndVerify(_shopCampaignNameRead) is { } campaignSave) saves.Add(campaignSave);
         if (SaveChangedTableAndVerify(_shopDataRead) is { } shopSave) saves.Add(shopSave);
+        VerifySavedShopSlots(project, changedRowIds, changedShopSlotKeys, saves);
         return saves;
     }
 
+    private HashSet<(int RowId, string ColumnName)> BuildChangedShopSlotKeys(IEnumerable<DataRow> changedShopRows)
+    {
+        var keys = new HashSet<(int RowId, string ColumnName)>();
+        foreach (var row in changedShopRows)
+        {
+            var rowId = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+            foreach (DataColumn column in row.Table.Columns)
+            {
+                if (!IsShopItemSlotColumn(column.ColumnName)) continue;
+                if (!IsRoleColumnChanged(row, column.ColumnName)) continue;
+                keys.Add((rowId, column.ColumnName));
+            }
+        }
+
+        return keys;
+    }
+
+    private void VerifySavedShopSlots(
+        CczProject project,
+        IReadOnlySet<int> changedRowIds,
+        IReadOnlySet<(int RowId, string ColumnName)> changedShopSlotKeys,
+        IReadOnlyList<TableSaveResult> saves)
+    {
+        if (_shopDataRead == null || changedRowIds.Count == 0 || changedShopSlotKeys.Count == 0) return;
+        var verifyRead = _tableReader.Read(project, _shopDataRead.Table, _tables);
+        if (!verifyRead.Validation.IsUsable)
+        {
+            throw new InvalidOperationException(
+                "商店复读失败。\r\n备份：" +
+                BuildShopSaveBackupText(saves));
+        }
+
+        var issues = _shopEditorService.ValidateShopItemSlots(
+            verifyRead.Data,
+            _shopEditorItemInfos,
+            row => changedRowIds.Contains(Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)),
+            slotFilter: (rowId, columnName) => changedShopSlotKeys.Contains((rowId, columnName)));
+        if (issues.Count > 0)
+        {
+            throw new InvalidOperationException(BuildShopSlotValidationErrorText(issues, saves));
+        }
+    }
+
+    private static string BuildShopSlotValidationErrorText(
+        IReadOnlyList<ShopSlotValidationIssue> issues,
+        IReadOnlyList<TableSaveResult>? saves)
+    {
+        var lines = new List<string> { "占位物品不能入店；空槽用 255。" };
+        lines.AddRange(issues
+            .Take(40)
+            .Select(issue => $"row={issue.RowId}, slot={issue.Slot}, value={issue.ItemId}, name={issue.ItemName}"));
+        if (issues.Count > 40) lines.Add($"... 另有 {issues.Count - 40} 项");
+        if (saves is { Count: > 0 }) lines.Add("备份：" + BuildShopSaveBackupText(saves));
+        return string.Join("\r\n", lines);
+    }
+
+    private static string BuildShopSaveBackupText(IReadOnlyList<TableSaveResult> saves)
+        => saves.Count == 0 ? "无" : string.Join("; ", saves.Select(save => save.BackupPath));
+
     private static Dictionary<int, DataRow> BuildRowsById(DataTable table)
-        => table.Rows
-            .Cast<DataRow>()
-            .ToDictionary(row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture));
+    {
+        var rows = table.Rows.Cast<DataRow>().ToList();
+        var duplicates = DictionaryBuild.FindDuplicateKeys(
+            rows,
+            row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture));
+        if (duplicates.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "表格存在重复 ID，无法安全保存：" +
+                string.Join(", ", duplicates.Select(duplicate => duplicate.Key)));
+        }
+
+        return DictionaryBuild.ToDictionaryFirstByKey(
+            rows,
+            row => Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture),
+            row => row);
+    }
 
     private string BuildShopEditorChangePreview(DataTable data, int maxItems)
     {
@@ -8215,7 +8670,7 @@ public sealed partial class MainForm
         var levels = _jobStrategyLearningEditorData.Rows
             .Cast<DataRow>()
             .Where(editorRow => TryConvertToInt(editorRow["兵种ID"], out _) && TryConvertToInt(editorRow["学会等级"], out _))
-            .ToDictionary(
+            .ToDictionaryFirstByKey(
                 editorRow => Convert.ToInt32(editorRow["兵种ID"], CultureInfo.InvariantCulture),
                 editorRow => Convert.ToInt32(editorRow["学会等级"], CultureInfo.InvariantCulture));
         ApplyJobStrategyLearningLevels(row, levels, refreshCurrentPreview: false);
@@ -9258,7 +9713,7 @@ public sealed partial class MainForm
         IReadOnlyList<JobStrategyIconImportTarget> targets,
         IconResourceBatchReplacePreviewResult preview)
     {
-        var itemByIcon = preview.Items.ToDictionary(item => item.IconIndex);
+        var itemByIcon = preview.Items.ToDictionaryFirstByKey(item => item.IconIndex, item => item);
         var builder = new StringBuilder();
         builder.AppendLine($"目标：{preview.TargetRelativePath}");
         builder.AppendLine($"操作：{preview.OperationKind}");
@@ -9312,7 +9767,7 @@ public sealed partial class MainForm
         IReadOnlyList<JobStrategyIconImportTarget> targets,
         E5ImageBatchReplacePreviewResult preview)
     {
-        var itemByImage = preview.Operations.ToDictionary(item => item.ImageNumber);
+        var itemByImage = preview.Operations.ToDictionaryFirstByKey(item => item.ImageNumber, item => item);
         var builder = new StringBuilder();
         builder.AppendLine($"目标：{preview.TargetRelativePath}");
         builder.AppendLine("操作：6.6 strategy icon E5 batch import");

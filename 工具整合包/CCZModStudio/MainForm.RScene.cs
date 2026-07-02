@@ -498,6 +498,7 @@ public sealed partial class MainForm
 
         var command = itemData.Command;
         var oldSummary = BuildLegacyScriptParameterPreview(command);
+        var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.RScene, _currentRSceneLegacyScriptDocument);
         var error = _rSceneInlineDialogHost.CommitToTarget();
         if (!string.IsNullOrWhiteSpace(error))
@@ -508,7 +509,7 @@ public sealed partial class MainForm
 
         CopyLegacyItemDataToCommand(itemData);
         NormalizeEditedRSceneJumpCommand(command);
-        if (oldSummary == BuildLegacyScriptParameterPreview(command))
+        if (!LegacyItemDataCommandChanged(itemData, beforeCommand))
         {
             SetStatus($"R场景参数：{command.CommandIdHex} {command.CommandName} 未检测到改动");
             LoadInlineRSceneScriptDialogForSelection();
@@ -1040,7 +1041,7 @@ public sealed partial class MainForm
 
         var byPersonId = _rSceneActorPaletteItems
             .GroupBy(x => x.PersonId)
-            .ToDictionary(group => group.Key, group => group.First());
+            .ToDictionaryFirstByKey(group => group.Key, group => group.First());
         foreach (var state in snapshot.Actors)
         {
             if (!byPersonId.TryGetValue(state.PersonId, out var item)) continue;
@@ -2516,7 +2517,7 @@ public sealed partial class MainForm
     private IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> BuildRSceneDialoguePreviewPeople()
         => _rSceneActorPaletteItems
             .GroupBy(item => item.PersonId)
-            .ToDictionary(
+            .ToDictionaryFirstByKey(
                 group => group.Key,
                 group =>
                 {
@@ -3013,6 +3014,7 @@ public sealed partial class MainForm
 
         var command = itemData.Command;
         var oldSummary = BuildLegacyScriptParameterPreview(command);
+        var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
         var commandTitle = $"{command.CommandIdHex} {command.CommandName} / ord {itemData.Ord}";
         var dialogDataSources = LegacyMfcDialogDataSources.Create(_project, _tables);
         var precedingSameCommandCount = CountPrecedingSameLegacyCommands(_currentRSceneLegacyScriptDocument, command);
@@ -3024,7 +3026,7 @@ public sealed partial class MainForm
 
         CopyLegacyItemDataToCommand(itemData);
         NormalizeEditedRSceneJumpCommand(command);
-        if (oldSummary != BuildLegacyScriptParameterPreview(command))
+        if (LegacyItemDataCommandChanged(itemData, beforeCommand))
         {
             PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.RScene, beforeEdit);
         }

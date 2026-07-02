@@ -140,6 +140,7 @@ public sealed partial class MainForm
 
     private void CommitActiveEditors()
     {
+        TryCommitPendingBattlefieldConsoleChanges();
         foreach (var grid in EnumerateEditableGrids())
         {
             try
@@ -619,6 +620,12 @@ public sealed partial class MainForm
     private Task SaveJobEditorSilentlyAsync()
     {
         if (_project == null || _currentJobEditorData == null) return Task.CompletedTask;
+        if (!CommitJobDescriptionBoxEdit())
+        {
+            SetStatus("兵种介绍存在超长文本，已取消自动保存。");
+            return Task.CompletedTask;
+        }
+
         CommitJobEquipmentEditorChanges();
         if (!HasChanges(_currentJobEditorData)) return Task.CompletedTask;
         var changedCells = GetChangedCellKeys(_currentJobEditorData);

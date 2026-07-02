@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Data;
 using System.Globalization;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio;
@@ -192,7 +193,7 @@ public sealed partial class MainForm
         var sourceByKey = source.Columns.Contains(keyColumn)
             ? source.Rows
                 .Cast<DataRow>()
-                .ToDictionary(row => Convert.ToString(row[keyColumn], CultureInfo.InvariantCulture) ?? string.Empty, StringComparer.Ordinal)
+                .ToDictionaryLastByKey(row => Convert.ToString(row[keyColumn], CultureInfo.InvariantCulture) ?? string.Empty, row => row, StringComparer.Ordinal)
             : new Dictionary<string, DataRow>(StringComparer.Ordinal);
 
         foreach (var key in changedCellKeys)
@@ -240,7 +241,7 @@ public sealed partial class MainForm
 
         var sourceRows = source.Rows
             .Cast<DataRow>()
-            .ToDictionary(row => Convert.ToString(row[keyColumn], CultureInfo.InvariantCulture) ?? string.Empty, StringComparer.Ordinal);
+            .ToDictionaryLastByKey(row => Convert.ToString(row[keyColumn], CultureInfo.InvariantCulture) ?? string.Empty, row => row, StringComparer.Ordinal);
 
         foreach (DataRow targetRow in target.Rows)
         {

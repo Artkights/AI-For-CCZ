@@ -601,6 +601,20 @@ public sealed partial class MainForm
             return;
         }
 
+        var shopIssues = _shopEditorService.ValidateShopDataTable(
+            _project,
+            _tables,
+            _currentTableResult.Table,
+            _currentTableResult.Data,
+            changedItemSlotsOnly: true);
+        if (shopIssues.Count > 0)
+        {
+            var text = ShopEditorService.BuildShopSlotValidationErrorText(shopIssues);
+            SetStatus("占位物品不能入店；空槽用 255。");
+            MessageBox.Show(this, text, "无法保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         var preview = BuildChangePreview(_currentTableResult.Data, maxItems: 40);
         if (MessageBox.Show(this,
                 $"即将保存当前表到 MOD 项目：\r\n{_currentTableResult.Table.TableName}\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份目标文件，保存后会重新读取校验。是否继续？",

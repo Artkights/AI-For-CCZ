@@ -138,9 +138,9 @@ public sealed class BatchItemIconImportService
             OperationKind = "batch item icon import"
         }).ToArray();
         var preview = dllRequests.Length == 0 ? null : _iconReplace.PreviewReplaceBitmapIcons(project, targetPath, dllRequests);
-        var resourceIdsByIcon = preview?.Items.ToDictionary(item => item.IconIndex, item => item.ResourceIds) ??
+        var resourceIdsByIcon = preview?.Items.ToDictionaryFirstByKey(item => item.IconIndex, item => item.ResourceIds) ??
                                 new Dictionary<int, IReadOnlyList<int>>();
-        var dllItemsByIcon = preview?.Items.ToDictionary(item => item.IconIndex) ??
+        var dllItemsByIcon = preview?.Items.ToDictionaryFirstByKey(item => item.IconIndex, item => item) ??
                              new Dictionary<int, IconResourceBatchReplacePreviewItem>();
         var resources = _dllIconCodec.ParseBitmapResources(targetPath);
         var importDiagnosticsByIcon = new Dictionary<int, IReadOnlyList<string>>();

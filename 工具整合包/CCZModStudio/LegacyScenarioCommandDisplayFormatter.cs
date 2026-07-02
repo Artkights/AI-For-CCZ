@@ -18,13 +18,20 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
     {
         var commandName = StripDuplicateCommandIdPrefix(command.CommandId, _dataSources.CommandName(command.CommandId, command.CommandName));
         var label = $"{HexDisplayFormatter.Format(command.CommandId)}:{commandName}";
+        if (command.CommandId is 0x46 or 0x47)
+        {
+            return label;
+        }
+
         var suffix = BuildLegacyUpdateShowSuffix(command);
         return string.IsNullOrWhiteSpace(suffix) ? label : $"{label} {suffix}";
     }
 
     public string FormatValuesPreview(LegacyScenarioCommandNode command, int maxVisibleValues)
     {
-        var suffix = BuildLegacyUpdateShowSuffix(command);
+        var suffix = command.CommandId is 0x46 or 0x47
+            ? FormatDeploymentCommandSummary(command, maxRecords: 0)
+            : BuildLegacyUpdateShowSuffix(command);
         if (!string.IsNullOrWhiteSpace(suffix))
         {
             return TrimSingleLine(suffix, 132);
@@ -251,6 +258,85 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
 
         return value;
     }
+
+    private string FormatDeploymentCommandSummary(LegacyScenarioCommandNode command, int maxRecords)
+    {
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(command.CommandId);
+        if (definition == null)
+        {
+            return string.Empty;
+        }
+
+        var expectedCount = definition.RecordCount * definition.GroupSize;
+        var countSuffix = command.Parameters.Count == expectedCount
+            ? string.Empty
+            : $"；槽数 {N(command.Parameters.Count)}/{N(expectedCount)}";
+        var records = Enumerable.Range(0, definition.RecordCount)
+            .Select(index => new DeploymentSummaryRecord(
+                index,
+                BattlefieldDeploymentRecordFormatter.ReadRecordValues(command, definition, index)))
+            .ToList();
+        var nonBlankRecords = records
+            .Where(record => !BattlefieldDeploymentRecordFormatter.IsBlankRecord(definition, record.Values))
+            .ToList();
+
+        if (nonBlankRecords.Count == 0)
+        {
+            return "全空：无" + countSuffix;
+        }
+
+        if (maxRecords <= 0)
+        {
+            return $"Valid {N(nonBlankRecords.Count)}/{N(definition.RecordCount)}; blank=none" +
+                   countSuffix;
+        }
+
+        var limit = Math.Max(1, maxRecords);
+        var parts = nonBlankRecords
+            .Take(limit)
+            .Select(record => FormatDeploymentRecordSummary(definition, record.Index, record.Values))
+            .ToList();
+        if (nonBlankRecords.Count > parts.Count)
+        {
+            parts.Add("...");
+        }
+
+        return $"有效 {N(nonBlankRecords.Count)}/{N(definition.RecordCount)}：" +
+               string.Join("；", parts) +
+               "；空位=无" +
+               countSuffix;
+    }
+
+    private string FormatDeploymentRecordSummary(
+        BattlefieldDeploymentRecordDefinition definition,
+        int recordIndex,
+        IReadOnlyList<int> values)
+    {
+        var parts = new List<string>
+        {
+            $"第{N(recordIndex + 1)}条",
+            Per2(BattlefieldDeploymentRecordFormatter.GetWordOrDefault(values, definition.PersonIndex))
+        };
+
+        if (definition.HasReinforcement)
+        {
+            parts.Add("援军=" + N(BattlefieldDeploymentRecordFormatter.GetWordOrDefault(values, definition.ReinforcementIndex)));
+        }
+
+        var x = BattlefieldDeploymentRecordFormatter.GetWordOrDefault(values, definition.XIndex);
+        var y = BattlefieldDeploymentRecordFormatter.GetWordOrDefault(values, definition.YIndex);
+        parts.Add($"({FormatDeploymentValue(x)},{FormatDeploymentValue(y)})");
+        parts.Add("隐藏=" + N(BattlefieldDeploymentRecordFormatter.GetWordOrDefault(values, definition.HiddenIndex)));
+        if (definition.AiIndex >= 0)
+        {
+            parts.Add("AI=" + At(_dataSources.Policy, BattlefieldDeploymentRecordFormatter.GetWordOrDefault(values, definition.AiIndex)));
+        }
+
+        return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string FormatDeploymentValue(int value)
+        => value < 0 ? $"{N(value)}(整型变量{N(Math.Abs(value))})" : N(value);
 
     private string ItemName(int index)
         => At(_dataSources.Item, Math.Clamp(index, 0, Math.Max(0, _dataSources.Item.Count - 1)));
@@ -492,4 +578,6 @@ internal sealed class LegacyScenarioCommandDisplayFormatter
 
     private static string FormatLargeNumber(int value)
         => value < 0x400000 ? N(value) : HexDisplayFormatter.Format(value);
+
+    private sealed record DeploymentSummaryRecord(int Index, IReadOnlyList<int> Values);
 }

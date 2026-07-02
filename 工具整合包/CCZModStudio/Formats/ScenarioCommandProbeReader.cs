@@ -18,7 +18,7 @@ public sealed class ScenarioCommandProbeReader
             words[i] = BitConverter.ToUInt16(bytes, i * 2);
         }
 
-        var dictionary = sceneDictionary.Commands.ToDictionary(x => x.Id);
+        var dictionary = DictionaryBuild.ToDictionaryFirstByKey(sceneDictionary.Commands, x => x.Id, x => x);
         var eexHeaderSize = TryGetEexHeaderSize(bytes);
         var startWordIndex = eexHeaderSize > 0 ? Math.Clamp(eexHeaderSize / 2, 0, words.Length) : 0;
         var scanWordLimit = DetermineScanWordLimit(bytes, words, startWordIndex, eexHeaderSize > 0);

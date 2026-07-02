@@ -93,7 +93,7 @@ public sealed class PatchApplyService
         var targetBytes = File.ReadAllBytes(preview.TargetFilePath);
         var beforeHash = ComputeSha256(targetBytes);
         var output = (byte[])targetBytes.Clone();
-        var entryByIndex = document.Entries.ToDictionary(e => e.Index);
+        var entryByIndex = document.Entries.ToDictionaryLastByKey(e => e.Index, e => e);
 
         var bytesWritten = 0;
         foreach (var row in preview.Rows)
@@ -254,7 +254,7 @@ public sealed class PatchApplyService
         if (rows.Count == 0 || rows.Any(r => !r.CanApply)) return 0;
 
         var output = (byte[])targetBytes.Clone();
-        var entryByIndex = document.Entries.ToDictionary(e => e.Index);
+        var entryByIndex = document.Entries.ToDictionaryLastByKey(e => e.Index, e => e);
         foreach (var row in rows)
         {
             var entry = entryByIndex[row.Index];

@@ -541,22 +541,22 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceE5ImageBatch(game_root, target_relative_path, updates, write_mode);
 
     [McpServerTool]
-    [Description("Preview raw R actor image replacement from a material folder without writing.")]
+    [Description("Preview true-color R actor image replacement from a material folder without writing. The tool name is kept for legacy clients.")]
     public object preview_r_image_raw_replace(
         [Description("R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
         int r_image_id,
-        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material folder containing source image files. Relative paths resolve from workspace, project root, then cwd.")]
         string material_folder,
         [Description("Optional game root.")]
         string? game_root = null)
         => runtime.PreviewRImageRawReplace(game_root, r_image_id, material_folder);
 
     [McpServerTool]
-    [Description("Replace raw R actor image assets from a material folder. Creates backup and structured report.")]
+    [Description("Replace R actor image assets as true-color PNG entries from a material folder. Creates backup and structured report. The tool name is kept for legacy clients.")]
     public object replace_r_image_raw(
         [Description("R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
         int r_image_id,
-        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material folder containing source image files. Relative paths resolve from workspace, project root, then cwd.")]
         string material_folder,
         [Description("Optional game root.")]
         string? game_root = null,
@@ -565,7 +565,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceRImageRaw(game_root, r_image_id, material_folder, write_mode);
 
     [McpServerTool]
-    [Description("Preview batch raw R actor image replacement from a material root without writing. Subfolders use R12, R_12, or 12 and contain front.bmp/back.bmp.")]
+    [Description("Preview batch true-color R actor image replacement from a material root without writing. Subfolders use R12, R_12, or 12 and contain front.bmp/back.bmp.")]
     public object preview_r_image_raw_batch_replace(
         [Description("Material root containing numbered R image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
@@ -576,7 +576,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.PreviewRImageRawBatchReplace(game_root, material_root, allowed_r_image_ids);
 
     [McpServerTool]
-    [Description("Replace batch raw R actor image assets from a material root. Creates backup and structured aggregate report.")]
+    [Description("Replace batch R actor image assets as true-color PNG entries from a material root. Creates backup and structured aggregate report. The tool name is kept for legacy clients.")]
     public object replace_r_image_raw_batch(
         [Description("Material root containing numbered R image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
@@ -589,11 +589,11 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceRImageRawBatch(game_root, material_root, allowed_r_image_ids, write_mode);
 
     [McpServerTool]
-    [Description("Preview raw S unit image replacement from a material folder without writing.")]
+    [Description("Preview true-color S unit image replacement from a material folder without writing. The tool name is kept for legacy clients.")]
     public object preview_s_image_raw_replace(
         [Description("S image id. s_unit maps compact S ids to Unit image numbers.")]
         int s_image_id,
-        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material folder containing source image files. Relative paths resolve from workspace, project root, then cwd.")]
         string material_folder,
         [Description("Optional game root.")]
         string? game_root = null,
@@ -604,11 +604,11 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.PreviewSImageRawReplace(game_root, s_image_id, material_folder, job_id, faction_slot);
 
     [McpServerTool]
-    [Description("Replace raw S unit image assets from a material folder. Creates backup and structured report.")]
+    [Description("Replace S unit image assets as true-color PNG entries from a material folder. Creates backup and structured report. The tool name is kept for legacy clients.")]
     public object replace_s_image_raw(
         [Description("S image id. s_unit maps compact S ids to Unit image numbers.")]
         int s_image_id,
-        [Description("Material folder containing source raw image files. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material folder containing source image files. Relative paths resolve from workspace, project root, then cwd.")]
         string material_folder,
         [Description("Optional game root.")]
         string? game_root = null,
@@ -625,7 +625,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     public object preview_job_s_image_raw_replace(
         [Description("Detailed job id from the 6.5-4 detailed job table.")]
         int job_id,
-        [Description("Material folder containing mov.bmp, atk.bmp, and/or spc.bmp. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material folder containing mov.bmp, atk.bmp, and/or spc.bmp. Sources are written as true-color PNG entries. Relative paths resolve from workspace, project root, then cwd.")]
         string material_folder,
         [Description("Faction slots to preview: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
         List<int> faction_slots,
@@ -638,7 +638,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     public object replace_job_s_image_raw(
         [Description("Detailed job id from the 6.5-4 detailed job table.")]
         int job_id,
-        [Description("Material folder containing mov.bmp, atk.bmp, and/or spc.bmp. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material folder containing mov.bmp, atk.bmp, and/or spc.bmp. Sources are written as true-color PNG entries. Relative paths resolve from workspace, project root, then cwd.")]
         string material_folder,
         [Description("Faction slots to write: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
         List<int> faction_slots,
@@ -649,7 +649,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceJobSImageRaw(game_root, job_id, material_folder, faction_slots, write_mode);
 
     [McpServerTool]
-    [Description("Preview batch raw S unit image replacement from a material root without writing. Subfolders use S12, S_12, or 12 and contain mov.bmp/atk.bmp/spc.bmp.")]
+    [Description("Preview batch true-color S unit image replacement from a material root without writing. Subfolders use S12, S_12, or 12 and contain mov.bmp/atk.bmp/spc.bmp.")]
     public object preview_s_image_raw_batch_replace(
         [Description("Material root containing numbered S image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
@@ -662,7 +662,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.PreviewSImageRawBatchReplace(game_root, material_root, allowed_usages, faction_slot);
 
     [McpServerTool]
-    [Description("Replace batch raw S unit image assets from a material root. Creates backups and structured aggregate report.")]
+    [Description("Replace batch S unit image assets as true-color PNG entries from a material root. Creates backups and structured aggregate report. The tool name is kept for legacy clients.")]
     public object replace_s_image_raw_batch(
         [Description("Material root containing numbered S image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
@@ -1256,6 +1256,11 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [Description("Read shop editor rows composed from campaign names and shop data. Read-only.")]
     public object read_shop_editor(string? game_root = null, string? keyword = null, int limit = 80)
         => runtime.ReadShopEditor(game_root, keyword, limit);
+
+    [McpServerTool]
+    [Description("Diagnose explicit shops, auto-shop bytes, and R_00/R_01 shop runtime candidates. Read-only.")]
+    public object diagnose_shop_runtime(string? game_root = null, int limit = 120)
+        => runtime.DiagnoseShopRuntime(game_root, limit);
 
     [McpServerTool]
     [Description("Preview campaign-name/shop-data row updates without writing.")]

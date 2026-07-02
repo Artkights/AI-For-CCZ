@@ -6,6 +6,8 @@ namespace CCZModStudio.Core;
 
 public sealed class BattlefieldDeploymentWriteService
 {
+    private const int ManagedSceneIndex = 1;
+
     private readonly LegacyScenarioReader _reader = new();
     private readonly LegacyScenarioWriter _writer = new();
 
@@ -103,7 +105,7 @@ public sealed class BattlefieldDeploymentWriteService
                 continue;
             }
 
-            var definition = DeploymentDefinition.FromCommandId(command.CommandId);
+            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(command.CommandId);
             if (definition == null)
             {
                 skipped.Add($"{DescribePlacement(placement.Source)}：命令 {command.CommandIdHex} 不是 46/47/4B 出场设定。");
@@ -261,7 +263,7 @@ public sealed class BattlefieldDeploymentWriteService
                 continue;
             }
 
-            var definition = DeploymentDefinition.FromCommandId(command.CommandId);
+            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(command.CommandId);
             if (definition == null || !definition.WritesPerson || command.CommandId is not (0x46 or 0x47))
             {
                 skipped.Add($"{DescribePlacement(placement.Source)}：{command.CommandIdHex} 不是可清空的 46/47 友军/敌军出场记录。");
@@ -336,7 +338,7 @@ public sealed class BattlefieldDeploymentWriteService
                 change.RecordIndex);
             var command = FindCommand(verifyDocument, locator)
                 ?? throw new InvalidDataException($"出场写回复读失败：找不到命令 {change.CommandIdHex} Scene={change.SceneIndex} Section={change.SectionIndex} Command={change.CommandIndex}。");
-            var definition = DeploymentDefinition.FromCommandId(command.CommandId)
+            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(command.CommandId)
                 ?? throw new InvalidDataException($"出场写回复读失败：命令 {command.CommandIdHex} 不是部署命令。");
             if (!definition.HasMapCoordinate)
             {
@@ -520,8 +522,14 @@ public sealed class BattlefieldDeploymentWriteService
             return false;
         }
 
+        if (locator.SceneIndex != ManagedSceneIndex)
+        {
+            reason = "Scene2 及之后属于剧情脚本，不受初始出场设置管理，请在左侧剧本树手动编辑。";
+            return false;
+        }
+
         if (!TryParseCommandId(locator.CommandIdHex, out var commandId) ||
-            DeploymentDefinition.FromCommandId(commandId)?.HasMapCoordinate != true)
+            BattlefieldDeploymentRecordDefinition.FromCommandId(commandId)?.HasMapCoordinate != true)
         {
             reason = "TargetKey 不是 46/47/4B 地图坐标出场记录。";
             return false;
@@ -627,65 +635,4 @@ public sealed class BattlefieldDeploymentWriteService
         string CommandIdHex,
         int RecordIndex);
 
-    private sealed class DeploymentDefinition
-    {
-        public static readonly DeploymentDefinition Friend = new()
-        {
-            GroupSize = 11,
-            RecordCount = 20,
-            PersonIndex = 0,
-            XIndex = 2,
-            YIndex = 3,
-            AiIndex = 7,
-            DirectionIndex = -1,
-            HiddenIndex = -1,
-            WritesPerson = true
-        };
-
-        public static readonly DeploymentDefinition Enemy = new()
-        {
-            GroupSize = 12,
-            RecordCount = 80,
-            PersonIndex = 0,
-            XIndex = 3,
-            YIndex = 4,
-            AiIndex = 8,
-            DirectionIndex = -1,
-            HiddenIndex = -1,
-            WritesPerson = true
-        };
-
-        public static readonly DeploymentDefinition Ally = new()
-        {
-            GroupSize = 5,
-            RecordCount = 1,
-            PersonIndex = 0,
-            XIndex = 1,
-            YIndex = 2,
-            AiIndex = -1,
-            DirectionIndex = 3,
-            HiddenIndex = 4,
-            WritesPerson = false
-        };
-
-        public int GroupSize { get; init; }
-        public int RecordCount { get; init; }
-        public int PersonIndex { get; init; }
-        public int XIndex { get; init; }
-        public int YIndex { get; init; }
-        public int AiIndex { get; init; }
-        public int DirectionIndex { get; init; }
-        public int HiddenIndex { get; init; }
-        public bool WritesPerson { get; init; }
-        public bool HasMapCoordinate => XIndex >= 0 && YIndex >= 0;
-
-        public static DeploymentDefinition? FromCommandId(int commandId)
-            => commandId switch
-            {
-                0x46 => Friend,
-                0x47 => Enemy,
-                0x4B => Ally,
-                _ => null
-            };
-    }
 }

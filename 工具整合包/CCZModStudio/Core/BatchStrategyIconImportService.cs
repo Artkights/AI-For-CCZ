@@ -110,7 +110,7 @@ public sealed class BatchStrategyIconImportService
             OperationKind = "batch strategy icon import"
         }).ToArray();
         var preview = dllRequests.Length == 0 ? null : _iconReplace.PreviewReplaceBitmapIcons(project, targetPath, dllRequests);
-        var resourceIdsByIcon = preview?.Items.ToDictionary(item => item.IconIndex, item => item.ResourceIds) ??
+        var resourceIdsByIcon = preview?.Items.ToDictionaryFirstByKey(item => item.IconIndex, item => item.ResourceIds) ??
                                 new Dictionary<int, IReadOnlyList<int>>();
         return new BatchStrategyIconImportPreviewResult
         {

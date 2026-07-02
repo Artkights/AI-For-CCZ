@@ -1523,6 +1523,9 @@ public sealed partial class MainForm
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        ApplicationErrorService.ErrorReported -= OnApplicationErrorReported;
+        _errorStatusClearTimer.Stop();
+        _errorStatusClearTimer.Dispose();
         _battlefieldUnitAnimationTimer.Stop();
         _battlefieldUnitAnimationTimer.Dispose();
         _rScenePlaybackTimer.Stop();

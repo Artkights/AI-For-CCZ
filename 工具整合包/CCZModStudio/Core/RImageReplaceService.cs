@@ -25,7 +25,7 @@ public sealed class RImageReplaceService
         E5RawImageCodec.PmapobjSpec.FrameHeight,
         RStripHeight);
 
-    private readonly E5RawImageCodec _codec = new();
+    private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
 
     public RImageReplacePreviewResult Preview(CczProject project, RImageReplaceRequest request)
@@ -52,9 +52,9 @@ public sealed class RImageReplaceService
             requests.Add(new E5ImageBatchReplaceRequest
             {
                 ImageNumber = plan.ImageNumber,
-                SourceBytes = encode.RawBytes,
-                SourceBytesAreRaw = true,
-                SourceLabel = $"{encode.SourcePath} -> RAW",
+                SourceBytes = encode.ImageBytes,
+                SourceBytesAreRaw = false,
+                SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
                 OperationKind = $"一键替换R形象-{plan.Role}"
             });
         }
@@ -76,9 +76,9 @@ public sealed class RImageReplaceService
         var requests = preview.Files.Select(file => new E5ImageBatchReplaceRequest
         {
             ImageNumber = file.ImageNumber,
-            SourceBytes = file.Encode.RawBytes,
-            SourceBytesAreRaw = true,
-            SourceLabel = $"{file.Encode.SourcePath} -> RAW",
+            SourceBytes = file.Encode.ImageBytes,
+            SourceBytesAreRaw = false,
+            SourceLabel = $"{file.Encode.SourcePath} -> {file.Encode.StorageFormat}",
             OperationKind = $"一键替换R形象-{file.Role}"
         }).ToArray();
         var result = _replace.ReplaceBatch(project, preview.Files[0].TargetPath, requests);
@@ -232,10 +232,10 @@ public sealed class RImageReplaceService
         var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
-        var reportPath = Path.Combine(backupRoot, $"{stamp}_RImageRawReplaceReport.json");
+        var reportPath = Path.Combine(backupRoot, $"{stamp}_RImageTrueColorReplaceReport.json");
         var payload = new
         {
-            OperationKind = "R形象一键RAW替换",
+            OperationKind = "R形象一键真彩替换",
             CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ProjectRoot = project.GameRoot,
             result.Request,
@@ -268,11 +268,14 @@ public sealed class RImageReplaceService
                 {
                     file.Encode.SourceWidth,
                     file.Encode.SourceHeight,
-                    file.Encode.RawLength,
+                    file.Encode.NormalizedWidth,
+                    file.Encode.NormalizedHeight,
+                    file.Encode.StorageFormat,
+                    file.Encode.ColorDepth,
+                    file.Encode.ImageLength,
                     file.Encode.TransparentPixels,
-                    file.Encode.ExactPalettePixels,
-                    file.Encode.NearestPalettePixels,
-                    file.Encode.PalettePath,
+                    file.Encode.MagentaKeyPixels,
+                    file.Encode.Quantization,
                     file.Encode.Warnings
                 }
             }),

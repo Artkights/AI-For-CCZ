@@ -616,10 +616,10 @@ public sealed partial class CczMcpRuntime
                 file.TargetPath,
                 file.SourcePath,
                 file.ImageNumber,
-                Encode = BuildE5RawEncodePayload(file.Encode)
+                Encode = BuildE5TrueColorEncodePayload(file.Encode)
             }),
             BatchPreview = BuildE5ImageBatchReplacePayload(preview.BatchPreview),
-            SafetyNote = "Preview only. R image RAW replacement writes Pmapobj.e5 through replace_r_image_raw with backup and reread verification."
+            SafetyNote = "Preview only. R image true-color replacement writes Pmapobj.e5 through replace_r_image_raw with backup and reread verification."
         };
 
     private static object BuildRImageRawReplaceResultPayload(RImageReplaceResult result)
@@ -638,7 +638,7 @@ public sealed partial class CczMcpRuntime
                 file.TargetPath,
                 file.SourcePath,
                 file.ImageNumber,
-                Encode = BuildE5RawEncodePayload(file.Encode)
+                Encode = BuildE5TrueColorEncodePayload(file.Encode)
             }),
             WriteResult = BuildE5ImageBatchReplacePayload(result.WriteResult),
             result.WriteResult.BackupPath,
@@ -662,10 +662,10 @@ public sealed partial class CczMcpRuntime
                 file.TargetFileName,
                 file.TargetPath,
                 file.SourcePath,
-                Encode = BuildE5RawEncodePayload(file.Encode),
+                Encode = BuildE5TrueColorEncodePayload(file.Encode),
                 BatchPreview = BuildE5ImageBatchReplacePayload(file.BatchPreview)
             }),
-            SafetyNote = "Preview only. S image RAW replacement writes Unit_mov.e5, Unit_atk.e5, and/or Unit_spc.e5 through replace_s_image_raw with backups and reread verification."
+            SafetyNote = "Preview only. S image true-color replacement writes Unit_mov.e5, Unit_atk.e5, and/or Unit_spc.e5 through replace_s_image_raw with backups and reread verification."
         };
 
     private static object BuildSImageRawReplaceResultPayload(SImageReplaceResult result)
@@ -685,7 +685,7 @@ public sealed partial class CczMcpRuntime
                 file.TargetFileName,
                 file.TargetPath,
                 file.SourcePath,
-                Encode = BuildE5RawEncodePayload(file.Encode),
+                Encode = BuildE5TrueColorEncodePayload(file.Encode),
                 WriteResult = BuildE5ImageBatchReplacePayload(file.WriteResult),
                 file.WriteResult.BackupPath,
                 file.WriteResult.ReportPath,
@@ -713,11 +713,11 @@ public sealed partial class CczMcpRuntime
                     file.TargetFileName,
                     file.TargetPath,
                     file.SourcePath,
-                    Encode = BuildE5RawEncodePayload(file.Encode),
+                    Encode = BuildE5TrueColorEncodePayload(file.Encode),
                     BatchPreview = BuildE5ImageBatchReplacePayload(file.BatchPreview)
                 })
             }),
-            SafetyNote = "Preview only. Job S image RAW replacement fixes S=0 and maps job_id + selected faction_slots to default Unit image numbers."
+            SafetyNote = "Preview only. Job S image true-color replacement fixes S=0 and maps job_id + selected faction_slots to default Unit image numbers."
         };
 
     private static object BuildJobSImageRawReplaceResultPayload(JobSImageReplaceResult result)
@@ -741,7 +741,7 @@ public sealed partial class CczMcpRuntime
                     file.TargetFileName,
                     file.TargetPath,
                     file.SourcePath,
-                    Encode = BuildE5RawEncodePayload(file.Encode),
+                    Encode = BuildE5TrueColorEncodePayload(file.Encode),
                     WriteResult = BuildE5ImageBatchReplacePayload(file.WriteResult),
                     file.WriteResult.BackupPath,
                     file.WriteResult.ReportPath,
@@ -857,11 +857,11 @@ public sealed partial class CczMcpRuntime
                 item.BackImageNumber,
                 item.FrontSourcePath,
                 item.BackSourcePath,
-                FrontEncode = BuildE5RawEncodePayload(item.FrontEncode),
-                BackEncode = BuildE5RawEncodePayload(item.BackEncode)
+                FrontEncode = BuildE5TrueColorEncodePayload(item.FrontEncode),
+                BackEncode = BuildE5TrueColorEncodePayload(item.BackEncode)
             }),
             BatchPreview = preview.BatchPreview == null ? null : BuildE5ImageBatchReplacePayload(preview.BatchPreview),
-            SafetyNote = "Preview only. Batch R image RAW replacement writes Pmapobj.e5 once with backup and reread verification."
+            SafetyNote = "Preview only. Batch R image true-color replacement writes Pmapobj.e5 once with backup and reread verification."
         };
 
     private static object BuildBatchRImageRawReplaceResultPayload(BatchRImageReplaceResult result)
@@ -896,12 +896,12 @@ public sealed partial class CczMcpRuntime
                 item.MovSourcePath,
                 item.AtkSourcePath,
                 item.SpcSourcePath,
-                MovEncode = BuildE5RawEncodePayload(item.MovEncode),
-                AtkEncode = BuildE5RawEncodePayload(item.AtkEncode),
-                SpcEncode = BuildE5RawEncodePayload(item.SpcEncode)
+                MovEncode = BuildE5TrueColorEncodePayload(item.MovEncode),
+                AtkEncode = BuildE5TrueColorEncodePayload(item.AtkEncode),
+                SpcEncode = BuildE5TrueColorEncodePayload(item.SpcEncode)
             }),
             FilePreviews = preview.FilePreviews.ToDictionary(pair => pair.Key, pair => BuildE5ImageBatchReplacePayload(pair.Value)),
-            SafetyNote = "Preview only. Batch S image RAW replacement writes Unit_mov.e5, Unit_atk.e5, and Unit_spc.e5 in grouped batches."
+            SafetyNote = "Preview only. Batch S image true-color replacement writes Unit_mov.e5, Unit_atk.e5, and Unit_spc.e5 in grouped batches."
         };
 
     private static object BuildBatchSImageRawReplaceResultPayload(BatchSImageReplaceResult result)
@@ -935,7 +935,7 @@ public sealed partial class CczMcpRuntime
                 item.MaterialFolder,
                 Preview = BuildJobSImageRawReplacePreviewPayload(item.Preview)
             }),
-            SafetyNote = "Preview only. Batch job S image RAW replacement consumes Job{jobId}/mov.bmp, atk.bmp, and spc.bmp folders."
+            SafetyNote = "Preview only. Batch job S image true-color replacement consumes Job{jobId}/mov.bmp, atk.bmp, and spc.bmp folders."
         };
 
     private static object BuildBatchJobSImageRawReplaceResultPayload(BatchJobSImageReplaceResult result)
@@ -1179,6 +1179,26 @@ public sealed partial class CczMcpRuntime
                 encode.ExactPalettePixels,
                 encode.NearestPalettePixels,
                 encode.PalettePath,
+                encode.Warnings
+            };
+
+    private static object? BuildE5TrueColorEncodePayload(E5TrueColorEncodeResult? encode)
+        => encode == null
+            ? null
+            : new
+            {
+                encode.SourcePath,
+                encode.TargetFileName,
+                encode.SourceWidth,
+                encode.SourceHeight,
+                encode.NormalizedWidth,
+                encode.NormalizedHeight,
+                encode.StorageFormat,
+                encode.ColorDepth,
+                encode.ImageLength,
+                encode.TransparentPixels,
+                encode.MagentaKeyPixels,
+                encode.Quantization,
                 encode.Warnings
             };
 }

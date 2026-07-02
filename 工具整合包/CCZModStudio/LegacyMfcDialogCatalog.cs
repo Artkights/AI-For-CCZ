@@ -1,4 +1,5 @@
 using System.Globalization;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio;
@@ -608,27 +609,33 @@ internal static class LegacyMfcDialogCatalog
         var stride = 11 + id;
         var precedingSameCommandCount = session.PrecedingSameCommandCount;
         var dat = Enumerable.Range(0, stride * count).Select(i => session.Data.GetInt(i)).ToArray();
+        var originalDat = dat.ToArray();
         var currentLine = 0;
+        var loadingRow = false;
         session.SetListItems("IDC_LIST1", Enumerable.Range(0, count).Select(i => Dialog70ListText(session, id, stride, i, dat, precedingSameCommandCount)));
         session.ListBox("IDC_LIST1").ItemHeight = 18;
         session.ListBox("IDC_LIST1").Tag = dat;
+        session.ListBox("IDC_LIST1").AccessibleName = string.Join(",", originalDat.Select(value => value.ToString(CultureInfo.InvariantCulture)));
         session.ListBox("IDC_LIST1").AccessibleDescription = "0";
         session.SetVisible("IDC_CHECK1", id != 0);
         InitCombo(session, "IDC_COMBO13", session.DataSources.Person2, 0);
-        LoadDialog70Row(session, id, stride, 0, dat);
+        LoadDialog70Row(session, id, stride, 0, dat, ref loadingRow);
         session.BindComboSelectionChanged("IDC_COMBO1", (_, _) =>
         {
+            if (loadingRow) return;
+            currentLine = ClampDialog70Line(currentLine, count);
             dat[currentLine * stride] = LegacyMfcDialogDataSources.Per2ListToCode(session.GetComboIndex("IDC_COMBO1"));
             session.SetListItem("IDC_LIST1", currentLine, Dialog70ListText(session, id, stride, currentLine, dat, precedingSameCommandCount));
         });
-        session.BindComboSelectionChanged("IDC_COMBO12", (_, _) => SyncDialog70Policy(session, id, stride, currentLine, dat));
+        session.BindComboSelectionChanged("IDC_COMBO12", (_, _) => SyncDialog70Policy(session, id, stride, ClampDialog70Line(currentLine, count), dat, updatePolicy: !loadingRow));
         session.BindListSelectionChanged("IDC_LIST1", (_, _) =>
         {
-            var nextLine = Math.Max(0, session.GetListIndex("IDC_LIST1"));
-            SaveDialog70Row(session, id, stride, currentLine, dat);
+            if (loadingRow) return;
+            var nextLine = ClampDialog70Line(session.GetListIndex("IDC_LIST1"), count);
+            SaveDialog70Row(session, id, stride, currentLine, dat, originalDat);
             currentLine = nextLine;
             session.ListBox("IDC_LIST1").AccessibleDescription = currentLine.ToString(CultureInfo.InvariantCulture);
-            LoadDialog70Row(session, id, stride, currentLine, dat);
+            LoadDialog70Row(session, id, stride, currentLine, dat, ref loadingRow);
         });
     }
 
@@ -639,15 +646,19 @@ internal static class LegacyMfcDialogCatalog
             ? storedLine
             : session.GetListIndex("IDC_LIST1");
         var stride = 11 + id;
+        var count = 20 + id * 60;
+        listLine = ClampDialog70Line(listLine, count);
         if (session.ListBox("IDC_LIST1").Tag is int[] dat)
         {
-            var error = SaveDialog70Row(session, id, stride, listLine, dat);
+            var originalDat = ParseDialog70OriginalData(session, dat.Length);
+            var error = SaveDialog70Row(session, id, stride, listLine, dat, originalDat);
             if (error != null) return error;
-            var writeCount = 12 * (20 + id * 60);
+            var writeCount = stride * count;
             for (var i = 0; i < writeCount; i++)
             {
-                session.Data.SetInt(i, i < dat.Length ? dat[i] : 0);
+                session.Data.SetInt(i, dat[i]);
             }
+            session.Data.TrimIntSize(writeCount);
             return null;
         }
 
@@ -658,31 +669,54 @@ internal static class LegacyMfcDialogCatalog
     {
         var count = 20 + id * 60;
         var ordinal = (20 + 40 * id) + line + precedingSameCommandCount * count;
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(70 + id);
+        if (definition != null)
+        {
+            var values = dat.Skip(line * stride).Take(stride).ToArray();
+            if (BattlefieldDeploymentRecordFormatter.IsBlankRecord(definition, values))
+            {
+                return $"[{ordinal}]{BattlefieldDeploymentRecordFormatter.EmptySlotText}";
+            }
+        }
+
         return $"[{ordinal}]{Safe(session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[line * stride]))}";
     }
 
-    private static void LoadDialog70Row(LegacyMfcDialogSession session, int id, int stride, int listLine, int[] dat)
+    private static void LoadDialog70Row(LegacyMfcDialogSession session, int id, int stride, int listLine, int[] dat, ref bool loadingRow)
     {
-        var baseIndex = listLine * stride;
-        InitCombo(session, "IDC_COMBO1", session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex]));
-        session.SetCheck("IDC_CHECK1", dat[baseIndex + 1] == 1);
-        session.SetCheck("IDC_CHECK4", dat[baseIndex + 1 + id] == 1);
-        session.SetText("IDC_EDIT1", dat[baseIndex + 2 + id].ToString(CultureInfo.InvariantCulture));
-        session.SetText("IDC_EDIT2", dat[baseIndex + 3 + id].ToString(CultureInfo.InvariantCulture));
-        InitCombo(session, "IDC_COMBO5", session.DataSources.Direction, dat[baseIndex + 4 + id] >= 0 ? dat[baseIndex + 4 + id] : 4);
-        InitCombo(session, "IDC_COMBO10", session.DataSources.LevelOffsetItems(), session.DataSources.LevelOffsetCodeToList(dat[baseIndex + 5 + id]));
-        InitExistingCombo(session, "IDC_COMBO11", dat[baseIndex + 6 + id] >= 0 ? dat[baseIndex + 6 + id] : 2);
-        InitCombo(session, "IDC_COMBO12", session.DataSources.Policy, dat[baseIndex + 7 + id] >= 0 ? dat[baseIndex + 7 + id] : 1);
-        InitCombo(session, "IDC_COMBO13", session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex + 8 + id]));
-        session.SetText("IDC_EDIT7", dat[baseIndex + 9 + id].ToString(CultureInfo.InvariantCulture));
-        session.SetText("IDC_EDIT8", dat[baseIndex + 10 + id].ToString(CultureInfo.InvariantCulture));
-        SyncDialog70Policy(session, id, stride, listLine, dat);
+        loadingRow = true;
+        try
+        {
+            listLine = ClampDialog70Line(listLine, 20 + id * 60);
+            var baseIndex = listLine * stride;
+            InitCombo(session, "IDC_COMBO1", session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex]));
+            session.SetCheck("IDC_CHECK1", dat[baseIndex + 1] == 1);
+            session.SetCheck("IDC_CHECK4", dat[baseIndex + 1 + id] == 1);
+            session.SetText("IDC_EDIT1", dat[baseIndex + 2 + id].ToString(CultureInfo.InvariantCulture));
+            session.SetText("IDC_EDIT2", dat[baseIndex + 3 + id].ToString(CultureInfo.InvariantCulture));
+            InitCombo(session, "IDC_COMBO5", session.DataSources.Direction, dat[baseIndex + 4 + id] >= 0 ? dat[baseIndex + 4 + id] : 4);
+            InitCombo(session, "IDC_COMBO10", session.DataSources.LevelOffsetItems(), session.DataSources.LevelOffsetCodeToList(dat[baseIndex + 5 + id]));
+            InitExistingCombo(session, "IDC_COMBO11", dat[baseIndex + 6 + id] >= 0 ? dat[baseIndex + 6 + id] : 2);
+            InitCombo(session, "IDC_COMBO12", session.DataSources.Policy, dat[baseIndex + 7 + id] >= 0 ? dat[baseIndex + 7 + id] : 1);
+            InitCombo(session, "IDC_COMBO13", session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex + 8 + id]));
+            session.SetText("IDC_EDIT7", dat[baseIndex + 9 + id].ToString(CultureInfo.InvariantCulture));
+            session.SetText("IDC_EDIT8", dat[baseIndex + 10 + id].ToString(CultureInfo.InvariantCulture));
+            SyncDialog70Policy(session, id, stride, listLine, dat, updatePolicy: false);
+        }
+        finally
+        {
+            loadingRow = false;
+        }
     }
 
-    private static void SyncDialog70Policy(LegacyMfcDialogSession session, int id, int stride, int listLine, int[] dat)
+    private static void SyncDialog70Policy(LegacyMfcDialogSession session, int id, int stride, int listLine, int[] dat, bool updatePolicy)
     {
+        listLine = ClampDialog70Line(listLine, 20 + id * 60);
         var baseIndex = listLine * stride;
-        dat[baseIndex + 7 + id] = session.GetComboIndex("IDC_COMBO12");
+        if (updatePolicy)
+        {
+            dat[baseIndex + 7 + id] = session.GetComboIndex("IDC_COMBO12");
+        }
         var policy = dat[baseIndex + 7 + id];
         var showPerson = policy is 3 or 5;
         var showPoint = policy is 4 or 6;
@@ -703,9 +737,21 @@ internal static class LegacyMfcDialogCatalog
         }
     }
 
-    private static string? SaveDialog70Row(LegacyMfcDialogSession session, int id, int stride, int listLine, int[]? dat)
+    private static string? SaveDialog70Row(LegacyMfcDialogSession session, int id, int stride, int listLine, int[]? dat, IReadOnlyList<int>? originalDat = null)
     {
+        listLine = ClampDialog70Line(listLine, 20 + id * 60);
         var baseIndex = listLine * stride;
+        if (dat != null &&
+            originalDat != null &&
+            IsDialog70OriginalBlankRowUnchanged(session, id, stride, baseIndex, originalDat))
+        {
+            for (var offset = 0; offset < stride; offset++)
+            {
+                dat[baseIndex + offset] = originalDat[baseIndex + offset];
+            }
+            return null;
+        }
+
         void Set(int index, int value)
         {
             if (dat != null)
@@ -737,6 +783,73 @@ internal static class LegacyMfcDialogCatalog
         Set(baseIndex + 10 + id, ty);
         return null;
     }
+
+    private static int[] ParseDialog70OriginalData(LegacyMfcDialogSession session, int expectedCount)
+    {
+        var text = session.ListBox("IDC_LIST1").AccessibleName;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Enumerable.Range(0, expectedCount).Select(session.Data.GetInt).ToArray();
+        }
+
+        var values = text.Split(',', StringSplitOptions.None);
+        if (values.Length != expectedCount)
+        {
+            return Enumerable.Range(0, expectedCount).Select(session.Data.GetInt).ToArray();
+        }
+
+        var result = new int[expectedCount];
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (!int.TryParse(values[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out result[i]))
+            {
+                return Enumerable.Range(0, expectedCount).Select(session.Data.GetInt).ToArray();
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsDialog70OriginalBlankRowUnchanged(
+        LegacyMfcDialogSession session,
+        int id,
+        int stride,
+        int baseIndex,
+        IReadOnlyList<int> originalDat)
+    {
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(70 + id);
+        if (definition == null || baseIndex < 0 || baseIndex + stride > originalDat.Count)
+        {
+            return false;
+        }
+
+        var originalValues = originalDat.Skip(baseIndex).Take(stride).ToArray();
+        if (!BattlefieldDeploymentRecordFormatter.IsBlankRecord(definition, originalValues))
+        {
+            return false;
+        }
+
+        if (!session.TryReadEditInt("IDC_EDIT1", out var x, out _)) return false;
+        if (!session.TryReadEditInt("IDC_EDIT2", out var y, out _)) return false;
+        if (!session.TryReadEditInt("IDC_EDIT7", out var targetX, out _)) return false;
+        if (!session.TryReadEditInt("IDC_EDIT8", out var targetY, out _)) return false;
+
+        return session.GetComboIndex("IDC_COMBO1") == LegacyMfcDialogDataSources.Per2CodeToList(originalValues[0]) &&
+               session.GetCheck("IDC_CHECK1") == (originalValues[1] == 1) &&
+               session.GetCheck("IDC_CHECK4") == (originalValues[1 + id] == 1) &&
+               x == originalValues[2 + id] &&
+               y == originalValues[3 + id] &&
+               session.GetComboIndex("IDC_COMBO5") == (originalValues[4 + id] >= 0 ? originalValues[4 + id] : 4) &&
+               session.GetComboIndex("IDC_COMBO10") == session.DataSources.LevelOffsetCodeToList(originalValues[5 + id]) &&
+               session.GetComboIndex("IDC_COMBO11") == (originalValues[6 + id] >= 0 ? originalValues[6 + id] : 2) &&
+               session.GetComboIndex("IDC_COMBO12") == (originalValues[7 + id] >= 0 ? originalValues[7 + id] : 1) &&
+               session.GetComboIndex("IDC_COMBO13") == LegacyMfcDialogDataSources.Per2CodeToList(originalValues[8 + id]) &&
+               targetX == originalValues[9 + id] &&
+               targetY == originalValues[10 + id];
+    }
+
+    private static int ClampDialog70Line(int listLine, int count)
+        => Math.Clamp(listLine, 0, Math.Max(0, count - 1));
 
     private static void InitDialog76(LegacyMfcDialogSession session)
     {

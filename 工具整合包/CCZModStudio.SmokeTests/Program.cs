@@ -31,6 +31,9 @@ var imageAssignmentWriteSmokeOnly = args.Contains("--image-assignment-write-smok
 var rImageRawReplaceSmokeOnly = args.Contains("--r-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var batchImageImportSmokeOnly = args.Contains("--batch-image-import-smoke", StringComparer.OrdinalIgnoreCase);
+var rImageTrueColorImport = args.Contains("--r-image-truecolor-import", StringComparer.OrdinalIgnoreCase);
+var sImageTrueColorImport = args.Contains("--s-image-truecolor-import", StringComparer.OrdinalIgnoreCase);
+var trueColorEntryInspect = args.Contains("--truecolor-entry-inspect", StringComparer.OrdinalIgnoreCase);
 var aiImageAssetSmokeOnly = args.Contains("--ai-image-asset-smoke", StringComparer.OrdinalIgnoreCase);
 var shopSmokeOnly = args.Contains("--shop-smoke", StringComparer.OrdinalIgnoreCase);
 var jobAreaDropdownSmokeOnly = args.Contains("--job-area-dropdown-smoke", StringComparer.OrdinalIgnoreCase);
@@ -71,6 +74,34 @@ var roleDefaultEquipmentSmokeOnly = args.Contains("--role-default-equipment-smok
 var revised66SmokeOnly = args.Contains("--66-revised-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66RegressionSmokeOnly = args.Contains("--66-regression-smoke", StringComparer.OrdinalIgnoreCase);
 var dongwuLegacyLayoutSmokeOnly = args.Contains("--dongwu-legacy-layout-smoke", StringComparer.OrdinalIgnoreCase);
+var duplicateKeySmokeOnly = args.Contains("--duplicate-key-smoke", StringComparer.OrdinalIgnoreCase);
+var scriptTreeUiSmokeOnly = args.Contains("--script-tree-ui-smoke", StringComparer.OrdinalIgnoreCase);
+var battlefieldScriptTreeUiSmokeOnly = args.Contains("--battlefield-script-tree-ui-smoke", StringComparer.OrdinalIgnoreCase);
+var guiPackageLayoutSmokeOnly = args.Contains("--gui-package-layout-smoke", StringComparer.OrdinalIgnoreCase);
+
+if (duplicateKeySmokeOnly)
+{
+    RunDuplicateKeySmoke();
+    return;
+}
+
+if (scriptTreeUiSmokeOnly)
+{
+    RunScriptTreeUiSmoke();
+    return;
+}
+
+if (battlefieldScriptTreeUiSmokeOnly)
+{
+    RunBattlefieldScriptTreeUiSmoke();
+    return;
+}
+
+if (guiPackageLayoutSmokeOnly)
+{
+    RunGuiPackageLayoutSmoke();
+    return;
+}
 
 var detector = new ProjectDetector();
 var envGameRoot = Environment.GetEnvironmentVariable("CCZMODSTUDIO_GAME_ROOT");
@@ -220,6 +251,24 @@ if (sImageRawReplaceSmokeOnly)
 if (batchImageImportSmokeOnly)
 {
     RunBatchImageImportSmoke(project);
+    return;
+}
+
+if (rImageTrueColorImport)
+{
+    RunRImageTrueColorImport(project, args);
+    return;
+}
+
+if (sImageTrueColorImport)
+{
+    RunSImageTrueColorImport(project, args);
+    return;
+}
+
+if (trueColorEntryInspect)
+{
+    RunTrueColorEntryInspect(project, args);
     return;
 }
 

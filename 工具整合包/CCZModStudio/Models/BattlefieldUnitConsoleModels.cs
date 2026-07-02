@@ -30,9 +30,24 @@ public sealed class BattlefieldUnitDataDefaults
             : "未读取";
 
     public string FormatItem(int? itemId)
+    {
+        if (itemId == CCZModStudio.Core.BattlefieldUnitDataDefaultService.DataEquipmentUnset)
+        {
+            return "使用默认配装（Data=255）";
+        }
+
+        if (!itemId.HasValue)
+        {
+            return "未读取";
+        }
+
+        return $"{itemId.Value} {LookupName(ItemNames, itemId.Value, "物品")}";
+    }
+
+    public string FormatDataEquipment(int? itemId)
         => itemId.HasValue
-            ? $"{itemId.Value} {LookupName(ItemNames, itemId.Value, "物品")}"
-            : "未读取";
+            ? FormatItem(itemId)
+            : "使用默认配装（未读取）";
 
     private static string LookupName(IReadOnlyDictionary<int, string> names, int id, string fallbackPrefix)
         => names.TryGetValue(id, out var name) && !string.IsNullOrWhiteSpace(name)

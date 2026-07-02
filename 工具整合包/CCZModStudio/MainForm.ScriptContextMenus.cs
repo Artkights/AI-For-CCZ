@@ -613,13 +613,13 @@ public sealed partial class MainForm
         if (e.Button != MouseButtons.Left) return;
         _scriptTree.SelectedNode = e.Node;
         ShowSelectedScriptTreeNode();
-        if (TryGetSelectedLegacyItemData(out var itemData) && itemData.Command != null)
+        if (TryGetLegacyItemDataFromScriptTreeNode(e.Node, out var itemData) && itemData.Command != null)
         {
-            EditSelectedLegacyItemDataCommand();
+            EditSelectedLegacyItemDataCommand(itemData);
             return;
         }
 
-        FocusSelectedScriptObjectEditor();
+        SetStatus("剧本制作：双击节点不是可修改的旧版命令。");
     }
 
     private void UpdateScriptTreeContextMenuItems()

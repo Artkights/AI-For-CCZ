@@ -11,7 +11,7 @@ public sealed class EditableImageCodecService
     private const int RtBitmap = 2;
     private static readonly byte[] PngMagic = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
     private readonly E5ImageReplaceService _e5 = new();
-    private readonly E5RawImageCodec _raw = new();
+    private readonly E5TrueColorImageCodec _trueColor = new();
     private readonly IconResourceReplaceService _icons = new();
     private readonly ItemIconRasterNormalizeService _itemIconNormalizer = new();
     private readonly DllBitmapIconCodecService _dllIconCodec = new();
@@ -103,7 +103,7 @@ public sealed class EditableImageCodecService
         {
             ImageNumber = target.ImageNumber,
             SourceBytes = sourceBytes,
-            SourceBytesAreRaw = target.Kind == EditableImageTargetKind.E5RawStrip,
+            SourceBytesAreRaw = false,
             SourceLabel = target.DisplayName,
             OperationKind = target.OperationKind
         };
@@ -166,7 +166,7 @@ public sealed class EditableImageCodecService
         {
             ImageNumber = target.ImageNumber,
             SourceBytes = sourceBytes,
-            SourceBytesAreRaw = target.Kind == EditableImageTargetKind.E5RawStrip,
+            SourceBytesAreRaw = false,
             SourceLabel = target.DisplayName,
             OperationKind = target.OperationKind
         };
@@ -276,9 +276,9 @@ public sealed class EditableImageCodecService
         if (target.Kind == EditableImageTargetKind.E5RawStrip)
         {
             var spec = ResolveRawSpec(target.TargetPath);
-            var encode = _raw.EncodeBitmap(project, bitmap, target.DisplayName, spec, strictHeight: false);
+            var encode = _trueColor.EncodeBitmap(project, bitmap, target.DisplayName, spec, strictHeight: false);
             warnings = encode.Warnings;
-            return encode.RawBytes;
+            return encode.ImageBytes;
         }
 
         warnings = Array.Empty<string>();

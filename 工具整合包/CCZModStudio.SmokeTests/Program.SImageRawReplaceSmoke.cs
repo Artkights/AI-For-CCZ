@@ -53,9 +53,9 @@ internal partial class Program
             throw new InvalidOperationException("S>=33 一键 RAW 替换写入结果不符合预期。");
         }
 
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 554, 48 * 528);
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), 554, 64 * 768);
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), 554, 48 * 240);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 554, 48 * 528);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), 554, 64 * 768);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), 554, 48 * 240);
 
         var moveOnlyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsMoveOnly");
         Directory.CreateDirectory(moveOnlyRoot);
@@ -86,7 +86,7 @@ internal partial class Program
             throw new InvalidOperationException("S 部分导入写入结果不符合预期。");
         }
 
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 553, 48 * 528);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 553, 48 * 528);
 
         var atkOnlyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsAtkOnly");
         Directory.CreateDirectory(atkOnlyRoot);
@@ -107,7 +107,7 @@ internal partial class Program
 
         foreach (var imageNumber in new[] { 241, 242, 243 })
         {
-            VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
+            VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
         }
 
         var emptyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsEmpty");
@@ -135,9 +135,9 @@ internal partial class Program
 
         foreach (var imageNumber in new[] { 241, 242, 243 })
         {
-            VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), imageNumber, 48 * 528);
-            VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
-            VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
+            VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), imageNumber, 48 * 528);
+            VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
+            VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
         }
 
         RunJobSImageRawReplaceSmoke(testProject, replace);
@@ -190,9 +190,9 @@ internal partial class Program
             throw new InvalidOperationException("Job S image replace for faction 1 did not write exactly 3 entries.");
         }
 
-        VerifyRawEntry(replace, movPath, 31, 48 * 528);
-        VerifyRawEntry(replace, atkPath, 31, 64 * 768);
-        VerifyRawEntry(replace, spcPath, 31, 48 * 240);
+        VerifyTrueColorEntry(replace, movPath, 31, 48 * 528);
+        VerifyTrueColorEntry(replace, atkPath, 31, 64 * 768);
+        VerifyTrueColorEntry(replace, spcPath, 31, 48 * 240);
         var afterFactionOneMov31 = replace.ReadEntryBytes(movPath, 31);
         var afterFactionOneAtk31 = replace.ReadEntryBytes(atkPath, 31);
         var afterFactionOneSpc31 = replace.ReadEntryBytes(spcPath, 31);
@@ -234,12 +234,12 @@ internal partial class Program
             throw new InvalidOperationException("Job S image replace for factions 2/3 did not write exactly 6 entries.");
         }
 
-        VerifyRawEntry(replace, movPath, 32, 48 * 528);
-        VerifyRawEntry(replace, atkPath, 32, 64 * 768);
-        VerifyRawEntry(replace, spcPath, 32, 48 * 240);
-        VerifyRawEntry(replace, movPath, 33, 48 * 528);
-        VerifyRawEntry(replace, atkPath, 33, 64 * 768);
-        VerifyRawEntry(replace, spcPath, 33, 48 * 240);
+        VerifyTrueColorEntry(replace, movPath, 32, 48 * 528);
+        VerifyTrueColorEntry(replace, atkPath, 32, 64 * 768);
+        VerifyTrueColorEntry(replace, spcPath, 32, 48 * 240);
+        VerifyTrueColorEntry(replace, movPath, 33, 48 * 528);
+        VerifyTrueColorEntry(replace, atkPath, 33, 64 * 768);
+        VerifyTrueColorEntry(replace, spcPath, 33, 48 * 240);
         AssertEntryBytesEqual(replace.ReadEntryBytes(movPath, 31), afterFactionOneMov31, "Unit_mov.e5 #31 changed when only factions 2/3 were selected.");
         AssertEntryBytesEqual(replace.ReadEntryBytes(atkPath, 31), afterFactionOneAtk31, "Unit_atk.e5 #31 changed when only factions 2/3 were selected.");
         AssertEntryBytesEqual(replace.ReadEntryBytes(spcPath, 31), afterFactionOneSpc31, "Unit_spc.e5 #31 changed when only factions 2/3 were selected.");
@@ -272,9 +272,9 @@ internal partial class Program
 
         foreach (var imageNumber in new[] { 31, 32, 33 })
         {
-            VerifyRawEntry(replace, movPath, imageNumber, 48 * 528);
-            VerifyRawEntry(replace, atkPath, imageNumber, 64 * 768);
-            VerifyRawEntry(replace, spcPath, imageNumber, 48 * 240);
+            VerifyTrueColorEntry(replace, movPath, imageNumber, 48 * 528);
+            VerifyTrueColorEntry(replace, atkPath, imageNumber, 64 * 768);
+            VerifyTrueColorEntry(replace, spcPath, imageNumber, 48 * 240);
         }
     }
 
@@ -295,23 +295,76 @@ internal partial class Program
         bitmap.Save(path, ImageFormat.Bmp);
     }
 
+    private static void VerifyTrueColorEntry(E5ImageReplaceService replace, string path, int imageNumber, int expectedPixels)
+    {
+        var bytes = replace.ReadEntryBytes(path, imageNumber);
+        if (bytes.Length < 8 ||
+            bytes[0] != 0x89 ||
+            bytes[1] != (byte)'P' ||
+            bytes[2] != (byte)'N' ||
+            bytes[3] != (byte)'G' ||
+            bytes[4] != 0x0D ||
+            bytes[5] != 0x0A ||
+            bytes[6] != 0x1A ||
+            bytes[7] != 0x0A)
+        {
+            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} was not written as PNG true-color data.");
+        }
+
+        var expectedWidth = ResolveExpectedRoleImageWidth(path);
+        if (expectedPixels % expectedWidth != 0)
+        {
+            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} expected pixel count is not divisible by width {expectedWidth}: {expectedPixels}");
+        }
+
+        var expectedHeight = expectedPixels / expectedWidth;
+        using (var memory = new MemoryStream(bytes, writable: false))
+        using (var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: true))
+        {
+            if (image.Width != expectedWidth || image.Height != expectedHeight)
+            {
+                throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} PNG dimensions mismatch: {image.Width}x{image.Height} != {expectedWidth}x{expectedHeight}");
+            }
+        }
+
+        var entry = replace.ReadIndex(path)[imageNumber - 1];
+        if (!entry.Kind.Equals("PNG", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} was not indexed as PNG: {entry.Kind}");
+        }
+    }
+
+    private static int ResolveExpectedRoleImageWidth(string path)
+    {
+        var name = Path.GetFileName(path);
+        if (name.Equals("Unit_atk.e5", StringComparison.OrdinalIgnoreCase)) return 64;
+        if (name.Equals("Pmapobj.e5", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Unit_mov.e5", StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Unit_spc.e5", StringComparison.OrdinalIgnoreCase))
+        {
+            return 48;
+        }
+
+        throw new InvalidOperationException($"Unsupported role image smoke target: {name}");
+    }
+
     private static void VerifyRawEntry(E5ImageReplaceService replace, string path, int imageNumber, int expectedLength)
     {
         var bytes = replace.ReadEntryBytes(path, imageNumber);
         if (bytes.Length != expectedLength)
         {
-            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} RAW 长度不符合预期：{bytes.Length} != {expectedLength}");
+            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} RAW length mismatch: {bytes.Length} != {expectedLength}");
         }
 
         if (bytes.Length >= 2 && bytes[0] == (byte)'B' && bytes[1] == (byte)'M')
         {
-            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} 仍然是 BMP 头。");
+            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} is still a BMP header.");
         }
 
         var entry = replace.ReadIndex(path)[imageNumber - 1];
         if (!entry.Kind.Equals("RAW", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} 未识别为 RAW：{entry.Kind}");
+            throw new InvalidOperationException($"{Path.GetFileName(path)} #{imageNumber} was not indexed as RAW: {entry.Kind}");
         }
     }
 

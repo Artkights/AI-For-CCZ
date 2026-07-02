@@ -44,7 +44,7 @@ public sealed partial class BattlefieldAllyDeploymentSlotService
 
         var paletteByPersonId = paletteItems
             .GroupBy(item => item.PersonId)
-            .ToDictionary(group => group.Key, group => group.First());
+            .ToDictionaryFirstByKey(group => group.Key, group => group.First());
         var forcedByOrder = forcedPersons
             .Take(activeCount)
             .Select((personId, index) => new { OrderIndex = index, PersonId = personId })
@@ -307,7 +307,7 @@ public sealed partial class BattlefieldAllyDeploymentSlotService
     {
         var rightByOrder = right
             .GroupBy(slot => slot.Order)
-            .ToDictionary(group => group.Key, group => group.First());
+            .ToDictionaryFirstByKey(group => group.Key, group => group.First());
         var score = 0;
         foreach (var slot in left)
         {

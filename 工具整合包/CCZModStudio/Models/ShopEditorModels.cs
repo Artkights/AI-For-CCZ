@@ -17,6 +17,14 @@ public sealed record ShopItemInfo(
         : $"{Id:D3} {Name}｜{Category}｜{TypeDescription}";
 }
 
+public sealed record ShopSlotValidationIssue(
+    int RowId,
+    int Slot,
+    string ColumnName,
+    int ItemId,
+    string ItemName,
+    string Message);
+
 public sealed class ShopEditorBuildResult
 {
     public required DataTable Data { get; init; }

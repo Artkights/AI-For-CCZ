@@ -67,9 +67,25 @@ internal partial class Program
         }
 
         var rawBytes = e5.ReadEntryBytes(rawPath, rawTarget.ImageNumber);
-        if (rawBytes.Length < 1 || rawBytes[0] != 0)
+        var rawEntry = e5.ReadIndex(rawPath)[rawTarget.ImageNumber - 1];
+        if (!rawEntry.Kind.Equals("PNG", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("RAW pixel editor reread pixel did not match the expected value.");
+            throw new InvalidOperationException($"RAW pixel editor writeback should save true-color PNG, got {rawEntry.Kind}.");
+        }
+
+        using (var memory = new MemoryStream(rawBytes, writable: false))
+        using (var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: true))
+        using (var reread = new Bitmap(image))
+        {
+            if (reread.Width != 48 || reread.Height % 64 != 0)
+            {
+                throw new InvalidOperationException($"RAW pixel editor PNG dimensions are unexpected: {reread.Width}x{reread.Height}");
+            }
+
+            if (reread.GetPixel(0, 0).A != 0)
+            {
+                throw new InvalidOperationException("RAW pixel editor true-color reread pixel did not preserve transparency.");
+            }
         }
 
         var iconPath = Path.Combine(testProject.GameRoot, "Itemicon.dll");

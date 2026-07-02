@@ -79,6 +79,7 @@ public sealed partial class MainForm
         var currentSessionKey = BuildProjectSessionCacheKey(project);
         var projectChanged = !_loadedProjectSessionKey.Equals(currentSessionKey, StringComparison.OrdinalIgnoreCase);
         _project = project;
+        ApplicationErrorService.SetCurrentProjectPath(project.GameRoot);
         _loadedProjectSessionKey = currentSessionKey;
         _legacyMfcDialogDataSources = null;
         _legacyScenarioCommandDisplayFormatter = null;
@@ -175,6 +176,7 @@ public sealed partial class MainForm
     private void ClearProjectLoadState(string projectText, string statusText)
     {
         _project = null;
+        ApplicationErrorService.SetCurrentProjectPath(null);
         _tables = Array.Empty<HexTableDefinition>();
         _projectLabel.Text = projectText;
         ResetProjectBoundState();
@@ -224,6 +226,7 @@ public sealed partial class MainForm
         _batchImportRoleFaceButton.Enabled = false;
         _exportRoleFaceBmpButton.Enabled = false;
         _saveRoleTextDetailButton.Enabled = false;
+        ClearRoleEquipmentDetailControls();
 
         _currentJobEditorData = null;
         _jobEditorGrid.DataSource = null;
@@ -234,6 +237,7 @@ public sealed partial class MainForm
         _exportJobSImageBmpButton.Enabled = false;
         _currentAccessoryJobGroupProfile = null;
         _jobSeriesNames = new Dictionary<int, string>();
+        ClearJobDescriptionBox("读取兵种后，在此编辑当前兵种介绍。");
 
         _currentJobStrategyData = null;
         _jobStrategyEditorGrid.DataSource = null;

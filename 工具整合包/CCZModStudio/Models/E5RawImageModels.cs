@@ -25,6 +25,26 @@ public sealed class E5RawEncodeResult
     public byte[] RawBytes { get; init; } = Array.Empty<byte>();
 }
 
+public sealed class E5TrueColorEncodeResult
+{
+    public string SourcePath { get; init; } = string.Empty;
+    public string TargetFileName { get; init; } = string.Empty;
+    public int SourceWidth { get; init; }
+    public int SourceHeight { get; init; }
+    public int NormalizedWidth { get; init; }
+    public int NormalizedHeight { get; init; }
+    public string StorageFormat { get; init; } = string.Empty;
+    public int ColorDepth { get; init; }
+    public int ImageLength => ImageBytes.Length;
+    public int TransparentPixels { get; init; }
+    public int MagentaKeyPixels { get; init; }
+    public string Quantization { get; init; } = "未使用 tsb 调色板量化";
+    public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
+
+    [JsonIgnore]
+    public byte[] ImageBytes { get; init; } = Array.Empty<byte>();
+}
+
 public sealed class SImageReplaceRequest
 {
     public int SImageId { get; init; }
@@ -51,7 +71,7 @@ public sealed class SImageReplaceFilePreview
     public string TargetFileName { get; init; } = string.Empty;
     public string TargetPath { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
-    public E5RawEncodeResult Encode { get; init; } = new();
+    public E5TrueColorEncodeResult Encode { get; init; } = new();
     public E5ImageBatchReplacePreviewResult BatchPreview { get; init; } = new();
 }
 
@@ -70,7 +90,7 @@ public sealed class SImageReplaceFileResult
     public string TargetFileName { get; init; } = string.Empty;
     public string TargetPath { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
-    public E5RawEncodeResult Encode { get; init; } = new();
+    public E5TrueColorEncodeResult Encode { get; init; } = new();
     public E5ImageBatchReplaceResult WriteResult { get; init; } = new();
 }
 
@@ -108,7 +128,7 @@ public sealed class RImageReplaceFilePreview
     public string TargetPath { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
     public int ImageNumber { get; init; }
-    public E5RawEncodeResult Encode { get; init; } = new();
+    public E5TrueColorEncodeResult Encode { get; init; } = new();
 }
 
 public sealed class RImageReplacePreviewResult
@@ -128,7 +148,7 @@ public sealed class RImageReplaceFileResult
     public string TargetPath { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
     public int ImageNumber { get; init; }
-    public E5RawEncodeResult Encode { get; init; } = new();
+    public E5TrueColorEncodeResult Encode { get; init; } = new();
 }
 
 public sealed class RImageReplaceResult

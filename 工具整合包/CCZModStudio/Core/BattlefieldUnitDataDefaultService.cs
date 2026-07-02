@@ -7,6 +7,8 @@ namespace CCZModStudio.Core;
 
 public sealed class BattlefieldUnitDataDefaultService
 {
+    public const int DataEquipmentUnset = 255;
+
     private readonly CczEngineProfileService _engineProfileService = new();
     private readonly HexTableReader _tableReader = new();
 
@@ -95,7 +97,7 @@ public sealed class BattlefieldUnitDataDefaultService
 
     public static int ToScriptEquipmentCode(int? itemId, ItemCategoryBoundary boundary, BattlefieldEquipmentSlot slot)
     {
-        if (!itemId.HasValue)
+        if (!itemId.HasValue || itemId.Value == DataEquipmentUnset)
         {
             return 0;
         }
@@ -119,7 +121,7 @@ public sealed class BattlefieldUnitDataDefaultService
     {
         if (!scriptCode.HasValue || scriptCode.Value == 0)
         {
-            return dataDefaultItemId;
+            return NormalizeDataEquipmentId(dataDefaultItemId);
         }
 
         if (scriptCode.Value == 1)
@@ -136,6 +138,14 @@ public sealed class BattlefieldUnitDataDefaultService
         };
         return start + scriptCode.Value - 2;
     }
+
+    public static int? NormalizeDataEquipmentId(int? itemId)
+        => itemId.HasValue && itemId.Value != DataEquipmentUnset
+            ? itemId
+            : null;
+
+    public static bool IsUnsetDataEquipment(int? itemId)
+        => !itemId.HasValue || itemId.Value == DataEquipmentUnset;
 
     private IReadOnlyDictionary<int, string> BuildNameMap(
         CczProject project,

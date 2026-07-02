@@ -159,7 +159,7 @@ public sealed partial class ScenarioFileReader
     private static IReadOnlyList<SceneCommandDefinition> BuildCommandCandidateSummary(ushort[] words, SceneStringDocument? dictionary, int scanStartByte)
     {
         if (dictionary == null || dictionary.Commands.Count == 0) return Array.Empty<SceneCommandDefinition>();
-        var map = dictionary.Commands.ToDictionary(x => x.Id);
+        var map = DictionaryBuild.ToDictionaryFirstByKey(dictionary.Commands, x => x.Id, x => x);
         var result = new List<SceneCommandDefinition>();
         var seen = new HashSet<int>();
         var startWord = Math.Clamp(scanStartByte / 2, 0, words.Length);

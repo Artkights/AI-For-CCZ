@@ -114,8 +114,8 @@ public sealed class BatchRImageReplaceItemPreview
     public int BackImageNumber { get; init; }
     public string FrontSourcePath { get; init; } = string.Empty;
     public string BackSourcePath { get; init; } = string.Empty;
-    public E5RawEncodeResult FrontEncode { get; init; } = new();
-    public E5RawEncodeResult BackEncode { get; init; } = new();
+    public E5TrueColorEncodeResult FrontEncode { get; init; } = new();
+    public E5TrueColorEncodeResult BackEncode { get; init; } = new();
 }
 
 public class BatchRImageReplacePreviewResult
@@ -146,9 +146,9 @@ public sealed class BatchSImageReplaceItemPreview
     public string MovSourcePath { get; init; } = string.Empty;
     public string AtkSourcePath { get; init; } = string.Empty;
     public string SpcSourcePath { get; init; } = string.Empty;
-    public E5RawEncodeResult MovEncode { get; init; } = new();
-    public E5RawEncodeResult AtkEncode { get; init; } = new();
-    public E5RawEncodeResult SpcEncode { get; init; } = new();
+    public E5TrueColorEncodeResult MovEncode { get; init; } = new();
+    public E5TrueColorEncodeResult AtkEncode { get; init; } = new();
+    public E5TrueColorEncodeResult SpcEncode { get; init; } = new();
 }
 
 public class BatchSImageReplacePreviewResult

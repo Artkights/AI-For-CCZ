@@ -460,6 +460,52 @@ internal partial class Program
             throw new InvalidOperationException("Battlefield console delta smoke failed to preserve +/- ability operation mode.");
         }
 
+        var unsetDefaults = new BattlefieldUnitDataDefaults
+        {
+            Found = true,
+            PersonId = 33,
+            PersonName = "SmokeUnsetEquipment",
+            JobId = 5,
+            WeaponId = BattlefieldUnitDataDefaultService.DataEquipmentUnset,
+            WeaponLevel = 0,
+            ArmorId = BattlefieldUnitDataDefaultService.DataEquipmentUnset,
+            ArmorLevel = 0,
+            AssistId = BattlefieldUnitDataDefaultService.DataEquipmentUnset,
+            Abilities = defaults.Abilities
+        };
+        var unsetDraft = CreateBattlefieldConsoleDeltaDraft(unsetDefaults);
+        var unsetNoChange = service.BuildDeltaDraftFromEffectiveValues(
+            unsetDraft,
+            unsetDefaults,
+            boundary,
+            weaponId: null,
+            weaponLevel: 0,
+            armorId: null,
+            armorLevel: 0,
+            assistId: null,
+            jobId: unsetDefaults.JobId,
+            abilities: unsetDefaults.Abilities.ToDictionary(pair => pair.Key, pair => (Operation: 0, Value: (int?)pair.Value)));
+        AssertBattlefieldConsoleDelta(unsetNoChange, expectDelta: false, "Data=255 default equipment should not create 0x48 overrides.");
+        if (BattlefieldUnitDataDefaultService.ToScriptEquipmentCode(BattlefieldUnitDataDefaultService.DataEquipmentUnset, boundary, BattlefieldEquipmentSlot.Weapon) != 0 ||
+            BattlefieldUnitDataDefaultService.FromScriptEquipmentCode(0, boundary, BattlefieldEquipmentSlot.Weapon, BattlefieldUnitDataDefaultService.DataEquipmentUnset).HasValue ||
+            unsetDefaults.FormatItem(BattlefieldUnitDataDefaultService.DataEquipmentUnset) != "使用默认配装（Data=255）")
+        {
+            throw new InvalidOperationException("Battlefield console delta smoke failed Data=255 default equipment handling.");
+        }
+
+        var scene2Placement = new BattlefieldPlacedUnit
+        {
+            TargetKey = "Scene=2;Section=0;Command=0;Offset=000000;Id=0x46;Record=0",
+            PersonId = defaults.PersonId,
+            GridX = 1,
+            GridY = 1
+        };
+        if (BattlefieldUnitStatusWriteService.IsWritableStatusTarget(scene2Placement) ||
+            !BattlefieldUnitStatusWriteService.IsScene2PlusStatusTarget(scene2Placement))
+        {
+            throw new InvalidOperationException("Battlefield console delta smoke failed Scene2+ status write guard.");
+        }
+
         Console.WriteLine("BATTLEFIELD_UNIT_CONSOLE_DELTA_SMOKE_OK");
     }
 
@@ -467,7 +513,7 @@ internal partial class Program
     {
         var draft = new BattlefieldUnitStatusDraft
         {
-            TargetKey = "Scene=0;Section=0;Command=0;Offset=000000;Id=0x46;Record=0",
+            TargetKey = "Scene=1;Section=0;Command=0;Offset=000000;Id=0x46;Record=0",
             ScenarioFileName = "S_00.eex",
             PersonId = defaults.PersonId,
             PersonName = defaults.PersonName,
@@ -1508,11 +1554,13 @@ internal partial class Program
             .Take(statusSegmentEnd - beforeBlockEnd)
             .ToList();
         var deploymentStatusCommands = FlattenSmokeStatusCommands(deploymentStatusNodes);
+        var equipmentBlockTitle = BattlefieldUnitStatusWriteService.GetEquipmentStatusBlockTitle(command.CommandId);
+        var runtimeBlockTitle = BattlefieldUnitStatusWriteService.GetRuntimeStatusBlockTitle(command.CommandId);
         var equipmentBlock = AssertSmokeInternalInfoBlock(
             list,
             beforeBlockEnd,
             statusSegmentEnd,
-            BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle,
+            equipmentBlockTitle,
             personId,
             expectEquipment: true,
             expectRuntime: false);
@@ -1535,14 +1583,14 @@ internal partial class Program
             drawingList,
             drawingIndex + 1,
             drawingIndex + 1 + drawingStatusNodes.Count,
-            BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle,
+            runtimeBlockTitle,
             personId,
             expectEquipment: false,
             expectRuntime: true);
         var runtimeBlockCount = drawingStatusNodes.Count(command =>
             command.CommandId == 0x02 &&
             command.ChildBlock != null &&
-            string.Equals(command.TextParameters.FirstOrDefault()?.Text?.Trim(), BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, StringComparison.Ordinal));
+            string.Equals(command.TextParameters.FirstOrDefault()?.Text?.Trim(), runtimeBlockTitle, StringComparison.Ordinal));
         if (runtimeBlockCount != 1)
         {
             throw new InvalidOperationException($"Battlefield unit status smoke expected one runtime folded block for consecutive 52/38 commands, actual={runtimeBlockCount}.");
@@ -1586,13 +1634,22 @@ internal partial class Program
             throw new InvalidOperationException($"Battlefield unit status smoke did not insert runtime status commands below 1C drawing: drawing={drawingIndex}, status={firstRuntimeStatusIndex}.");
         }
 
-        var deploymentBlockCountBeforeSecondSave = CountSmokeInternalInfoBlocks(verify, BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, personId);
+        var combinedBlockCount = CountSmokeInternalInfoBlocks(verify, BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, personId);
+        if (combinedBlockCount != 0)
+        {
+            throw new InvalidOperationException($"Battlefield unit status smoke should not create combined status blocks, actual={combinedBlockCount}.");
+        }
+
+        var equipmentBlockCountBeforeSecondSave = CountSmokeInternalInfoBlocks(verify, equipmentBlockTitle, personId);
+        var runtimeBlockCountBeforeSecondSave = CountSmokeInternalInfoBlocks(verify, runtimeBlockTitle, personId);
         var secondWrite = service.Save(testProject, scenario, dictionary, draft);
         var secondVerify = new LegacyScenarioReader().Read(scenario.Path, dictionary);
-        var deploymentBlockCountAfterSecondSave = CountSmokeInternalInfoBlocks(secondVerify, BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle, personId);
-        if (deploymentBlockCountAfterSecondSave != deploymentBlockCountBeforeSecondSave)
+        var equipmentBlockCountAfterSecondSave = CountSmokeInternalInfoBlocks(secondVerify, equipmentBlockTitle, personId);
+        var runtimeBlockCountAfterSecondSave = CountSmokeInternalInfoBlocks(secondVerify, runtimeBlockTitle, personId);
+        if (equipmentBlockCountAfterSecondSave != equipmentBlockCountBeforeSecondSave ||
+            runtimeBlockCountAfterSecondSave != runtimeBlockCountBeforeSecondSave)
         {
-            throw new InvalidOperationException($"Battlefield unit status smoke duplicated fixed comment blocks on second save: before={deploymentBlockCountBeforeSecondSave}, after={deploymentBlockCountAfterSecondSave}.");
+            throw new InvalidOperationException($"Battlefield unit status smoke duplicated fixed comment blocks on second save: equipment={equipmentBlockCountBeforeSecondSave}->{equipmentBlockCountAfterSecondSave}, runtime={runtimeBlockCountBeforeSecondSave}->{runtimeBlockCountAfterSecondSave}.");
         }
         if (secondWrite.InsertedCommandCount != 0)
         {
@@ -1676,7 +1733,7 @@ internal partial class Program
 
     static BattlefieldStatusSmokeTarget? FindSmokeWritableStatusTarget(LegacyScenarioDocument document)
     {
-        foreach (var command in document.EnumerateCommands().Where(x => x.CommandId is 0x46 or 0x47))
+        foreach (var command in document.EnumerateCommands().Where(x => x.SceneIndex == 1 && (x.CommandId is 0x46 or 0x47)))
         {
             if (!TryGetDeploymentRecordLayout(command.CommandId, out var layout)) continue;
             if (!document.EnumerateCommands().Any(x =>
@@ -1984,7 +2041,11 @@ internal partial class Program
         }
 
         var title = command.TextParameters.FirstOrDefault()?.Text.Trim() ?? string.Empty;
-        return title == BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle ||
+        return title == BattlefieldUnitStatusWriteService.FriendEquipmentStatusBlockTitle ||
+               title == BattlefieldUnitStatusWriteService.EnemyEquipmentStatusBlockTitle ||
+               title == BattlefieldUnitStatusWriteService.FriendRuntimeStatusBlockTitle ||
+               title == BattlefieldUnitStatusWriteService.EnemyRuntimeStatusBlockTitle ||
+               title == BattlefieldUnitStatusWriteService.CombinedStatusBlockTitle ||
                title == BattlefieldUnitStatusWriteService.RuntimeStatusBlockTitle ||
                (includeEquipment && title == BattlefieldUnitStatusWriteService.EquipmentStatusBlockTitle);
     }

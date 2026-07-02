@@ -118,7 +118,7 @@ public static class CsvService
         var idCsvIndex = headers.FindIndex(header => string.Equals(header, "ID", StringComparison.Ordinal));
         var useId = matchByIdWhenPresent && idCsvIndex >= 0 && table.Columns.Contains("ID");
         var idLookup = useId
-            ? table.Rows.Cast<DataRow>().ToDictionary(row => Convert.ToString(row["ID"]) ?? string.Empty, row => row, StringComparer.Ordinal)
+            ? table.Rows.Cast<DataRow>().ToDictionaryLastByKey(row => Convert.ToString(row["ID"]) ?? string.Empty, row => row, StringComparer.Ordinal)
             : new Dictionary<string, DataRow>(StringComparer.Ordinal);
 
         var dataRows = records.Skip(1).Where(HasAnyCsvValue).ToList();
@@ -322,7 +322,46 @@ public static class CsvService
             return Enum.Parse(targetType, value, ignoreCase: true);
         }
 
+        if (TryConvertHexCsvValue(value, targetType, out var hexValue))
+        {
+            return hexValue;
+        }
+
         return Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryConvertHexCsvValue(string value, Type targetType, out object converted)
+    {
+        converted = null!;
+        var text = value.Trim();
+        if (!text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) return false;
+        var hex = text[2..].Replace("_", string.Empty, StringComparison.Ordinal);
+        if (hex.Length == 0 || !ulong.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsed))
+        {
+            return false;
+        }
+
+        try
+        {
+            converted = targetType switch
+            {
+                Type t when t == typeof(byte) && parsed <= byte.MaxValue => (byte)parsed,
+                Type t when t == typeof(ushort) && parsed <= ushort.MaxValue => (ushort)parsed,
+                Type t when t == typeof(uint) && parsed <= uint.MaxValue => (uint)parsed,
+                Type t when t == typeof(ulong) => parsed,
+                Type t when t == typeof(sbyte) && parsed <= (ulong)sbyte.MaxValue => (sbyte)parsed,
+                Type t when t == typeof(short) && parsed <= (ulong)short.MaxValue => (short)parsed,
+                Type t when t == typeof(int) && parsed <= int.MaxValue => (int)parsed,
+                Type t when t == typeof(long) && parsed <= long.MaxValue => (long)parsed,
+                _ => null!
+            };
+            return converted != null;
+        }
+        catch (OverflowException)
+        {
+            converted = null!;
+            return false;
+        }
     }
 
     private static Type ResolveCsvValueTargetType(DataColumn column, DataRow row)

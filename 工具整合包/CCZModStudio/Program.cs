@@ -10,8 +10,16 @@ static class Program
             return;
         }
 
+        ApplicationErrorService.RegisterWinFormsHandlers();
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+        try
+        {
+            Application.Run(new MainForm());
+        }
+        catch (Exception ex)
+        {
+            ApplicationErrorService.Report(ex, "Application.Run", notify: false);
+        }
     }
 
     private static bool TryRunCommandLineTool(string[] args)

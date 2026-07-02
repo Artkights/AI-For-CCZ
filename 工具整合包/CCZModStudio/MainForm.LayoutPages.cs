@@ -340,7 +340,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var materialBrowserPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 6,
+            RowCount = 4,
             ColumnCount = 1,
             Padding = new Padding(6, 0, 0, 0)
         };
@@ -474,7 +474,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         };
         ConfigureSplitContainerDistanceAfterLayout("BuildRoleEditorPage.GridTextDetail", roleSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
         AddCollapsibleSplitPanel(roleSplit, 1, "角色表", _roleEditorGrid, "BuildRoleEditorPage.GridTextDetail.Grid");
-        AddCollapsibleSplitPanel(roleSplit, 2, "角色文本", BuildRoleTextDetailPanel(), "BuildRoleEditorPage.GridTextDetail.TextDetail");
+        AddCollapsibleSplitPanel(roleSplit, 2, "当前角色详情", BuildRoleTextDetailPanel(), "BuildRoleEditorPage.GridTextDetail.TextDetail");
 
         _roleEditorInfoBox.Dock = DockStyle.Fill;
         _roleEditorInfoBox.Multiline = true;
@@ -491,21 +491,23 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var detail = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 6,
+            RowCount = 8,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 18));
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 22));
+        detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
+        detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
 
         var top = CreateToolbarRow();
         top.Controls.Add(new Label
         {
-            Text = "角色文本",
+            Text = "当前角色详情",
             AutoSize = true,
             Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold, GraphicsUnit.Point),
             Padding = new Padding(0, 7, 12, 0)
@@ -517,6 +519,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         detail.Controls.Add(top, 0, 0);
 
         ConfigureRoleTextBox(_roleBiographyBox);
+        var equipmentPanel = BuildRoleEquipmentDetailPanel();
         var criticalQuotePanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -535,14 +538,61 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             criticalQuotePanel.Controls.Add(_roleCriticalQuoteBoxes[i], 1, i);
         }
         ConfigureRoleTextBox(_roleRetreatQuoteBox);
-        ConfigureRoleTextBox(_roleTextDetailInfoBox, readOnly: true);
 
         detail.Controls.Add(_roleBiographyBox, 0, 1);
-        detail.Controls.Add(MakeHeader("暴击台词"), 0, 2);
-        detail.Controls.Add(criticalQuotePanel, 0, 3);
-        detail.Controls.Add(MakeHeader("撤退台词"), 0, 4);
-        detail.Controls.Add(_roleRetreatQuoteBox, 0, 5);
+        detail.Controls.Add(MakeHeader("默认装备"), 0, 2);
+        detail.Controls.Add(equipmentPanel, 0, 3);
+        detail.Controls.Add(MakeHeader("暴击台词"), 0, 4);
+        detail.Controls.Add(criticalQuotePanel, 0, 5);
+        detail.Controls.Add(MakeHeader("撤退台词"), 0, 6);
+        detail.Controls.Add(_roleRetreatQuoteBox, 0, 7);
         return detail;
+    }
+
+    private Control BuildRoleEquipmentDetailPanel()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            ColumnCount = 2,
+            RowCount = 3,
+            Margin = new Padding(0, 0, 0, 2)
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+
+        ConfigureRoleEquipmentCombo(_roleWeaponCombo);
+        ConfigureRoleEquipmentCombo(_roleArmorCombo);
+        ConfigureRoleEquipmentCombo(_roleAssistCombo);
+
+        panel.Controls.Add(BuildRoleEquipmentLabel("武器"), 0, 0);
+        panel.Controls.Add(_roleWeaponCombo, 1, 0);
+        panel.Controls.Add(BuildRoleEquipmentLabel("防具"), 0, 1);
+        panel.Controls.Add(_roleArmorCombo, 1, 1);
+        panel.Controls.Add(BuildRoleEquipmentLabel("辅助"), 0, 2);
+        panel.Controls.Add(_roleAssistCombo, 1, 2);
+        return panel;
+    }
+
+    private static Label BuildRoleEquipmentLabel(string text) => new()
+    {
+        Text = text,
+        Dock = DockStyle.Fill,
+        TextAlign = ContentAlignment.MiddleLeft,
+        Padding = new Padding(0, 0, 8, 0)
+    };
+
+    private static void ConfigureRoleEquipmentCombo(ComboBox combo)
+    {
+        combo.Dock = DockStyle.Fill;
+        combo.DropDownStyle = ComboBoxStyle.DropDownList;
+        combo.DisplayMember = "显示";
+        combo.ValueMember = "ID";
+        combo.Enabled = false;
     }
 
     private static void ConfigureRoleTextBox(TextBox box, bool readOnly = false)
@@ -888,10 +938,10 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         imagePreviewLayout.Controls.Add(_jobAreaPreviewBox, 0, 0);
         _jobAreaPreviewInfoBox.Dock = DockStyle.Fill;
         _jobAreaPreviewInfoBox.Multiline = true;
-        _jobAreaPreviewInfoBox.ReadOnly = true;
+        _jobAreaPreviewInfoBox.ReadOnly = false;
         _jobAreaPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobAreaPreviewInfoBox.WordWrap = true;
-        _jobAreaPreviewInfoBox.Text = "读取兵种后，单击兵种名称按我军/友军/敌军显示默认 S 形象；选择“攻击范围”或“穿透”单元格会显示 Hitarea.e5 / Effarea.e5 中的范围图；单击“可装备类别”列可在右侧勾选并在切换单元格时同步摘要。";
+        _jobAreaPreviewInfoBox.Text = "读取兵种后，在此编辑当前兵种介绍。";
         imagePreviewLayout.Controls.Add(_jobAreaPreviewInfoBox, 0, 1);
 
         _jobEquipmentEditorPanel.Dock = DockStyle.Fill;
@@ -1459,27 +1509,41 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子；可右键选中已摆放单位并调整。";
         _battlefieldMapHintLabel.AutoSize = true;
         _battlefieldMapHintLabel.Padding = new Padding(0, 4, 0, 0);
-        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _markBattlefieldCommand25Button, _battlefieldMapHintLabel });
+        _battlefieldMapHintLabel.Visible = false;
+        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _markBattlefieldCommand25Button });
         mapLayout.Controls.Add(battlefieldMapHintPanel, 0, 1);
 
         var controlOptionsPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
-            RowCount = 18,
+            RowCount = 4,
             ColumnCount = 1,
             Padding = new Padding(8)
         };
-        for (var i = 0; i < controlOptionsPanel.RowCount; i++)
-        {
-            controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        }
-        controlOptionsPanel.Controls.Add(new Label { Text = "控制台", AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
         _battlefieldConsoleSummaryLabel.AutoSize = true;
-        _battlefieldConsoleSummaryLabel.MaximumSize = new Size(420, 0);
-        _battlefieldConsoleSummaryLabel.Text = "选中地图角色后显示 Data 默认值和 S 剧本覆盖。";
-        controlOptionsPanel.Controls.Add(_battlefieldConsoleSummaryLabel, 0, 1);
-        var factionPanel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, WrapContents = true };
+        _battlefieldConsoleSummaryLabel.Dock = DockStyle.Fill;
+        _battlefieldConsoleSummaryLabel.Padding = new Padding(0, 0, 0, 4);
+        _battlefieldConsoleSummaryLabel.Text = "未选中战场单位。";
+        _battlefieldConsoleSummaryLabel.Visible = false;
+
+        var placementPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 6,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        placementPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+        placementPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        AddPercentRows(placementPanel, 6);
+
+        var factionPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, Margin = new Padding(0, 2, 0, 2) };
         _battlefieldFactionAllyRadio.Text = "我军";
         _battlefieldFactionFriendRadio.Text = "友军";
         _battlefieldFactionEnemyRadio.Text = "敌军";
@@ -1488,50 +1552,38 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldFactionEnemyRadio.AutoSize = true;
         _battlefieldFactionAllyRadio.Checked = true;
         factionPanel.Controls.AddRange(new Control[] { _battlefieldFactionAllyRadio, _battlefieldFactionFriendRadio, _battlefieldFactionEnemyRadio });
-        controlOptionsPanel.Controls.Add(factionPanel, 0, 2);
+        AddBattlefieldConsoleField(placementPanel, 0, "阵营", factionPanel);
         _battlefieldHiddenCheckBox.Text = "隐藏出场";
         _battlefieldHiddenCheckBox.AutoSize = true;
-        controlOptionsPanel.Controls.Add(_battlefieldHiddenCheckBox, 0, 3);
+        AddBattlefieldConsoleField(placementPanel, 1, string.Empty, _battlefieldHiddenCheckBox);
         _battlefieldLevelOffsetInput.Minimum = -99;
         _battlefieldLevelOffsetInput.Maximum = 99;
         _battlefieldLevelOffsetInput.Width = 72;
-        var levelOffsetPanel = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
-        levelOffsetPanel.Controls.AddRange(new Control[]
-        {
-            new Label { Text = "等级修正", AutoSize = true, Padding = new Padding(0, 5, 0, 0) },
-            _battlefieldLevelOffsetInput
-        });
-        controlOptionsPanel.Controls.Add(levelOffsetPanel, 0, 4);
+        AddBattlefieldConsoleField(placementPanel, 2, "等级修正", _battlefieldLevelOffsetInput);
         _battlefieldLevelModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _battlefieldLevelModeCombo.Items.AddRange(new object[] { "初级", "中级", "高级" });
         _battlefieldLevelModeCombo.SelectedIndex = 0;
-        controlOptionsPanel.Controls.Add(_battlefieldLevelModeCombo, 0, 5);
+        AddBattlefieldConsoleField(placementPanel, 3, "等级阶段", _battlefieldLevelModeCombo);
         _battlefieldAiModeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _battlefieldAiModeCombo.Items.AddRange(new object[] { "被动", "主动", "坚守", "攻击", "到点", "跟随", "逃离" });
         _battlefieldAiModeCombo.SelectedIndex = 0;
-        controlOptionsPanel.Controls.Add(_battlefieldAiModeCombo, 0, 6);
+        AddBattlefieldConsoleField(placementPanel, 4, "AI", _battlefieldAiModeCombo);
         _battlefieldDirectionCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _battlefieldDirectionCombo.Items.AddRange(new object[] { "上", "右", "下", "左" });
         _battlefieldDirectionCombo.SelectedIndex = 2;
-        controlOptionsPanel.Controls.Add(_battlefieldDirectionCombo, 0, 7);
-
-        _battlefieldDataDefaultsBox.Dock = DockStyle.Top;
-        _battlefieldDataDefaultsBox.Multiline = true;
-        _battlefieldDataDefaultsBox.ReadOnly = true;
-        _battlefieldDataDefaultsBox.ScrollBars = ScrollBars.Vertical;
-        _battlefieldDataDefaultsBox.Height = 96;
-        _battlefieldDataDefaultsBox.Text = "Data.e5 默认值：未选中角色。";
-        controlOptionsPanel.Controls.Add(_battlefieldDataDefaultsBox, 0, 8);
+        AddBattlefieldConsoleField(placementPanel, 5, "方向", _battlefieldDirectionCombo);
+        controlOptionsPanel.Controls.Add(placementPanel, 0, 0);
 
         var equipmentPanel = new TableLayoutPanel
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
+            Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 6
+            RowCount = 6,
+            Margin = new Padding(0, 0, 0, 6)
         };
         equipmentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
         equipmentPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        AddPercentRows(equipmentPanel, 6);
         AddBattlefieldConsoleField(equipmentPanel, 0, "武器", _battlefieldConsoleWeaponCombo);
         _battlefieldConsoleWeaponLevelInput.Minimum = 0;
         _battlefieldConsoleWeaponLevelInput.Maximum = 16;
@@ -1542,32 +1594,63 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         AddBattlefieldConsoleField(equipmentPanel, 3, "防具等级", _battlefieldConsoleArmorLevelInput);
         AddBattlefieldConsoleField(equipmentPanel, 4, "辅助", _battlefieldConsoleAssistCombo);
         AddBattlefieldConsoleField(equipmentPanel, 5, "兵种", _battlefieldConsoleJobCombo);
-        controlOptionsPanel.Controls.Add(equipmentPanel, 0, 9);
+        controlOptionsPanel.Controls.Add(equipmentPanel, 0, 1);
 
-        _battlefieldConsoleAbilityGrid.Dock = DockStyle.Top;
-        _battlefieldConsoleAbilityGrid.Height = 148;
+        _battlefieldConsoleAbilityGrid.Dock = DockStyle.Fill;
+        _battlefieldConsoleAbilityGrid.Margin = new Padding(0, 0, 0, 6);
+        _battlefieldConsoleAbilityGrid.MinimumSize = new Size(0, 96);
         _battlefieldConsoleAbilityGrid.AllowUserToAddRows = false;
         _battlefieldConsoleAbilityGrid.AllowUserToDeleteRows = false;
         _battlefieldConsoleAbilityGrid.RowHeadersVisible = false;
         _battlefieldConsoleAbilityGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _battlefieldConsoleAbilityGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _battlefieldConsoleAbilityGrid.MultiSelect = false;
-        controlOptionsPanel.Controls.Add(_battlefieldConsoleAbilityGrid, 0, 10);
+        controlOptionsPanel.Controls.Add(_battlefieldConsoleAbilityGrid, 0, 2);
 
-        _battlefieldConsoleStatusPreviewBox.Dock = DockStyle.Top;
+        var consoleInfoPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        consoleInfoPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        consoleInfoPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        _battlefieldDataDefaultsBox.Dock = DockStyle.Fill;
+        _battlefieldDataDefaultsBox.Multiline = true;
+        _battlefieldDataDefaultsBox.ReadOnly = true;
+        _battlefieldDataDefaultsBox.ScrollBars = ScrollBars.Vertical;
+        _battlefieldDataDefaultsBox.WordWrap = true;
+        _battlefieldDataDefaultsBox.Text = "Data.e5 默认值：未读取。";
+        _battlefieldConsoleStatusPreviewBox.Dock = DockStyle.Fill;
         _battlefieldConsoleStatusPreviewBox.Multiline = true;
         _battlefieldConsoleStatusPreviewBox.ReadOnly = true;
         _battlefieldConsoleStatusPreviewBox.ScrollBars = ScrollBars.Vertical;
-        _battlefieldConsoleStatusPreviewBox.Height = 110;
-        _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：未选中角色。";
-        controlOptionsPanel.Controls.Add(_battlefieldConsoleStatusPreviewBox, 0, 11);
+        _battlefieldConsoleStatusPreviewBox.WordWrap = true;
+        _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：未选中可管理单位。";
+        consoleInfoPanel.Controls.Add(_battlefieldDataDefaultsBox, 0, 0);
+        consoleInfoPanel.Controls.Add(_battlefieldConsoleStatusPreviewBox, 1, 0);
+        consoleInfoPanel.Visible = false;
 
         _battlefieldRemovePlacedUnitButton.Text = "移除选中";
         _battlefieldRemovePlacedUnitButton.AutoSize = true;
+        _battlefieldRemovePlacedUnitButton.Dock = DockStyle.Fill;
         _battlefieldClearPlacedUnitsButton.Text = "清空摆放";
         _battlefieldClearPlacedUnitsButton.AutoSize = true;
-        controlOptionsPanel.Controls.Add(_battlefieldRemovePlacedUnitButton, 0, 12);
-        controlOptionsPanel.Controls.Add(_battlefieldClearPlacedUnitsButton, 0, 13);
+        _battlefieldClearPlacedUnitsButton.Dock = DockStyle.Fill;
+        var actionPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        actionPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        actionPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        actionPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        actionPanel.Controls.Add(_battlefieldRemovePlacedUnitButton, 0, 1);
+        _battlefieldClearPlacedUnitsButton.Visible = false;
+        controlOptionsPanel.Controls.Add(actionPanel, 0, 3);
 
         var unitTabs = new TabControl { Dock = DockStyle.Fill };
         var unitPage = new TabPage("候选");
@@ -1654,6 +1737,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             Padding = new Padding(0, 5, 6, 0)
         }, 0, row);
         panel.Controls.Add(editor, 1, row);
+    }
+
+    private static void AddPercentRows(TableLayoutPanel panel, int rowCount)
+    {
+        panel.RowStyles.Clear();
+        for (var i = 0; i < rowCount; i++)
+        {
+            panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F / rowCount));
+        }
     }
 
     private TabPage BuildRSceneEditorPage()

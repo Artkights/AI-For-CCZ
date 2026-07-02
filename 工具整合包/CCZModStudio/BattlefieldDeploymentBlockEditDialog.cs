@@ -1,3 +1,4 @@
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 using System.ComponentModel;
 using System.Globalization;
@@ -7,7 +8,7 @@ namespace CCZModStudio;
 
 internal sealed class BattlefieldDeploymentBlockEditDialog : Form
 {
-    private readonly DeploymentBlockDefinition _definition;
+    private readonly BattlefieldDeploymentRecordDefinition _definition;
     private readonly BindingList<BattlefieldDeploymentBlockEditRow> _rows;
     private readonly DataGridView _grid = new();
     private readonly TextBox _detailBox = new();
@@ -21,7 +22,7 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
         int precedingSameCommandCount,
         int? preferredParameterIndex)
     {
-        _definition = DeploymentBlockDefinition.FromCommandId(command.CommandId)
+        _definition = BattlefieldDeploymentRecordDefinition.FromCommandId(command.CommandId)
                       ?? throw new ArgumentException("Only 0x46/0x47 deployment block commands are supported.", nameof(command));
         _rows = new BindingList<BattlefieldDeploymentBlockEditRow>(
             BuildRows(command, dataSources, _definition, precedingSameCommandCount).ToList());
@@ -46,14 +47,14 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
     private static IEnumerable<BattlefieldDeploymentBlockEditRow> BuildRows(
         LegacyScenarioCommandNode command,
         LegacyMfcDialogDataSources dataSources,
-        DeploymentBlockDefinition definition,
+        BattlefieldDeploymentRecordDefinition definition,
         int precedingSameCommandCount)
     {
         for (var recordIndex = 0; recordIndex < definition.RecordCount; recordIndex++)
         {
-            var values = new int[definition.Stride];
-            var baseIndex = recordIndex * definition.Stride;
-            for (var slot = 0; slot < definition.Stride; slot++)
+            var values = new int[definition.GroupSize];
+            var baseIndex = recordIndex * definition.GroupSize;
+            for (var slot = 0; slot < definition.GroupSize; slot++)
             {
                 var parameterIndex = baseIndex + slot;
                 values[slot] = parameterIndex < command.Parameters.Count
@@ -65,7 +66,7 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
                 definition,
                 dataSources,
                 recordIndex,
-                definition.DisplayOrdinalBase + recordIndex + precedingSameCommandCount * definition.RecordCount,
+                definition.BattlefieldNumberBase + recordIndex + precedingSameCommandCount * definition.RecordCount,
                 values);
         }
     }
@@ -90,7 +91,7 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
             AutoSize = true,
             Dock = DockStyle.Fill,
             Padding = new Padding(0, 0, 0, 8),
-            Text = $"{command.CommandIdHex} {command.CommandName}：{_definition.RecordCount} 条记录，每条 {_definition.Stride} 个 16 位槽。表格按旧版 Dialog_70 字段展开，未限制创作者修改；保存前仍由完整 S 剧本写回流程备份并复读校验。"
+            Text = $"{command.CommandIdHex} {command.CommandName}：{_definition.RecordCount} 条记录，每条 {_definition.GroupSize} 个 16 位槽。表格按旧版 Dialog_70 字段展开，未限制创作者修改；保存前仍由完整 S 剧本写回流程备份并复读校验。"
         }, 0, 0);
 
         ConfigureGrid();
@@ -229,7 +230,7 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
         var rowIndex = 0;
         if (preferredParameterIndex.HasValue && preferredParameterIndex.Value >= 0)
         {
-            rowIndex = Math.Clamp(preferredParameterIndex.Value / _definition.Stride, 0, _grid.Rows.Count - 1);
+            rowIndex = Math.Clamp(preferredParameterIndex.Value / _definition.GroupSize, 0, _grid.Rows.Count - 1);
         }
 
         _grid.ClearSelection();
@@ -253,7 +254,7 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
         Validate();
         _grid.EndEdit();
 
-        var values = new List<int>(_definition.RecordCount * _definition.Stride);
+        var values = new List<int>(_definition.RecordCount * _definition.GroupSize);
         for (var rowIndex = 0; rowIndex < _rows.Count; rowIndex++)
         {
             var row = _rows[rowIndex];
@@ -326,12 +327,12 @@ internal sealed class BattlefieldDeploymentBlockEditDialog : Form
 
 internal sealed class BattlefieldDeploymentBlockEditRow
 {
-    private readonly DeploymentBlockDefinition _definition;
+    private readonly BattlefieldDeploymentRecordDefinition _definition;
     private readonly LegacyMfcDialogDataSources _dataSources;
     private readonly int[] _originalValues;
 
     public BattlefieldDeploymentBlockEditRow(
-        DeploymentBlockDefinition definition,
+        BattlefieldDeploymentRecordDefinition definition,
         LegacyMfcDialogDataSources dataSources,
         int recordIndex,
         int displayOrdinal,
@@ -362,7 +363,10 @@ internal sealed class BattlefieldDeploymentBlockEditRow
     public int RecordNumber { get; }
     public int DisplayOrdinal { get; }
     public string Person { get; set; }
-    public string PersonName => FormatPerson(Person);
+    public bool IsBlank => TryBuildRawValues(out var values) &&
+                           BattlefieldDeploymentRecordFormatter.IsBlankRecord(_definition, values);
+    public string PersonName => IsBlank ? BattlefieldDeploymentRecordFormatter.EmptySlotText : FormatPerson(Person);
+    public string DisplayPersonName => PersonName;
     public string Reinforcement { get; set; }
     public string Hidden { get; set; }
     public string X { get; set; }
@@ -372,20 +376,23 @@ internal sealed class BattlefieldDeploymentBlockEditRow
     public string Level { get; set; }
     public string LevelName => FormatListValue(Level, _dataSources.LevelOffsetItems().ToList(), "+0级");
     public string JobLevel { get; set; }
-    public string JobLevelName => FormatListValue(JobLevel, DeploymentBlockDefinition.JobLevelItems, "高级");
+    public string JobLevelName => FormatListValue(JobLevel, BattlefieldDeploymentRecordDefinition.JobLevelItems, "高级");
     public string Ai { get; set; }
     public string AiName => FormatListValue(Ai, _dataSources.Policy, "自定义AI");
     public string TargetPerson { get; set; }
-    public string TargetPersonName => FormatPerson(TargetPerson);
+    public string TargetPersonName => IsBlank ? BattlefieldDeploymentRecordFormatter.EmptySlotText : FormatPerson(TargetPerson);
     public string TargetX { get; set; }
     public string TargetY { get; set; }
+    public string DisplaySummary => IsBlank
+        ? BattlefieldDeploymentRecordFormatter.EmptySlotText
+        : $"{PersonName} ({X},{Y}) {AiName}";
     public string RawValues => TryBuildValues(out var values, out _, out _)
         ? string.Join(", ", values.Select(value => value.ToString(CultureInfo.InvariantCulture)))
         : "含待校验值";
 
     public bool TryBuildValues(out int[] values, out string error, out string propertyName)
     {
-        var parsedValues = new int[_definition.Stride];
+        var parsedValues = new int[_definition.GroupSize];
         var parsedError = string.Empty;
         var parsedPropertyName = nameof(Person);
 
@@ -458,6 +465,10 @@ internal sealed class BattlefieldDeploymentBlockEditRow
         var builder = new StringBuilder();
         builder.AppendLine($"{_definition.Title} 第 {RecordNumber} 条 / 旧编号 [{DisplayOrdinal}]");
         builder.AppendLine($"武将：{Person} {PersonName}");
+        if (IsBlank)
+        {
+            builder.AppendLine("当前为空位：无");
+        }
         if (_definition.HasReinforcement)
         {
             builder.AppendLine($"援军：{Reinforcement}");
@@ -473,11 +484,11 @@ internal sealed class BattlefieldDeploymentBlockEditRow
         builder.AppendLine($"AI目标坐标：({TargetX},{TargetY})");
         builder.AppendLine();
         builder.AppendLine("槽位对应：");
-        for (var i = 0; i < _definition.Stride; i++)
+        for (var i = 0; i < _definition.GroupSize; i++)
         {
             var current = i < values.Length ? values[i] : _originalValues[i];
             var marker = current == _originalValues[i] ? string.Empty : $"  原值={_originalValues[i].ToString(CultureInfo.InvariantCulture)}";
-            builder.AppendLine($"  槽 {RecordIndex * _definition.Stride + i} / 记录内 {i}：{_definition.SlotName(i)} = {current.ToString(CultureInfo.InvariantCulture)}{marker}");
+            builder.AppendLine($"  槽 {RecordIndex * _definition.GroupSize + i} / 记录内 {i}：{_definition.SlotName(i)} = {current.ToString(CultureInfo.InvariantCulture)}{marker}");
         }
 
         return builder.ToString().TrimEnd();
@@ -488,6 +499,11 @@ internal sealed class BattlefieldDeploymentBlockEditRow
         var parsed = ParseWord16Field(text);
         if (!parsed.Success) return parsed;
 
+        if (IsBlankPersonSentinelAllowed(parsed.Value))
+        {
+            return parsed;
+        }
+
         var listIndex = LegacyMfcDialogDataSources.Per2CodeToList(parsed.Value);
         if (listIndex < 0 || listIndex >= _dataSources.Person2.Count)
         {
@@ -495,6 +511,26 @@ internal sealed class BattlefieldDeploymentBlockEditRow
         }
 
         return parsed;
+    }
+
+    private bool IsBlankPersonSentinelAllowed(int value)
+    {
+        if (value is not (0 or -1))
+        {
+            return false;
+        }
+
+        if (!TryBuildRawValues(out var values))
+        {
+            return false;
+        }
+
+        if (_definition.PersonIndex >= 0 && _definition.PersonIndex < values.Length)
+        {
+            values[_definition.PersonIndex] = value;
+        }
+
+        return BattlefieldDeploymentRecordFormatter.IsBlankRecord(_definition, values);
     }
 
     private static ParsedField ParseCheckValue(string text)
@@ -560,10 +596,34 @@ internal sealed class BattlefieldDeploymentBlockEditRow
             return "待校验";
         }
 
-        var index = LegacyMfcDialogDataSources.Per2CodeToList(value);
-        return index >= 0 && index < _dataSources.Person2.Count
-            ? _dataSources.Person2[index]
-            : value.ToString(CultureInfo.InvariantCulture);
+        return FormatPersonCode(value);
+    }
+
+    private string FormatPersonCode(int code)
+    {
+        if (ScriptVariableValueResolver.TryDecodePerson2VariableReference(code, out var variableAddress))
+        {
+            return "V" + variableAddress.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var index = LegacyMfcDialogDataSources.Per2CodeToList(code);
+        var value = index >= 0 && index < _dataSources.Person2.Count
+            ? _dataSources.Person2[index].Trim()
+            : string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return code.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var prefix = code.ToString(CultureInfo.InvariantCulture);
+        if (value.Equals(prefix + ":", StringComparison.Ordinal))
+        {
+            return prefix;
+        }
+
+        return value.StartsWith(prefix + ":", StringComparison.Ordinal)
+            ? prefix + "(" + value[(prefix.Length + 1)..] + ")"
+            : value;
     }
 
     private static string FormatListValue(string text, IReadOnlyList<string> values, string fallback)
@@ -586,95 +646,43 @@ internal sealed class BattlefieldDeploymentBlockEditRow
             ? values[index].ToString(CultureInfo.InvariantCulture)
             : string.Empty;
 
+    private bool TryBuildRawValues(out int[] values)
+    {
+        var result = new int[_definition.GroupSize];
+        var parseFailure = false;
+
+        void Read(string text, int slot)
+        {
+            if (slot < 0) return;
+            if (BattlefieldDeploymentBlockEditDialog.TryParseWord16(text, out var value, out _))
+            {
+                result[slot] = value;
+                return;
+            }
+
+            parseFailure = true;
+        }
+
+        Read(Person, _definition.PersonIndex);
+        Read(Reinforcement, _definition.ReinforcementIndex);
+        Read(Hidden, _definition.HiddenIndex);
+        Read(X, _definition.XIndex);
+        Read(Y, _definition.YIndex);
+        Read(Direction, _definition.DirectionIndex);
+        Read(Level, _definition.LevelIndex);
+        Read(JobLevel, _definition.JobLevelIndex);
+        Read(Ai, _definition.AiIndex);
+        Read(TargetPerson, _definition.TargetPersonIndex);
+        Read(TargetX, _definition.TargetXIndex);
+        Read(TargetY, _definition.TargetYIndex);
+
+        values = result;
+        return !parseFailure;
+    }
+
     private readonly record struct ParsedField(bool Success, int Value, string Error)
     {
         public static ParsedField Ok(int value) => new(true, value, string.Empty);
         public static ParsedField Fail(string error) => new(false, 0, error);
-    }
-}
-
-internal sealed class DeploymentBlockDefinition
-{
-    public static readonly IReadOnlyList<string> JobLevelItems = ["初级", "中级", "高级"];
-
-    public required int CommandId { get; init; }
-    public required string Title { get; init; }
-    public required int RecordCount { get; init; }
-    public required int Stride { get; init; }
-    public required int DisplayOrdinalBase { get; init; }
-    public required int PersonIndex { get; init; }
-    public int ReinforcementIndex { get; init; } = -1;
-    public required int HiddenIndex { get; init; }
-    public required int XIndex { get; init; }
-    public required int YIndex { get; init; }
-    public required int DirectionIndex { get; init; }
-    public required int LevelIndex { get; init; }
-    public required int JobLevelIndex { get; init; }
-    public required int AiIndex { get; init; }
-    public required int TargetPersonIndex { get; init; }
-    public required int TargetXIndex { get; init; }
-    public required int TargetYIndex { get; init; }
-    public bool HasReinforcement => ReinforcementIndex >= 0;
-
-    public static DeploymentBlockDefinition? FromCommandId(int commandId)
-        => commandId switch
-        {
-            0x46 => new DeploymentBlockDefinition
-            {
-                CommandId = commandId,
-                Title = "友军出场设定",
-                RecordCount = 20,
-                Stride = 11,
-                DisplayOrdinalBase = 20,
-                PersonIndex = 0,
-                HiddenIndex = 1,
-                XIndex = 2,
-                YIndex = 3,
-                DirectionIndex = 4,
-                LevelIndex = 5,
-                JobLevelIndex = 6,
-                AiIndex = 7,
-                TargetPersonIndex = 8,
-                TargetXIndex = 9,
-                TargetYIndex = 10
-            },
-            0x47 => new DeploymentBlockDefinition
-            {
-                CommandId = commandId,
-                Title = "敌军出场设定",
-                RecordCount = 80,
-                Stride = 12,
-                DisplayOrdinalBase = 60,
-                PersonIndex = 0,
-                ReinforcementIndex = 1,
-                HiddenIndex = 2,
-                XIndex = 3,
-                YIndex = 4,
-                DirectionIndex = 5,
-                LevelIndex = 6,
-                JobLevelIndex = 7,
-                AiIndex = 8,
-                TargetPersonIndex = 9,
-                TargetXIndex = 10,
-                TargetYIndex = 11
-            },
-            _ => null
-        };
-
-    public string SlotName(int slot)
-    {
-        if (slot == PersonIndex) return "武将码";
-        if (slot == ReinforcementIndex) return "援军";
-        if (slot == HiddenIndex) return "隐藏";
-        if (slot == XIndex) return "X";
-        if (slot == YIndex) return "Y";
-        if (slot == DirectionIndex) return "朝向";
-        if (slot == LevelIndex) return "等级";
-        if (slot == JobLevelIndex) return "兵种级别";
-        if (slot == AiIndex) return "AI";
-        if (slot == TargetPersonIndex) return "目标武将";
-        if (slot == TargetXIndex) return "目标X";
-        if (slot == TargetYIndex) return "目标Y";
-        return "原始槽";
     }
 }

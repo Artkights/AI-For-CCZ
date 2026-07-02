@@ -17,7 +17,8 @@ public sealed class SceneStringParser
 
         if (lines.Count == 0) throw new InvalidOperationException("剧本字典文件为空。 ");
 
-        var commands = ParseCommands(lines[0]);
+        var commandWarnings = new List<string>();
+        var commands = ParseCommands(lines[0], commandWarnings);
         var groups = new List<SceneStringGroup>();
         for (var i = 1; i < lines.Count; i++)
         {
@@ -35,16 +36,17 @@ public sealed class SceneStringParser
             SourcePath = path,
             EncodingName = read.EncodingName,
             DecodeConfidence = read.Confidence,
-            DecodeWarnings = read.Warnings,
+            DecodeWarnings = read.Warnings.Concat(commandWarnings).ToList(),
             SourceLineCount = read.Lines.Length,
             Commands = commands,
             Groups = groups
         };
     }
 
-    private static IReadOnlyList<SceneCommandDefinition> ParseCommands(string line)
+    private static IReadOnlyList<SceneCommandDefinition> ParseCommands(string line, ICollection<string> warnings)
     {
         var result = new List<SceneCommandDefinition>();
+        var seen = new Dictionary<int, string>();
         foreach (var part in line.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var colon = part.IndexOf(':');
@@ -52,6 +54,13 @@ public sealed class SceneStringParser
             var idText = part[..colon].Trim();
             var name = part[(colon + 1)..].Trim();
             if (!int.TryParse(idText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id)) continue;
+            if (seen.TryGetValue(id, out var firstText))
+            {
+                warnings.Add($"CczString.ini command id duplicated: {id:X2}; kept first \"{firstText}\", ignored \"{part}\".");
+                continue;
+            }
+
+            seen[id] = part;
             result.Add(new SceneCommandDefinition { Id = id, Name = name });
         }
         return result.OrderBy(x => x.Id).ToList();

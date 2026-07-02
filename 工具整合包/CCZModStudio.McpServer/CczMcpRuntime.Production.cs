@@ -19,6 +19,7 @@ public sealed partial class CczMcpRuntime
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
     private readonly TerrainMapBeautifyService _terrainMapBeautifyService = new();
     private readonly ShopEditorService _shopEditorService = new();
+    private readonly ShopRuntimeDiagnosticService _shopRuntimeDiagnosticService = new();
     private readonly GlobalSettingsService _globalSettingsService = new();
     private readonly ScenarioTextImportService _scenarioTextImportService = new();
     private readonly ScenarioTextExportService _scenarioTextExportService = new();
@@ -368,12 +369,25 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    public object DiagnoseShopRuntime(string? gameRoot, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var tables = LoadTables(project);
+        return _shopRuntimeDiagnosticService.Diagnose(project, tables, NormalizeLimit(limit, 120, 1000));
+    }
+
     public object PreviewWriteShopRows(string? gameRoot, List<ShopRowUpdate> updates)
     {
         var project = LoadProject(gameRoot);
         var tables = LoadTables(project);
         var build = _shopEditorService.Build(project, tables);
-        var preview = ApplyShopUpdates(build, updates, mutate: false);
+        var preview = ApplyShopUpdates(build, updates, mutate: true);
+        _shopEditorService.EnsureShopDataTableValidForSave(
+            project,
+            tables,
+            build.ShopDataRead.Table,
+            build.ShopDataRead.Data,
+            changedItemSlotsOnly: true);
         return new
         {
             project.GameRoot,
@@ -389,6 +403,12 @@ public sealed partial class CczMcpRuntime
         var tables = LoadTables(project);
         var build = _shopEditorService.Build(project, tables);
         var preview = ApplyShopUpdates(build, updates, mutate: true);
+        _shopEditorService.EnsureShopDataTableValidForSave(
+            project,
+            tables,
+            build.ShopDataRead.Table,
+            build.ShopDataRead.Data,
+            changedItemSlotsOnly: true);
         var saves = new List<TableSaveResult>();
         if (build.CampaignNameRead.Data.GetChanges() != null)
         {

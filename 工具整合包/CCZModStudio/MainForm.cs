@@ -349,6 +349,11 @@ public sealed partial class MainForm : Form
     private Point? _battlefieldPlacedUnitDragStart;
     private Point _battlefieldPlacedUnitOriginalGrid;
     private bool _battlefieldPlacedUnitDragMoved;
+    private BattlefieldRightPreviewMode _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Overview;
+    private readonly HashSet<string> _batchEditingBattlefieldTargetKeys = new(StringComparer.OrdinalIgnoreCase);
+    private Point? _battlefieldBatchSelectionStartGrid;
+    private Point? _battlefieldBatchSelectionEndGrid;
+    private bool _battlefieldBatchSelecting;
     private BattlefieldUnitPaletteItem? _selectedBattlefieldPaletteItem;
     private Point? _battlefieldUnitDragStart;
     private BattlefieldUnitPaletteItem? _battlefieldUnitDragItem;
@@ -430,6 +435,12 @@ public sealed partial class MainForm : Form
     private List<JobEditorCellEdit> _jobEditorPendingCellEditOriginals = [];
     private bool _applyingJobEditorHistory;
     private bool _jobEditorSelectionChangeStartedByMouse;
+    private DataRow? _jobDescriptionEditorBoundRow;
+    private object? _jobDescriptionEditorOriginalValue;
+    private bool _bindingJobDescriptionBox;
+    private bool _jobDescriptionEditorHasPendingEdit;
+    private bool _jobDescriptionBoxHasValidationError;
+    private string _jobDescriptionBoxValidationError = string.Empty;
     private DataRow? _jobEquipmentEditorBoundRow;
     private bool _bindingJobEquipmentEditor;
     private string _jobEquipmentEditorSlotSignature = string.Empty;
@@ -539,6 +550,11 @@ public sealed partial class MainForm : Form
     private bool _reloadBattlefieldScenarioAfterCurrentLoad;
     private bool _bindingBattlefieldUnits;
     private bool _bindingBattlefieldControlPanel;
+    private bool _bindingBattlefieldBatchControlPanel;
+    private bool _battlefieldConsoleDirty;
+    private string _battlefieldConsoleDirtyTargetKey = string.Empty;
+    private BattlefieldConsoleDirtyKind _battlefieldConsoleDirtyKind = BattlefieldConsoleDirtyKind.None;
+    private bool _battlefieldConsoleCommitInProgress;
     private bool _bindingBattlefieldScriptEditor;
     private bool _updatingBattlefieldScriptSelection;
     private bool _editingBattlefieldLegacyCommandDialog;
@@ -573,6 +589,8 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _dataGrid = new();
     private readonly StatusStrip _statusStrip = new();
     private readonly ToolStripStatusLabel _statusLabel = new();
+    private readonly ToolStripButton _statusErrorCloseButton = new("关闭");
+    private readonly System.Windows.Forms.Timer _errorStatusClearTimer = new() { Interval = 9000 };
     private readonly CheckBox _showAllTables = new();
     private readonly RadioButton _currentPageDecimalButton = new();
     private readonly RadioButton _currentPageHexButton = new();
@@ -612,10 +630,12 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _roleEditorGrid = new();
     private readonly TextBox _roleEditorInfoBox = new();
     private readonly TextBox _roleBiographyBox = new();
+    private readonly ComboBox _roleWeaponCombo = new();
+    private readonly ComboBox _roleArmorCombo = new();
+    private readonly ComboBox _roleAssistCombo = new();
     private readonly Label[] _roleCriticalQuoteLabels = Enumerable.Range(0, RoleQuoteMappingService.CriticalGenericGroupSize).Select(_ => new Label()).ToArray();
     private readonly TextBox[] _roleCriticalQuoteBoxes = Enumerable.Range(0, RoleQuoteMappingService.CriticalGenericGroupSize).Select(_ => new TextBox()).ToArray();
     private readonly TextBox _roleRetreatQuoteBox = new();
-    private readonly TextBox _roleTextDetailInfoBox = new();
     private readonly Button _loadJobEditorButton = new();
     private readonly Button _saveJobEditorButton = new();
     private readonly Button _editAccessoryJobGroupsButton = new();
@@ -1242,6 +1262,9 @@ public sealed partial class MainForm : Form
         ApplyWindowLayoutSettings();
         BuildLayout();
         WireEvents();
+        ApplicationErrorService.ErrorReported += OnApplicationErrorReported;
+        _errorStatusClearTimer.Tick += (_, _) => ClearApplicationErrorNotification();
+        _statusErrorCloseButton.Click += (_, _) => ClearApplicationErrorNotification();
     }
 
     private static Icon? LoadApplicationIcon()
@@ -2545,7 +2568,9 @@ public sealed partial class MainForm : Form
         ReorderMainCreationTabs();
 
         _statusStrip.Items.Add(_statusLabel);
+        _statusStrip.Items.Add(_statusErrorCloseButton);
         _statusLabel.Text = "就绪";
+        _statusErrorCloseButton.Visible = false;
         root.Controls.Add(_statusStrip, 0, 3);
     }
 
@@ -2572,6 +2597,44 @@ public sealed partial class MainForm : Form
     {
         _statusLabel.Text = message;
         _statusStrip.Refresh();
+    }
+
+    private void OnApplicationErrorReported(ApplicationErrorReport report)
+    {
+        if (IsDisposed) return;
+        if (InvokeRequired)
+        {
+            try
+            {
+                BeginInvoke(new Action(() => ShowApplicationErrorNotification(report)));
+            }
+            catch (InvalidOperationException)
+            {
+                System.Diagnostics.Debug.WriteLine("Unable to marshal application error notification.");
+            }
+            return;
+        }
+
+        ShowApplicationErrorNotification(report);
+    }
+
+    private void ShowApplicationErrorNotification(ApplicationErrorReport report)
+    {
+        var logPath = string.IsNullOrWhiteSpace(report.LogPath) ? "日志写入失败" : report.LogPath;
+        SetStatus($"操作未完成：{report.Summary}。详细信息已写入 {logPath}");
+        _statusLabel.BackColor = Color.FromArgb(255, 244, 230);
+        _statusLabel.ForeColor = Color.FromArgb(142, 55, 0);
+        _statusErrorCloseButton.Visible = true;
+        _errorStatusClearTimer.Stop();
+        _errorStatusClearTimer.Start();
+    }
+
+    private void ClearApplicationErrorNotification()
+    {
+        _errorStatusClearTimer.Stop();
+        _statusLabel.BackColor = Color.Empty;
+        _statusLabel.ForeColor = Color.Empty;
+        _statusErrorCloseButton.Visible = false;
     }
 
     private sealed record ScriptCommandComboItem(int Id, string Name)

@@ -342,6 +342,15 @@ internal sealed class LegacyScenarioItemDataAccessor
 
     public IReadOnlyList<int> IntData => _itemData.IntData;
 
+    public void TrimIntSize(int size)
+    {
+        size = Math.Max(0, size);
+        if (_itemData.IntData.Count > size)
+        {
+            _itemData.IntData.RemoveRange(size, _itemData.IntData.Count - size);
+        }
+    }
+
     public void EnsureIntSize(int size)
     {
         while (_itemData.IntData.Count < size)

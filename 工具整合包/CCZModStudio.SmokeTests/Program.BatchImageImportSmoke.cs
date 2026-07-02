@@ -72,7 +72,7 @@ internal partial class Program
         var target = CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5");
         foreach (var imageNumber in new[] { 3, 4, 5, 6 })
         {
-            VerifyRawEntry(e5, target, imageNumber, 48 * 1280);
+            VerifyTrueColorEntry(e5, target, imageNumber, 48 * 1280);
         }
 
         var missingRoot = Path.Combine(smokeRoot, "_BatchRMissing");
@@ -136,9 +136,9 @@ internal partial class Program
 
         foreach (var imageNumber in new[] { 23, 241, 242, 243, 554 })
         {
-            VerifyRawEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), imageNumber, 48 * 528);
-            VerifyRawEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
-            VerifyRawEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
+            VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), imageNumber, 48 * 528);
+            VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
+            VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
         }
 
         var duplicatePreview = service.Preview(testProject, new BatchSImageReplaceRequest

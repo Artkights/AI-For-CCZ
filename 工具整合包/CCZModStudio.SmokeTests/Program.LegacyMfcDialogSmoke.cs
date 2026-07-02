@@ -3,6 +3,7 @@ using CCZModStudio.Core;
 using CCZModStudio.Formats;
 using CCZModStudio.Models;
 using System.Globalization;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
@@ -145,6 +146,214 @@ internal partial class Program
         AssertEqual(1, variableSnapshot.Actors.Count, "R scene variable actor count");
         AssertEqual(12, variableSnapshot.Actors[0].PersonId, "R scene variable actor resolves to data person");
         AssertEqual(44, variableSnapshot.Actors[0].PersonVariableAddress ?? -1, "R scene actor keeps variable address");
+
+        RunBattlefieldDeploymentDisplaySmoke(formatter, dataSources);
+    }
+
+    private static void RunBattlefieldDeploymentDisplaySmoke(
+        LegacyScenarioCommandDisplayFormatter formatter,
+        LegacyMfcDialogDataSources dataSources)
+    {
+        var emptyFriend = BuildDisplayCommand(0x46, "友军出场设定", Enumerable.Repeat(0, 11 * 20).ToArray(), string.Empty);
+        var emptyFriendText = formatter.FormatCommand(emptyFriend);
+        AssertDeploymentCommandTitleIsShort(formatter, emptyFriend, "empty command 46 deployment title");
+        AssertTrue(formatter.FormatValuesPreview(emptyFriend, 8).Contains("全空：无", StringComparison.Ordinal), "empty command 46 deployment preview displays as none");
+        AssertTrue(!emptyFriendText.Contains("0号", StringComparison.Ordinal), "empty command 46 deployment does not display slot 0 as person 0");
+
+        var sentinelFriendValues = Enumerable.Repeat(0, 11 * 20).ToArray();
+        for (var record = 0; record < 20; record++)
+        {
+            var start = record * 11;
+            sentinelFriendValues[start] = -1;
+            sentinelFriendValues[start + 4] = -1;
+            sentinelFriendValues[start + 8] = -1;
+        }
+        var sentinelFriend = BuildDisplayCommand(0x46, "友军出场设定", sentinelFriendValues, string.Empty);
+        var sentinelFriendText = formatter.FormatCommand(sentinelFriend);
+        AssertDeploymentCommandTitleIsShort(formatter, sentinelFriend, "old sentinel command 46 deployment title");
+        AssertTrue(formatter.FormatValuesPreview(sentinelFriend, 8).Contains("全空：无", StringComparison.Ordinal), "old sentinel command 46 deployment preview displays as none");
+        AssertTrue(!sentinelFriendText.Contains("0号", StringComparison.Ordinal), "old sentinel command 46 deployment does not display slot 0 as person 0");
+
+        var emptyEnemy = BuildDisplayCommand(0x47, "敌军出场设定", Enumerable.Repeat(0, 12 * 80).ToArray(), string.Empty);
+        var emptyEnemyText = formatter.FormatCommand(emptyEnemy);
+        AssertDeploymentCommandTitleIsShort(formatter, emptyEnemy, "empty command 47 deployment title");
+        AssertTrue(formatter.FormatValuesPreview(emptyEnemy, 8).Contains("全空：无", StringComparison.Ordinal), "empty command 47 deployment preview displays as none");
+        AssertTrue(!emptyEnemyText.Contains("0号", StringComparison.Ordinal), "empty command 47 deployment does not display slot 0 as person 0");
+
+        var sentinelEnemyValues = Enumerable.Repeat(0, 12 * 80).ToArray();
+        for (var record = 0; record < 80; record++)
+        {
+            var start = record * 12;
+            sentinelEnemyValues[start] = -1;
+            sentinelEnemyValues[start + 5] = -1;
+            sentinelEnemyValues[start + 9] = -1;
+        }
+        var sentinelEnemy = BuildDisplayCommand(0x47, "敌军出场设定", sentinelEnemyValues, string.Empty);
+        var sentinelEnemyText = formatter.FormatCommand(sentinelEnemy);
+        AssertDeploymentCommandTitleIsShort(formatter, sentinelEnemy, "old sentinel command 47 deployment title");
+        AssertTrue(formatter.FormatValuesPreview(sentinelEnemy, 8).Contains("全空：无", StringComparison.Ordinal), "old sentinel command 47 deployment preview displays as none");
+        AssertTrue(!sentinelEnemyText.Contains("0号", StringComparison.Ordinal), "old sentinel command 47 deployment does not display slot 0 as person 0");
+
+        var mixedFriendValues = Enumerable.Repeat(0, 11 * 20).ToArray();
+        mixedFriendValues[0] = LegacyMfcDialogDataSources.Per2ListToCode(12);
+        mixedFriendValues[2] = 8;
+        mixedFriendValues[3] = 10;
+        mixedFriendValues[7] = 1;
+        var mixedFriend = BuildDisplayCommand(0x46, "友军出场设定", mixedFriendValues, string.Empty);
+        var mixedFriendText = formatter.FormatCommand(mixedFriend);
+        AssertDeploymentCommandTitleIsShort(formatter, mixedFriend, "mixed command 46 deployment title");
+        var mixedFriendPreview = formatter.FormatValuesPreview(mixedFriend, 8);
+        AssertTrue(mixedFriendPreview.Contains("Valid 1/20", StringComparison.Ordinal), "mixed command 46 deployment preview counts non-empty records");
+        AssertTrue(!mixedFriendText.Contains("(8,10)", StringComparison.Ordinal), "mixed command 46 deployment title hides coordinate layout");
+
+        var variableFriendValues = Enumerable.Repeat(0, 11 * 20).ToArray();
+        variableFriendValues[0] = ScriptVariableValueResolver.EncodePerson2VariableReference(44);
+        var variableFriend = BuildDisplayCommand(0x46, "友军出场设定", variableFriendValues, string.Empty);
+        var variableFriendText = formatter.FormatCommand(variableFriend);
+        AssertDeploymentCommandTitleIsShort(formatter, variableFriend, "command 46 variable person deployment title");
+        AssertTrue(formatter.FormatValuesPreview(variableFriend, 8).Contains("Valid 1/20", StringComparison.Ordinal), "command 46 variable person deployment preview is not blank");
+        AssertTrue(!variableFriendText.Contains("V44", StringComparison.Ordinal), "command 46 variable person deployment title hides variable reference");
+
+        var mixedEnemyValues = Enumerable.Repeat(0, 12 * 80).ToArray();
+        mixedEnemyValues[0] = LegacyMfcDialogDataSources.Per2ListToCode(13);
+        mixedEnemyValues[1] = 1;
+        mixedEnemyValues[2] = 0;
+        mixedEnemyValues[3] = 9;
+        mixedEnemyValues[4] = 11;
+        mixedEnemyValues[8] = 4;
+        var mixedEnemy = BuildDisplayCommand(0x47, "敌军出场设定", mixedEnemyValues, string.Empty);
+        var mixedEnemyText = formatter.FormatCommand(mixedEnemy);
+        AssertDeploymentCommandTitleIsShort(formatter, mixedEnemy, "mixed command 47 deployment title");
+        var mixedEnemyPreview = formatter.FormatValuesPreview(mixedEnemy, 8);
+        AssertTrue(mixedEnemyPreview.Contains("Valid 1/80", StringComparison.Ordinal), "mixed command 47 deployment preview counts non-empty records");
+        AssertTrue(!mixedEnemyText.Contains("(9,11)", StringComparison.Ordinal), "mixed command 47 deployment title hides enemy coordinate layout");
+
+        var emptyFriendRow = new BattlefieldDeploymentBlockEditRow(
+            BattlefieldDeploymentRecordDefinition.Friend,
+            dataSources,
+            recordIndex: 0,
+            displayOrdinal: 20,
+            Enumerable.Repeat(0, 11).ToArray());
+        AssertTrue(emptyFriendRow.IsBlank, "empty command 46 edit row is blank");
+        AssertEqual("无", emptyFriendRow.PersonName, "empty command 46 edit row person display is none");
+        AssertTrue(emptyFriendRow.BuildDetailText().Contains("当前为空位：无", StringComparison.Ordinal), "empty command 46 edit row detail labels blank slot");
+        AssertTrue(emptyFriendRow.TryBuildValues(out _, out _, out _), "empty command 46 edit row can commit original zero values");
+
+        var emptyEnemyRow = new BattlefieldDeploymentBlockEditRow(
+            BattlefieldDeploymentRecordDefinition.Enemy,
+            dataSources,
+            recordIndex: 0,
+            displayOrdinal: 60,
+            Enumerable.Repeat(0, 12).ToArray());
+        AssertTrue(emptyEnemyRow.IsBlank, "empty command 47 edit row is blank");
+        AssertEqual("无", emptyEnemyRow.PersonName, "empty command 47 edit row person display is none");
+
+        var validFriendValues = Enumerable.Repeat(0, 11).ToArray();
+        validFriendValues[0] = LegacyMfcDialogDataSources.Per2ListToCode(12);
+        validFriendValues[2] = 8;
+        validFriendValues[3] = 10;
+        var validFriendRow = new BattlefieldDeploymentBlockEditRow(
+            BattlefieldDeploymentRecordDefinition.Friend,
+            dataSources,
+            recordIndex: 0,
+            displayOrdinal: 20,
+            validFriendValues);
+        AssertTrue(!validFriendRow.IsBlank, "non-empty command 46 edit row is not blank");
+        AssertTrue(!string.Equals("无", validFriendRow.PersonName, StringComparison.Ordinal), "non-empty command 46 edit row keeps person display");
+
+        RunBattlefieldDeploymentTreePreviewParitySmoke(formatter);
+    }
+
+    private static void RunBattlefieldDeploymentTreePreviewParitySmoke(LegacyScenarioCommandDisplayFormatter formatter)
+    {
+        using var form = new MainForm();
+        AssertBattlefieldDeploymentTreePreviewParity(form, formatter, 0x46, "友军出场设定", groupSize: 11, recordCount: 20, previewFaction: "友军");
+        AssertBattlefieldDeploymentTreePreviewParity(form, formatter, 0x47, "敌军出场设定", groupSize: 12, recordCount: 80, previewFaction: "敌军");
+    }
+
+    private static void AssertBattlefieldDeploymentTreePreviewParity(
+        MainForm form,
+        LegacyScenarioCommandDisplayFormatter formatter,
+        int commandId,
+        string commandName,
+        int groupSize,
+        int recordCount,
+        string previewFaction)
+    {
+        var command = new LegacyScenarioCommandNode
+        {
+            CommandId = commandId,
+            CommandName = commandName,
+            SceneIndex = 1,
+            SectionIndex = 2,
+            CommandIndex = commandId,
+            FileOffset = 0x1200 + commandId,
+            CommandOrdinal = commandId
+        };
+        for (var i = 0; i < groupSize * recordCount; i++)
+        {
+            command.Parameters.Add(new LegacyScenarioCommandParameter
+            {
+                Index = i,
+                Kind = LegacyScenarioParameterKind.Word16,
+                IntValue = 0
+            });
+        }
+        var row = new ScenarioStructureRow
+        {
+            NodeType = "Command候选",
+            SceneIndex = command.SceneIndex,
+            SectionIndex = command.SectionIndex,
+            CommandIndex = command.CommandIndex,
+            OffsetHex = HexDisplayFormatter.FormatOffset(command.FileOffset),
+            CommandId = command.CommandId,
+            CommandIdHex = command.CommandIdHex,
+            CommandName = command.CommandName
+        };
+        var itemData = new LegacyScenarioItemData
+        {
+            Id = command.CommandId,
+            Ord = command.CommandOrdinal,
+            Command = command,
+            UiRow = row
+        };
+        var node = new TreeNode("stale battlefield text") { Tag = itemData };
+        var preview = new BattlefieldPlacedUnit
+        {
+            TargetKey = $"Scene=1;Section=2;Command={command.CommandIndex};Offset={row.OffsetHex};Id={row.CommandIdHex};Record=0",
+            PersonId = 12,
+            Name = "preview",
+            GridX = 8,
+            GridY = 10,
+            Faction = previewFaction,
+            AiMode = "主动"
+        };
+        var previewMap = GetPrivateField<Dictionary<string, BattlefieldPlacedUnit>>(form, "_battlefieldScriptPreviewPlacementsByTargetKey");
+        previewMap.Clear();
+        previewMap[preview.TargetKey] = preview;
+
+        InvokePrivate(form, "ApplyBattlefieldScriptPreviewToNode", node, row);
+
+        var scriptSummary = formatter.FormatCommand(command);
+        AssertEqual(scriptSummary, node.Text, "battlefield tree command text matches script editor summary");
+        AssertTrue(!node.Text.Contains("地图预览", StringComparison.Ordinal), "battlefield tree command text does not include map preview suffix");
+        AssertTrue(!node.Text.Contains("@8,10", StringComparison.Ordinal), "battlefield tree command text does not include coordinate suffix");
+        AssertTrue(node.ToolTipText.Contains("地图预览", StringComparison.Ordinal), "battlefield map preview remains available in tooltip");
+    }
+
+    private static void AssertDeploymentCommandTitleIsShort(
+        LegacyScenarioCommandDisplayFormatter formatter,
+        LegacyScenarioCommandNode command,
+        string label)
+    {
+        var text = formatter.FormatCommand(command);
+        AssertTrue(text.StartsWith(command.CommandIdHex + ":", StringComparison.Ordinal), label + " starts with command id");
+        AssertTrue(text.Contains(command.CommandName, StringComparison.Ordinal), label + " includes command name");
+        AssertTrue(!text.Contains("全空", StringComparison.Ordinal), label + " hides blank summary");
+        AssertTrue(!text.Contains("有效", StringComparison.Ordinal), label + " hides record count");
+        AssertTrue(!text.Contains("Valid", StringComparison.Ordinal), label + " hides ASCII record count");
+        AssertTrue(!text.Contains("第", StringComparison.Ordinal), label + " hides record ordinal");
+        AssertTrue(!text.Contains("AI=", StringComparison.Ordinal), label + " hides AI detail");
     }
 
     private static LegacyScenarioCommandNode BuildDisplayCommand(int commandId, string name, IReadOnlyList<int> values, string text)
@@ -188,9 +397,54 @@ internal partial class Program
         var dialog6 = OpenLegacyMfcDialog("Dialog_6", 6, [0, 1], string.Empty, dataSources);
         AssertEqual(18, dialog6.Session.ListBox("IDC_LIST1").ItemHeight, "Dialog_6 old owner-draw list height");
 
-        var dialog70 = OpenLegacyMfcDialog("Dialog_70", 70, Enumerable.Repeat(0, 12 * 20).ToArray(), string.Empty, dataSources);
+        var dialog70 = OpenLegacyMfcDialog("Dialog_70", 70, Enumerable.Repeat(0, 11 * 20).ToArray(), string.Empty, dataSources);
         AssertEqual(18, dialog70.Session.ListBox("IDC_LIST1").ItemHeight, "Dialog_70 old owner-draw list height");
         AssertTrue(dialog70.Session.GetListIndex("IDC_LIST1") >= 0, "Dialog_70 selects the first row on init");
+        AssertTrue(dialog70.Session.ListBox("IDC_LIST1").Items[0]?.ToString()?.Contains("无", StringComparison.Ordinal) == true, "Dialog_70 command 46 blank row displays none");
+        AssertTrue(!string.Join("|", dialog70.Session.ListBox("IDC_LIST1").Items.Cast<object>()).Contains("0号", StringComparison.Ordinal), "Dialog_70 command 46 blank list does not display person 0");
+        CommitLegacyMfcDialog(dialog70);
+        AssertEqual(11 * 20, dialog70.Item.IntData.Count, "Dialog_70 command 46 commit keeps exact 220-slot length");
+        AssertTrue(dialog70.Item.IntData.Take(11 * 20).All(value => value == 0), "Dialog_70 command 46 commit preserves all-zero blank rows");
+
+        var sentinelDialog70Data = Enumerable.Repeat(0, 11 * 20).ToArray();
+        for (var record = 0; record < 20; record++)
+        {
+            var start = record * 11;
+            sentinelDialog70Data[start] = -1;
+            sentinelDialog70Data[start + 4] = -1;
+            sentinelDialog70Data[start + 8] = -1;
+        }
+        var sentinelDialog70 = OpenLegacyMfcDialog("Dialog_70", 70, sentinelDialog70Data, string.Empty, dataSources);
+        AssertTrue(sentinelDialog70.Session.ListBox("IDC_LIST1").Items[0]?.ToString()?.Contains("无", StringComparison.Ordinal) == true, "Dialog_70 command 46 old sentinel blank row displays none");
+        sentinelDialog70.Session.ListBox("IDC_LIST1").SelectedIndex = 1;
+        CommitLegacyMfcDialog(sentinelDialog70);
+        AssertEqual(11 * 20, sentinelDialog70.Item.IntData.Count, "Dialog_70 command 46 sentinel commit keeps exact 220-slot length");
+        AssertSequenceEqual(sentinelDialog70Data, sentinelDialog70.Item.IntData, "Dialog_70 command 46 commit preserves old sentinel blank rows");
+
+        var bloatedDialog70 = OpenLegacyMfcDialog("Dialog_70", 70, Enumerable.Repeat(0, 12 * 20).ToArray(), string.Empty, dataSources);
+        CommitLegacyMfcDialog(bloatedDialog70);
+        AssertEqual(11 * 20, bloatedDialog70.Item.IntData.Count, "Dialog_70 command 46 commit trims stale 240-slot data");
+
+        var dialog71 = OpenLegacyMfcDialog("Dialog_70", 71, Enumerable.Repeat(0, 12 * 80).ToArray(), string.Empty, dataSources);
+        AssertTrue(dialog71.Session.ListBox("IDC_LIST1").Items[0]?.ToString()?.Contains("无", StringComparison.Ordinal) == true, "Dialog_70 command 47 blank row displays none");
+        CommitLegacyMfcDialog(dialog71);
+        AssertEqual(12 * 80, dialog71.Item.IntData.Count, "Dialog_70 command 47 commit keeps exact 960-slot length");
+        AssertTrue(dialog71.Item.IntData.Take(12 * 80).All(value => value == 0), "Dialog_70 command 47 commit preserves all-zero blank rows");
+
+        var sentinelDialog71Data = Enumerable.Repeat(0, 12 * 80).ToArray();
+        for (var record = 0; record < 80; record++)
+        {
+            var start = record * 12;
+            sentinelDialog71Data[start] = -1;
+            sentinelDialog71Data[start + 5] = -1;
+            sentinelDialog71Data[start + 9] = -1;
+        }
+        var sentinelDialog71 = OpenLegacyMfcDialog("Dialog_70", 71, sentinelDialog71Data, string.Empty, dataSources);
+        AssertTrue(sentinelDialog71.Session.ListBox("IDC_LIST1").Items[0]?.ToString()?.Contains("无", StringComparison.Ordinal) == true, "Dialog_70 command 47 old sentinel blank row displays none");
+        sentinelDialog71.Session.ListBox("IDC_LIST1").SelectedIndex = 1;
+        CommitLegacyMfcDialog(sentinelDialog71);
+        AssertEqual(12 * 80, sentinelDialog71.Item.IntData.Count, "Dialog_70 command 47 sentinel commit keeps exact 960-slot length");
+        AssertSequenceEqual(sentinelDialog71Data, sentinelDialog71.Item.IntData, "Dialog_70 command 47 commit preserves old sentinel blank rows");
 
         var dialog78 = OpenLegacyMfcDialog("Dialog_78", 78, [1, 5, 2, 3, 4, 5, 2, 3, 123, 7, 8], string.Empty, dataSources);
         AssertEqual(123, dialog78.Session.GetComboIndex("IDC_COMBO9"), "Dialog_78 target person keeps old list-index storage");
@@ -389,6 +643,30 @@ internal partial class Program
         {
             throw new InvalidOperationException(description);
         }
+    }
+
+    private static void AssertSequenceEqual<T>(IEnumerable<T> expected, IEnumerable<T> actual, string description)
+    {
+        var expectedList = expected.ToList();
+        var actualList = actual.ToList();
+        if (expectedList.Count != actualList.Count || !expectedList.SequenceEqual(actualList))
+        {
+            throw new InvalidOperationException($"{description}: expected=[{string.Join(",", expectedList.Take(16))}], actual=[{string.Join(",", actualList.Take(16))}]");
+        }
+    }
+
+    private static T GetPrivateField<T>(object instance, string fieldName)
+    {
+        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingFieldException(instance.GetType().FullName, fieldName);
+        return (T)field.GetValue(instance)!;
+    }
+
+    private static void InvokePrivate(object instance, string methodName, params object?[] args)
+    {
+        var method = instance.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)
+                     ?? throw new MissingMethodException(instance.GetType().FullName, methodName);
+        method.Invoke(instance, args);
     }
 
     private sealed record LegacyMfcDialogFixture(

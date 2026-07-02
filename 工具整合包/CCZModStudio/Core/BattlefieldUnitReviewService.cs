@@ -84,7 +84,7 @@ public sealed class BattlefieldUnitReviewService
         var reviews = Load(project)
             .Where(x => !x.IsPlacement)
             .Where(x => x.ScenarioFileName.Equals(document.Scenario.FileName, StringComparison.OrdinalIgnoreCase))
-            .ToDictionary(x => x.TargetKey, StringComparer.OrdinalIgnoreCase);
+            .ToDictionaryFirstByKey(x => x.TargetKey, x => x, StringComparer.OrdinalIgnoreCase);
         foreach (var candidate in document.UnitCandidates)
         {
             if (!reviews.TryGetValue(candidate.TargetKey, out var review)) continue;

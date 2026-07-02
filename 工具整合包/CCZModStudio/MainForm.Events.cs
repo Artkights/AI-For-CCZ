@@ -53,6 +53,9 @@ public sealed partial class MainForm
         _batchFillRoleEditorColumnButton.Click += (_, _) => FillSelectedGridColumnWithCurrentValue(_roleEditorGrid, UpdateRoleEditorDerivedCells, null, RefreshRoleEditorCellsAfterEdit);
         _filterRoleEditorButton.Click += (_, _) => ApplyRoleEditorFilter();
         _clearRoleEditorFilterButton.Click += (_, _) => ClearRoleEditorFilter();
+        _roleWeaponCombo.SelectionChangeCommitted += (_, _) => ApplyRoleEquipmentDetailSelection("武器", _roleWeaponCombo);
+        _roleArmorCombo.SelectionChangeCommitted += (_, _) => ApplyRoleEquipmentDetailSelection("防具", _roleArmorCombo);
+        _roleAssistCombo.SelectionChangeCommitted += (_, _) => ApplyRoleEquipmentDetailSelection("辅助", _roleAssistCombo);
         _roleEditorSearchBox.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Enter) return;
@@ -118,6 +121,7 @@ public sealed partial class MainForm
             RefreshJobEditorRowStyle(e.RowIndex);
             ShowSelectedJobEditorCell();
         };
+        _jobAreaPreviewInfoBox.TextChanged += (_, _) => ApplyJobDescriptionBoxEdit();
         _loadItemEditorButton.Click += (_, _) => LoadItemEditor();
         _saveItemEditorButton.Click += (_, _) => SaveItemEditor();
         _openItemEffectCatalogButton.Click += (_, _) => OpenItemEffectCatalogEditor();
@@ -382,7 +386,11 @@ public sealed partial class MainForm
         _imageAssignmentGrid.CellEndEdit += (_, e) => UpdateImageAssignmentResourceStatus(e.RowIndex);
         _imageAssignmentGrid.SelectionChanged += (_, _) => ShowSelectedImageAssignmentDetail();
         _loadBattlefieldButton.Click += async (_, _) => await LoadBattlefieldScenariosAsync();
-        _battlefieldScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedBattlefieldScenarioAsync();
+        _battlefieldScenarioCombo.SelectedIndexChanged += async (_, _) =>
+        {
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            await LoadSelectedBattlefieldScenarioAsync();
+        };
         _saveBattlefieldTextsButton.Click += (_, _) => SaveBattlefieldTexts();
         _saveBattlefieldUnitReviewsButton.Click += (_, _) => SaveBattlefieldUnitReviews();
         _writeBattlefieldDeploymentButton.Click += async (_, _) => await WriteBattlefieldDeploymentAsync();
@@ -396,7 +404,11 @@ public sealed partial class MainForm
         _markBattlefieldUnitReviewedButton.Click += (_, _) => MarkSelectedBattlefieldUnit("已核对");
         _markBattlefieldUnitNeedsChangeButton.Click += (_, _) => MarkSelectedBattlefieldUnit("需修改");
         _jumpBattlefieldUnitScriptButton.Click += async (_, _) => await JumpSelectedBattlefieldUnitToScriptCommandAsync();
-        _battlefieldUnitGrid.SelectionChanged += (_, _) => ShowSelectedBattlefieldUnitCandidate();
+        _battlefieldUnitGrid.SelectionChanged += (_, _) =>
+        {
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            ShowSelectedBattlefieldUnitCandidate();
+        };
         _battlefieldUnitGrid.CellDoubleClick += (_, e) => SelectBattlefieldUnitCandidateInScriptTree(e.RowIndex);
         _battlefieldCommandGrid.CellDoubleClick += (_, e) => SelectBattlefieldCommandCandidateInScriptTree(e.RowIndex);
         _battlefieldMapPreviewBox.MouseDown += (_, e) => BeginBattlefieldPlacedUnitInteraction(e);
@@ -405,12 +417,12 @@ public sealed partial class MainForm
             UpdateBattlefieldMapHover(e.Location);
             ContinueBattlefieldPlacedUnitInteraction(e);
         };
-        _battlefieldMapPreviewBox.MouseUp += (_, _) => EndBattlefieldPlacedUnitInteraction();
+        _battlefieldMapPreviewBox.MouseUp += (_, e) => EndBattlefieldPlacedUnitInteraction(e.Location);
         _battlefieldMapPreviewBox.MouseDoubleClick += (_, e) => FocusBattlefieldConsoleFromMapDoubleClick(e);
         _battlefieldMapPreviewBox.MouseLeave += (_, _) =>
         {
             ClearBattlefieldMapHover();
-            EndBattlefieldPlacedUnitInteraction();
+            EndBattlefieldPlacedUnitInteraction(null);
         };
         _battlefieldMapPreviewBox.MouseWheel += (_, e) => HandleBattlefieldMapMouseWheel(e);
         _battlefieldMapPreviewBox.MouseEnter += (_, _) => _battlefieldMapScrollPanel.Focus();
@@ -418,18 +430,14 @@ public sealed partial class MainForm
         _battlefieldMapScrollPanel.MouseEnter += (_, _) => _battlefieldMapScrollPanel.Focus();
         _battlefieldMapZoomResetButton.Click += (_, _) => ResetBattlefieldMapZoom();
         _markBattlefieldCommand25Button.Click += (_, _) => ToggleBattlefieldCommand25Preview();
-        _battlefieldScriptTree.AfterSelect += (_, _) => ShowSelectedBattlefieldScriptNode();
+        _battlefieldScriptTree.AfterSelect += (_, _) =>
+        {
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            ShowSelectedBattlefieldScriptNode();
+        };
         _battlefieldScriptTree.AfterCheck += (_, e) => HandleLegacyScriptTreeNodeAfterCheck(LegacyScriptEditorScope.Battlefield, e);
         _battlefieldScriptTree.NodeMouseClick += (_, e) => HandleLegacyScriptTreeNodeMouseClick(LegacyScriptEditorScope.Battlefield, e);
-        _battlefieldScriptTree.NodeMouseDoubleClick += (_, e) =>
-        {
-            if (e.Button != MouseButtons.Left) return;
-            if (!ReferenceEquals(_battlefieldScriptTree.SelectedNode, e.Node))
-            {
-                _battlefieldScriptTree.SelectedNode = e.Node;
-            }
-            QueueEditSelectedBattlefieldScriptParameters();
-        };
+        _battlefieldScriptTree.NodeMouseDoubleClick += (_, e) => HandleBattlefieldScriptTreeNodeMouseDoubleClick(e);
         _battlefieldScriptTree.KeyDown += (_, e) => HandleLegacyScriptTreeKeyDown(LegacyScriptEditorScope.Battlefield, e);
         _battlefieldScriptTextBox.TextChanged += (_, _) => UpdateBattlefieldScriptTextCapacityLabel();
         _saveBattlefieldScriptTextButton.Click += async (_, _) => await SaveSelectedBattlefieldScriptTextAsync();
@@ -456,30 +464,49 @@ public sealed partial class MainForm
         _battlefieldMapPreviewBox.AllowDrop = true;
         _battlefieldMapPreviewBox.DragEnter += (_, e) => HandleBattlefieldMapDragEnter(e);
         _battlefieldMapPreviewBox.DragDrop += (_, e) => HandleBattlefieldMapDragDrop(e);
-        _battlefieldRemovePlacedUnitButton.Click += (_, _) => RemoveSelectedBattlefieldPlacedUnit();
+        _battlefieldRemovePlacedUnitButton.Click += (_, _) =>
+        {
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            RemoveSelectedBattlefieldPlacedUnit();
+        };
         _battlefieldClearPlacedUnitsButton.Click += (_, _) => ClearBattlefieldPlacedUnits();
-        _battlefieldFactionAllyRadio.CheckedChanged += (_, _) => HandleBattlefieldFactionChanged();
-        _battlefieldFactionFriendRadio.CheckedChanged += (_, _) => HandleBattlefieldFactionChanged();
-        _battlefieldFactionEnemyRadio.CheckedChanged += (_, _) => HandleBattlefieldFactionChanged();
-        _battlefieldHiddenCheckBox.CheckedChanged += (_, _) => ApplyBattlefieldControlPanelToSelectedUnit();
-        _battlefieldLevelOffsetInput.ValueChanged += (_, _) => ApplyBattlefieldControlPanelToSelectedUnit();
+        _battlefieldFactionAllyRadio.CheckedChanged += (_, _) =>
+        {
+            if (!_battlefieldFactionAllyRadio.Checked) return;
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            HandleBattlefieldFactionChanged();
+        };
+        _battlefieldFactionFriendRadio.CheckedChanged += (_, _) =>
+        {
+            if (!_battlefieldFactionFriendRadio.Checked) return;
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            HandleBattlefieldFactionChanged();
+        };
+        _battlefieldFactionEnemyRadio.CheckedChanged += (_, _) =>
+        {
+            if (!_battlefieldFactionEnemyRadio.Checked) return;
+            if (!TryCommitPendingBattlefieldConsoleChanges()) return;
+            HandleBattlefieldFactionChanged();
+        };
+        _battlefieldHiddenCheckBox.CheckedChanged += (_, _) => MarkBattlefieldConsolePlacementDirty(BattlefieldBatchEditField.Hidden);
+        _battlefieldLevelOffsetInput.ValueChanged += (_, _) => MarkBattlefieldConsolePlacementDirty(BattlefieldBatchEditField.LevelOffset);
         _battlefieldLevelModeCombo.SelectedIndexChanged += (_, _) =>
         {
-            ApplyBattlefieldControlPanelToSelectedUnit();
+            MarkBattlefieldConsolePlacementDirty(BattlefieldBatchEditField.LevelMode);
             RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
         };
-        _battlefieldAiModeCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldControlPanelToSelectedUnit();
+        _battlefieldAiModeCombo.SelectedIndexChanged += (_, _) => MarkBattlefieldConsolePlacementDirty(BattlefieldBatchEditField.AiMode);
         _battlefieldDirectionCombo.SelectedIndexChanged += (_, _) =>
         {
-            ApplyBattlefieldControlPanelToSelectedUnit();
+            MarkBattlefieldConsolePlacementDirty(BattlefieldBatchEditField.Direction);
             RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
         };
-        _battlefieldConsoleWeaponCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
-        _battlefieldConsoleWeaponLevelInput.ValueChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
-        _battlefieldConsoleArmorCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
-        _battlefieldConsoleArmorLevelInput.ValueChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
-        _battlefieldConsoleAssistCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
-        _battlefieldConsoleJobCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleWeaponCombo.SelectedIndexChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.Equipment, BattlefieldBatchEditField.Weapon);
+        _battlefieldConsoleWeaponLevelInput.ValueChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.Equipment, BattlefieldBatchEditField.WeaponLevel);
+        _battlefieldConsoleArmorCombo.SelectedIndexChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.Equipment, BattlefieldBatchEditField.Armor);
+        _battlefieldConsoleArmorLevelInput.ValueChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.Equipment, BattlefieldBatchEditField.ArmorLevel);
+        _battlefieldConsoleAssistCombo.SelectedIndexChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.Equipment, BattlefieldBatchEditField.Assist);
+        _battlefieldConsoleJobCombo.SelectedIndexChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.RuntimeAbility, BattlefieldBatchEditField.Job);
         _battlefieldConsoleAbilityGrid.CurrentCellDirtyStateChanged += (_, _) =>
         {
             if (_battlefieldConsoleAbilityGrid.IsCurrentCellDirty)
@@ -487,9 +514,14 @@ public sealed partial class MainForm
                 _battlefieldConsoleAbilityGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
             }
         };
-        _battlefieldConsoleAbilityGrid.CellValueChanged += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
-        _battlefieldConsoleAbilityGrid.CellEndEdit += (_, _) => ApplyBattlefieldConsoleStatusToSelectedUnit();
+        _battlefieldConsoleAbilityGrid.CellValueChanged += (_, _) => MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.RuntimeAbility, BattlefieldBatchEditField.Ability);
+        _battlefieldConsoleAbilityGrid.CellEndEdit += (_, _) =>
+        {
+            if (IsBattlefieldBatchEditingActive) return;
+            MarkBattlefieldConsoleStatusDirty(BattlefieldConsoleDirtyKind.RuntimeAbility, BattlefieldBatchEditField.Ability);
+        };
         _battlefieldConsoleAbilityGrid.DataError += (_, e) => e.ThrowException = false;
+        RegisterBattlefieldConsoleDeferredCommitHandlers();
         _loadRSceneButton.Click += async (_, _) => await LoadRSceneScenariosAsync();
         _rSceneScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedRSceneScenarioAsync();
         _saveRSceneDraftButton.Click += (_, _) => SaveRSceneDraft();

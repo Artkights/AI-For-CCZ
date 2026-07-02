@@ -27,7 +27,7 @@ public sealed class BatchRImageReplaceService
         E5RawImageCodec.PmapobjSpec.FrameHeight,
         RStripHeight);
 
-    private readonly E5RawImageCodec _codec = new();
+    private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
 
     public BatchRImageReplacePreviewResult Preview(CczProject project, BatchRImageReplaceRequest request)
@@ -169,13 +169,13 @@ public sealed class BatchRImageReplaceService
         };
     }
 
-    private static E5ImageBatchReplaceRequest BuildRequest(int imageNumber, E5RawEncodeResult encode, int rImageId, string role)
+    private static E5ImageBatchReplaceRequest BuildRequest(int imageNumber, E5TrueColorEncodeResult encode, int rImageId, string role)
         => new()
         {
             ImageNumber = imageNumber,
-            SourceBytes = encode.RawBytes,
-            SourceBytesAreRaw = true,
-            SourceLabel = $"{encode.SourcePath} -> RAW",
+            SourceBytes = encode.ImageBytes,
+            SourceBytesAreRaw = false,
+            SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
             OperationKind = $"batch R{rImageId} {role}"
         };
 
@@ -229,10 +229,10 @@ public sealed class BatchRImageReplaceService
         var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
-        var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchRImageRawReplaceReport.json");
+        var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchRImageTrueColorReplaceReport.json");
         var payload = new
         {
-            OperationKind = "Batch R image RAW replace",
+            OperationKind = "Batch R image true-color replace",
             CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ProjectRoot = project.GameRoot,
             result.Request.MaterialRoot,

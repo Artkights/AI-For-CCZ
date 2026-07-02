@@ -14,7 +14,7 @@ public sealed class SImageReplaceService
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
     };
 
-    private readonly E5RawImageCodec _codec = new();
+    private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
 
     public SImageReplacePreviewResult Preview(CczProject project, SImageReplaceRequest request)
@@ -173,13 +173,13 @@ public sealed class SImageReplaceService
         return string.Empty;
     }
 
-    private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(IReadOnlyList<int> imageNumbers, E5RawEncodeResult encode, string actionName)
+    private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(IReadOnlyList<int> imageNumbers, E5TrueColorEncodeResult encode, string actionName)
         => imageNumbers.Select(imageNumber => new E5ImageBatchReplaceRequest
         {
             ImageNumber = imageNumber,
-            SourceBytes = encode.RawBytes,
-            SourceBytesAreRaw = true,
-            SourceLabel = $"{encode.SourcePath} -> RAW",
+            SourceBytes = encode.ImageBytes,
+            SourceBytesAreRaw = false,
+            SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
             OperationKind = $"一键替换S形象-{actionName}"
         }).ToArray();
 
@@ -188,10 +188,10 @@ public sealed class SImageReplaceService
         var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
-        var reportPath = Path.Combine(backupRoot, $"{stamp}_SImageRawReplaceReport.json");
+        var reportPath = Path.Combine(backupRoot, $"{stamp}_SImageTrueColorReplaceReport.json");
         var payload = new
         {
-            OperationKind = "S形象一键RAW替换",
+            OperationKind = "S形象一键真彩替换",
             CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ProjectRoot = project.GameRoot,
             result.Request,
@@ -215,11 +215,14 @@ public sealed class SImageReplaceService
                 {
                     file.Encode.SourceWidth,
                     file.Encode.SourceHeight,
-                    file.Encode.RawLength,
+                    file.Encode.NormalizedWidth,
+                    file.Encode.NormalizedHeight,
+                    file.Encode.StorageFormat,
+                    file.Encode.ColorDepth,
+                    file.Encode.ImageLength,
                     file.Encode.TransparentPixels,
-                    file.Encode.ExactPalettePixels,
-                    file.Encode.NearestPalettePixels,
-                    file.Encode.PalettePath,
+                    file.Encode.MagentaKeyPixels,
+                    file.Encode.Quantization,
                     file.Encode.Warnings
                 },
                 Write = new

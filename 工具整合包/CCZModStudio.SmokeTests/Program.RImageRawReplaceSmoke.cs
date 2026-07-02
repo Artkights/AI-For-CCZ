@@ -55,8 +55,8 @@ internal partial class Program
             throw new InvalidOperationException("R=1 一键 RAW 替换写入结果不符合预期。");
         }
 
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5"), 3, 48 * 1280);
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5"), 4, 48 * 1280);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5"), 3, 48 * 1280);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5"), 4, 48 * 1280);
 
         var frontOnlyRoot = Path.Combine(smokeRoot, "_RImageRawMaterialsFrontOnly");
         Directory.CreateDirectory(frontOnlyRoot);
@@ -86,7 +86,7 @@ internal partial class Program
             throw new InvalidOperationException("R 部分导入写入结果不符合预期。");
         }
 
-        VerifyRawEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5"), 5, 48 * 1280);
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Pmapobj.e5"), 5, 48 * 1280);
 
         var duplicateRoot = Path.Combine(smokeRoot, "_RImageRawMaterialsDuplicate");
         Directory.CreateDirectory(duplicateRoot);

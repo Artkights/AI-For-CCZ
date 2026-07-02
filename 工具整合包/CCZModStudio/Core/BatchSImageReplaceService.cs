@@ -16,7 +16,7 @@ public sealed class BatchSImageReplaceService
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
     };
 
-    private readonly E5RawImageCodec _codec = new();
+    private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
 
     public BatchSImageReplacePreviewResult Preview(CczProject project, BatchSImageReplaceRequest request)
@@ -246,15 +246,15 @@ public sealed class BatchSImageReplaceService
 
     private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(
         IReadOnlyList<int> imageNumbers,
-        E5RawEncodeResult encode,
+        E5TrueColorEncodeResult encode,
         BatchSImageUsage usage,
         string actionName)
         => imageNumbers.Select(imageNumber => new E5ImageBatchReplaceRequest
         {
             ImageNumber = imageNumber,
-            SourceBytes = encode.RawBytes,
-            SourceBytesAreRaw = true,
-            SourceLabel = $"{encode.SourcePath} -> RAW",
+            SourceBytes = encode.ImageBytes,
+            SourceBytesAreRaw = false,
+            SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
             OperationKind = $"batch S{usage.SImageId} {actionName}"
         }).ToArray();
 
@@ -319,10 +319,10 @@ public sealed class BatchSImageReplaceService
         var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
-        var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchSImageRawReplaceReport.json");
+        var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchSImageTrueColorReplaceReport.json");
         var payload = new
         {
-            OperationKind = "Batch S image RAW replace",
+            OperationKind = "Batch S image true-color replace",
             CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ProjectRoot = project.GameRoot,
             result.Request.MaterialRoot,

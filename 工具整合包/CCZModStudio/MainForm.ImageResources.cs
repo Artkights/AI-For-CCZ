@@ -683,7 +683,7 @@ public sealed partial class MainForm
         IReadOnlyList<ImageResourceEntryInfo> selectedEntries,
         IReadOnlyList<string> fileNames)
     {
-        var entryByNumber = entries.ToDictionary(x => x.ImageNumber);
+        var entryByNumber = DictionaryBuild.ToDictionaryFirstByKey(entries, x => x.ImageNumber, x => x);
         if (selectedEntries.Count == fileNames.Count)
         {
             return selectedEntries
@@ -1444,7 +1444,7 @@ public sealed partial class MainForm
         var previewText = BuildRImageReplacePreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
         if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会把 front.bmp / back.bmp 转为 RAW 并写入 Pmapobj.e5，写入前自动备份。是否继续？",
+                previewText + "\r\n\r\n确认后会把 front.bmp / back.bmp 标准化为真彩 PNG 并写入 Pmapobj.e5，写入前自动备份。是否继续？",
                 "确认一键替换 R 形象",
                 MessageBoxButtons.YesNo,
                 _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -1479,7 +1479,7 @@ public sealed partial class MainForm
            $"素材目录：{preview.Request.MaterialFolder}\r\n" +
            $"写入条目：{preview.TotalOperationCount} 条\r\n" +
            string.Join("\r\n", preview.Files.Select(file =>
-               $"{file.Role}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> RAW {file.Encode.RawLength:N0} bytes；图号 #{file.ImageNumber}")) +
+               $"{file.Role}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> {file.Encode.StorageFormat} {file.Encode.ImageLength:N0} bytes；图号 #{file.ImageNumber}")) +
            "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
 
     private static string BuildRImageReplaceResultText(RImageReplaceResult result)
@@ -1555,7 +1555,7 @@ public sealed partial class MainForm
         var previewText = BuildSImageReplacePreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
         if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会把三条 BMP 转为 RAW 并写入 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5，写入前自动备份。是否继续？",
+                previewText + "\r\n\r\n确认后会把三条素材标准化为真彩 PNG 并写入 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5，写入前自动备份。是否继续？",
                 "确认一键替换 S 形象",
                 MessageBoxButtons.YesNo,
                 _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -1590,7 +1590,7 @@ public sealed partial class MainForm
            $"素材目录：{preview.Request.MaterialFolder}\r\n" +
            $"写入条目：{preview.TotalOperationCount} 条\r\n" +
            string.Join("\r\n", preview.Files.Select(file =>
-               $"{file.TargetFileName}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> RAW {file.Encode.RawLength:N0} bytes；图号 {string.Join(", ", file.BatchPreview.Operations.Select(op => "#" + op.ImageNumber.ToString(CultureInfo.InvariantCulture)))}")) +
+               $"{file.TargetFileName}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> {file.Encode.StorageFormat} {file.Encode.ImageLength:N0} bytes；图号 {string.Join(", ", file.BatchPreview.Operations.Select(op => "#" + op.ImageNumber.ToString(CultureInfo.InvariantCulture)))}")) +
            "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
 
     private static string BuildSImageReplaceResultText(SImageReplaceResult result)
@@ -1751,7 +1751,7 @@ public sealed partial class MainForm
         IReadOnlyList<ImageResourceEntryInfo> selectedEntries,
         IReadOnlyList<string> fileNames)
     {
-        var entryByNumber = entries.ToDictionary(x => x.ImageNumber);
+        var entryByNumber = DictionaryBuild.ToDictionaryFirstByKey(entries, x => x.ImageNumber, x => x);
         if (selectedEntries.Count == fileNames.Count)
         {
             return selectedEntries
