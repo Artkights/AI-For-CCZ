@@ -132,9 +132,12 @@ public sealed class BattlefieldDeploymentWriteService
             }
 
             var changed = false;
+            var personScriptCode = definition.WritesPerson
+                ? placement.Source.PersonRawCode ?? BattlefieldEditorService.EncodePerson2ScriptCode(placement.Source.PersonId)
+                : placement.Source.PersonId;
             if (definition.WritesPerson)
             {
-                SetParameterValueIfChanged(command, start + definition.PersonIndex, placement.Source.PersonId, LegacyScenarioParameterKind.Word16, ref changed);
+                SetParameterValueIfChanged(command, start + definition.PersonIndex, personScriptCode, LegacyScenarioParameterKind.Word16, ref changed);
             }
             SetCoordinateParameterValueIfChanged(command, start + definition.XIndex, placement.Source.GridX, ref changed);
             SetCoordinateParameterValueIfChanged(command, start + definition.YIndex, placement.Source.GridY, ref changed);
@@ -172,13 +175,14 @@ public sealed class BattlefieldDeploymentWriteService
                 CommandIndex = command.CommandIndex,
                 RecordIndex = placement.Locator.RecordIndex,
                 PersonId = placement.Source.PersonId,
+                PersonRawCode = personScriptCode,
                 GridX = placement.Source.GridX,
                 GridY = placement.Source.GridY,
                 AiMode = aiValue,
                 DirectionMode = directionValue,
                 HiddenFlag = hiddenValue,
                 Summary = $"{command.CommandIdHex} {command.CommandName} Record={placement.Locator.RecordIndex} " +
-                          (definition.WritesPerson ? $"人物={placement.Source.PersonId} " : $"我军出战位={GetParameterValue(command, start + definition.PersonIndex)} ") +
+                          (definition.WritesPerson ? $"人物={placement.Source.PersonId}(Person2={personScriptCode}) " : $"我军出战位={GetParameterValue(command, start + definition.PersonIndex)} ") +
                           $"坐标=({placement.Source.GridX},{placement.Source.GridY})" +
                           (aiValue.HasValue ? $" AI={aiValue.Value}" : " AI=保持原值") +
                           (directionValue.HasValue ? $" 方向={directionValue.Value}" : string.Empty) +
@@ -292,6 +296,11 @@ public sealed class BattlefieldDeploymentWriteService
             {
                 ClearParameterValue(command, start + index);
             }
+            SetParameterValue(
+                command,
+                start + definition.PersonIndex,
+                BattlefieldDeploymentRecordFormatter.EmptyPerson2Code,
+                LegacyScenarioParameterKind.Word16);
 
             changes.Add(new BattlefieldDeploymentWriteChange
             {
@@ -302,6 +311,7 @@ public sealed class BattlefieldDeploymentWriteService
                 CommandIndex = command.CommandIndex,
                 RecordIndex = placement.Locator.RecordIndex,
                 PersonId = oldPersonId,
+                PersonRawCode = oldPersonId,
                 GridX = oldGridX,
                 GridY = oldGridY,
                 AiMode = oldAi,
@@ -347,7 +357,7 @@ public sealed class BattlefieldDeploymentWriteService
             var start = change.RecordIndex * definition.GroupSize;
             if (definition.WritesPerson)
             {
-                AssertParameterValue(command, start + definition.PersonIndex, change.PersonId, "人物");
+                AssertParameterValue(command, start + definition.PersonIndex, change.PersonRawCode, "人物");
             }
             AssertParameterValue(command, start + definition.XIndex, change.GridX, "X坐标");
             AssertParameterValue(command, start + definition.YIndex, change.GridY, "Y坐标");
@@ -510,9 +520,10 @@ public sealed class BattlefieldDeploymentWriteService
             return false;
         }
 
-        if (placement.PersonId < 0 || placement.PersonId > 60000)
+        var personScriptCode = placement.PersonRawCode ?? BattlefieldEditorService.EncodePerson2ScriptCode(placement.PersonId);
+        if (placement.PersonId < 0 || personScriptCode < -5535 || personScriptCode > 60000)
         {
-            reason = "人物编号超出 16 位安全范围。";
+            reason = "人物编号或 Person2 剧本码超出 16 位安全范围。";
             return false;
         }
 

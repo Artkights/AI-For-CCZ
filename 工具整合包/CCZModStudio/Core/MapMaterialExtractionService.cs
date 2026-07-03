@@ -338,6 +338,8 @@ public sealed class MapMaterialExtractionService
             SceneryOverlays = draft.SceneryOverlays.Select(CloneSceneryOverlay).ToList(),
             OriginalTerrainCells = draft.OriginalTerrainCells.ToArray(),
             TerrainCells = draft.TerrainCells.ToArray(),
+            GenerationMode = draft.GenerationMode,
+            TerrainVisualProfile = draft.TerrainVisualProfile.Clone(),
             AutoGenerateMapFromTerrain = draft.AutoGenerateMapFromTerrain,
             BeautifyGeneratedMap = draft.BeautifyGeneratedMap,
             BeautifyStrength = draft.BeautifyStrength,

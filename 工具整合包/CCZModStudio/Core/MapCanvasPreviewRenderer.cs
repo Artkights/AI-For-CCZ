@@ -459,6 +459,8 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
             NormalizeFileKey(draft.BaseLayerPath),
             NormalizePathKey(draft.MaterialRoot),
+            draft.GenerationMode,
+            NormalizeTerrainVisualProfileKey(draft.TerrainVisualProfile),
             NormalizeOverlayKey(draft),
             draft.BeautifyFilterProfile,
             NormalizeCustomBeautifyFilterKey(draft.CustomBeautifyFilter),
@@ -466,6 +468,55 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             draft.FeatherRadius.ToString(System.Globalization.CultureInfo.InvariantCulture),
             materials.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             NormalizeMaterialAutoTileKey(materials));
+
+    private static string NormalizeTerrainVisualProfileKey(TerrainVisualProfile? profile)
+    {
+        if (profile == null) return string.Empty;
+        return string.Join(",",
+            profile.Seed,
+            profile.UseCurrentMapSamples.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.AutoExtractCurrentMapSamples.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.RedrawChangedCellsOnly.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.EdgeFeatherRadius.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.BlendStrength.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.ColorAlignmentStrength.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            profile.TextureNoiseStrength.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseInteriorTextureSynthesis.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.EnableNaturalTileTransforms.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseInteriorSeamBlend.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.InteriorSeamPixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.InteriorSeamJitterPixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.InteriorSecondaryBlendStrength.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            profile.RegionTextureUnifyStrength.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            profile.RegionNoiseScalePixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.AllowNinetyDegreeNaturalRotation.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.RegenerateGroundUnderBuildingOverlays.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.BuildingGroundContextRadiusCells.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseGlobalBuildingStyle.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseGlobalTransitionField.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseRegionTextureCanvas.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseObjectContactBlend.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.TransitionFieldFeatherPixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.TransitionFieldJitterPixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.QuiltingOverlapPixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.QuiltingCandidateCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.MacroNoiseStrength.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            profile.ObjectContactShadowStrength.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture),
+            profile.ObjectContactBlendPixels.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.ObjectGroundContextRadiusCells.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.UseObjectGroundInpaint.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.ObjectGroundInferenceRadiusCells.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.GroundInpaintIncludesTerrainObjects.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.AlphaRepairBlackThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.AlphaRepairEdgeConnectivity.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.MinPureSamplesPerTerrain.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.PreferCurrentMapSamplesStrictly.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.IgnoreBasePixelsUnderObjects.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            NormalizePathKey(profile.StyleSampleRoot),
+            string.Join(";", (profile.MaterialOverrides ?? new List<TerrainVisualMaterialOverride>())
+                .OrderBy(item => item.TerrainId)
+                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.MaterialRelativePath)));
+    }
 
     private static string NormalizePathKey(string path)
     {
@@ -498,7 +549,28 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
     }
 
     private static string NormalizeOverlayKey(MapWorkbenchDraft draft)
-        => string.Join(";",
+        => string.Join("|",
+            string.Join(";",
+                draft.TerrainBaseCells
+                    .OrderBy(cell => cell.Index)
+                    .ThenBy(cell => cell.MaterialRelativePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(NormalizeCellOverrideKey)),
+            string.Join(";",
+                draft.GeneratedMapCells
+                    .OrderBy(cell => cell.Index)
+                    .ThenBy(cell => cell.MaterialRelativePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(NormalizeCellOverrideKey)),
+            string.Join(";",
+                draft.BuildingOverlayCells
+                    .OrderBy(cell => cell.Index)
+                    .ThenBy(cell => cell.MaterialRelativePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(NormalizeCellOverrideKey)),
+            string.Join(";",
+                draft.SceneryOverlayCells
+                    .OrderBy(cell => cell.Index)
+                    .ThenBy(cell => cell.MaterialRelativePath, StringComparer.OrdinalIgnoreCase)
+                    .Select(NormalizeCellOverrideKey)),
+            string.Join(";",
             draft.SceneryOverlays
                 .OrderBy(overlay => overlay.ZOrder)
                 .ThenBy(overlay => overlay.X)
@@ -510,7 +582,15 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
                     overlay.Width.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     overlay.Height.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     overlay.RotationDegrees.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    overlay.ZOrder.ToString(System.Globalization.CultureInfo.InvariantCulture))));
+                    overlay.ZOrder.ToString(System.Globalization.CultureInfo.InvariantCulture)))));
+
+    private static string NormalizeCellOverrideKey(MapCellOverride cell)
+        => string.Join(",",
+            cell.Index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            cell.MaterialRelativePath,
+            cell.MaterialCategory,
+            cell.DisplayName,
+            cell.Source);
 
     private static string NormalizeCustomBeautifyFilterKey(BeautifyCustomFilterSettings? settings)
     {

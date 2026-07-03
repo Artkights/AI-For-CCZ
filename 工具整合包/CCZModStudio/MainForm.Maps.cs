@@ -1097,6 +1097,9 @@ public sealed partial class MainForm
         CancelPendingMapMakerBeautify();
         _currentMapWorkbenchDraft.TileSize = MapResourceItem.MapTilePixelSize;
         _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.GenerationMode = IsMapWorkbenchTerrainGenerateMode
+            ? MapWorkbenchGenerationModes.TerrainDrivenVisual
+            : MapWorkbenchGenerationModes.MaterialDriven;
         var cellCount = _currentMapWorkbenchDraft.GridWidth * _currentMapWorkbenchDraft.GridHeight;
         if (_currentMapWorkbenchDraft.TerrainCells.Length != cellCount)
         {
@@ -1161,7 +1164,15 @@ public sealed partial class MainForm
                 ?? BeautifyCustomFilterSettings.CreateDefault();
         }
         EnsureCurrentTerrainMaterialPlan(persist: false);
-        if (!_mapMakerPainting)
+        if (IsMapWorkbenchTerrainGenerateMode ||
+            _currentMapWorkbenchDraft.GenerationMode.Equals(MapWorkbenchGenerationModes.TerrainDrivenVisual, StringComparison.OrdinalIgnoreCase))
+        {
+            if (_terrainEditorCells.Length == _currentMapWorkbenchDraft.CellCount)
+            {
+                _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+            }
+        }
+        else if (!_mapMakerPainting)
         {
             RefreshGeneratedMapCells();
         }
@@ -1308,6 +1319,115 @@ public sealed partial class MainForm
         _mapMakerTerrainRedoStack.Clear();
         RecalculateMapMakerTerrainChangedCellCount();
         UpdateMapMakerEditingButtons();
+    }
+
+    private bool IsMapWorkbenchTerrainGenerateMode
+        => _mapWorkbenchSubPageMode == MapWorkbenchSubPageMode.TerrainGenerate;
+
+    private bool ShouldRenderMapWorkbenchTerrainLayerOnly()
+        => IsMapWorkbenchTerrainGenerateMode
+            ? _mapMakerTerrainLayerViewRadio.Checked
+            : _mapMakerShowTerrainCheckBox.Checked;
+
+    private void HandleMapWorkbenchModeTabChanged()
+    {
+        var mode = _mapWorkbenchModeTabs.SelectedIndex == 1
+            ? MapWorkbenchSubPageMode.TerrainGenerate
+            : MapWorkbenchSubPageMode.MaterialPaint;
+        SetMapWorkbenchSubPageMode(mode);
+    }
+
+    private void SetMapWorkbenchSubPageMode(MapWorkbenchSubPageMode mode)
+    {
+        _mapWorkbenchSubPageMode = mode;
+        MoveMapWorkbenchCanvasToActiveSubPage();
+
+        if (mode == MapWorkbenchSubPageMode.TerrainGenerate)
+        {
+            PrepareMapWorkbenchTerrainGenerateMode();
+        }
+        else if (_currentMapWorkbenchDraft != null)
+        {
+            _currentMapWorkbenchDraft.GenerationMode = MapWorkbenchGenerationModes.MaterialDriven;
+        }
+
+        UpdateMapWorkbenchTerrainGenerationInfo();
+        UpdateMapMakerEditingButtons();
+        RenderMapMakerPreview(force: true);
+    }
+
+    private void MoveMapWorkbenchCanvasToActiveSubPage()
+    {
+        if (_mapWorkbenchCanvasControl == null) return;
+        Control? target = IsMapWorkbenchTerrainGenerateMode
+            ? _mapWorkbenchTerrainGenerateSplit?.Panel1
+            : _mapWorkbenchMaterialPaintSplit?.Panel1;
+        if (target == null || ReferenceEquals(_mapWorkbenchCanvasControl.Parent, target)) return;
+
+        _mapWorkbenchCanvasControl.Parent?.Controls.Remove(_mapWorkbenchCanvasControl);
+        target.Controls.Add(_mapWorkbenchCanvasControl);
+        _mapWorkbenchCanvasControl.Dock = DockStyle.Fill;
+        _mapWorkbenchCanvasControl.BringToFront();
+    }
+
+    private void PrepareMapWorkbenchTerrainGenerateMode()
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+
+        _currentMapWorkbenchDraft.GenerationMode = MapWorkbenchGenerationModes.TerrainDrivenVisual;
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.TerrainVisualProfile ??= new TerrainVisualProfile();
+        _currentMapWorkbenchDraft.TerrainVisualProfile.UseCurrentMapSamples = true;
+        _currentMapWorkbenchDraft.TerrainVisualProfile.AutoExtractCurrentMapSamples = true;
+        _currentMapWorkbenchDraft.TerrainVisualProfile.RedrawChangedCellsOnly = true;
+
+        if (_terrainEditorCells.Length != _currentMapWorkbenchDraft.CellCount)
+        {
+            TryLoadMapMakerTerrainForSelectedMap(showMessage: false);
+        }
+
+        if (_terrainEditorCells.Length == _currentMapWorkbenchDraft.CellCount)
+        {
+            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+        }
+
+        SetMapWorkbenchBrushMode(MapWorkbenchBrushMode.TerrainBrush);
+        if (!_mapMakerTerrainGeneratedViewRadio.Checked)
+        {
+            _mapMakerTerrainLayerViewRadio.Checked = true;
+        }
+    }
+
+    private void UpdateMapWorkbenchTerrainGenerationInfo(CurrentMapStyleProfile? styleProfile = null, TerrainVisualSynthesisDiagnostics? diagnostics = null)
+    {
+        if (_mapMakerTerrainGenerationInfoBox.IsDisposed) return;
+        if (styleProfile != null && diagnostics != null)
+        {
+            _mapMakerTerrainGenerationInfoBox.Text = BuildTerrainStyleDiagnosticsText(styleProfile, diagnostics);
+            return;
+        }
+
+        if (_currentMapWorkbenchDraft == null)
+        {
+            _mapMakerTerrainGenerationInfoBox.Text = "Select a map or create a draft, then paint Hexzmap terrain cells here.";
+            return;
+        }
+
+        var terrainCount = _terrainEditorCells.Length == _currentMapWorkbenchDraft.CellCount
+            ? _terrainEditorCells.Distinct().Count()
+            : 0;
+        var changedCount = _terrainEditorCells.Length == _mapMakerOriginalTerrainCells.Length
+            ? _terrainEditorCells.Where((value, index) => value != _mapMakerOriginalTerrainCells[index]).Count()
+            : 0;
+        var mode = _currentMapWorkbenchDraft.GenerationMode;
+        var view = ShouldRenderMapWorkbenchTerrainLayerOnly() ? "terrain layer" : "generated preview";
+        _mapMakerTerrainGenerationInfoBox.Text =
+            $"Mode: {mode}\r\n" +
+            $"View: {view}\r\n" +
+            $"Grid: {_currentMapWorkbenchDraft.GridWidth}x{_currentMapWorkbenchDraft.GridHeight}\r\n" +
+            $"Terrain ids: {terrainCount}\r\n" +
+            $"Changed cells: {changedCount}\r\n" +
+            "Paint terrain cells, then click Generate to build a style-aligned visual preview.";
     }
 
     private void SelectMapWorkbenchBrushMode()
@@ -2020,7 +2140,7 @@ public sealed partial class MainForm
         _mapViewerRenderedImage = _mapCanvasPreviewRenderer.GetCurrentPreviewImage(
             _currentMapWorkbenchDraft,
             _currentMaterialAssets,
-            terrainLayerOnly: _mapMakerShowTerrainCheckBox.Checked,
+            terrainLayerOnly: ShouldRenderMapWorkbenchTerrainLayerOnly(),
             showGrid: _mapMakerShowGridCheckBox.Checked,
             terrainOpacityPercent: 0,
             showBeautifiedMap: _currentMapWorkbenchDraft.BeautifyGeneratedMap);
@@ -2282,6 +2402,8 @@ public sealed partial class MainForm
             SceneryOverlays = source.SceneryOverlays.Select(CloneMapSceneryOverlayForBackground).ToList(),
             OriginalTerrainCells = source.OriginalTerrainCells.ToArray(),
             TerrainCells = source.TerrainCells.ToArray(),
+            GenerationMode = source.GenerationMode,
+            TerrainVisualProfile = source.TerrainVisualProfile.Clone(),
             AutoGenerateMapFromTerrain = source.AutoGenerateMapFromTerrain,
             BeautifyGeneratedMap = true,
             BeautifyStrength = source.BeautifyStrength,
@@ -2460,12 +2582,24 @@ public sealed partial class MainForm
     {
         if (e.Button == MouseButtons.Right)
         {
+            if (IsMapWorkbenchTerrainGenerateMode)
+            {
+                UpdateMapMakerCellInfo(e.Location);
+                return;
+            }
+
             SelectMapMakerExtractionCell(e.Location);
             return;
         }
 
         if (e.Button == MouseButtons.Left && ModifierKeys.HasFlag(Keys.Shift))
         {
+            if (IsMapWorkbenchTerrainGenerateMode)
+            {
+                UpdateMapMakerCellInfo(e.Location);
+                return;
+            }
+
             BeginMapMakerCellSelection(e.Location);
             return;
         }
@@ -2478,6 +2612,15 @@ public sealed partial class MainForm
         }
 
         _mapViewerBox.Focus();
+        if (IsMapWorkbenchTerrainGenerateMode)
+        {
+            PrepareMapWorkbenchTerrainGenerateMode();
+            if (!_mapMakerTerrainLayerViewRadio.Checked)
+            {
+                _mapMakerTerrainLayerViewRadio.Checked = true;
+            }
+        }
+
         if (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush &&
             TryBeginMapWorkbenchSceneryObjectEdit(e))
         {
@@ -2998,6 +3141,14 @@ public sealed partial class MainForm
         if (!TryMapPictureBoxPointToTerrainCell(_mapViewerBox, location, _currentMapWorkbenchDraft.GridWidth, _currentMapWorkbenchDraft.GridHeight, out var x, out var y)) return;
         var index = y * _currentMapWorkbenchDraft.GridWidth + x;
         UpdateMapMakerCellPreview(x, y, GetMapWorkbenchFinalTerrainText(index));
+        if (IsMapWorkbenchTerrainGenerateMode)
+        {
+            if (erase) return;
+            PrepareMapWorkbenchTerrainGenerateMode();
+            PaintMapWorkbenchTerrainCell(index, x, y, groupWithCurrentStroke);
+            return;
+        }
+
         switch (_mapWorkbenchBrushMode)
         {
             case MapWorkbenchBrushMode.BuildingBrush:
@@ -3858,7 +4009,8 @@ public sealed partial class MainForm
             _mapMakerTerrainRedoStack.Clear();
         }
 
-        var dirtyRect = _mapMakerShowTerrainCheckBox.Checked
+        var terrainLayerOnly = ShouldRenderMapWorkbenchTerrainLayerOnly();
+        var dirtyRect = terrainLayerOnly
             ? _mapCanvasPreviewRenderer.UpdateTerrainCell(_currentMapWorkbenchDraft, index)
             : _mapCanvasPreviewRenderer.MarkTerrainDirty(_currentMapWorkbenchDraft, index);
         foreach (var dirtyIndex in ExpandIndexesWithNeighbors(new[] { index }))
@@ -3866,7 +4018,7 @@ public sealed partial class MainForm
             _mapMakerDirtyTerrainPreviewIndexes.Add(dirtyIndex);
         }
 
-        if (_mapMakerPainting && !_mapMakerShowTerrainCheckBox.Checked)
+        if (_mapMakerPainting && !terrainLayerOnly)
         {
             _mapMakerRenderDeferred = true;
             ScheduleMapMakerDirtyBasePreviewRefresh();
@@ -4246,6 +4398,257 @@ public sealed partial class MainForm
         dialog.ShowDialog(this);
     }
 
+    private void OpenTerrainStyleAlignedGenerationDialog()
+    {
+        if (_project == null || _currentMapWorkbenchDraft == null)
+        {
+            MessageBox.Show(this, "Create or load a map draft first.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+        SyncTerrainVisualDraftFromEditor(redrawChangedOnly: true);
+
+        using var dialog = new Form
+        {
+            Text = "Terrain Style Generator",
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            Width = 900,
+            Height = 560,
+            Font = Font
+        };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(10)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(layout);
+
+        var info = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            WordWrap = true
+        };
+        layout.Controls.Add(info, 0, 0);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false
+        };
+        var closeButton = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.OK };
+        var fullButton = new Button { Text = "Full Redraw", AutoSize = true };
+        var changedButton = new Button { Text = "Changed Only", AutoSize = true };
+        var rerollButton = new Button { Text = "Reroll", AutoSize = true };
+        var sampleButton = new Button { Text = "Sample Map", AutoSize = true };
+        buttons.Controls.AddRange(new Control[] { closeButton, fullButton, changedButton, rerollButton, sampleButton });
+        layout.Controls.Add(buttons, 0, 1);
+        dialog.AcceptButton = closeButton;
+        dialog.CancelButton = closeButton;
+
+        void ReloadInfo(CurrentMapStyleProfile? styleProfile = null, TerrainVisualSynthesisDiagnostics? diagnostics = null)
+        {
+            styleProfile ??= PrepareCurrentMapStyleProfile(writeSamples: false, redrawChangedOnly: _currentMapWorkbenchDraft!.TerrainVisualProfile.RedrawChangedCellsOnly);
+            diagnostics ??= _terrainVisualSynthesisService.Analyze(_currentMapWorkbenchDraft!, _currentMaterialAssets, styleProfile);
+            info.Text = BuildTerrainStyleDiagnosticsText(styleProfile, diagnostics);
+        }
+
+        void Generate(bool redrawChangedOnly, bool writeSamples)
+        {
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                SyncTerrainVisualDraftFromEditor(redrawChangedOnly);
+                var styleProfile = PrepareCurrentMapStyleProfile(writeSamples, redrawChangedOnly);
+                var diagnostics = _terrainVisualSynthesisService.Analyze(_currentMapWorkbenchDraft!, _currentMaterialAssets, styleProfile);
+                _mapCanvasPreviewRenderer.Clear();
+                _currentMapWorkbenchDraft!.BeautifyGeneratedMap = false;
+                _mapMakerBeautifyStale = true;
+                RenderMapMakerPreview(force: true);
+                ReloadInfo(styleProfile, diagnostics);
+                _mapViewerInfoBox.Text = BuildMapMakerInfo("Terrain style generation preview refreshed.");
+                UpdateMapMakerEditingButtons();
+                SetStatus("Terrain style generation refreshed");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("Terrain style generation failed: " + ex);
+                MessageBox.Show(dialog, ex.Message, "Terrain style generation failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+
+        sampleButton.Click += (_, _) =>
+        {
+            try
+            {
+                SyncTerrainVisualDraftFromEditor(redrawChangedOnly: true);
+                var styleProfile = PrepareCurrentMapStyleProfile(writeSamples: true, redrawChangedOnly: true);
+                var diagnostics = _terrainVisualSynthesisService.Analyze(_currentMapWorkbenchDraft!, _currentMaterialAssets, styleProfile);
+                ReloadInfo(styleProfile, diagnostics);
+                SetStatus("Current map style samples refreshed");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(dialog, ex.Message, "Sample map failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        };
+        rerollButton.Click += (_, _) =>
+        {
+            _currentMapWorkbenchDraft!.TerrainVisualProfile.Seed = Guid.NewGuid().ToString("N");
+            Generate(redrawChangedOnly: true, writeSamples: true);
+        };
+        changedButton.Click += (_, _) => Generate(redrawChangedOnly: true, writeSamples: true);
+        fullButton.Click += (_, _) => Generate(redrawChangedOnly: false, writeSamples: true);
+
+        ReloadInfo();
+        dialog.ShowDialog(this);
+    }
+
+    private void GenerateTerrainStyleAlignedPreviewFromPage()
+    {
+        if (_project == null || _currentMapWorkbenchDraft == null)
+        {
+            MessageBox.Show(this, "Create or load a map draft first.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            SetMapWorkbenchSubPageMode(MapWorkbenchSubPageMode.TerrainGenerate);
+            EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+            SyncTerrainVisualDraftFromEditor(redrawChangedOnly: true);
+            var styleProfile = PrepareCurrentMapStyleProfile(writeSamples: true, redrawChangedOnly: true);
+            var diagnostics = _terrainVisualSynthesisService.Analyze(_currentMapWorkbenchDraft, _currentMaterialAssets, styleProfile);
+            _mapCanvasPreviewRenderer.Clear();
+            _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
+            _mapMakerBeautifyStale = true;
+            UpdateMapMakerBeautifyButtonState();
+
+            var switchedToGeneratedPreview = false;
+            if (!_mapMakerTerrainGeneratedViewRadio.Checked)
+            {
+                _mapMakerTerrainGeneratedViewRadio.Checked = true;
+                switchedToGeneratedPreview = true;
+            }
+
+            if (!switchedToGeneratedPreview)
+            {
+                RenderMapMakerPreview(force: true);
+            }
+
+            UpdateMapWorkbenchTerrainGenerationInfo(styleProfile, diagnostics);
+            _mapViewerInfoBox.Text = BuildMapMakerInfo("Terrain style generation preview refreshed.");
+            UpdateMapMakerEditingButtons();
+            SetStatus("Terrain style generation refreshed");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Terrain style generation failed: " + ex);
+            MessageBox.Show(this, ex.Message, "Terrain style generation failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void SyncTerrainVisualDraftFromEditor(bool redrawChangedOnly)
+    {
+        if (_currentMapWorkbenchDraft == null) return;
+        _currentMapWorkbenchDraft.MaterialRoot = _mapWorkbenchSettings.LastMaterialRoot;
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.GenerationMode = MapWorkbenchGenerationModes.TerrainDrivenVisual;
+        _currentMapWorkbenchDraft.TerrainVisualProfile ??= new TerrainVisualProfile();
+        _currentMapWorkbenchDraft.TerrainVisualProfile.RedrawChangedCellsOnly = redrawChangedOnly;
+        _currentMapWorkbenchDraft.TerrainVisualProfile.EdgeFeatherRadius = Math.Clamp((int)_mapMakerFeatherRadiusInput.Value <= 0 ? 8 : (int)_mapMakerFeatherRadiusInput.Value, 1, 24);
+        _currentMapWorkbenchDraft.TerrainVisualProfile.BlendStrength = Math.Clamp((int)_mapMakerBeautifyStrengthInput.Value <= 0 ? 2 : (int)_mapMakerBeautifyStrengthInput.Value, 1, 3);
+        if (_terrainEditorCells.Length == _currentMapWorkbenchDraft.CellCount)
+        {
+            _currentMapWorkbenchDraft.TerrainCells = _terrainEditorCells.ToArray();
+        }
+
+        SyncMapWorkbenchOverridesFromLookup();
+        if (_currentMapMakerItem != null)
+        {
+            _currentMapWorkbenchDraft.BoundMapId = GetMapIdForMapResource(_currentMapMakerItem);
+            RefreshDraftBaseLayerFromCurrentMap(_currentMapWorkbenchDraft, _currentMapMakerItem);
+        }
+    }
+
+    private CurrentMapStyleProfile PrepareCurrentMapStyleProfile(bool writeSamples, bool redrawChangedOnly)
+    {
+        if (_project == null || _currentMapWorkbenchDraft == null)
+        {
+            throw new InvalidOperationException("Project and map draft are required.");
+        }
+
+        var draft = _currentMapWorkbenchDraft;
+        draft.GenerationMode = MapWorkbenchGenerationModes.TerrainDrivenVisual;
+        draft.TerrainVisualProfile ??= new TerrainVisualProfile();
+        draft.TerrainVisualProfile.RedrawChangedCellsOnly = redrawChangedOnly;
+        draft.TerrainVisualProfile.UseCurrentMapSamples = true;
+        draft.TerrainVisualProfile.AutoExtractCurrentMapSamples = true;
+        var mapId = string.IsNullOrWhiteSpace(draft.BoundMapId) ? draft.DraftId : draft.BoundMapId;
+        draft.TerrainVisualProfile.StyleSampleRoot = Path.Combine(
+            _mapDraftService.GetDraftAssetRoot(_project, draft.DraftId),
+            "StyleSamples",
+            MakeSafeFileName(mapId));
+        return _currentMapStyleProfileService.BuildProfile(draft, draft.TerrainVisualProfile.StyleSampleRoot, writeSamples);
+    }
+
+    private static string BuildTerrainStyleDiagnosticsText(CurrentMapStyleProfile styleProfile, TerrainVisualSynthesisDiagnostics diagnostics)
+    {
+        var terrainLines = styleProfile.Terrains
+            .OrderBy(terrain => terrain.TerrainId)
+            .Take(32)
+            .Select(terrain =>
+                $"{terrain.TerrainId:D2} {terrain.TerrainName}: samples={terrain.Samples.Count}, pure={terrain.PureSampleCount}, boundary={terrain.BoundarySampleCount}, avg=({terrain.Stats.AverageR:0},{terrain.Stats.AverageG:0},{terrain.Stats.AverageB:0})");
+        var missing = diagnostics.MissingTerrainIds.Count == 0
+            ? "none"
+            : string.Join(", ", diagnostics.MissingTerrainIds.Select(id => id.ToString("D2", System.Globalization.CultureInfo.InvariantCulture)));
+        var notes = diagnostics.Notes.Count == 0 ? string.Empty : "\r\nNotes:\r\n" + string.Join("\r\n", diagnostics.Notes);
+        return
+            $"Mode: {MapWorkbenchGenerationModes.TerrainDrivenVisual}\r\n" +
+            $"Source map: {styleProfile.SourceMapPath}\r\n" +
+            $"Private samples: {styleProfile.SampleRoot}\r\n" +
+            $"Style samples: {styleProfile.SampleCount}; used={diagnostics.UsedCurrentMapStyle}\r\n" +
+            $"Redrawn cells: {diagnostics.RedrawnCellCount}; preserved cells: {diagnostics.PreservedCellCount}\r\n" +
+            $"Material matched cells: {diagnostics.MaterialMatchedCellCount}; fallback cells: {diagnostics.FallbackCellCount}; boundary blends: {diagnostics.BoundaryBlendCount}\r\n" +
+            $"Regions: {diagnostics.RegionCount}; locked material groups: {diagnostics.RegionLockedMaterialCount}; fallback groups: {diagnostics.FallbackGroupCount}\r\n" +
+            $"Expanded redraw cells: {diagnostics.ExpandedRedrawCellCount}; mixed terrain cells: {diagnostics.MixedTerrainCellCount}; boundary mask pixels: {diagnostics.BoundaryMaskPixelCount}\r\n" +
+            $"Local color transfer pixels: {diagnostics.LocalColorTransferPixelCount}; missing transition masks: {diagnostics.MissingTransitionMaskCount}\r\n" +
+            $"Interior naturalized regions: {diagnostics.NaturalizedRegionCount}; seam pixels: {diagnostics.InteriorSeamBlendPixelCount}; secondary blend pixels: {diagnostics.SecondaryPatchBlendPixelCount}\r\n" +
+            $"Tile transforms: {diagnostics.TileTransformCount}; structure transform skips: {diagnostics.StructureTransformSkippedCount}; repeat penalties: {diagnostics.RepeatedPatchPenaltyCount}\r\n" +
+            $"Global transition field pixels: {diagnostics.TransitionFieldPixelCount}; multi-terrain junction pixels: {diagnostics.MultiTerrainJunctionPixels}; repeated boundary blends prevented: {diagnostics.RepeatedBoundaryBlendPreventedCount}\r\n" +
+            $"Region texture canvases: {diagnostics.RegionTextureCanvasCount}; quilted patches: {diagnostics.QuiltedPatchCount}; overlap rejects: {diagnostics.PatchOverlapRejectedCount}; macro-noise pixels: {diagnostics.MacroNoiseAppliedPixels}\r\n" +
+            $"Building overlays: {diagnostics.BuildingOverlayCellCount}; ground redraw under buildings: {diagnostics.BuildingGroundRedrawCellCount}\r\n" +
+            $"Object ground footprints: {diagnostics.ObjectGroundFootprintCellCount}; inpaint redraw cells: {diagnostics.ObjectGroundInpaintCellCount}; inferred ground cells: {diagnostics.ObjectGroundInferredCellCount}; fallback ground cells: {diagnostics.ObjectGroundFallbackCellCount}; context samples: {diagnostics.ObjectGroundContextSampleCount}; terrain object cells: {diagnostics.TerrainObjectOverlayCellCount}\r\n" +
+            $"Building visual plan cells: {diagnostics.BuildingVisualPlanCellCount}; object contact blend pixels: {diagnostics.ObjectContactBlendPixelCount}\r\n" +
+            $"Current-map pure samples: {diagnostics.CurrentMapPureSampleUsedCount}; rejected samples: {diagnostics.CurrentMapSampleRejectedCount}; material fallback regions: {diagnostics.MaterialLibraryFallbackCount}\r\n" +
+            $"Alpha repaired objects: {diagnostics.AlphaRepairedObjectCount}; repaired pixels: {diagnostics.AlphaRepairedPixelCount}; black pixels kept: {diagnostics.BlackBackgroundRejectedPixelCount}\r\n" +
+            $"Fast pipeline: {diagnostics.FastPipelineEnabled}; total={diagnostics.TotalMs}ms; plan={diagnostics.PlanMs}ms; tile={diagnostics.TileRenderMs}ms; interior={diagnostics.InteriorBlendMs}ms; boundary={diagnostics.BoundaryBlendMs}ms; color={diagnostics.ColorTransferMs}ms\r\n" +
+            $"Missing terrain ids: {missing}\r\n\r\n" +
+            "Terrain style samples:\r\n" +
+            string.Join("\r\n", terrainLines) +
+            notes;
+    }
+
     private Dictionary<string, string> SnapshotTerrainMaterialPlanPaths()
     {
         if (_currentMapWorkbenchDraft == null) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -4458,26 +4861,32 @@ public sealed partial class MainForm
         var hasDraft = _currentMapWorkbenchDraft != null;
         var hasBoundMap = hasDraft && _currentMapMakerItem != null;
         var canPublishMap = CanPublishCurrentMapWorkbenchMap(out _);
+        var terrainGenerateMode = IsMapWorkbenchTerrainGenerateMode;
         if (!hasDraft && _mapMakerEditTerrainCheckBox.Checked)
         {
             _mapMakerEditTerrainCheckBox.Checked = false;
         }
+        _mapMakerBeautifyFilterCombo.Visible = !terrainGenerateMode;
+        _mapMakerBeautifyCheckBox.Visible = !terrainGenerateMode;
+        _mapMakerRollbackBeautifyButton.Visible = !terrainGenerateMode;
+        _mapMakerTerrainStyleButton.Visible = terrainGenerateMode;
         _mapMakerSaveDraftButton.Enabled = hasDraft;
         _mapMakerEditTerrainCheckBox.Enabled = hasDraft;
-        _mapMakerBeautifyCheckBox.Enabled = hasDraft;
-        _mapMakerSaveTerrainButton.Enabled = hasDraft;
+        _mapMakerBeautifyCheckBox.Enabled = hasDraft && !terrainGenerateMode;
+        _mapMakerSaveTerrainButton.Enabled = hasDraft && terrainGenerateMode;
         _mapMakerUndoTerrainButton.Enabled = hasDraft && (_mapMakerMapUndoStack.Count > 0 || _mapMakerTerrainUndoStack.Count > 0);
         _mapMakerRedoTerrainButton.Enabled = hasDraft && (_mapMakerMapRedoStack.Count > 0 || _mapMakerTerrainRedoStack.Count > 0);
-        _mapMakerMaterialPlanButton.Enabled = hasDraft;
+        _mapMakerMaterialPlanButton.Enabled = hasDraft && !terrainGenerateMode;
+        _mapMakerTerrainStyleButton.Enabled = hasDraft && terrainGenerateMode;
         _mapMakerReplaceMapImageButton.Enabled = hasBoundMap;
         _mapMakerExportPreviewButton.Enabled = _mapViewerBox.Image != null;
         _mapMakerExportJpgButton.Enabled = hasDraft;
-        _mapMakerExtractMaterialButton.Enabled = hasDraft && !_mapMakerSelectedCellRange.IsEmpty;
+        _mapMakerExtractMaterialButton.Enabled = hasDraft && !terrainGenerateMode && !_mapMakerSelectedCellRange.IsEmpty;
         _mapMakerPublishAllButton.Enabled = canPublishMap;
         _mapMakerPublishMapButton.Enabled = canPublishMap;
         _mapMakerPublishTerrainButton.Enabled = hasBoundMap;
         _mapViewerBox.Cursor = hasDraft
-            ? (_mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush ? Cursors.SizeAll : Cursors.Cross)
+            ? (!terrainGenerateMode && _mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush ? Cursors.SizeAll : Cursors.Cross)
             : Cursors.Default;
     }
 

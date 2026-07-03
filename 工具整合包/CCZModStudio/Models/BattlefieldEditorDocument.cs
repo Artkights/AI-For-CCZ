@@ -13,6 +13,7 @@ public sealed class BattlefieldEditorDocument
     public bool CanWriteCampaignTitle => TitleEntry != null || (CampaignId >= 0 && CampaignTitleCapacityBytes > 0);
     public ScenarioTextEntry? ConditionEntry { get; init; }
     public IReadOnlyList<BattlefieldCommandCandidate> CommandCandidates { get; init; } = Array.Empty<BattlefieldCommandCandidate>();
+    public IReadOnlyList<BattlefieldDeploymentRecordState> DeploymentRecords { get; init; } = Array.Empty<BattlefieldDeploymentRecordState>();
     public IReadOnlyList<BattlefieldUnitCandidate> UnitCandidates { get; init; } = Array.Empty<BattlefieldUnitCandidate>();
     public string Summary { get; init; } = string.Empty;
     public string Annotation { get; init; } = string.Empty;

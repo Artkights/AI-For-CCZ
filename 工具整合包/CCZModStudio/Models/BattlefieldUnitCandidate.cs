@@ -8,12 +8,20 @@ public sealed class BattlefieldUnitCandidate
 
     public int Index { get; init; }
     public int? BattlefieldNumber { get; init; }
+    public int PersonId { get; init; } = -1;
+    public int PersonRawCode { get; init; }
+    public bool IsPersonVariable { get; init; }
     public string SourceCommandDisplay { get; init; } = string.Empty;
     public string PersonDisplay { get; init; } = string.Empty;
     public string CoordinateDisplay { get; init; } = string.Empty;
     public string FactionDisplay { get; init; } = string.Empty;
     public string AiDisplay { get; init; } = string.Empty;
     public string LevelJobDisplay { get; init; } = string.Empty;
+    public string DeploymentStatusDisplay { get; init; } = string.Empty;
+    public string PersonRawCodeDisplay { get; init; } = string.Empty;
+    public string DirectionDisplay { get; init; } = string.Empty;
+    public string HiddenDisplay { get; init; } = string.Empty;
+    public string ReinforcementDisplay { get; init; } = string.Empty;
     public string Category { get; init; } = string.Empty;
     public string SourceCommand { get => _sourceCommand; init => _sourceCommand = CCZModStudio.Core.HexDisplayFormatter.NormalizeText(value); }
     public string SceneSection { get; init; } = string.Empty;

@@ -231,6 +231,8 @@ public sealed partial class MainForm : Form
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
     private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
+    private readonly CurrentMapStyleProfileService _currentMapStyleProfileService = new();
+    private readonly TerrainVisualSynthesisService _terrainVisualSynthesisService = new();
     private readonly MaterialDrivenTerrainService _materialDrivenTerrainService = new();
     private readonly MapMaterialExtractionService _mapMaterialExtractionService = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
@@ -500,6 +502,7 @@ public sealed partial class MainForm : Form
     private bool _populatingMapWorkbenchMaterialBrowser;
     private readonly Dictionary<string, Bitmap> _mapWorkbenchMaterialThumbnailCache = new(StringComparer.OrdinalIgnoreCase);
     private MapWorkbenchBrushMode _mapWorkbenchBrushMode = MapWorkbenchBrushMode.TerrainBrush;
+    private MapWorkbenchSubPageMode _mapWorkbenchSubPageMode = MapWorkbenchSubPageMode.MaterialPaint;
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapUndoStack = new();
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapRedoStack = new();
     private readonly Stack<List<TerrainEditorCellChange>> _mapMakerTerrainUndoStack = new();
@@ -850,9 +853,17 @@ public sealed partial class MainForm : Form
     private readonly Button _mapMakerExportJpgButton = new();
     private readonly Button _mapMakerExtractMaterialButton = new();
     private readonly Button _mapMakerMaterialPlanButton = new();
+    private readonly Button _mapMakerTerrainStyleButton = new();
     private readonly Button _mapMakerPublishMapButton = new();
     private readonly Button _mapMakerPublishTerrainButton = new();
     private readonly Button _mapMakerPublishAllButton = new();
+    private readonly TabControl _mapWorkbenchModeTabs = new();
+    private SplitContainer? _mapWorkbenchMaterialPaintSplit;
+    private SplitContainer? _mapWorkbenchTerrainGenerateSplit;
+    private Control? _mapWorkbenchCanvasControl;
+    private readonly RadioButton _mapMakerTerrainLayerViewRadio = new();
+    private readonly RadioButton _mapMakerTerrainGeneratedViewRadio = new();
+    private readonly TextBox _mapMakerTerrainGenerationInfoBox = new();
     private readonly ContextMenuStrip _mapViewerContextMenu = new();
     private readonly Button _loadImageResourcesButton = new();
     private readonly Button _openImageResourceButton = new();
@@ -969,6 +980,7 @@ public sealed partial class MainForm : Form
     private readonly Label _battlefieldMapHintLabel = new();
     private readonly Label _battlefieldMapZoomLabel = new();
     private readonly Button _battlefieldMapZoomResetButton = new();
+    private readonly ComboBox _battlefieldDeploymentPreviewFilterCombo = new();
     private readonly Button _markBattlefieldCommand25Button = new();
     private readonly Panel _battlefieldMapScrollPanel = new();
     private readonly TabControl _battlefieldLeftTabs = new();
@@ -1185,6 +1197,12 @@ public sealed partial class MainForm : Form
         TerrainBrush,
         BuildingBrush,
         SceneryBrush
+    }
+
+    private enum MapWorkbenchSubPageMode
+    {
+        MaterialPaint,
+        TerrainGenerate
     }
 
     private enum MapSceneryOverlayHitKind

@@ -18,6 +18,8 @@ public sealed class MapWorkbenchDraft
     public List<MapSceneryOverlay> SceneryOverlays { get; set; } = new();
     public byte[] OriginalTerrainCells { get; set; } = Array.Empty<byte>();
     public byte[] TerrainCells { get; set; } = Array.Empty<byte>();
+    public string GenerationMode { get; set; } = MapWorkbenchGenerationModes.MaterialDriven;
+    public TerrainVisualProfile TerrainVisualProfile { get; set; } = new();
     public bool AutoGenerateMapFromTerrain { get; set; } = true;
     public bool BeautifyGeneratedMap { get; set; }
     public int BeautifyStrength { get; set; } = 2;

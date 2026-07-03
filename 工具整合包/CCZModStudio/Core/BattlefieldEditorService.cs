@@ -27,7 +27,9 @@ public sealed class BattlefieldEditorService
                              ?? texts.FirstOrDefault(x => x.Text.Contains("胜利条件", StringComparison.Ordinal)
                                                        || x.Text.Contains("失败条件", StringComparison.Ordinal));
         var candidates = LoadBattlefieldCommandCandidates(project, scenario, dictionary, tables);
-        var unitCandidates = BuildUnitCandidates(candidates, BuildDisplayLookups(project, tables));
+        var lookups = BuildDisplayLookups(project, tables);
+        var deploymentRecords = BuildDeploymentRecordStates(candidates, lookups);
+        var unitCandidates = BuildUnitCandidates(deploymentRecords);
 
         return new BattlefieldEditorDocument
         {
@@ -36,6 +38,7 @@ public sealed class BattlefieldEditorService
             TitleEntry = titleEntry,
             ConditionEntry = conditionEntry,
             CommandCandidates = candidates,
+            DeploymentRecords = deploymentRecords,
             UnitCandidates = unitCandidates,
             Summary = BuildSummary(scenario, titleEntry, conditionEntry, candidates.Count, unitCandidates.Count),
             Annotation = BuildAnnotation(scenario, titleEntry, conditionEntry, candidates.Count, unitCandidates.Count)
@@ -49,7 +52,9 @@ public sealed class BattlefieldEditorService
         IReadOnlyList<HexTableDefinition>? tables = null)
     {
         var candidates = BuildBattlefieldCommandCandidates(legacyDocument);
-        var unitCandidates = BuildUnitCandidates(candidates, BuildDisplayLookups(project, tables));
+        var lookups = BuildDisplayLookups(project, tables);
+        var deploymentRecords = BuildDeploymentRecordStates(candidates, lookups);
+        var unitCandidates = BuildUnitCandidates(deploymentRecords);
         return new BattlefieldEditorDocument
         {
             Scenario = current.Scenario,
@@ -57,6 +62,7 @@ public sealed class BattlefieldEditorService
             TitleEntry = current.TitleEntry,
             ConditionEntry = current.ConditionEntry,
             CommandCandidates = candidates,
+            DeploymentRecords = deploymentRecords,
             UnitCandidates = unitCandidates,
             Summary = BuildSummary(current.Scenario, current.TitleEntry, current.ConditionEntry, candidates.Count, unitCandidates.Count),
             Annotation = BuildAnnotation(current.Scenario, current.TitleEntry, current.ConditionEntry, candidates.Count, unitCandidates.Count)
@@ -259,7 +265,21 @@ public sealed class BattlefieldEditorService
     }
 
     public static bool TryExtractPersonId(BattlefieldUnitCandidate candidate, out int personId)
-        => TryExtractPersonId(candidate.PersonHint, out personId);
+    {
+        if (candidate.IsPersonVariable || candidate.PersonHint.Contains("空出场槽", StringComparison.Ordinal))
+        {
+            personId = 0;
+            return false;
+        }
+
+        if (candidate.PersonId >= 0)
+        {
+            personId = candidate.PersonId;
+            return true;
+        }
+
+        return TryExtractPersonId(candidate.PersonHint, out personId);
+    }
 
     public static bool TryExtractPersonId(string text, out int personId)
     {
@@ -355,44 +375,151 @@ public sealed class BattlefieldEditorService
 
     public static IReadOnlyList<BattlefieldDeploymentSlotInfo> BuildDeploymentSlotInfos(BattlefieldEditorDocument document)
     {
-        var rows = new List<BattlefieldDeploymentSlotInfo>();
+        if (document.DeploymentRecords.Count > 0)
+        {
+            return document.DeploymentRecords
+                .Select(BuildDeploymentSlotInfo)
+                .ToList();
+        }
+
+        return BuildDeploymentRecordStates(document.CommandCandidates)
+            .Select(BuildDeploymentSlotInfo)
+            .ToList();
+    }
+
+    public static IReadOnlyList<BattlefieldDeploymentSlotInfo> BuildDeploymentSlotInfos(BattlefieldCommandCandidate command)
+        => BuildDeploymentRecordStates(new[] { command })
+            .Select(BuildDeploymentSlotInfo)
+            .ToList();
+
+    public static IReadOnlyList<BattlefieldDeploymentRecordState> BuildDeploymentRecordStates(IReadOnlyList<BattlefieldCommandCandidate> commands)
+        => BuildDeploymentRecordStates(commands, BattlefieldDisplayLookups.Empty);
+
+    private static IReadOnlyList<BattlefieldDeploymentRecordState> BuildDeploymentRecordStates(
+        IReadOnlyList<BattlefieldCommandCandidate> commands,
+        BattlefieldDisplayLookups lookups)
+    {
+        var rows = new List<BattlefieldDeploymentRecordState>();
         var sameCommandCounts = new Dictionary<int, int>();
-        foreach (var command in document.CommandCandidates)
+        foreach (var command in commands)
         {
             var commandId = ParseCommandId(command.CommandIdHex);
-            sameCommandCounts.TryGetValue(commandId, out var precedingSameCommandCount);
-            rows.AddRange(BuildDeploymentSlotInfos(command, precedingSameCommandCount));
-            if (BattlefieldDeploymentRecordDefinition.FromCommandId(commandId) != null)
+            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(commandId);
+            if (definition == null)
             {
-                sameCommandCounts[commandId] = precedingSameCommandCount + 1;
+                continue;
+            }
+
+            sameCommandCounts.TryGetValue(commandId, out var precedingSameCommandCount);
+            sameCommandCounts[commandId] = precedingSameCommandCount + 1;
+
+            var words = ExtractCommandWords(command).ToList();
+            if (words.Count == 0) continue;
+
+            for (var recordIndex = 0; recordIndex < definition.RecordCount; recordIndex++)
+            {
+                var start = recordIndex * definition.GroupSize;
+                if (start + definition.GroupSize > words.Count) break;
+
+                var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
+                rows.Add(BuildDeploymentRecordState(command, definition, commandId, recordIndex, precedingSameCommandCount, recordWords, lookups));
             }
         }
 
         return rows;
     }
 
-    public static IReadOnlyList<BattlefieldDeploymentSlotInfo> BuildDeploymentSlotInfos(BattlefieldCommandCandidate command)
-        => BuildDeploymentSlotInfos(command, 0);
-
-    private static IReadOnlyList<BattlefieldDeploymentSlotInfo> BuildDeploymentSlotInfos(BattlefieldCommandCandidate command, int precedingSameCommandCount)
-    {
-        var commandId = ParseCommandId(command.CommandIdHex);
-        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(commandId);
-        if (definition == null) return Array.Empty<BattlefieldDeploymentSlotInfo>();
-
-        var words = ExtractCommandWords(command).ToList();
-        if (words.Count == 0) return Array.Empty<BattlefieldDeploymentSlotInfo>();
-
-        var rows = new List<BattlefieldDeploymentSlotInfo>();
-        for (var recordIndex = 0; recordIndex < definition.RecordCount; recordIndex++)
+    private static BattlefieldDeploymentSlotInfo BuildDeploymentSlotInfo(BattlefieldDeploymentRecordState state)
+        => new()
         {
-            var start = recordIndex * definition.GroupSize;
-            if (start + definition.GroupSize > words.Count) break;
-            var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
-            rows.Add(BuildDeploymentSlotInfo(command, definition, commandId, recordIndex, precedingSameCommandCount, recordWords));
-        }
+            TargetKey = state.TargetKey,
+            Category = state.Category,
+            CommandId = state.CommandId,
+            RecordIndex = state.RecordIndex,
+            BattlefieldNumber = state.BattlefieldNumber,
+            PersonOrOrder = state.IsAllySlot ? state.PersonRawCode : state.PersonId,
+            PersonRawCode = state.PersonRawCode,
+            PersonId = state.PersonId,
+            GridX = state.GridX,
+            GridY = state.GridY,
+            Hidden = state.Hidden,
+            Reinforcement = state.Reinforcement,
+            DirectionCode = state.DirectionCode,
+            Direction = state.Direction,
+            LevelOffset = state.LevelOffset,
+            JobLevelCode = state.JobLevelCode,
+            JobLevel = state.JobLevel,
+            AiPolicyCode = state.AiPolicyCode,
+            AiMode = state.AiMode,
+            IsBlank = state.IsBlank,
+            IsInitialDeployment = state.IsInitialDeployment,
+            WritesPerson = state.WritesPerson,
+            WritesAi = state.WritesAi,
+            IsAllySlot = state.IsAllySlot
+        };
 
-        return rows;
+    private static BattlefieldDeploymentRecordState BuildDeploymentRecordState(
+        BattlefieldCommandCandidate command,
+        BattlefieldDeploymentRecordDefinition definition,
+        int commandId,
+        int recordIndex,
+        int precedingSameCommandCount,
+        IReadOnlyList<int> words,
+        BattlefieldDisplayLookups lookups)
+    {
+        var personRawCode = GetWordOrDefault(words, definition.PersonIndex);
+        var person = DecodeDeploymentPerson(definition, personRawCode, lookups);
+        var targetPersonRawCode = GetWordOrDefault(words, definition.TargetPersonIndex);
+        var targetPerson = definition.TargetPersonIndex >= 0
+            ? DecodeDeploymentPerson(definition, targetPersonRawCode, lookups)
+            : DeploymentPersonDecode.Empty;
+        var directionCode = GetWordOrDefault(words, definition.DirectionIndex);
+        var jobLevelCode = GetWordOrDefault(words, definition.JobLevelIndex);
+        var aiPolicyCode = GetWordOrDefault(words, definition.AiIndex);
+        var isAllySlot = ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Ally);
+
+        return new BattlefieldDeploymentRecordState
+        {
+            TargetKey = BuildUnitTargetKey(command, recordIndex),
+            Category = definition.Category,
+            CommandId = commandId,
+            CommandName = command.CommandName,
+            SceneIndex = command.SceneIndex,
+            SectionIndex = command.SectionIndex,
+            CommandIndex = command.CommandIndex,
+            OffsetHex = command.OffsetHex,
+            RecordIndex = recordIndex,
+            BattlefieldNumber = BuildBattlefieldNumber(definition, recordIndex, precedingSameCommandCount, words),
+            PersonRawCode = personRawCode,
+            PersonId = person.PersonId,
+            PersonDisplay = person.Display,
+            IsPersonVariable = person.IsVariable,
+            PersonVariableAddress = person.VariableAddress,
+            Reinforcement = definition.HasReinforcement && GetWordOrDefault(words, definition.ReinforcementIndex) != 0,
+            Hidden = definition.HiddenIndex >= 0 && GetWordOrDefault(words, definition.HiddenIndex) != 0,
+            GridX = GetWordOrDefault(words, definition.XIndex),
+            GridY = GetWordOrDefault(words, definition.YIndex),
+            DirectionCode = directionCode,
+            Direction = FormatDirectionName(directionCode),
+            LevelOffset = GetWordOrDefault(words, definition.LevelIndex),
+            JobLevelCode = jobLevelCode,
+            JobLevel = definition.JobLevelIndex >= 0 ? FormatJobLevelName(jobLevelCode) : string.Empty,
+            AiPolicyCode = aiPolicyCode,
+            AiMode = definition.AiIndex >= 0 ? FormatAiModeName(aiPolicyCode) : string.Empty,
+            TargetPersonRawCode = targetPersonRawCode,
+            TargetPersonId = targetPerson.PersonId,
+            TargetPersonDisplay = targetPerson.Display,
+            IsTargetPersonVariable = targetPerson.IsVariable,
+            TargetPersonVariableAddress = targetPerson.VariableAddress,
+            TargetX = GetWordOrDefault(words, definition.TargetXIndex),
+            TargetY = GetWordOrDefault(words, definition.TargetYIndex),
+            IsBlank = LooksLikeBlankDeploymentRecord(definition, words),
+            IsInitialDeployment = command.SceneIndex == 1,
+            Values = words.ToArray(),
+            WritesPerson = definition.WritesPerson,
+            WritesAi = definition.AiIndex >= 0,
+            IsAllySlot = isAllySlot
+        };
     }
 
     private static IReadOnlyList<BattlefieldCommandCandidate> BuildBattlefieldCommandCandidates(LegacyScenarioDocument document)
@@ -598,24 +725,15 @@ public sealed class BattlefieldEditorService
     }
 
     private static IReadOnlyList<BattlefieldUnitCandidate> BuildUnitCandidates(
-        IReadOnlyList<BattlefieldCommandCandidate> commands,
-        BattlefieldDisplayLookups lookups)
+        IReadOnlyList<BattlefieldDeploymentRecordState> deploymentRecords)
     {
         var rows = new List<BattlefieldUnitCandidate>();
-        var sameCommandCounts = new Dictionary<int, int>();
-        foreach (var command in commands)
+        foreach (var state in deploymentRecords)
         {
-            var commandId = ParseCommandId(command.CommandIdHex);
-            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(commandId);
-            if (definition == null)
-            {
-                continue;
-            }
-
-            sameCommandCounts.TryGetValue(commandId, out var precedingSameCommandCount);
-            sameCommandCounts[commandId] = precedingSameCommandCount + 1;
-            var deploymentRecords = BuildDeploymentRecordCandidates(command, rows.Count, precedingSameCommandCount, lookups);
-            rows.AddRange(deploymentRecords);
+            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(state.CommandId);
+            if (definition == null || definition.SkipBlankRecords && state.IsBlank) continue;
+            if (!IsAllowedBattlefieldNumber(definition, state.BattlefieldNumber)) continue;
+            rows.Add(BuildDeploymentRecordCandidate(state, definition, rows.Count + 1));
         }
 
         return rows;
@@ -644,90 +762,49 @@ public sealed class BattlefieldEditorService
             TargetKey = BuildUnitTargetKey(command)
         };
 
-    private static IReadOnlyList<BattlefieldUnitCandidate> BuildDeploymentRecordCandidates(
-        BattlefieldCommandCandidate command,
-        int existingCount,
-        int precedingSameCommandCount,
-        BattlefieldDisplayLookups lookups)
-    {
-        var rows = new List<BattlefieldUnitCandidate>();
-        var words = ExtractCommandWords(command).ToList();
-        foreach (var slot in BuildDeploymentSlotInfos(command, precedingSameCommandCount))
-        {
-            var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(slot.CommandId);
-            if (definition == null || definition.SkipBlankRecords && slot.IsBlank) continue;
-            if (!IsAllowedBattlefieldNumber(definition, slot.BattlefieldNumber)) continue;
-
-            var start = slot.RecordIndex * definition.GroupSize;
-            var recordWords = words.Skip(start).Take(definition.GroupSize).ToList();
-            rows.Add(BuildDeploymentRecordCandidate(command, definition, slot.RecordIndex, slot.BattlefieldNumber, recordWords, existingCount + rows.Count + 1, lookups));
-        }
-
-        return rows;
-    }
-
-    private static BattlefieldDeploymentSlotInfo BuildDeploymentSlotInfo(
-        BattlefieldCommandCandidate command,
-        BattlefieldDeploymentRecordDefinition definition,
-        int commandId,
-        int recordIndex,
-        int precedingSameCommandCount,
-        IReadOnlyList<int> words)
-        => new()
-        {
-            TargetKey = BuildUnitTargetKey(command, recordIndex),
-            Category = definition.Category,
-            CommandId = commandId,
-            RecordIndex = recordIndex,
-            BattlefieldNumber = BuildBattlefieldNumber(definition, recordIndex, precedingSameCommandCount, words),
-            PersonOrOrder = GetWordOrDefault(words, definition.PersonIndex),
-            GridX = GetWordOrDefault(words, definition.XIndex),
-            GridY = GetWordOrDefault(words, definition.YIndex),
-            IsBlank = LooksLikeBlankDeploymentRecord(definition, words),
-            WritesPerson = definition.WritesPerson,
-            WritesAi = definition.AiIndex >= 0,
-            IsAllySlot = ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Ally)
-        };
-
     private static BattlefieldUnitCandidate BuildDeploymentRecordCandidate(
-        BattlefieldCommandCandidate command,
+        BattlefieldDeploymentRecordState state,
         BattlefieldDeploymentRecordDefinition definition,
-        int recordIndex,
-        int battlefieldNumber,
-        IReadOnlyList<int> words,
-        int index,
-        BattlefieldDisplayLookups lookups)
+        int index)
     {
         var slotLabel = definition.RecordCount == 1
             ? "单条"
-            : $"第 {(recordIndex + 1).ToString(CultureInfo.InvariantCulture)} 条";
-        var sourceCommand = $"{command.CommandIdHex} {command.CommandName} {slotLabel}";
-        var sceneSection = $"Scene {command.SceneIndex} / Section {command.SectionIndex} / Cmd {command.CommandIndex} / {slotLabel}";
-        var personOrOrder = GetWordOrDefault(words, definition.PersonIndex);
-        var x = GetWordOrDefault(words, definition.XIndex);
-        var y = GetWordOrDefault(words, definition.YIndex);
+            : $"第 {(state.RecordIndex + 1).ToString(CultureInfo.InvariantCulture)} 条";
+        var commandIdHex = HexDisplayFormatter.Format(state.CommandId, 2);
+        var sourceCommand = $"{commandIdHex} {state.CommandName} {slotLabel}";
+        var sceneSection = $"Scene {state.SceneIndex} / Section {state.SectionIndex} / Cmd {state.CommandIndex} / {slotLabel}";
 
         return new BattlefieldUnitCandidate
         {
             Index = index,
-            BattlefieldNumber = battlefieldNumber,
-            SourceCommandDisplay = $"{BuildDeploymentSourceCommandDisplay(command.CommandName, definition)} {slotLabel}",
-            PersonDisplay = BuildDeploymentPersonDisplay(definition, personOrOrder, lookups),
-            CoordinateDisplay = x >= 0 && y >= 0 ? $"({x},{y})" : $"({FormatScriptValue(x)},{FormatScriptValue(y)})",
+            BattlefieldNumber = state.BattlefieldNumber,
+            PersonId = state.PersonId,
+            PersonRawCode = state.PersonRawCode,
+            IsPersonVariable = state.IsPersonVariable,
+            SourceCommandDisplay = $"{BuildDeploymentSourceCommandDisplay(state.CommandName, definition)} {slotLabel}",
+            PersonDisplay = state.IsBlank && !state.IsAllySlot ? string.Empty : state.PersonDisplay,
+            CoordinateDisplay = state.GridX >= 0 && state.GridY >= 0 ? $"({state.GridX},{state.GridY})" : $"({FormatScriptValue(state.GridX)},{FormatScriptValue(state.GridY)})",
             FactionDisplay = definition.FactionDisplay,
-            AiDisplay = BuildDeploymentAiDisplay(definition, words),
-            LevelJobDisplay = BuildDeploymentLevelJobDisplay(definition, words),
+            AiDisplay = state.AiMode,
+            LevelJobDisplay = BuildDeploymentLevelJobDisplay(state),
+            DeploymentStatusDisplay = BuildDeploymentStatusDisplay(state),
+            PersonRawCodeDisplay = state.IsAllySlot
+                ? $"顺序={FormatScriptValue(state.PersonRawCode)}"
+                : $"raw={FormatScriptValue(state.PersonRawCode)}",
+            DirectionDisplay = state.Direction,
+            HiddenDisplay = state.Hidden ? "隐藏" : "正常",
+            ReinforcementDisplay = state.Reinforcement ? "援军" : string.Empty,
             Category = definition.Category,
             SourceCommand = sourceCommand,
             SceneSection = sceneSection,
-            OffsetHex = command.OffsetHex,
-            PersonHint = BuildDeploymentPersonHint(definition, words),
-            CoordinateHint = BuildDeploymentCoordinateHint(definition, words),
+            OffsetHex = state.OffsetHex,
+            PersonHint = BuildDeploymentPersonHint(state),
+            CoordinateHint = BuildDeploymentCoordinateHint(state),
             FactionHint = definition.FactionHint,
-            AiHint = BuildDeploymentAiHint(definition, words),
-            LevelOrStateHint = BuildDeploymentLevelOrStateHint(definition, words),
-            Annotation = BuildDeploymentAnnotation(command, definition, recordIndex, words),
-            TargetKey = BuildUnitTargetKey(command, recordIndex)
+            AiHint = BuildDeploymentAiHint(state),
+            LevelOrStateHint = BuildDeploymentLevelOrStateHint(state),
+            Annotation = BuildDeploymentAnnotation(state, definition),
+            TargetKey = state.TargetKey
         };
     }
 
@@ -765,32 +842,69 @@ public sealed class BattlefieldEditorService
             : text;
     }
 
-    private static string BuildDeploymentPersonDisplay(
+    public static int EncodePerson2ScriptCode(int personId)
+        => Person2ListToCode(personId);
+
+    public static bool TryDecodePerson2ScriptCode(int code, out int personId)
+    {
+        personId = -1;
+        if (ScriptVariableValueResolver.TryDecodePerson2VariableReference(code, out _)) return false;
+
+        var listIndex = Person2CodeToList(code);
+        if (listIndex is < 0 or > 1023) return false;
+
+        personId = listIndex;
+        return true;
+    }
+
+    private static DeploymentPersonDecode DecodeDeploymentPerson(
         BattlefieldDeploymentRecordDefinition definition,
-        int value,
+        int rawCode,
         BattlefieldDisplayLookups lookups)
+        => ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Ally)
+            ? new DeploymentPersonDecode(-1, $"第 {Math.Max(0, rawCode + 1).ToString(CultureInfo.InvariantCulture)} 位", false, null)
+            : DecodePerson2(rawCode, lookups);
+
+    private static DeploymentPersonDecode DecodePerson2(int rawCode, BattlefieldDisplayLookups lookups)
     {
-        if (ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Ally))
+        if (ScriptVariableValueResolver.TryDecodePerson2VariableReference(rawCode, out var variableAddress))
         {
-            return FormatScriptValue(value);
+            return new DeploymentPersonDecode(
+                -1,
+                "V" + variableAddress.ToString(CultureInfo.InvariantCulture),
+                true,
+                variableAddress);
         }
 
-        if (value >= 0 && lookups.PersonNames.TryGetValue(value, out var name) && !string.IsNullOrWhiteSpace(name))
+        var personId = Person2CodeToList(rawCode);
+        if (personId is < 0 or > 1023)
         {
-            return $"{value.ToString(CultureInfo.InvariantCulture)} {name}";
+            return new DeploymentPersonDecode(-1, FormatScriptValue(rawCode), false, null);
         }
 
-        return FormatScriptValue(value);
+        var display = lookups.PersonNames.TryGetValue(personId, out var name) && !string.IsNullOrWhiteSpace(name)
+            ? $"{personId.ToString(CultureInfo.InvariantCulture)} {name}"
+            : personId.ToString(CultureInfo.InvariantCulture);
+        return new DeploymentPersonDecode(personId, display, false, null);
     }
 
-    private static string BuildDeploymentAiDisplay(BattlefieldDeploymentRecordDefinition definition, IReadOnlyList<int> words)
-    {
-        if (definition.AiIndex < 0) return string.Empty;
-        var value = GetWordOrDefault(words, definition.AiIndex);
-        return NormalizeAiMode(value);
-    }
+    private static int Person2CodeToList(int value)
+        => value >= 0 ? value : value == -1 ? 5374 : 1276 - value;
 
-    private static string NormalizeAiMode(int value)
+    private static int Person2ListToCode(int value)
+        => value < 1278 ? value : value == 5374 ? -1 : 1276 - value;
+
+    private static string FormatDirectionName(int value)
+        => value switch
+        {
+            0 => "上",
+            1 => "右",
+            2 => "下",
+            3 => "左",
+            _ => "未知(" + value.ToString(CultureInfo.InvariantCulture) + ")"
+        };
+
+    private static string FormatAiModeName(int value)
         => value switch
         {
             1 => "主动",
@@ -799,20 +913,26 @@ public sealed class BattlefieldEditorService
             4 => "到点",
             5 => "跟随",
             6 => "逃离",
-            _ => "被动"
+            _ => "AI" + FormatScriptValue(value)
         };
 
-    private static string BuildDeploymentLevelJobDisplay(
-        BattlefieldDeploymentRecordDefinition definition,
-        IReadOnlyList<int> words)
+    private static string BuildDeploymentLevelJobDisplay(BattlefieldDeploymentRecordState state)
     {
-        var levelName = definition.LevelIndex >= 0
-            ? FormatLevelOffsetName(GetWordOrDefault(words, definition.LevelIndex))
+        var levelName = state.CommandId is 0x46 or 0x47
+            ? FormatLevelOffsetName(state.LevelOffset)
             : string.Empty;
-        var jobLevelName = definition.JobLevelIndex >= 0
-            ? FormatJobLevelName(GetWordOrDefault(words, definition.JobLevelIndex))
-            : string.Empty;
+        var jobLevelName = state.JobLevel;
         return string.Join(' ', new[] { levelName, jobLevelName }.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string BuildDeploymentStatusDisplay(BattlefieldDeploymentRecordState state)
+    {
+        var parts = new List<string>();
+        if (!state.IsInitialDeployment) parts.Add("剧情");
+        if (state.Reinforcement) parts.Add("援");
+        if (state.Hidden) parts.Add("隐");
+        if (state.IsBlank) parts.Add("空");
+        return parts.Count == 0 ? "初始" : string.Join("/", parts);
     }
 
     private static string FormatLevelOffsetName(int value)
@@ -883,49 +1003,50 @@ public sealed class BattlefieldEditorService
         return data.Columns.Count > 1 ? data.Columns[1].ColumnName : string.Empty;
     }
 
-    private static string BuildDeploymentPersonHint(BattlefieldDeploymentRecordDefinition definition, IReadOnlyList<int> words)
+    private static string BuildDeploymentPersonHint(BattlefieldDeploymentRecordState state)
     {
-        var value = GetWordOrDefault(words, definition.PersonIndex);
-        if (ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Ally))
+        if (state.IsAllySlot)
         {
-            return $"我军出战顺序：{FormatScriptValue(value)}（地图标注显示为第 {Math.Max(0, value + 1).ToString(CultureInfo.InvariantCulture)} 位）";
+            return $"我军出战顺序：{FormatScriptValue(state.PersonRawCode)}（地图标注显示为第 {Math.Max(0, state.PersonRawCode + 1).ToString(CultureInfo.InvariantCulture)} 位）";
         }
 
-        var role = definition.Category.Replace("出场", "人物/部队", StringComparison.Ordinal);
-        return $"{role}槽{definition.PersonIndex + 1}：{FormatScriptValue(value)}";
+        var decoded = state.IsPersonVariable
+            ? $"变量引用 V{state.PersonVariableAddress?.ToString(CultureInfo.InvariantCulture) ?? "?"}，不自动绑定具体人物"
+            : state.PersonId >= 0 ? $"解析={state.PersonId.ToString(CultureInfo.InvariantCulture)} {state.PersonDisplay}" : "未解析为普通人物";
+        return $"{state.Category.Replace("出场", "人物/部队", StringComparison.Ordinal)}槽：{state.PersonId}；原始 Person2 码={FormatScriptValue(state.PersonRawCode)}；{decoded}";
     }
 
-    private static string BuildDeploymentCoordinateHint(BattlefieldDeploymentRecordDefinition definition, IReadOnlyList<int> words)
+    private static string BuildDeploymentCoordinateHint(BattlefieldDeploymentRecordState state)
     {
-        if (definition.XIndex < 0 || definition.YIndex < 0) return "该命令没有直接坐标槽；需结合出场位/战前选择核对。";
-        var x = GetWordOrDefault(words, definition.XIndex);
-        var y = GetWordOrDefault(words, definition.YIndex);
-        var slotText = $"X槽{definition.XIndex + 1}={FormatScriptValue(x)}，Y槽{definition.YIndex + 1}={FormatScriptValue(y)}";
-        if (ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Ally))
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(state.CommandId);
+        if (definition == null || definition.XIndex < 0 || definition.YIndex < 0) return "该命令没有直接坐标槽；需结合出场位/战前选择核对。";
+        var slotText = $"X槽{definition.XIndex + 1}={FormatScriptValue(state.GridX)}，Y槽{definition.YIndex + 1}={FormatScriptValue(state.GridY)}";
+        if (state.IsAllySlot)
         {
-            return x >= 0 && y >= 0
-                ? $"我军候选出战位：({x},{y})；{slotText}；绑定到 S 侧 4B 时可写回坐标/方向/隐藏，不改出战顺序槽。"
-                : $"我军候选出战位含整型变量：({FormatScriptValue(x)},{FormatScriptValue(y)})；6.5 坐标负数按整型变量引用处理。";
+            return state.GridX >= 0 && state.GridY >= 0
+                ? $"我军候选出战位：({state.GridX},{state.GridY})；{slotText}；绑定到 S 侧 4B 时可写回坐标/方向/隐藏，不改出战顺序槽。"
+                : $"我军候选出战位含整型变量：({FormatScriptValue(state.GridX)},{FormatScriptValue(state.GridY)})；6.5 坐标负数按整型变量引用处理。";
         }
 
-        if (x >= 0 && y >= 0 && x <= 60 && y <= 60)
+        if (state.GridX >= 0 && state.GridY >= 0 && state.GridX <= 60 && state.GridY <= 60)
         {
-            return $"坐标候选：({x},{y})；{slotText}";
+            return $"坐标候选：({state.GridX},{state.GridY})；{slotText}";
         }
 
-        if (x < 0 || y < 0)
+        if (state.GridX < 0 || state.GridY < 0)
         {
-            return $"坐标候选含整型变量：({FormatScriptValue(x)},{FormatScriptValue(y)})；6.5 坐标负数按整型变量引用处理。";
+            return $"坐标候选含整型变量：({FormatScriptValue(state.GridX)},{FormatScriptValue(state.GridY)})；6.5 坐标负数按整型变量引用处理。";
         }
 
-        return $"坐标槽候选：({FormatScriptValue(x)},{FormatScriptValue(y)})；{slotText}；超出常规地图范围，请结合 58/无效坐标技巧或旧工具核对。";
+        return $"坐标槽候选：({FormatScriptValue(state.GridX)},{FormatScriptValue(state.GridY)})；{slotText}；超出常规地图范围，请结合 58/无效坐标技巧或旧工具核对。";
     }
 
-    private static string BuildDeploymentAiHint(BattlefieldDeploymentRecordDefinition definition, IReadOnlyList<int> words)
+    private static string BuildDeploymentAiHint(BattlefieldDeploymentRecordState state)
     {
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(state.CommandId);
+        if (definition == null) return "无直接 AI 方针槽。";
         if (definition.AiIndex < 0) return "无直接 AI 方针槽。";
-        var value = GetWordOrDefault(words, definition.AiIndex);
-        var text = value switch
+        var text = state.AiPolicyCode switch
         {
             0 => "被动/默认",
             1 => "主动候选",
@@ -936,36 +1057,55 @@ public sealed class BattlefieldEditorService
             6 => "撤离/逃到指定点候选",
             _ => "需旧工具核对"
         };
-        return $"AI/方针槽{definition.AiIndex + 1}：{FormatScriptValue(value)}（{text}）";
+        return $"AI/方针槽{definition.AiIndex + 1}：{FormatScriptValue(state.AiPolicyCode)}（{text}）";
     }
 
-    private static string BuildDeploymentLevelOrStateHint(BattlefieldDeploymentRecordDefinition definition, IReadOnlyList<int> words)
+    private static string BuildDeploymentLevelOrStateHint(BattlefieldDeploymentRecordState state)
     {
-        var parts = new List<string>();
-        foreach (var index in definition.StateIndexes)
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(state.CommandId);
+        if (definition == null) return "无直接等级/状态槽。";
+
+        var parts = new List<string>
         {
-            if (index < 0 || index >= words.Count) continue;
-            parts.Add($"槽{index + 1}={FormatScriptValue(words[index])}");
-        }
+            $"隐藏槽{definition.HiddenIndex + 1}={(state.Hidden ? 1 : 0)}",
+            $"朝向槽{definition.DirectionIndex + 1}={FormatScriptValue(state.DirectionCode)}({state.Direction})"
+        };
+        if (definition.HasReinforcement) parts.Insert(0, $"援军槽{definition.ReinforcementIndex + 1}={(state.Reinforcement ? 1 : 0)}");
+        if (definition.LevelIndex >= 0) parts.Add($"等级槽{definition.LevelIndex + 1}={FormatScriptValue(state.LevelOffset)}({FormatLevelOffsetName(state.LevelOffset)})");
+        if (definition.JobLevelIndex >= 0) parts.Add($"兵种级槽{definition.JobLevelIndex + 1}={FormatScriptValue(state.JobLevelCode)}({state.JobLevel})");
+        if (definition.AiIndex >= 0) parts.Add($"AI槽{definition.AiIndex + 1}={FormatScriptValue(state.AiPolicyCode)}({state.AiMode})");
+        if (definition.TargetPersonIndex >= 0) parts.Add($"目标人物槽{definition.TargetPersonIndex + 1}={FormatScriptValue(state.TargetPersonRawCode)}({state.TargetPersonDisplay})");
+        if (definition.TargetXIndex >= 0) parts.Add($"目标X槽{definition.TargetXIndex + 1}={FormatScriptValue(state.TargetX)}");
+        if (definition.TargetYIndex >= 0) parts.Add($"目标Y槽{definition.TargetYIndex + 1}={FormatScriptValue(state.TargetY)}");
 
         return parts.Count == 0
             ? "无直接等级/状态槽。"
-            : "等级/状态/装备候选：" + string.Join(" / ", parts);
+            : "结构化部署状态：" + string.Join(" / ", parts);
     }
 
     private static string BuildDeploymentAnnotation(
-        BattlefieldCommandCandidate command,
-        BattlefieldDeploymentRecordDefinition definition,
-        int recordIndex,
-        IReadOnlyList<int> words)
+        BattlefieldDeploymentRecordState state,
+        BattlefieldDeploymentRecordDefinition definition)
     {
         var slotLabel = definition.RecordCount == 1
             ? "单条出场记录"
-            : $"第 {(recordIndex + 1).ToString(CultureInfo.InvariantCulture)}/{definition.RecordCount.ToString(CultureInfo.InvariantCulture)} 条出场记录";
-        return $"{definition.Category}：来源 {command.SourceCommandText()}，位置 {command.OffsetHex}，{slotLabel}。旧源码确认本命令按 {definition.GroupSize} 个逻辑参数为一组" +
+            : $"第 {(state.RecordIndex + 1).ToString(CultureInfo.InvariantCulture)}/{definition.RecordCount.ToString(CultureInfo.InvariantCulture)} 条出场记录";
+        var previewScope = state.IsInitialDeployment ? "默认进入初始战场预览" : "Scene2+ 剧情/后续记录，不默认混入初始战场预览";
+        var legacyAllZeroNote = LooksLikeLegacyAllZeroDeploymentRecord(definition, state.Values)
+            ? " Legacy all-zero 46/47 row: interpreted as person id 0; clear the slot to convert it to -1 empty."
+            : string.Empty;
+        return $"{definition.Category}：来源 {HexDisplayFormatter.Format(state.CommandId, 2)} {state.CommandName}，位置 {state.OffsetHex}，{slotLabel}。旧源码确认本命令按 {definition.GroupSize} 个逻辑参数为一组" +
                (definition.RecordCount > 1 ? $"循环 {definition.RecordCount} 组" : string.Empty) +
-               $"；拖放绑定后可按已确认槽位受控写回，未确认的等级/装备/状态槽保持原值。原始槽值：{string.Join(' ', words.Select(FormatScriptValue))}。";
+               $"；{previewScope}；拖放绑定后可按已确认槽位受控写回，未确认的装备/能力状态槽保持原值。{legacyAllZeroNote}原始槽值：{string.Join(' ', state.Values.Select(FormatScriptValue))}。";
     }
+
+    private static bool LooksLikeLegacyAllZeroDeploymentRecord(
+        BattlefieldDeploymentRecordDefinition definition,
+        IReadOnlyList<int> values)
+        => (ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Friend) ||
+            ReferenceEquals(definition, BattlefieldDeploymentRecordDefinition.Enemy)) &&
+           values.Count > 0 &&
+           values.All(value => value == 0);
 
     private static int GetWordOrDefault(IReadOnlyList<int> words, int index)
         => index >= 0 && index < words.Count ? words[index] : 0;
@@ -1159,6 +1299,15 @@ public sealed class BattlefieldEditorService
     private sealed record BattlefieldDisplayLookups(IReadOnlyDictionary<int, string> PersonNames)
     {
         public static readonly BattlefieldDisplayLookups Empty = new(new Dictionary<int, string>());
+    }
+
+    private readonly record struct DeploymentPersonDecode(
+        int PersonId,
+        string Display,
+        bool IsVariable,
+        int? VariableAddress)
+    {
+        public static readonly DeploymentPersonDecode Empty = new(-1, string.Empty, false, null);
     }
 }
 

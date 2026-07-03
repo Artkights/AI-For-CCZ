@@ -4,6 +4,7 @@ public sealed class BattlefieldPlacedUnit
 {
     public string TargetKey { get; set; } = string.Empty;
     public int PersonId { get; set; }
+    public int? PersonRawCode { get; set; }
     public string Name { get; set; } = string.Empty;
     public int? JobId { get; set; }
     public string JobName { get; set; } = string.Empty;
@@ -14,6 +15,7 @@ public sealed class BattlefieldPlacedUnit
     public string LevelMode { get; set; } = "初级";
     public string AiMode { get; set; } = "被动";
     public bool Hidden { get; set; }
+    public bool Reinforcement { get; set; }
     public string Direction { get; set; } = "下";
     public int GridX { get; set; }
     public int GridY { get; set; }

@@ -36,6 +36,12 @@ internal partial class Program
                 var materialList = GetPrivateFieldForMapWorkbenchUiSmoke<ListView>(form, "_mapMakerMaterialListView");
                 var materials = GetPrivateFieldForMapWorkbenchUiSmoke<IReadOnlyList<MaterialAsset>>(form, "_currentMaterialAssets");
                 var mainTabs = GetPrivateFieldForMapWorkbenchUiSmoke<TabControl>(form, "_mainTabs");
+                var workbenchModeTabs = GetPrivateFieldForMapWorkbenchUiSmoke<TabControl>(form, "_mapWorkbenchModeTabs");
+                var terrainGenerateButton = GetPrivateFieldForMapWorkbenchUiSmoke<Button>(form, "_mapMakerTerrainStyleButton");
+                var terrainLayerRadio = GetPrivateFieldForMapWorkbenchUiSmoke<RadioButton>(form, "_mapMakerTerrainLayerViewRadio");
+                var terrainGeneratedRadio = GetPrivateFieldForMapWorkbenchUiSmoke<RadioButton>(form, "_mapMakerTerrainGeneratedViewRadio");
+                var terrainGenerationInfo = GetPrivateFieldForMapWorkbenchUiSmoke<TextBox>(form, "_mapMakerTerrainGenerationInfoBox");
+                var terrainBrushInput = GetPrivateFieldForMapWorkbenchUiSmoke<NumericUpDown>(form, "_mapMakerTerrainBrushInput");
 
                 if (list.Items.Count == 0)
                 {
@@ -121,6 +127,116 @@ internal partial class Program
                     materialList.Items.Count != 0)
                 {
                     throw new InvalidOperationException("Selecting the map editor tab should not populate the material browser.");
+                }
+
+                if (workbenchModeTabs.TabPages.Count != 2 ||
+                    !workbenchModeTabs.TabPages[0].Text.Contains("\u7d20\u6750", StringComparison.Ordinal) ||
+                    !workbenchModeTabs.TabPages[1].Text.Contains("\u5730\u5f62", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Map workbench should expose material-paint and terrain-generate sub tabs.");
+                }
+
+                workbenchModeTabs.SelectedIndex = 1;
+                Application.DoEvents();
+                Application.DoEvents();
+                draft = GetPrivateFieldForMapWorkbenchUiSmoke<MapWorkbenchDraft?>(form, "_currentMapWorkbenchDraft")
+                    ?? throw new InvalidOperationException("Terrain generation tab lost the current map draft.");
+                if (!terrainLayerRadio.Checked || terrainGeneratedRadio.Checked)
+                {
+                    throw new InvalidOperationException("Terrain generation tab should default to the terrain-only view.");
+                }
+
+                if (!terrainGenerateButton.Visible || !terrainGenerateButton.Enabled || !terrainGenerateButton.Text.Contains("\u751f\u6210", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Terrain generation tab should expose an enabled one-click generate button.");
+                }
+
+                rendered = GetPrivateFieldForMapWorkbenchUiSmoke<Bitmap?>(form, "_mapViewerRenderedImage");
+                if (rendered == null)
+                {
+                    throw new InvalidOperationException("Terrain generation tab did not render the terrain layer.");
+                }
+
+                var terrainVisiblePixels = CountVisiblePixelsForMapWorkbenchUiSmoke(rendered);
+                var terrainLayerPixels = CountTerrainColorLikePixelsForMapWorkbenchUiSmoke(rendered, draft);
+                if (terrainVisiblePixels <= 0 || terrainLayerPixels <= terrainVisiblePixels / 2)
+                {
+                    throw new InvalidOperationException($"Terrain generation tab should show mostly terrain colors. terrain={terrainLayerPixels} visible={terrainVisiblePixels}");
+                }
+
+                var terrainBeforePaint = draft.TerrainCells.ToArray();
+                if (terrainBeforePaint.Length == 0)
+                {
+                    throw new InvalidOperationException("Terrain generation tab loaded an empty terrain layer.");
+                }
+
+                var terrainBaseBeforePaint = draft.TerrainBaseCells.Count;
+                var buildingBeforePaint = draft.BuildingOverlayCells.Count;
+                var sceneryBeforePaint = draft.SceneryOverlays.Count;
+                var newTerrain = (byte)(terrainBeforePaint[0] == 1 ? 2 : 1);
+                terrainBrushInput.Value = newTerrain;
+                InvokePrivateForMapWorkbenchUiSmoke(form, "PaintMapWorkbenchTerrainCell", 0, 0, 0, false);
+                Application.DoEvents();
+                draft = GetPrivateFieldForMapWorkbenchUiSmoke<MapWorkbenchDraft?>(form, "_currentMapWorkbenchDraft")
+                    ?? throw new InvalidOperationException("Terrain paint lost the current map draft.");
+                if (draft.TerrainCells.Length == 0 || draft.TerrainCells[0] != newTerrain)
+                {
+                    throw new InvalidOperationException("Terrain generation paint should update TerrainCells.");
+                }
+
+                if (draft.TerrainBaseCells.Count != terrainBaseBeforePaint ||
+                    draft.BuildingOverlayCells.Count != buildingBeforePaint ||
+                    draft.SceneryOverlays.Count != sceneryBeforePaint)
+                {
+                    throw new InvalidOperationException("Terrain generation paint should not mutate material, building, or scenery layers.");
+                }
+
+                if (!draft.GenerationMode.Equals(MapWorkbenchGenerationModes.TerrainDrivenVisual, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Terrain generation tab should keep the draft in TerrainDrivenVisual mode.");
+                }
+
+                InvokePrivateForMapWorkbenchUiSmoke(form, "GenerateTerrainStyleAlignedPreviewFromPage");
+                Application.DoEvents();
+                Application.DoEvents();
+                if (!terrainGeneratedRadio.Checked || terrainLayerRadio.Checked)
+                {
+                    throw new InvalidOperationException("One-click terrain generation should switch to generated preview view.");
+                }
+
+                if (!terrainGenerationInfo.Text.Contains(MapWorkbenchGenerationModes.TerrainDrivenVisual, StringComparison.Ordinal) ||
+                    !terrainGenerationInfo.Text.Contains("fallback", StringComparison.OrdinalIgnoreCase) ||
+                    !terrainGenerationInfo.Text.Contains("Regions", StringComparison.Ordinal) ||
+                    !terrainGenerationInfo.Text.Contains("boundary mask pixels", StringComparison.OrdinalIgnoreCase) ||
+                    !terrainGenerationInfo.Text.Contains("Local color transfer pixels", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Terrain generation diagnostics should be written into the terrain panel.");
+                }
+
+                rendered = GetPrivateFieldForMapWorkbenchUiSmoke<Bitmap?>(form, "_mapViewerRenderedImage");
+                if (rendered == null)
+                {
+                    throw new InvalidOperationException("One-click terrain generation did not render a preview.");
+                }
+
+                var generatedVisiblePixels = CountVisiblePixelsForMapWorkbenchUiSmoke(rendered);
+                var generatedTerrainLikePixels = CountTerrainColorLikePixelsForMapWorkbenchUiSmoke(rendered, draft);
+                if (generatedVisiblePixels <= 0 || generatedTerrainLikePixels > generatedVisiblePixels * 9 / 10)
+                {
+                    throw new InvalidOperationException($"Generated terrain preview should not remain a raw terrain-color layer. terrain={generatedTerrainLikePixels} visible={generatedVisiblePixels}");
+                }
+
+                workbenchModeTabs.SelectedIndex = 0;
+                Application.DoEvents();
+                Application.DoEvents();
+                if (terrainGenerateButton.Visible)
+                {
+                    throw new InvalidOperationException("One-click terrain generation button should be hidden on the material-paint tab.");
+                }
+
+                if (!beautifyButton.Visible || !beautifyButton.Enabled)
+                {
+                    throw new InvalidOperationException("Material-paint tab should restore the existing beautify action.");
                 }
 
                 InvokePrivateForMapWorkbenchUiSmoke(form, "EnsureMapWorkbenchMaterialBrowserPopulated");

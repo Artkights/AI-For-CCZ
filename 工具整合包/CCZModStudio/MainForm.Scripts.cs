@@ -2795,13 +2795,36 @@ public sealed partial class MainForm
                     0x35 => 2,
                     0x04 => 4,
                     _ => 2
-                }
+                },
+                IntValue = GetDefaultLegacyScriptParameterValue(commandId, index)
             };
             result.Add(parameter);
         }
 
         return result;
     }
+
+    private static int GetDefaultLegacyScriptParameterValue(int commandId, int parameterIndex)
+    {
+        if (IsForceAllyDeploymentPersonParameter(commandId, parameterIndex))
+        {
+            return LegacyMfcDialogDataSources.EmptyPerson1Code;
+        }
+
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(commandId);
+        if (definition is { WritesPerson: true } &&
+            definition.PersonIndex >= 0 &&
+            definition.GroupSize > 0 &&
+            parameterIndex % definition.GroupSize == definition.PersonIndex)
+        {
+            return BattlefieldDeploymentRecordFormatter.EmptyPerson2Code;
+        }
+
+        return 0;
+    }
+
+    private static bool IsForceAllyDeploymentPersonParameter(int commandId, int parameterIndex)
+        => commandId == 0x4A && parameterIndex is >= 1 and <= 10;
 
     private int AllocateLegacyScriptSyntheticOffset()
         => _nextLegacyScriptSyntheticOffset--;
@@ -6001,6 +6024,11 @@ public sealed partial class MainForm
                    ?? parameter.IntValue.ToString(CultureInfo.InvariantCulture);
         }
 
+        if (IsPerson1Parameter(command, parameter.Index))
+        {
+            return FormatPerson1Reference(parameter.IntValue);
+        }
+
         if (IsPerson2Parameter(command, parameter.Index))
         {
             return ScriptVariableValueResolver.FormatPerson2Reference(parameter.IntValue);
@@ -6008,6 +6036,14 @@ public sealed partial class MainForm
 
         return parameter.IntValue.ToString(CultureInfo.InvariantCulture);
     }
+
+    private static string FormatPerson1Reference(int value)
+        => value == LegacyMfcDialogDataSources.EmptyPerson1Code
+            ? "无"
+            : value.ToString(CultureInfo.InvariantCulture);
+
+    private static bool IsPerson1Parameter(LegacyScenarioCommandNode command, int parameterIndex)
+        => IsForceAllyDeploymentPersonParameter(command.CommandId, parameterIndex);
 
     private static bool IsPerson2Parameter(LegacyScenarioCommandNode command, int parameterIndex)
         => command.CommandId switch
@@ -9954,6 +9990,11 @@ public sealed partial class MainForm
         if (IsPerson2Parameter(command, parameter.Index))
         {
             return ScriptVariableValueResolver.FormatPerson2Reference(parameter.IntValue);
+        }
+
+        if (IsPerson1Parameter(command, parameter.Index))
+        {
+            return FormatPerson1Reference(parameter.IntValue);
         }
 
         return command.CommandId switch

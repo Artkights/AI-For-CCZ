@@ -515,7 +515,7 @@ internal sealed class BattlefieldDeploymentBlockEditRow
 
     private bool IsBlankPersonSentinelAllowed(int value)
     {
-        if (value is not (0 or -1))
+        if (value != BattlefieldDeploymentRecordFormatter.EmptyPerson2Code)
         {
             return false;
         }

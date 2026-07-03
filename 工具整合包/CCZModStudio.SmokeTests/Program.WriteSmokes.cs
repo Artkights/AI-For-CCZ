@@ -1358,7 +1358,8 @@ internal partial class Program
         var clearStart = locator.RecordIndex * clearLayout.GroupSize;
         for (var index = 0; index < clearLayout.GroupSize; index++)
         {
-            AssertSmokeParameter(clearCommand, clearStart + index, 0, "cleared slot " + index);
+            var expected = index == 0 ? BattlefieldDeploymentRecordFormatter.EmptyPerson2Code : 0;
+            AssertSmokeParameter(clearCommand, clearStart + index, expected, "cleared slot " + index);
         }
 
         var clearWrite = new LegacyScenarioWriter().Save(
@@ -1685,7 +1686,7 @@ internal partial class Program
             for (var index = 0; index < groupSize; index++)
             {
                 var parameter = command.Parameters[start + index];
-                parameter.IntValue = 0;
+                parameter.IntValue = index == 0 ? BattlefieldDeploymentRecordFormatter.EmptyPerson2Code : 0;
                 parameter.Text = string.Empty;
                 parameter.Values.Clear();
             }

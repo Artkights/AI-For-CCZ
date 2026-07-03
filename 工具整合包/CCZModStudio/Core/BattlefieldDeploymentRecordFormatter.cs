@@ -4,6 +4,8 @@ namespace CCZModStudio.Core;
 
 internal static class BattlefieldDeploymentRecordFormatter
 {
+    public const int EmptyPerson2Code = -1;
+
     public const string EmptySlotText = "无";
 
     public static IReadOnlyList<int> ReadRecordValues(
@@ -31,38 +33,12 @@ internal static class BattlefieldDeploymentRecordFormatter
             return true;
         }
 
-        if (values.All(value => value == 0))
-        {
-            return true;
-        }
-
-        for (var index = 0; index < values.Count; index++)
-        {
-            var value = values[index];
-            if (IsBlankSentinelSlot(definition, index))
-            {
-                if (value is 0 or -1)
-                {
-                    continue;
-                }
-
-                return false;
-            }
-
-            if (value != 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return definition.WritesPerson &&
+               definition.PersonIndex >= 0 &&
+               definition.PersonIndex < values.Count &&
+               values[definition.PersonIndex] == EmptyPerson2Code;
     }
 
     public static int GetWordOrDefault(IReadOnlyList<int> words, int index)
         => index >= 0 && index < words.Count ? words[index] : 0;
-
-    private static bool IsBlankSentinelSlot(BattlefieldDeploymentRecordDefinition definition, int index)
-        => index == definition.PersonIndex ||
-           index == definition.DirectionIndex ||
-           index == definition.TargetPersonIndex;
 }

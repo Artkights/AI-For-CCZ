@@ -9,6 +9,7 @@ public sealed class BattlefieldAllyDeploymentSlot
     public int DirectionCode { get; init; }
     public string Direction { get; init; } = "下";
     public int Flag { get; init; }
+    public bool Hidden { get; init; }
     public int? PersonId { get; init; }
     public string Name { get; init; } = string.Empty;
     public int? JobId { get; init; }

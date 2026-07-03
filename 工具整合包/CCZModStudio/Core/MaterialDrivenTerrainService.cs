@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Globalization;
 using CCZModStudio.Formats;
 using CCZModStudio.Models;
 
@@ -9,11 +10,28 @@ namespace CCZModStudio.Core;
 public sealed class MaterialDrivenTerrainService : IDisposable
 {
     private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TerrainVisualSynthesisService _terrainVisualSynthesisService = new();
+    private readonly ObjectContactBlendService _objectContactBlendService = new();
+    private readonly ObjectAlphaRepairService _objectAlphaRepairService = new();
 
     public byte[] DeriveTerrainCells(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
     {
         var cellCount = Math.Max(0, draft.CellCount);
         var result = new byte[cellCount];
+        if (IsTerrainDrivenVisual(draft))
+        {
+            if (draft.TerrainCells.Length == cellCount)
+            {
+                Array.Copy(draft.TerrainCells, result, cellCount);
+            }
+            else if (draft.OriginalTerrainCells.Length == cellCount)
+            {
+                Array.Copy(draft.OriginalTerrainCells, result, cellCount);
+            }
+
+            return result;
+        }
+
         if (draft.OriginalTerrainCells.Length == cellCount)
         {
             Array.Copy(draft.OriginalTerrainCells, result, cellCount);
@@ -71,6 +89,11 @@ public sealed class MaterialDrivenTerrainService : IDisposable
     public Bitmap ComposeBaseTerrain(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, bool checkerboardBlank)
     {
         ValidateDraft(draft);
+        if (IsTerrainDrivenVisual(draft))
+        {
+            return _terrainVisualSynthesisService.RenderBaseTerrain(draft, materials);
+        }
+
         var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
         var bitmap = new Bitmap(draft.GridWidth * tileSize, draft.GridHeight * tileSize, PixelFormat.Format32bppArgb);
         using var g = CreateGraphics(bitmap);
@@ -97,6 +120,23 @@ public sealed class MaterialDrivenTerrainService : IDisposable
     public Bitmap ComposeVisualMap(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, bool checkerboardBlank, bool beautifyTerrain)
     {
         ValidateDraft(draft);
+        if (IsTerrainDrivenVisual(draft))
+        {
+            using var visualTerrain = _terrainVisualSynthesisService.RenderBaseTerrain(draft, materials);
+            var visualBitmap = new Bitmap(visualTerrain.Width, visualTerrain.Height, PixelFormat.Format32bppArgb);
+            using var visualGraphics = CreateGraphics(visualBitmap);
+            visualGraphics.DrawImage(visualTerrain, new Rectangle(0, 0, visualBitmap.Width, visualBitmap.Height));
+            DrawOverlays(visualGraphics, draft, materials, drawScenery: true);
+            ApplyObjectContactBlend(visualBitmap, draft, materials);
+            if (beautifyTerrain)
+            {
+                using var filtered = new TerrainMapBeautifyService().ApplyFilter(draft, visualBitmap);
+                visualGraphics.DrawImage(filtered, new Rectangle(0, 0, visualBitmap.Width, visualBitmap.Height));
+            }
+
+            return visualBitmap;
+        }
+
         var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
         var bitmap = new Bitmap(draft.GridWidth * tileSize, draft.GridHeight * tileSize, PixelFormat.Format32bppArgb);
         using var g = CreateGraphics(bitmap);
@@ -123,20 +163,60 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         return bitmap;
     }
 
+    private void ApplyObjectContactBlend(Bitmap bitmap, MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
+    {
+        if (!draft.TerrainVisualProfile.UseObjectContactBlend || draft.BuildingOverlayCells.Count == 0)
+        {
+            return;
+        }
+
+        var materialLookup = BuildAssetLookup(draft, materials);
+        var buildingPlan = BuildUnifiedBuildingOverlayPlan(draft, materialLookup, materials);
+        var items = new List<ObjectContactBlendItem>();
+        foreach (var cell in draft.BuildingOverlayCells.OrderBy(cell => cell.Index))
+        {
+            if (cell.Index < 0 || cell.Index >= draft.CellCount) continue;
+            var asset = buildingPlan.GetValueOrDefault(cell.Index);
+            if (asset == null)
+            {
+                if (!TryGetAsset(materialLookup, cell, out asset)) continue;
+                if (asset.AssetType.Equals(MaterialAssetTypes.Building, StringComparison.OrdinalIgnoreCase))
+                {
+                    asset = SelectAutoTileAsset(draft, asset, cell.Index, materialLookup, materials, draft.BuildingOverlayCells);
+                }
+            }
+
+            var source = GetCachedImage(asset.FilePath);
+            if (source == null) continue;
+            items.Add(new ObjectContactBlendItem(cell.Index, asset, source));
+        }
+
+        _objectContactBlendService.Apply(bitmap, draft, draft.TerrainVisualProfile, items);
+    }
+
     public void DrawCell(Graphics g, MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, int index, bool includeTerrain, bool includeBuilding, bool includeScenery)
     {
         if (index < 0 || index >= draft.CellCount) return;
         var materialLookup = BuildAssetLookup(draft, materials);
         if (includeTerrain)
         {
-            var baseCell = draft.TerrainBaseCells.LastOrDefault(cell => cell.Index == index);
-            if (baseCell != null && TryGetAsset(materialLookup, baseCell, out var asset))
+            if (IsTerrainDrivenVisual(draft))
             {
-                DrawMaterialAsset(g, asset, GetTileRectangle(draft, index));
+                using var terrain = _terrainVisualSynthesisService.RenderBaseTerrain(draft, materials);
+                var rect = GetTileRectangle(draft, index);
+                g.DrawImage(terrain, rect, rect, GraphicsUnit.Pixel);
             }
             else
             {
-                DrawBaseCell(g, draft, index);
+                var baseCell = draft.TerrainBaseCells.LastOrDefault(cell => cell.Index == index);
+                if (baseCell != null && TryGetAsset(materialLookup, baseCell, out var asset))
+                {
+                    DrawMaterialAsset(g, asset, GetTileRectangle(draft, index));
+                }
+                else
+                {
+                    DrawBaseCell(g, draft, index);
+                }
             }
         }
 
@@ -145,7 +225,8 @@ public sealed class MaterialDrivenTerrainService : IDisposable
             var building = draft.BuildingOverlayCells.LastOrDefault(cell => cell.Index == index);
             if (building != null)
             {
-                DrawOverlayCell(g, draft, building, materialLookup, materials, draft.BuildingOverlayCells);
+                var buildingPlan = BuildUnifiedBuildingOverlayPlan(draft, materialLookup, materials);
+                DrawOverlayCell(g, draft, building, materialLookup, materials, draft.BuildingOverlayCells, buildingPlan.GetValueOrDefault(building.Index));
             }
         }
 
@@ -169,9 +250,10 @@ public sealed class MaterialDrivenTerrainService : IDisposable
     public void DrawOverlays(Graphics g, MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials, bool drawScenery)
     {
         var materialLookup = BuildAssetLookup(draft, materials);
+        var buildingPlan = BuildUnifiedBuildingOverlayPlan(draft, materialLookup, materials);
         foreach (var cell in draft.BuildingOverlayCells.OrderBy(cell => cell.Index))
         {
-            DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.BuildingOverlayCells);
+            DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.BuildingOverlayCells, buildingPlan.GetValueOrDefault(cell.Index));
         }
 
         if (drawScenery)
@@ -184,7 +266,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
             {
                 foreach (var cell in draft.SceneryOverlayCells.OrderBy(cell => cell.Index))
                 {
-                    DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.SceneryOverlayCells);
+                    DrawOverlayCell(g, draft, cell, materialLookup, materials, draft.SceneryOverlayCells, overrideAsset: null);
                 }
             }
         }
@@ -192,6 +274,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
     public void Dispose()
     {
+        _terrainVisualSynthesisService.Dispose();
         foreach (var cached in _imageCache.Values)
         {
             cached.Bitmap.Dispose();
@@ -199,6 +282,9 @@ public sealed class MaterialDrivenTerrainService : IDisposable
 
         _imageCache.Clear();
     }
+
+    private static bool IsTerrainDrivenVisual(MapWorkbenchDraft draft)
+        => draft.GenerationMode.Equals(MapWorkbenchGenerationModes.TerrainDrivenVisual, StringComparison.OrdinalIgnoreCase);
 
     private static void ApplyTerrainLayer(byte[] target, IEnumerable<MapCellOverride> cells, IReadOnlyDictionary<string, MaterialAsset> materialLookup)
     {
@@ -218,16 +304,157 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         MapCellOverride cell,
         IReadOnlyDictionary<string, MaterialAsset> materialLookup,
         IReadOnlyList<MaterialAsset> materials,
-        IReadOnlyList<MapCellOverride> layerCells)
+        IReadOnlyList<MapCellOverride> layerCells,
+        MaterialAsset? overrideAsset = null)
     {
         if (cell.Index < 0 || cell.Index >= draft.CellCount) return;
-        if (!TryGetAsset(materialLookup, cell, out var asset)) return;
-        if (asset.AssetType.Equals(MaterialAssetTypes.Building, StringComparison.OrdinalIgnoreCase))
+        var hasPlannedAsset = overrideAsset != null;
+        if (!hasPlannedAsset && !TryGetAsset(materialLookup, cell, out overrideAsset)) return;
+        var asset = overrideAsset!;
+        if (!hasPlannedAsset && asset.AssetType.Equals(MaterialAssetTypes.Building, StringComparison.OrdinalIgnoreCase))
         {
             asset = SelectAutoTileAsset(draft, asset, cell.Index, materialLookup, materials, layerCells);
         }
 
-        DrawMaterialAsset(g, asset, GetTileRectangle(draft, cell.Index));
+        DrawMaterialAsset(g, asset, GetTileRectangle(draft, cell.Index), draft.TerrainVisualProfile);
+    }
+
+    private Dictionary<int, MaterialAsset> BuildUnifiedBuildingOverlayPlan(
+        MapWorkbenchDraft draft,
+        IReadOnlyDictionary<string, MaterialAsset> materialLookup,
+        IReadOnlyList<MaterialAsset> materials)
+    {
+        if (!draft.TerrainVisualProfile.UseGlobalBuildingStyle || draft.BuildingOverlayCells.Count == 0)
+        {
+            return new Dictionary<int, MaterialAsset>();
+        }
+
+        var entries = draft.BuildingOverlayCells
+            .Select((cell, order) => (Cell: cell, Order: order, Asset: TryGetAsset(materialLookup, cell, out var asset) ? asset : null))
+            .Where(item => item.Asset != null && item.Asset.AssetType.Equals(MaterialAssetTypes.Building, StringComparison.OrdinalIgnoreCase))
+            .Select(item => new BuildingOverlayEntry(
+                item.Cell,
+                item.Order,
+                item.Asset!,
+                BuildBuildingFamilyKey(item.Cell, item.Asset!),
+                BuildBuildingStyleKey(item.Asset!)))
+            .Where(item => !string.IsNullOrWhiteSpace(item.FamilyKey))
+            .ToList();
+        if (entries.Count == 0)
+        {
+            return new Dictionary<int, MaterialAsset>();
+        }
+
+        var result = new Dictionary<int, MaterialAsset>();
+        foreach (var family in entries.GroupBy(item => item.FamilyKey, StringComparer.OrdinalIgnoreCase))
+        {
+            var targetStyle = family
+                .OrderBy(item => item.Order)
+                .Last()
+                .StyleKey;
+            var styleAssets = materials
+                .Where(asset => asset.AssetType.Equals(MaterialAssetTypes.Building, StringComparison.OrdinalIgnoreCase))
+                .Where(asset => BuildBuildingFamilyKey(null, asset).Equals(family.Key, StringComparison.OrdinalIgnoreCase))
+                .Where(asset => BuildBuildingStyleKey(asset).Equals(targetStyle, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (styleAssets.Count == 0)
+            {
+                styleAssets = family.Select(item => item.Asset).ToList();
+            }
+
+            foreach (var entry in family)
+            {
+                var mask = BuildLinePathMaskForFamily(draft, entry.Cell.Index, family.Key, entries);
+                var selected = TerrainAutoTileResolver.SelectAutoTileAssetForMask(styleAssets, mask) ??
+                               styleAssets.OrderBy(asset => asset.AutoTilePriority).ThenBy(asset => asset.VariantIndex).FirstOrDefault() ??
+                               entry.Asset;
+                result[entry.Cell.Index] = selected;
+            }
+        }
+
+        return result;
+    }
+
+    private static string BuildBuildingFamilyKey(MapCellOverride? cell, MaterialAsset asset)
+    {
+        if (asset.TerrainId.HasValue)
+        {
+            return "terrain:" + asset.TerrainId.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (cell != null && MaterialHexTagParser.TryParseTerrainId(cell.MaterialCategory, out var id))
+        {
+            return "terrain:" + id.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (!string.IsNullOrWhiteSpace(asset.TerrainName))
+        {
+            return "name:" + asset.TerrainName.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(asset.GroupKey))
+        {
+            return "group:" + asset.GroupKey.Trim();
+        }
+
+        return "file:" + Path.GetFileNameWithoutExtension(asset.FilePath);
+    }
+
+    private static string BuildBuildingStyleKey(MaterialAsset asset)
+        => string.IsNullOrWhiteSpace(asset.AutoTileSetKey)
+            ? string.IsNullOrWhiteSpace(asset.GroupKey) ? asset.FilePath : asset.GroupKey
+            : asset.AutoTileSetKey;
+
+    private static int BuildLinePathMaskForFamily(
+        MapWorkbenchDraft draft,
+        int index,
+        string familyKey,
+        IReadOnlyList<BuildingOverlayEntry> entries)
+    {
+        var x = index % draft.GridWidth;
+        var y = index / draft.GridWidth;
+        var mask = 0;
+        if (IsSameBuildingFamilyAt(draft, x, y - 1, familyKey, entries)) mask |= MaterialAutoTileMasks.North;
+        if (IsSameBuildingFamilyAt(draft, x + 1, y, familyKey, entries)) mask |= MaterialAutoTileMasks.East;
+        if (IsSameBuildingFamilyAt(draft, x, y + 1, familyKey, entries)) mask |= MaterialAutoTileMasks.South;
+        if (IsSameBuildingFamilyAt(draft, x - 1, y, familyKey, entries)) mask |= MaterialAutoTileMasks.West;
+        if (HasAll(mask, MaterialAutoTileMasks.North | MaterialAutoTileMasks.East) &&
+            IsSameBuildingFamilyAt(draft, x + 1, y - 1, familyKey, entries))
+        {
+            mask |= MaterialAutoTileMasks.NorthEast;
+        }
+
+        if (HasAll(mask, MaterialAutoTileMasks.South | MaterialAutoTileMasks.East) &&
+            IsSameBuildingFamilyAt(draft, x + 1, y + 1, familyKey, entries))
+        {
+            mask |= MaterialAutoTileMasks.SouthEast;
+        }
+
+        if (HasAll(mask, MaterialAutoTileMasks.South | MaterialAutoTileMasks.West) &&
+            IsSameBuildingFamilyAt(draft, x - 1, y + 1, familyKey, entries))
+        {
+            mask |= MaterialAutoTileMasks.SouthWest;
+        }
+
+        if (HasAll(mask, MaterialAutoTileMasks.North | MaterialAutoTileMasks.West) &&
+            IsSameBuildingFamilyAt(draft, x - 1, y - 1, familyKey, entries))
+        {
+            mask |= MaterialAutoTileMasks.NorthWest;
+        }
+
+        return mask;
+    }
+
+    private static bool IsSameBuildingFamilyAt(
+        MapWorkbenchDraft draft,
+        int x,
+        int y,
+        string familyKey,
+        IReadOnlyList<BuildingOverlayEntry> entries)
+    {
+        if (x < 0 || y < 0 || x >= draft.GridWidth || y >= draft.GridHeight) return false;
+        var index = y * draft.GridWidth + x;
+        return entries.Any(entry => entry.Cell.Index == index && entry.FamilyKey.Equals(familyKey, StringComparison.OrdinalIgnoreCase));
     }
 
     private MaterialAsset SelectAutoTileAsset(
@@ -252,147 +479,7 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         if (groupAssets.Count <= 1) return current;
 
         var mask = BuildLinePathMask(draft, current, index, materialLookup, layerCells);
-        return SelectAutoTileAssetForMask(groupAssets, mask) ?? current;
-    }
-
-    private static int GetAssetMask(MaterialAsset asset)
-        => asset.AutoTileMask ?? MaterialLibraryIndexer.RoleToMask(asset.AutoTileRole);
-
-    private static MaterialAsset? SelectAutoTileAssetForMask(IReadOnlyList<MaterialAsset> assets, int mask)
-    {
-        var normalized = NormalizeEightWayMask(mask);
-        foreach (var candidateMask in BuildAutoTileMaskFallbacks(normalized))
-        {
-            var exact = SelectAutoTileAssetByMask(assets, candidateMask);
-            if (exact != null) return exact;
-        }
-
-        return SelectAutoTileDefaultAsset(assets);
-    }
-
-    private static MaterialAsset? SelectAutoTileAssetByMask(IEnumerable<MaterialAsset> assets, int mask)
-        => assets
-            .Where(asset => !asset.AutoTileRole.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase))
-            .Where(asset => NormalizeEightWayMask(GetAssetMask(asset)) == mask)
-            .OrderBy(asset => asset.AutoTilePriority)
-            .ThenBy(asset => asset.VariantIndex)
-            .FirstOrDefault();
-
-    private static MaterialAsset? SelectAutoTileDefaultAsset(IEnumerable<MaterialAsset> assets)
-        => assets
-               .Where(asset => GetAssetMask(asset) == MaterialAutoTileMasks.None &&
-                               !asset.AutoTileRole.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase))
-               .OrderBy(asset => asset.AutoTilePriority)
-               .ThenBy(asset => asset.VariantIndex)
-               .FirstOrDefault() ??
-           assets
-               .OrderBy(asset => asset.AutoTilePriority)
-               .ThenBy(asset => asset.VariantIndex)
-               .FirstOrDefault();
-
-    private static IEnumerable<int> BuildAutoTileMaskFallbacks(int mask)
-    {
-        yield return mask;
-
-        var cardinal = mask & MaterialAutoTileMasks.CardinalMask;
-        if (cardinal != mask)
-        {
-            yield return cardinal;
-        }
-
-        if (cardinal == MaterialAutoTileMasks.Cross)
-        {
-            foreach (var innerCornerMask in BuildMissingDiagonalInnerCornerMasks(mask))
-            {
-                yield return innerCornerMask;
-            }
-
-            yield return MaterialAutoTileMasks.Cross;
-        }
-
-        if (BitCount(cardinal) == 3)
-        {
-            yield return cardinal switch
-            {
-                MaterialAutoTileMasks.TeeN => MaterialAutoTileMasks.StraightH,
-                MaterialAutoTileMasks.TeeS => MaterialAutoTileMasks.StraightH,
-                MaterialAutoTileMasks.TeeE => MaterialAutoTileMasks.StraightV,
-                MaterialAutoTileMasks.TeeW => MaterialAutoTileMasks.StraightV,
-                _ => MaterialAutoTileMasks.None
-            };
-        }
-        else if (BitCount(cardinal) == 2)
-        {
-            if (cardinal is MaterialAutoTileMasks.CornerSE or MaterialAutoTileMasks.CornerSW)
-            {
-                yield return MaterialAutoTileMasks.North;
-            }
-            else if (cardinal is MaterialAutoTileMasks.CornerNE or MaterialAutoTileMasks.CornerNW)
-            {
-                yield return MaterialAutoTileMasks.South;
-            }
-
-            if (cardinal is MaterialAutoTileMasks.CornerNW or MaterialAutoTileMasks.CornerSW)
-            {
-                yield return MaterialAutoTileMasks.East;
-            }
-            else if (cardinal is MaterialAutoTileMasks.CornerNE or MaterialAutoTileMasks.CornerSE)
-            {
-                yield return MaterialAutoTileMasks.West;
-            }
-        }
-        else if (BitCount(cardinal) == 1)
-        {
-            yield return cardinal switch
-            {
-                MaterialAutoTileMasks.North or MaterialAutoTileMasks.South => MaterialAutoTileMasks.StraightV,
-                MaterialAutoTileMasks.East or MaterialAutoTileMasks.West => MaterialAutoTileMasks.StraightH,
-                _ => MaterialAutoTileMasks.None
-            };
-        }
-
-        yield return MaterialAutoTileMasks.None;
-    }
-
-    private static int NormalizeEightWayMask(int mask)
-    {
-        var cardinal = mask & MaterialAutoTileMasks.CardinalMask;
-        var diagonal = mask & MaterialAutoTileMasks.DiagonalMask;
-        var normalizedDiagonal = 0;
-        if (HasAll(cardinal, MaterialAutoTileMasks.North | MaterialAutoTileMasks.East) &&
-            HasDiagonal(diagonal, MaterialAutoTileMasks.NorthEast))
-        {
-            normalizedDiagonal |= MaterialAutoTileMasks.NorthEast;
-        }
-
-        if (HasAll(cardinal, MaterialAutoTileMasks.South | MaterialAutoTileMasks.East) &&
-            HasDiagonal(diagonal, MaterialAutoTileMasks.SouthEast))
-        {
-            normalizedDiagonal |= MaterialAutoTileMasks.SouthEast;
-        }
-
-        if (HasAll(cardinal, MaterialAutoTileMasks.South | MaterialAutoTileMasks.West) &&
-            HasDiagonal(diagonal, MaterialAutoTileMasks.SouthWest))
-        {
-            normalizedDiagonal |= MaterialAutoTileMasks.SouthWest;
-        }
-
-        if (HasAll(cardinal, MaterialAutoTileMasks.North | MaterialAutoTileMasks.West) &&
-            HasDiagonal(diagonal, MaterialAutoTileMasks.NorthWest))
-        {
-            normalizedDiagonal |= MaterialAutoTileMasks.NorthWest;
-        }
-
-        return cardinal | normalizedDiagonal;
-    }
-
-    private static IEnumerable<int> BuildMissingDiagonalInnerCornerMasks(int mask)
-    {
-        var filled = MaterialAutoTileMasks.Filled;
-        if (!HasDiagonal(mask, MaterialAutoTileMasks.NorthEast)) yield return filled & ~MaterialAutoTileMasks.NorthEast;
-        if (!HasDiagonal(mask, MaterialAutoTileMasks.SouthEast)) yield return filled & ~MaterialAutoTileMasks.SouthEast;
-        if (!HasDiagonal(mask, MaterialAutoTileMasks.SouthWest)) yield return filled & ~MaterialAutoTileMasks.SouthWest;
-        if (!HasDiagonal(mask, MaterialAutoTileMasks.NorthWest)) yield return filled & ~MaterialAutoTileMasks.NorthWest;
+        return TerrainAutoTileResolver.SelectAutoTileAssetForMask(groupAssets, mask) ?? current;
     }
 
     private static int BuildLinePathMask(
@@ -442,19 +529,6 @@ public sealed class MaterialDrivenTerrainService : IDisposable
     private static bool HasDiagonal(int mask, int diagonal)
         => (mask & diagonal) == diagonal;
 
-    private static int BitCount(int value)
-    {
-        value &= MaterialAutoTileMasks.CardinalMask;
-        var count = 0;
-        while (value != 0)
-        {
-            count += value & 1;
-            value >>= 1;
-        }
-
-        return count;
-    }
-
     private static bool IsSameGroupAt(
         MapWorkbenchDraft draft,
         MaterialAsset current,
@@ -471,11 +545,24 @@ public sealed class MaterialDrivenTerrainService : IDisposable
                asset.GroupKey.Equals(current.GroupKey, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void DrawMaterialAsset(Graphics g, MaterialAsset asset, Rectangle target)
+    private void DrawMaterialAsset(Graphics g, MaterialAsset asset, Rectangle target, TerrainVisualProfile? profile = null)
     {
         var source = GetCachedImage(asset.FilePath);
         if (source == null) return;
         var sourceRect = BuildSourceRect(asset, source);
+        if (asset.AssetType.Equals(MaterialAssetTypes.Building, StringComparison.OrdinalIgnoreCase))
+        {
+            using var tile = new Bitmap(target.Width, target.Height, PixelFormat.Format32bppArgb);
+            using (var tileGraphics = CreateGraphics(tile))
+            {
+                tileGraphics.DrawImage(source, new Rectangle(0, 0, target.Width, target.Height), sourceRect, GraphicsUnit.Pixel);
+            }
+
+            using var repaired = _objectAlphaRepairService.Repair(tile, profile ?? new TerrainVisualProfile());
+            g.DrawImage(repaired.Bitmap, target);
+            return;
+        }
+
         g.DrawImage(source, target, sourceRect, GraphicsUnit.Pixel);
     }
 
@@ -692,6 +779,13 @@ public sealed class MaterialDrivenTerrainService : IDisposable
             throw new InvalidOperationException("Map draft grid size is invalid.");
         }
     }
+
+    private sealed record BuildingOverlayEntry(
+        MapCellOverride Cell,
+        int Order,
+        MaterialAsset Asset,
+        string FamilyKey,
+        string StyleKey);
 
     private sealed record CachedImage(DateTime LastWriteUtc, long Length, Bitmap Bitmap);
 }

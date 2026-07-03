@@ -73,6 +73,7 @@ public sealed partial class BattlefieldAllyDeploymentSlotService
                 DirectionCode = slot.DirectionCode,
                 Direction = DirectionCodeToText(slot.DirectionCode),
                 Flag = slot.Flag,
+                Hidden = slot.Flag != 0,
                 PersonId = hasForcedPerson ? forcedPersonId : null,
                 Name = hasForcedPerson ? palette?.Name ?? $"人物{forcedPersonId}" : string.Empty,
                 JobId = hasForcedPerson ? palette?.JobId : null,

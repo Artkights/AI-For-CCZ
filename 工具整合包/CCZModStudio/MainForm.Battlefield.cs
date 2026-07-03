@@ -203,6 +203,7 @@ public sealed partial class MainForm
             ClearBattlefieldManualMarker();
             ClearBattlefieldCommand25Markers();
             ClearBattlefieldInstructionPreviewState();
+            ResetBattlefieldDeploymentPreviewFilter();
             _battlefieldUnitReviewService.Apply(_project, _currentBattlefieldDocument);
             _battlefieldPlacedUnits.Clear();
             _battlefieldPlacedUnits.AddRange(_battlefieldUnitReviewService.LoadPlacements(_project, _currentBattlefieldDocument));
@@ -404,6 +405,14 @@ public sealed partial class MainForm
                 nameof(BattlefieldUnitCandidate.FactionDisplay) => "阵营",
                 nameof(BattlefieldUnitCandidate.AiDisplay) => "AI",
                 nameof(BattlefieldUnitCandidate.LevelJobDisplay) => "等级/兵种级",
+                nameof(BattlefieldUnitCandidate.DeploymentStatusDisplay) => "部署状态",
+                nameof(BattlefieldUnitCandidate.PersonRawCodeDisplay) => "原始码",
+                nameof(BattlefieldUnitCandidate.DirectionDisplay) => "朝向",
+                nameof(BattlefieldUnitCandidate.HiddenDisplay) => "隐藏",
+                nameof(BattlefieldUnitCandidate.ReinforcementDisplay) => "援军",
+                nameof(BattlefieldUnitCandidate.PersonId) => "人物ID",
+                nameof(BattlefieldUnitCandidate.PersonRawCode) => "Person2码",
+                nameof(BattlefieldUnitCandidate.IsPersonVariable) => "变量人物",
                 nameof(BattlefieldUnitCandidate.Index) => "序号",
                 nameof(BattlefieldUnitCandidate.Category) => "类型",
                 nameof(BattlefieldUnitCandidate.SourceCommand) => "来源命令",
@@ -428,6 +437,9 @@ public sealed partial class MainForm
                 nameof(BattlefieldUnitCandidate.FactionDisplay) => "按 4B/46/47 推断的阵营。",
                 nameof(BattlefieldUnitCandidate.AiDisplay) => "与战场控制台一致的 AI 状态。",
                 nameof(BattlefieldUnitCandidate.LevelJobDisplay) => "出场设定里的等级修正和兵种级别，和双击 0x46/0x47 出场设定弹窗一致。",
+                nameof(BattlefieldUnitCandidate.DeploymentStatusDisplay) => "按 46/47/4B 结构化槽位读取的隐藏、援军和预览范围状态。",
+                nameof(BattlefieldUnitCandidate.PersonRawCodeDisplay) => "46/47 原始 Person2 剧本码；写回时仍使用该编码体系。",
+                nameof(BattlefieldUnitCandidate.DirectionDisplay) => "按朝向槽读取：0=上，1=右，2=下，3=左。",
                 nameof(BattlefieldUnitCandidate.Annotation) => "面向创作者的中文说明和安全边界。",
                 nameof(BattlefieldUnitCandidate.ReviewStatus) => "可编辑项目侧状态，例如：待核对、已核对、需改、已实测。不写入游戏文件。",
                 nameof(BattlefieldUnitCandidate.ReviewNote) => "可编辑核对记录，用于记录旧工具对照、计划修改、实机结果。不写入游戏文件。",
@@ -443,6 +455,9 @@ public sealed partial class MainForm
                 column.Visible = false;
             }
             if (column.DataPropertyName is nameof(BattlefieldUnitCandidate.Index)
+                or nameof(BattlefieldUnitCandidate.PersonId)
+                or nameof(BattlefieldUnitCandidate.PersonRawCode)
+                or nameof(BattlefieldUnitCandidate.IsPersonVariable)
                 or nameof(BattlefieldUnitCandidate.Category)
                 or nameof(BattlefieldUnitCandidate.SourceCommand)
                 or nameof(BattlefieldUnitCandidate.SceneSection)
@@ -460,6 +475,14 @@ public sealed partial class MainForm
                 or nameof(BattlefieldUnitCandidate.ReviewNote))
             {
                 column.Width = 320;
+            }
+            else if (column.DataPropertyName is nameof(BattlefieldUnitCandidate.DeploymentStatusDisplay)
+                     or nameof(BattlefieldUnitCandidate.PersonRawCodeDisplay)
+                     or nameof(BattlefieldUnitCandidate.DirectionDisplay)
+                     or nameof(BattlefieldUnitCandidate.HiddenDisplay)
+                     or nameof(BattlefieldUnitCandidate.ReinforcementDisplay))
+            {
+                column.Width = 86;
             }
         }
     }
@@ -565,6 +588,7 @@ public sealed partial class MainForm
         {
             TargetKey = unit.TargetKey,
             PersonId = unit.PersonId,
+            PersonRawCode = unit.PersonRawCode,
             Name = unit.Name,
             JobId = unit.JobId,
             JobName = unit.JobName,
@@ -575,6 +599,7 @@ public sealed partial class MainForm
             LevelMode = unit.LevelMode,
             AiMode = unit.AiMode,
             Hidden = unit.Hidden,
+            Reinforcement = unit.Reinforcement,
             Direction = unit.Direction,
             GridX = unit.GridX,
             GridY = unit.GridY,
@@ -970,6 +995,7 @@ public sealed partial class MainForm
                         : "未绑定强制角色，保留为战前候选位。\r\n") +
                     $"来源：{slot.Source}\r\n" +
                     $"命令：{slot.SourceFileName} / {slot.SourceLocator}\r\n" +
+                    $"隐藏：{slot.Hidden}\r\n" +
                     $"原始 4B 槽值：{slot.SourceValues}";
                 SetStatus($"战场布阵：已选中我军候选出战位 #{slot.DisplayOrder} ({x},{y})");
                 return;
@@ -1333,7 +1359,7 @@ public sealed partial class MainForm
                 $"\r\n\r\n已移动地图单位：\r\n" +
                 $"{unit.PersonId} {unit.Name}  坐标=({oldGrid.X},{oldGrid.Y}) -> ({unit.GridX},{unit.GridY})  阵营={unit.Faction}\r\n" +
                 $"职业={unit.JobId?.ToString(CultureInfo.InvariantCulture) ?? "?"} {unit.JobName}  R={unit.RImageId}  S={unit.SImageId}\r\n" +
-                $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  转向={unit.Direction}\r\n" +
+                $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  援军={unit.Reinforcement}  转向={unit.Direction}\r\n" +
                 (synced
                     ? "已写入左侧 S 剧本树；点击“写回出场到S剧本”后完整保存到文件。"
                     : "未绑定到可写 46/47/4B 出场设置；只能保存为布阵草稿记录。");
@@ -1375,7 +1401,7 @@ public sealed partial class MainForm
                 $"\r\n\r\n当前地图单位：\r\n" +
                 $"{unit.PersonId} {unit.Name}  坐标=({unit.GridX},{unit.GridY})  阵营={unit.Faction}\r\n" +
                 $"职业={unit.JobId?.ToString(CultureInfo.InvariantCulture) ?? "?"} {unit.JobName}  R={unit.RImageId}  S={unit.SImageId}\r\n" +
-                $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  转向={unit.Direction}\r\n" +
+                $"等级={unit.LevelMode}+{unit.LevelOffset}  AI={unit.AiMode}  隐藏={unit.Hidden}  援军={unit.Reinforcement}  转向={unit.Direction}\r\n" +
                 $"状态：{(ReferenceEquals(unit, _editingBattlefieldPlacedUnit) ? "可编辑，拖拽后可同步 46/47/4B 出场设置预览" : "已选中，右键进入可编辑状态")}\r\n" +
                 $"来源：{unit.Source}\r\n" +
                 $"布阵记录：{unit.PlacementNote}");
@@ -2216,6 +2242,13 @@ public sealed partial class MainForm
                 graphics.FillEllipse(hiddenBrush, badge);
                 graphics.DrawString("隐", Font, Brushes.White, badge.X - 1, badge.Y - 2);
             }
+            if (unit.Reinforcement)
+            {
+                var badge = new RectangleF(rect.Left + 2, rect.Top + 2, 14, 14);
+                using var reinforcementBrush = new SolidBrush(Color.FromArgb(190, 30, 95, 180));
+                graphics.FillEllipse(reinforcementBrush, badge);
+                graphics.DrawString("援", Font, Brushes.White, badge.X - 1, badge.Y - 2);
+            }
         }
     }
 
@@ -2283,7 +2316,19 @@ public sealed partial class MainForm
                 _battlefieldUnitAnimationPhase);
             if (preview != null)
             {
-                graphics.DrawImage(preview, FitImageIntoRect(preview.Size, Rectangle.Round(rect)));
+                var drawRect = FitImageIntoRect(preview.Size, Rectangle.Round(rect));
+                if (slot.Hidden)
+                {
+                    DrawImageWithOpacity(graphics, preview, drawRect, 0.55f);
+                    var badge = new RectangleF(rect.Right - 16, rect.Top + 2, 14, 14);
+                    using var hiddenBrush = new SolidBrush(Color.FromArgb(170, Color.Black));
+                    graphics.FillEllipse(hiddenBrush, badge);
+                    graphics.DrawString("隐", Font, Brushes.White, badge.X - 1, badge.Y - 2);
+                }
+                else
+                {
+                    graphics.DrawImage(preview, drawRect);
+                }
                 continue;
             }
 
@@ -2579,6 +2624,9 @@ public sealed partial class MainForm
                 ? scriptTargetKey
                 : $"Placement#{_currentBattlefieldDocument.Scenario.FileName}#{x},{y}#{item.PersonId}",
             PersonId = item.PersonId,
+            PersonRawCode = scriptBacked && !IsBattlefieldAllyDeploymentTargetKey(scriptTargetKey)
+                ? BattlefieldEditorService.EncodePerson2ScriptCode(item.PersonId)
+                : null,
             Name = item.Name,
             JobId = item.JobId,
             JobName = item.JobName,
@@ -2589,6 +2637,7 @@ public sealed partial class MainForm
             LevelMode = _battlefieldLevelModeCombo.SelectedItem?.ToString() ?? "初级",
             AiMode = _battlefieldAiModeCombo.SelectedItem?.ToString() ?? "被动",
             Hidden = _battlefieldHiddenCheckBox.Checked,
+            Reinforcement = scriptPlacement?.Reinforcement ?? scriptCandidate?.ReinforcementDisplay.Contains("援军", StringComparison.Ordinal) == true,
             Direction = _battlefieldDirectionCombo.SelectedItem?.ToString() ?? "下",
             GridX = x,
             GridY = y,
@@ -2795,14 +2844,21 @@ public sealed partial class MainForm
         {
             Index = _currentBattlefieldDocument.UnitCandidates.Count + slot.RecordIndex + 1,
             BattlefieldNumber = slot.BattlefieldNumber,
+            PersonId = slot.PersonId,
+            PersonRawCode = slot.PersonRawCode,
             SourceCommandDisplay = $"{BuildBattlefieldDeploymentSourceDisplay(command?.CommandName, slot.Category)} 第 {slot.RecordIndex + 1} 条",
             PersonDisplay = slot.IsAllySlot
                 ? slot.PersonOrOrder.ToString(CultureInfo.InvariantCulture)
-                : slot.IsBlank ? string.Empty : slot.PersonOrOrder.ToString(CultureInfo.InvariantCulture),
+                : slot.IsBlank ? string.Empty : slot.PersonId.ToString(CultureInfo.InvariantCulture),
             CoordinateDisplay = $"({slot.GridX},{slot.GridY})",
             FactionDisplay = slot.Category.Replace("出场", string.Empty, StringComparison.Ordinal),
-            AiDisplay = string.Empty,
-            LevelJobDisplay = string.Empty,
+            AiDisplay = slot.AiMode,
+            LevelJobDisplay = string.Join(' ', new[] { FormatBattlefieldLevelOffset(slot.LevelOffset), slot.JobLevel }.Where(part => !string.IsNullOrWhiteSpace(part))),
+            DeploymentStatusDisplay = string.Join("/", new[] { slot.IsInitialDeployment ? "初始" : "剧情", slot.Reinforcement ? "援" : string.Empty, slot.Hidden ? "隐" : string.Empty, slot.IsBlank ? "空" : string.Empty }.Where(part => !string.IsNullOrWhiteSpace(part))),
+            PersonRawCodeDisplay = slot.IsAllySlot ? $"顺序={slot.PersonRawCode}" : $"raw={slot.PersonRawCode}",
+            DirectionDisplay = slot.Direction,
+            HiddenDisplay = slot.Hidden ? "隐藏" : "正常",
+            ReinforcementDisplay = slot.Reinforcement ? "援军" : string.Empty,
             Category = slot.Category,
             SourceCommand = $"{command?.CommandIdHex ?? HexDisplayFormatter.Format(slot.CommandId, 2)} {command?.CommandName ?? slot.Category} 第 {slot.RecordIndex + 1} 条",
             SceneSection = command == null
@@ -2811,15 +2867,22 @@ public sealed partial class MainForm
             OffsetHex = command?.OffsetHex ?? string.Empty,
             PersonHint = slot.IsAllySlot
                 ? $"我军出战顺序：{slot.PersonOrOrder}（地图标注显示为笀{Math.Max(0, slot.PersonOrOrder + 1)} 位）"
-                : slot.IsBlank ? "空出场槽：可由地图拖放写入人物" : $"人物/部队：{slot.PersonOrOrder}",
+                : slot.IsBlank ? $"空出场槽：可由地图拖放写入人物；原始 Person2 码={slot.PersonRawCode}" : $"人物/部队：{slot.PersonId}；原始 Person2 码={slot.PersonRawCode}",
             CoordinateHint = $"坐标候选：({slot.GridX},{slot.GridY})",
             FactionHint = $"阵营候选：{slot.Category.Replace("出场", string.Empty, StringComparison.Ordinal)}",
             AiHint = slot.WritesAi ? "AI/方针槽可随拖放控制面板写回。" : "无直接 AI 方针槽。",
-            LevelOrStateHint = slot.IsAllySlot ? "4B 我军出战位：写回坐标/方向/隐藏标志，不改出战顺序。" : "空槽自动绑定：写回人物、坐标和已确认 AI。",
+            LevelOrStateHint = slot.IsAllySlot
+                ? $"4B 我军出战位：方向={slot.DirectionCode}({slot.Direction})，隐藏={(slot.Hidden ? 1 : 0)}；写回坐标/方向/隐藏标志，不改出战顺序。"
+                : $"结构化部署状态：隐藏={(slot.Hidden ? 1 : 0)}，援军={(slot.Reinforcement ? 1 : 0)}，方向={slot.DirectionCode}({slot.Direction})，等级={slot.LevelOffset}，兵种级={slot.JobLevelCode}({slot.JobLevel})，AI={slot.AiPolicyCode}({slot.AiMode})。",
             Annotation = "由地图拖放自动绑定到 S 剧本出场设置槽；点击写回前仅作为预览覆盖。",
             TargetKey = slot.TargetKey
         };
     }
+
+    private static string FormatBattlefieldLevelOffset(int value)
+        => value >= 0
+            ? "+" + value.ToString(CultureInfo.InvariantCulture) + "级"
+            : value.ToString(CultureInfo.InvariantCulture) + "级";
 
     private static int CoordinateDistance(int x1, int y1, int x2, int y2)
         => Math.Abs(x1 - x2) + Math.Abs(y1 - y2);
@@ -2942,7 +3005,7 @@ public sealed partial class MainForm
         var isAllySlot = IsBattlefieldAllyDeploymentTargetKey(original.TargetKey);
         var personPreviewText = isAllySlot
             ? $"预览角色：{placed.PersonId} {placed.Name}（仅用于地图标注＀B 写回不改出战顺序/人物槽）"
-            : $"预览人物/部队：{placed.PersonId} {placed.Name}";
+            : $"预览人物/部队：{placed.PersonId} {placed.Name}，Person2码={placed.PersonRawCode ?? BattlefieldEditorService.EncodePerson2ScriptCode(placed.PersonId)}";
         var aiPreviewText = isAllySlot
             ? $"4B 旀AI 写回；原候选：{original.AiHint}"
             : $"预览 AI：{placed.AiMode}；原候选：{original.AiHint}";
@@ -2959,6 +3022,11 @@ public sealed partial class MainForm
             FactionDisplay = placed.Faction,
             AiDisplay = isAllySlot ? string.Empty : placed.AiMode,
             LevelJobDisplay = BuildBattlefieldPreviewLevelJobDisplay(placed),
+            DeploymentStatusDisplay = string.Join("/", new[] { placed.Reinforcement ? "援" : string.Empty, placed.Hidden ? "隐" : string.Empty }.Where(part => !string.IsNullOrWhiteSpace(part))),
+            PersonRawCodeDisplay = isAllySlot ? string.Empty : $"raw={placed.PersonRawCode ?? BattlefieldEditorService.EncodePerson2ScriptCode(placed.PersonId)}",
+            DirectionDisplay = placed.Direction,
+            HiddenDisplay = placed.Hidden ? "隐藏" : "正常",
+            ReinforcementDisplay = placed.Reinforcement ? "援军" : string.Empty,
             Category = original.Category,
             SourceCommand = original.SourceCommand + " [地图预览已调整]",
             SceneSection = original.SceneSection,
@@ -3147,7 +3215,7 @@ public sealed partial class MainForm
     private static string BuildBattlefieldScriptPreviewText(BattlefieldPlacedUnit preview)
         => IsBattlefieldAllyDeploymentTargetKey(preview.TargetKey)
             ? $"地图预览：4B 我军出战位坐标=({preview.GridX},{preview.GridY})，方向={preview.Direction}，隐藏={preview.Hidden}；人物={preview.PersonId} {preview.Name} 仅用于地图标注，写回不改出战顺序/人物槽，尚未写回 S 剧本。"
-            : $"地图预览：人物={preview.PersonId} {preview.Name}，坐标=({preview.GridX},{preview.GridY})，阵营={preview.Faction}，AI={preview.AiMode}；尚未写回 S 剧本。";
+            : $"地图预览：人物={preview.PersonId} {preview.Name}，Person2={preview.PersonRawCode ?? BattlefieldEditorService.EncodePerson2ScriptCode(preview.PersonId)}，坐标=({preview.GridX},{preview.GridY})，阵营={preview.Faction}，AI={preview.AiMode}，隐藏={preview.Hidden}，援军={preview.Reinforcement}；尚未写回 S 剧本。";
 
     private void ApplyBattlefieldControlPanelToSelectedUnit()
     {
@@ -3453,9 +3521,12 @@ public sealed partial class MainForm
                 continue;
             }
 
-            unit.TargetKey = targetKey;
-            unit.Faction = InferBattlefieldFaction(candidate);
-            unit.Source = "S剧本出场设置(批量阵营迁移)";
+        unit.TargetKey = targetKey;
+        unit.Faction = InferBattlefieldFaction(candidate);
+        unit.PersonRawCode = unit.Faction.Equals("我军", StringComparison.Ordinal)
+            ? null
+            : BattlefieldEditorService.EncodePerson2ScriptCode(unit.PersonId);
+        unit.Source = "S剧本出场设置(批量阵营迁移)";
             unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
                 unit.PlacementNote,
                 $"批量阵营迁移：{oldFaction} -> {unit.Faction}，绑定 {targetKey}。");
@@ -3509,6 +3580,9 @@ public sealed partial class MainForm
 
         unit.TargetKey = targetKey;
         unit.Faction = InferBattlefieldFaction(candidate);
+        unit.PersonRawCode = unit.Faction.Equals("我军", StringComparison.Ordinal)
+            ? null
+            : BattlefieldEditorService.EncodePerson2ScriptCode(unit.PersonId);
         unit.Source = "S剧本出场设置(控制台阵营迁秀";
         unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
             unit.PlacementNote,
@@ -5332,19 +5406,24 @@ public sealed partial class MainForm
         var paletteByPersonId = _battlefieldUnitPaletteItems
             .GroupBy(x => x.PersonId)
             .ToDictionaryFirstByKey(group => group.Key, group => group.First());
+        var previewFilter = _battlefieldDeploymentPreviewFilterCombo.SelectedItem?.ToString() ?? "初始部署";
+        var selectedTargetKey = GetSelectedBattlefieldUnitCandidate()?.TargetKey ?? string.Empty;
 
-        foreach (var candidate in document.UnitCandidates)
+        foreach (var state in document.DeploymentRecords)
         {
-            if (IsBattlefieldAllyDeploymentPositionCandidate(candidate)) continue;
-            if (!BattlefieldEditorService.TryExtractFirstCoordinate(candidate, out var x, out var y)) continue;
-            if (!BattlefieldEditorService.TryExtractPersonId(candidate, out var personId)) continue;
+            if (state.IsAllySlot) continue;
+            if (!ShouldMergeBattlefieldDeploymentRecord(state, previewFilter, selectedTargetKey)) continue;
+            if (state.IsBlank) continue;
+            if (state.GridX < 0 || state.GridY < 0) continue;
+            if (state.PersonId < 0) continue;
 
-            var targetKey = string.IsNullOrWhiteSpace(candidate.TargetKey)
-                ? $"ScriptPlacement#{document.Scenario.FileName}#{candidate.Index}"
-                : candidate.TargetKey;
+            var personId = state.PersonId;
+            var targetKey = string.IsNullOrWhiteSpace(state.TargetKey)
+                ? $"ScriptPlacement#{document.Scenario.FileName}#{state.CommandIndex}_{state.RecordIndex}"
+                : state.TargetKey;
             if (existingTargets.Contains(targetKey)) continue;
 
-            var gridKey = BuildBattlefieldGridKey(x, y);
+            var gridKey = BuildBattlefieldGridKey(state.GridX, state.GridY);
             if (occupiedGrids.Contains(gridKey)) continue;
 
             paletteByPersonId.TryGetValue(personId, out var palette);
@@ -5352,26 +5431,77 @@ public sealed partial class MainForm
             {
                 TargetKey = targetKey,
                 PersonId = personId,
+                PersonRawCode = state.PersonRawCode,
                 Name = palette?.Name ?? $"人物{personId}",
                 JobId = palette?.JobId,
                 JobName = palette?.JobName ?? string.Empty,
                 RImageId = palette?.RImageId ?? 0,
                 SImageId = palette?.SImageId ?? 0,
-                Faction = InferBattlefieldFaction(candidate),
-                LevelOffset = InferBattlefieldLevelOffset(candidate.LevelOrStateHint),
-                LevelMode = InferBattlefieldLevelMode(candidate.LevelOrStateHint),
-                AiMode = InferBattlefieldAiMode(candidate.AiHint),
-                Hidden = IsBattlefieldHiddenCandidate(candidate),
-                Direction = "下",
-                GridX = x,
-                GridY = y,
+                Faction = GetBattlefieldFactionForCommandId(state.CommandId),
+                LevelOffset = state.LevelOffset,
+                LevelMode = string.IsNullOrWhiteSpace(state.JobLevel) ? "初级" : state.JobLevel,
+                AiMode = string.IsNullOrWhiteSpace(state.AiMode) ? "被动" : state.AiMode,
+                Hidden = state.Hidden,
+                Reinforcement = state.Reinforcement,
+                Direction = state.Direction,
+                GridX = state.GridX,
+                GridY = state.GridY,
                 Source = "S剧本预览",
-                PlacementNote = BuildBattlefieldScriptPlacementNote(candidate)
+                PlacementNote = BuildBattlefieldScriptPlacementNote(state)
             });
             existingTargets.Add(targetKey);
             occupiedGrids.Add(gridKey);
         }
     }
+
+    private void ResetBattlefieldDeploymentPreviewFilter()
+    {
+        if (_battlefieldDeploymentPreviewFilterCombo.Items.Count > 0)
+        {
+            _battlefieldDeploymentPreviewFilterCombo.SelectedIndex = 0;
+        }
+    }
+
+    private void RefreshBattlefieldDeploymentPreviewFilter()
+    {
+        if (_currentBattlefieldDocument == null) return;
+
+        var removedSelection = false;
+        for (var index = _battlefieldPlacedUnits.Count - 1; index >= 0; index--)
+        {
+            var unit = _battlefieldPlacedUnits[index];
+            if (!unit.Source.Equals("S剧本预览", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            removedSelection |= ReferenceEquals(_selectedBattlefieldPlacedUnit, unit) ||
+                                ReferenceEquals(_editingBattlefieldPlacedUnit, unit) ||
+                                ReferenceEquals(_draggingBattlefieldPlacedUnit, unit);
+            _battlefieldPlacedUnits.RemoveAt(index);
+        }
+
+        if (removedSelection)
+        {
+            ClearBattlefieldPlacedUnitSelection();
+        }
+
+        MergeBattlefieldScriptPlacements(_currentBattlefieldDocument);
+        RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+    }
+
+    private static bool ShouldMergeBattlefieldDeploymentRecord(
+        BattlefieldDeploymentRecordState state,
+        string previewFilter,
+        string selectedTargetKey)
+        => previewFilter switch
+        {
+            "全部部署记录" => true,
+            "隐藏与援军" => state.Hidden || state.Reinforcement,
+            "当前选中命令" => !string.IsNullOrWhiteSpace(selectedTargetKey) &&
+                          state.TargetKey.Equals(selectedTargetKey, StringComparison.OrdinalIgnoreCase),
+            _ => state.IsInitialDeployment
+        };
 
     private void RemoveScriptBackedBattlefieldPlacementDuplicates()
     {
@@ -5431,6 +5561,14 @@ public sealed partial class MainForm
     private static string BuildBattlefieldGridKey(int x, int y)
         => x.ToString(CultureInfo.InvariantCulture) + "," + y.ToString(CultureInfo.InvariantCulture);
 
+    private static string GetBattlefieldFactionForCommandId(int commandId)
+        => commandId switch
+        {
+            0x46 => "友军",
+            0x47 => "敌军",
+            _ => "我军"
+        };
+
     private static string InferBattlefieldFaction(BattlefieldUnitCandidate candidate)
     {
         var text = string.Join(' ', candidate.Category, candidate.FactionHint, candidate.SourceCommand, candidate.Annotation);
@@ -5485,14 +5623,12 @@ public sealed partial class MainForm
                text.Contains("伏兵", StringComparison.Ordinal);
     }
 
-    private static string BuildBattlefieldScriptPlacementNote(BattlefieldUnitCandidate candidate)
-        => $"什S 剧本出场/坐标候选预加载：{candidate.SourceCommand} / {candidate.SceneSection} / {candidate.OffsetHex}\r\n" +
-           $"人物：{candidate.PersonHint}\r\n" +
-           $"坐标：{candidate.CoordinateHint}\r\n" +
-           $"阵营：{candidate.FactionHint}\r\n" +
-           $"AI：{candidate.AiHint}\r\n" +
-           $"等级/状态：{candidate.LevelOrStateHint}\r\n" +
-           "当前只保存项目侧预览/调整，不直接写回未知 S 剧本命令参数。";
+    private static string BuildBattlefieldScriptPlacementNote(BattlefieldDeploymentRecordState state)
+        => $"S 剧本初始出场预加载：{HexDisplayFormatter.Format(state.CommandId, 2)} {state.CommandName} / Scene {state.SceneIndex} Section {state.SectionIndex} Cmd {state.CommandIndex} / {state.OffsetHex}\r\n" +
+           $"人物：Person2原始码={state.PersonRawCode}，解析={state.PersonId} {state.PersonDisplay}\r\n" +
+           $"坐标：({state.GridX},{state.GridY})；阵营：{GetBattlefieldFactionForCommandId(state.CommandId)}；朝向：{state.DirectionCode}({state.Direction})\r\n" +
+           $"AI：{state.AiPolicyCode}({state.AiMode})；等级：{state.LevelOffset}；兵种级：{state.JobLevelCode}({state.JobLevel})；隐藏={(state.Hidden ? 1 : 0)}；援军={(state.Reinforcement ? 1 : 0)}\r\n" +
+           "当前预览直接来自 46/47 结构化部署槽；写回时保留 Person2 剧本码体系。";
 
     private void BindBattlefieldUnitPalette(IEnumerable<BattlefieldUnitPaletteItem> rows)
     {

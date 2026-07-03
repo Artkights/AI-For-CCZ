@@ -723,6 +723,7 @@ public sealed partial class MainForm
             unit.LevelMode?.Trim() ?? string.Empty,
             unit.AiMode?.Trim() ?? string.Empty,
             unit.Hidden ? "1" : "0",
+            unit.Reinforcement ? "1" : "0",
             unit.Direction?.Trim() ?? string.Empty,
             unit.GridX.ToString(CultureInfo.InvariantCulture),
             unit.GridY.ToString(CultureInfo.InvariantCulture),

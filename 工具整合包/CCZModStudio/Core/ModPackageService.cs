@@ -9,6 +9,8 @@ namespace CCZModStudio.Core;
 
 public sealed partial class ModPackageService
 {
+    private const int EmptyPerson1Code = -1;
+
     private static readonly HashSet<int> SafeScenarioCommandIds = new()
     {
         0x02, 0x03, 0x04, 0x05,
@@ -1163,12 +1165,35 @@ public sealed partial class ModPackageService
                 Tag = layoutCode,
                 FileOffset = 0,
                 Kind = KindFromLayoutCode(layoutCode),
-                ByteLength = ByteLengthFromLayoutCode(layoutCode)
+                ByteLength = ByteLengthFromLayoutCode(layoutCode),
+                IntValue = GetDefaultScenarioParameterValue(commandId, index)
             });
         }
 
         return result;
     }
+
+    private static int GetDefaultScenarioParameterValue(int commandId, int parameterIndex)
+    {
+        if (IsForceAllyDeploymentPersonParameter(commandId, parameterIndex))
+        {
+            return EmptyPerson1Code;
+        }
+
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(commandId);
+        if (definition is { WritesPerson: true } &&
+            definition.PersonIndex >= 0 &&
+            definition.GroupSize > 0 &&
+            parameterIndex % definition.GroupSize == definition.PersonIndex)
+        {
+            return BattlefieldDeploymentRecordFormatter.EmptyPerson2Code;
+        }
+
+        return 0;
+    }
+
+    private static bool IsForceAllyDeploymentPersonParameter(int commandId, int parameterIndex)
+        => commandId == 0x4A && parameterIndex is >= 1 and <= 10;
 
     private static LegacyScenarioCommandParameter CreateParameterFromDraft(ModScenarioParameterDraft draft, int index)
     {

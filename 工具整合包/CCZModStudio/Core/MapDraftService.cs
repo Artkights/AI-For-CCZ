@@ -248,6 +248,8 @@ public sealed class MapDraftService
         draft.SceneryOverlays = NormalizeSceneryOverlays(draft.SceneryOverlays, draft);
         draft.TerrainMaterialPlan ??= new List<TerrainMaterialPlanItem>();
         draft.TerrainMaterialPlan = NormalizeTerrainMaterialPlan(draft.TerrainMaterialPlan);
+        draft.GenerationMode = MapWorkbenchGenerationModes.Normalize(draft.GenerationMode);
+        draft.TerrainVisualProfile = NormalizeTerrainVisualProfile(draft.TerrainVisualProfile);
         draft.BeautifyStrength = Math.Clamp(draft.BeautifyStrength, 0, 3);
         draft.FeatherRadius = Math.Clamp(draft.FeatherRadius, 0, MapResourceItem.MapTilePixelSize / 2);
         draft.BeautifyFilterProfile = NormalizeBeautifyFilterProfile(draft.BeautifyFilterProfile);
@@ -258,6 +260,56 @@ public sealed class MapDraftService
         draft.CreatedAtText = draft.CreatedAtText?.Trim() ?? string.Empty;
         draft.UpdatedAtText = draft.UpdatedAtText?.Trim() ?? string.Empty;
         return draft;
+    }
+
+    private static TerrainVisualProfile NormalizeTerrainVisualProfile(TerrainVisualProfile? profile)
+    {
+        profile ??= new TerrainVisualProfile();
+        profile.Seed = string.IsNullOrWhiteSpace(profile.Seed) ? "default" : profile.Seed.Trim();
+        profile.StyleSampleRoot = profile.StyleSampleRoot?.Trim() ?? string.Empty;
+        profile.EdgeFeatherRadius = Math.Clamp(profile.EdgeFeatherRadius <= 0 ? 8 : profile.EdgeFeatherRadius, 0, MapResourceItem.MapTilePixelSize / 2);
+        profile.BlendStrength = Math.Clamp(profile.BlendStrength <= 0 ? 2 : profile.BlendStrength, 0, 3);
+        profile.ColorAlignmentStrength = Math.Clamp(profile.ColorAlignmentStrength, 0f, 1f);
+        profile.TextureNoiseStrength = Math.Clamp(profile.TextureNoiseStrength, 0f, 1f);
+        profile.StyleContextRadiusCells = Math.Clamp(profile.StyleContextRadiusCells <= 0 ? 3 : profile.StyleContextRadiusCells, 1, 8);
+        profile.BlendContextRadiusCells = Math.Clamp(profile.BlendContextRadiusCells <= 0 ? 2 : profile.BlendContextRadiusCells, 1, 4);
+        profile.BoundaryFeatherPixels = Math.Clamp(profile.BoundaryFeatherPixels <= 0 ? profile.EdgeFeatherRadius : profile.BoundaryFeatherPixels, 1, MapResourceItem.MapTilePixelSize);
+        profile.BoundaryJitterPixels = Math.Clamp(profile.BoundaryJitterPixels, 0, MapResourceItem.MapTilePixelSize / 2);
+        profile.BoundaryNoiseScale = Math.Clamp(profile.BoundaryNoiseScale <= 0 ? 12 : profile.BoundaryNoiseScale, 1, MapResourceItem.MapTilePixelSize);
+        profile.OverlapSeamPixels = Math.Clamp(profile.OverlapSeamPixels <= 0 ? 8 : profile.OverlapSeamPixels, 0, MapResourceItem.MapTilePixelSize / 2);
+        profile.LocalColorTransferStrength = Math.Clamp(profile.LocalColorTransferStrength, 0f, 1f);
+        profile.CenterMinWeight = Math.Clamp(profile.CenterMinWeight <= 0f ? 0.35f : profile.CenterMinWeight, 0f, 0.95f);
+        profile.NeighborMaxWeight = Math.Clamp(profile.NeighborMaxWeight <= 0f ? 0.18f + profile.BlendStrength * 0.12f : profile.NeighborMaxWeight, 0f, 0.9f);
+        profile.StructureAlphaPreserveThreshold = Math.Clamp(profile.StructureAlphaPreserveThreshold <= 0 ? 48 : profile.StructureAlphaPreserveThreshold, 1, 255);
+        profile.InteriorSeamPixels = Math.Clamp(profile.InteriorSeamPixels <= 0 ? 8 : profile.InteriorSeamPixels, 1, MapResourceItem.MapTilePixelSize / 2);
+        profile.InteriorSeamJitterPixels = Math.Clamp(profile.InteriorSeamJitterPixels, 0, Math.Max(0, profile.InteriorSeamPixels - 1));
+        profile.InteriorSecondaryBlendStrength = Math.Clamp(profile.InteriorSecondaryBlendStrength, 0f, 0.35f);
+        profile.RegionTextureUnifyStrength = Math.Clamp(profile.RegionTextureUnifyStrength, 0f, 1f);
+        profile.RegionNoiseScalePixels = Math.Clamp(profile.RegionNoiseScalePixels <= 0 ? 96 : profile.RegionNoiseScalePixels, MapResourceItem.MapTilePixelSize, MapResourceItem.MapTilePixelSize * 8);
+        profile.MaxDegreeOfParallelism = Math.Max(0, profile.MaxDegreeOfParallelism);
+        profile.TileCacheMaxEntries = Math.Clamp(profile.TileCacheMaxEntries <= 0 ? 4096 : profile.TileCacheMaxEntries, 256, 65536);
+        profile.BuildingGroundContextRadiusCells = Math.Clamp(profile.BuildingGroundContextRadiusCells, 0, 4);
+        profile.TransitionFieldFeatherPixels = Math.Clamp(profile.TransitionFieldFeatherPixels <= 0 ? profile.BoundaryFeatherPixels : profile.TransitionFieldFeatherPixels, 1, MapResourceItem.MapTilePixelSize);
+        profile.TransitionFieldJitterPixels = Math.Clamp(profile.TransitionFieldJitterPixels, 0, MapResourceItem.MapTilePixelSize / 2);
+        profile.QuiltingOverlapPixels = Math.Clamp(profile.QuiltingOverlapPixels <= 0 ? profile.OverlapSeamPixels : profile.QuiltingOverlapPixels, 0, MapResourceItem.MapTilePixelSize / 2);
+        profile.QuiltingCandidateCount = Math.Clamp(profile.QuiltingCandidateCount <= 0 ? 8 : profile.QuiltingCandidateCount, 1, 32);
+        profile.MacroNoiseStrength = Math.Clamp(profile.MacroNoiseStrength, 0f, 0.5f);
+        profile.ObjectContactShadowStrength = Math.Clamp(profile.ObjectContactShadowStrength, 0f, 1f);
+        profile.ObjectContactBlendPixels = Math.Clamp(profile.ObjectContactBlendPixels <= 0 ? 5 : profile.ObjectContactBlendPixels, 1, 16);
+        profile.ObjectGroundContextRadiusCells = Math.Clamp(profile.ObjectGroundContextRadiusCells <= 0 ? 1 : profile.ObjectGroundContextRadiusCells, 0, 4);
+        profile.ObjectGroundInferenceRadiusCells = Math.Clamp(profile.ObjectGroundInferenceRadiusCells <= 0 ? 3 : profile.ObjectGroundInferenceRadiusCells, 1, 8);
+        profile.AlphaRepairBlackThreshold = Math.Clamp(profile.AlphaRepairBlackThreshold <= 0 ? 24 : profile.AlphaRepairBlackThreshold, 1, 96);
+        profile.MinPureSamplesPerTerrain = Math.Clamp(profile.MinPureSamplesPerTerrain <= 0 ? 4 : profile.MinPureSamplesPerTerrain, 1, 32);
+        profile.MaterialOverrides ??= new List<TerrainVisualMaterialOverride>();
+        profile.MaterialOverrides = profile.MaterialOverrides
+            .Where(item => !string.IsNullOrWhiteSpace(item.MaterialRelativePath))
+            .Select(item => new TerrainVisualMaterialOverride
+            {
+                TerrainId = item.TerrainId,
+                MaterialRelativePath = item.MaterialRelativePath.Trim()
+            })
+            .ToList();
+        return profile;
     }
 
     private static byte[] NormalizeTerrainArray(byte[]? source, int cellCount, byte[]? fallback = null)

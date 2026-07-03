@@ -91,10 +91,10 @@ internal partial class Program
                 .First();
             AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [3, 4, 5], Color.FromArgb(90, 90, 90), "horizontal wall frame");
             AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [1, 4, 7], Color.FromArgb(80, 140, 210), "vertical wall frame");
-            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [1, 4, 5], Color.FromArgb(90, 210, 140), "corner NE wall frame");
-            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [1, 3, 4], Color.FromArgb(170, 120, 210), "corner NW wall frame");
-            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [4, 5, 7], Color.FromArgb(80, 190, 190), "corner SE wall frame");
-            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [3, 4, 7], Color.FromArgb(190, 150, 80), "corner SW wall frame");
+            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [1, 4, 5], Color.FromArgb(190, 150, 80), "north-east wall turn frame");
+            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [1, 3, 4], Color.FromArgb(80, 190, 190), "north-west wall turn frame");
+            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [4, 5, 7], Color.FromArgb(90, 210, 140), "south-east wall turn frame");
+            AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [3, 4, 7], Color.FromArgb(170, 120, 210), "south-west wall turn frame");
             AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [3, 4, 5, 7], Color.FromArgb(120, 120, 120), "tee north wall frame");
             AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [1, 3, 4, 5, 7], Color.FromArgb(240, 30, 30), "cross wall frame");
             AssertAutoTileCenterColor(service, materials, newRoot, firstWallRepresentative, [0, 1, 2, 3, 4, 5, 6, 7], Color.FromArgb(240, 30, 30), "eight-way inner corner fallback frame");

@@ -1536,6 +1536,7 @@ public sealed partial class MainForm
         _mapMakerDirtyBaseRefreshTimer.Stop();
         _mapMakerDirtyBaseRefreshTimer.Dispose();
         CancelPendingMapMakerBeautify();
+        _terrainVisualSynthesisService.Dispose();
         ClearMapWorkbenchMaterialThumbnailCache();
         ClearBattlefieldUnitFrameCache();
         ClearBattlefieldMapPreviewImages();

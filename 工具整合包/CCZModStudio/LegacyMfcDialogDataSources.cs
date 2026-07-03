@@ -8,6 +8,8 @@ namespace CCZModStudio;
 
 internal sealed class LegacyMfcDialogDataSources
 {
+    public const int EmptyPerson1Code = -1;
+
     private const int DefaultWeaponCount = 70;
     private const int DefaultArmorCount = 39;
     private const int DefaultAssistCount = 41;
@@ -247,13 +249,13 @@ internal sealed class LegacyMfcDialogDataSources
     public static int Per1CodeToList(int value)
     {
         if (value >= 0) return value;
-        return value == -1 ? 5120 : 1022 - value;
+        return value == EmptyPerson1Code ? 5120 : 1022 - value;
     }
 
     public static int Per1ListToCode(int value)
     {
         if (value < 1024) return value;
-        return value == 5120 ? -1 : 1022 - value;
+        return value == 5120 ? EmptyPerson1Code : 1022 - value;
     }
 
     public static int Per2CodeToList(int value)

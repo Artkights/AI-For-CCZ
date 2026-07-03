@@ -22,6 +22,7 @@ public sealed class BattlefieldUnitReview
     public string LevelMode { get; set; } = string.Empty;
     public string AiMode { get; set; } = string.Empty;
     public bool Hidden { get; set; }
+    public bool Reinforcement { get; set; }
     public string Direction { get; set; } = string.Empty;
     public int GridX { get; set; } = -1;
     public int GridY { get; set; } = -1;

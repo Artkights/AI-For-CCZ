@@ -23,6 +23,7 @@ public sealed class BattlefieldDeploymentWriteChange
     public int CommandIndex { get; init; }
     public int RecordIndex { get; init; }
     public int PersonId { get; init; }
+    public int PersonRawCode { get; init; }
     public int GridX { get; init; }
     public int GridY { get; init; }
     public int? AiMode { get; init; }

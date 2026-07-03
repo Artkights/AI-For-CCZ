@@ -1,4 +1,4 @@
-using CCZModStudio.Core;
+﻿using CCZModStudio.Core;
 using CCZModStudio.Formats;
 using CCZModStudio.Models;
 using System.ComponentModel;
@@ -249,6 +249,10 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         ConfigureToolbarButton(_mapMakerMaterialPlanButton, 104);
         _mapMakerMaterialPlanButton.Enabled = false;
         _mapMakerMaterialPlanButton.Visible = false;
+        _mapMakerTerrainStyleButton.Text = "\u4e00\u952e\u751f\u6210";
+        ConfigureToolbarButton(_mapMakerTerrainStyleButton, 104);
+        _mapMakerTerrainStyleButton.Enabled = false;
+        _mapMakerTerrainStyleButton.Visible = false;
         _mapMakerPublishMapButton.Text = "高级：仅底图";
         ConfigureToolbarButton(_mapMakerPublishMapButton, 118);
         _mapMakerPublishMapButton.Enabled = false;
@@ -279,6 +283,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _mapMakerBrushNameLabel,
             _mapMakerUndoTerrainButton,
             _mapMakerRedoTerrainButton,
+            _mapMakerTerrainStyleButton,
             _mapMakerExportPreviewButton,
             _mapMakerExportJpgButton,
             _mapMakerPublishAllButton);
@@ -378,10 +383,91 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         materialBrowserPanel.Controls.Add(_mapMakerMaterialListView, 0, 3);
         materialBrowserPanel.Controls.Add(_mapMakerMaterialPreview, 0, 4);
         materialBrowserPanel.Controls.Add(_mapMakerMaterialInfoBox, 0, 5);
+        _mapWorkbenchCanvasControl = mapRightLayout;
+        _mapWorkbenchMaterialPaintSplit = mapEditorSplit;
         mapEditorSplit.Panel1.Controls.Add(mapRightLayout);
         mapEditorSplit.Panel2.Controls.Add(materialBrowserPanel);
+
+        var terrainGenerationPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 5,
+            ColumnCount = 1,
+            Padding = new Padding(6, 0, 0, 0)
+        };
+        terrainGenerationPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        terrainGenerationPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        terrainGenerationPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        terrainGenerationPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        terrainGenerationPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var terrainViewPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _mapMakerTerrainLayerViewRadio.Text = "\u5730\u5f62\u89c6\u56fe";
+        _mapMakerTerrainLayerViewRadio.AutoSize = true;
+        _mapMakerTerrainLayerViewRadio.Checked = true;
+        _mapMakerTerrainGeneratedViewRadio.Text = "\u751f\u6210\u9884\u89c8";
+        _mapMakerTerrainGeneratedViewRadio.AutoSize = true;
+        terrainViewPanel.Controls.Add(_mapMakerTerrainLayerViewRadio);
+        terrainViewPanel.Controls.Add(_mapMakerTerrainGeneratedViewRadio);
+
+        var terrainBrushPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _mapMakerTerrainPresetCombo.Visible = true;
+        _mapMakerTerrainBrushInput.Visible = true;
+        _mapMakerSaveTerrainButton.Visible = true;
+        terrainBrushPanel.Controls.Add(_mapMakerTerrainPresetCombo);
+        terrainBrushPanel.Controls.Add(_mapMakerTerrainBrushInput);
+        terrainBrushPanel.Controls.Add(_mapMakerSaveTerrainButton);
+
+        var terrainHintLabel = new Label
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            Padding = new Padding(0, 6, 0, 6),
+            Text = "Terrain mode paints Hexzmap cells only. Use Generate to synthesize the visual map."
+        };
+        _mapMakerTerrainGenerationInfoBox.Dock = DockStyle.Fill;
+        _mapMakerTerrainGenerationInfoBox.Multiline = true;
+        _mapMakerTerrainGenerationInfoBox.ReadOnly = true;
+        _mapMakerTerrainGenerationInfoBox.ScrollBars = ScrollBars.Vertical;
+        _mapMakerTerrainGenerationInfoBox.WordWrap = true;
+        _mapMakerTerrainGenerationInfoBox.Text = "Terrain generation diagnostics will appear after sampling or generation.";
+
+        terrainGenerationPanel.Controls.Add(terrainViewPanel, 0, 0);
+        terrainGenerationPanel.Controls.Add(terrainBrushPanel, 0, 1);
+        terrainGenerationPanel.Controls.Add(terrainHintLabel, 0, 2);
+        terrainGenerationPanel.Controls.Add(_mapMakerTerrainGenerationInfoBox, 0, 4);
+
+        var terrainGenerateSplit = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical
+        };
+        ConfigureSplitContainerDistanceAfterLayout("BuildMapEditorPage.CanvasTerrainGenerate", terrainGenerateSplit, desiredDistance: 760, desiredPanel1Min: 25, desiredPanel2Min: 25);
+        _mapWorkbenchTerrainGenerateSplit = terrainGenerateSplit;
+        terrainGenerateSplit.Panel2.Controls.Add(terrainGenerationPanel);
+
+        _mapWorkbenchModeTabs.Dock = DockStyle.Fill;
+        _mapWorkbenchModeTabs.TabPages.Clear();
+        var materialPaintPage = new TabPage("\u7d20\u6750\u7ed8\u5236");
+        var terrainGeneratePage = new TabPage("\u5730\u5f62\u751f\u6210");
+        materialPaintPage.Controls.Add(mapEditorSplit);
+        terrainGeneratePage.Controls.Add(terrainGenerateSplit);
+        _mapWorkbenchModeTabs.TabPages.Add(materialPaintPage);
+        _mapWorkbenchModeTabs.TabPages.Add(terrainGeneratePage);
         AddCollapsibleSplitPanel(mapSplit, 1, "地图列表", _mapImageList, "BuildMapEditorPage.MapListEditor.MapList");
-        AddCollapsibleSplitPanel(mapSplit, 2, "地图预览 / 素材库", mapEditorSplit, "BuildMapEditorPage.MapListEditor.MapPreview");
+        AddCollapsibleSplitPanel(mapSplit, 2, "\u5730\u56fe\u7ed8\u5236\u65b9\u5f0f", _mapWorkbenchModeTabs, "BuildMapEditorPage.MapListEditor.MapPreview");
         mapLayout.Controls.Add(mapSplit, 0, 1);
         return mapViewerPage;
     }
@@ -1504,13 +1590,17 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldMapZoomLabel.Padding = new Padding(8, 4, 0, 0);
         _battlefieldMapZoomResetButton.Text = "1:1";
         ConfigureToolbarButton(_battlefieldMapZoomResetButton, 56);
+        _battlefieldDeploymentPreviewFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _battlefieldDeploymentPreviewFilterCombo.Items.AddRange(new object[] { "初始部署", "全部部署记录", "隐藏与援军", "当前选中命令" });
+        _battlefieldDeploymentPreviewFilterCombo.SelectedIndex = 0;
+        ConfigureToolbarInput(_battlefieldDeploymentPreviewFilterCombo, 132, 120);
         _markBattlefieldCommand25Button.Text = "指定地点测试";
         ConfigureToolbarButton(_markBattlefieldCommand25Button, 118);
         _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子；可右键选中已摆放单位并调整。";
         _battlefieldMapHintLabel.AutoSize = true;
         _battlefieldMapHintLabel.Padding = new Padding(0, 4, 0, 0);
         _battlefieldMapHintLabel.Visible = false;
-        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _markBattlefieldCommand25Button });
+        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _battlefieldDeploymentPreviewFilterCombo, _markBattlefieldCommand25Button });
         mapLayout.Controls.Add(battlefieldMapHintPanel, 0, 1);
 
         var controlOptionsPanel = new TableLayoutPanel

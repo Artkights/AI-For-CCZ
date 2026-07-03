@@ -55,6 +55,18 @@ var hexzmapWriteSmokeOnly = args.Contains("--hexzmap-write-smoke", StringCompare
 var mapCanvasPreviewSmokeOnly = args.Contains("--map-canvas-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var mapWorkbenchUiSmokeOnly = args.Contains("--map-workbench-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var terrainDrivenMapSmokeOnly = args.Contains("--terrain-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
+var terrainStyleAlignedMapSmokeOnly = args.Contains("--terrain-style-aligned-map-smoke", StringComparer.OrdinalIgnoreCase);
+var terrainInteriorNaturalizationSmokeOnly = args.Contains("--terrain-interior-naturalization-smoke", StringComparer.OrdinalIgnoreCase);
+var terrainBuildingStyleSmokeOnly = args.Contains("--terrain-building-style-smoke", StringComparer.OrdinalIgnoreCase);
+var terrainGlobalTransitionFieldSmokeOnly = args.Contains("--terrain-global-transition-field-smoke", StringComparer.OrdinalIgnoreCase);
+var terrainRegionTextureCanvasSmokeOnly = args.Contains("--terrain-region-texture-canvas-smoke", StringComparer.OrdinalIgnoreCase);
+var buildingContactBlendSmokeOnly = args.Contains("--building-contact-blend-smoke", StringComparer.OrdinalIgnoreCase);
+var buildingGroundInpaintSmokeOnly = args.Contains("--building-ground-inpaint-smoke", StringComparer.OrdinalIgnoreCase);
+var objectAlphaRepairSmokeOnly = args.Contains("--object-alpha-repair-smoke", StringComparer.OrdinalIgnoreCase);
+var currentMapPureSamplePrioritySmokeOnly = args.Contains("--current-map-pure-sample-priority-smoke", StringComparer.OrdinalIgnoreCase);
+var terrainObjectGroundInpaintSmokeOnly = args.Contains("--terrain-object-ground-inpaint-smoke", StringComparer.OrdinalIgnoreCase);
+var bridgeGroundInferenceSmokeOnly = args.Contains("--bridge-ground-inference-smoke", StringComparer.OrdinalIgnoreCase);
+var objectFootprintColorContinuitySmokeOnly = args.Contains("--object-footprint-color-continuity-smoke", StringComparer.OrdinalIgnoreCase);
 var materialDrivenMapSmokeOnly = args.Contains("--material-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
 var mapMaterialExtractionSmokeOnly = args.Contains("--map-material-extraction-smoke", StringComparer.OrdinalIgnoreCase);
 var autoTileRegionSmokeOnly = args.Contains("--autotile-region-smoke", StringComparer.OrdinalIgnoreCase);
@@ -395,6 +407,78 @@ if (mapWorkbenchUiSmokeOnly)
 if (terrainDrivenMapSmokeOnly)
 {
     RunTerrainDrivenMapSmoke();
+    return;
+}
+
+if (terrainStyleAlignedMapSmokeOnly)
+{
+    RunTerrainStyleAlignedMapSmoke();
+    return;
+}
+
+if (terrainInteriorNaturalizationSmokeOnly)
+{
+    RunTerrainInteriorNaturalizationSmoke();
+    return;
+}
+
+if (terrainBuildingStyleSmokeOnly)
+{
+    RunTerrainBuildingStyleSmoke();
+    return;
+}
+
+if (terrainGlobalTransitionFieldSmokeOnly)
+{
+    RunTerrainGlobalTransitionFieldSmoke();
+    return;
+}
+
+if (terrainRegionTextureCanvasSmokeOnly)
+{
+    RunTerrainRegionTextureCanvasSmoke();
+    return;
+}
+
+if (buildingContactBlendSmokeOnly)
+{
+    RunBuildingContactBlendSmoke();
+    return;
+}
+
+if (buildingGroundInpaintSmokeOnly)
+{
+    RunBuildingGroundInpaintSmoke();
+    return;
+}
+
+if (objectAlphaRepairSmokeOnly)
+{
+    RunObjectAlphaRepairSmoke();
+    return;
+}
+
+if (currentMapPureSamplePrioritySmokeOnly)
+{
+    RunCurrentMapPureSamplePrioritySmoke();
+    return;
+}
+
+if (terrainObjectGroundInpaintSmokeOnly)
+{
+    RunTerrainObjectGroundInpaintSmoke();
+    return;
+}
+
+if (bridgeGroundInferenceSmokeOnly)
+{
+    RunBridgeGroundInferenceSmoke();
+    return;
+}
+
+if (objectFootprintColorContinuitySmokeOnly)
+{
+    RunObjectFootprintColorContinuitySmoke();
     return;
 }
 

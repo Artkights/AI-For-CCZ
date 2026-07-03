@@ -429,6 +429,13 @@ public sealed partial class MainForm
         _battlefieldMapScrollPanel.MouseWheel += (_, e) => HandleBattlefieldMapMouseWheel(e);
         _battlefieldMapScrollPanel.MouseEnter += (_, _) => _battlefieldMapScrollPanel.Focus();
         _battlefieldMapZoomResetButton.Click += (_, _) => ResetBattlefieldMapZoom();
+        _battlefieldDeploymentPreviewFilterCombo.SelectedIndexChanged += (_, _) =>
+        {
+            if (!_loadingBattlefieldScenarioDocument)
+            {
+                RefreshBattlefieldDeploymentPreviewFilter();
+            }
+        };
         _markBattlefieldCommand25Button.Click += (_, _) => ToggleBattlefieldCommand25Preview();
         _battlefieldScriptTree.AfterSelect += (_, _) =>
         {
@@ -626,6 +633,7 @@ public sealed partial class MainForm
         _mapMakerNewDraftButton.Click += (_, _) => CreateNewMapWorkbenchDraftFromInputs();
         _mapMakerLoadLastDraftButton.Click += (_, _) => LoadLastMapWorkbenchDraft();
         _mapMakerSaveDraftButton.Click += (_, _) => SaveCurrentMapWorkbenchDraft();
+        _mapWorkbenchModeTabs.SelectedIndexChanged += (_, _) => HandleMapWorkbenchModeTabChanged();
         _mapMakerGridWidthInput.ValueChanged += (_, _) => ResizeCurrentMapWorkbenchDraftFromInputs();
         _mapMakerGridHeightInput.ValueChanged += (_, _) => ResizeCurrentMapWorkbenchDraftFromInputs();
         _mapMakerSelectMaterialRootButton.Click += (_, _) => SelectMapWorkbenchMaterialRoot();
@@ -712,6 +720,20 @@ public sealed partial class MainForm
             _mapMakerTerrainOpacityLabel.Text = $"地形透明度 {_mapMakerTerrainOpacityTrackBar.Value}%";
             RenderMapMakerPreview();
         };
+        _mapMakerTerrainLayerViewRadio.CheckedChanged += (_, _) =>
+        {
+            if (_mapMakerTerrainLayerViewRadio.Checked)
+            {
+                RenderMapMakerPreview(force: true);
+            }
+        };
+        _mapMakerTerrainGeneratedViewRadio.CheckedChanged += (_, _) =>
+        {
+            if (_mapMakerTerrainGeneratedViewRadio.Checked)
+            {
+                RenderMapMakerPreview(force: true);
+            }
+        };
         _mapMakerTerrainPresetCombo.SelectedIndexChanged += (_, _) => SelectMapMakerTerrainPreset();
         _mapMakerTerrainBrushInput.ValueChanged += (_, _) => UpdateMapMakerBrushLabel();
         _mapMakerSaveTerrainButton.Click += (_, _) => SaveCurrentMapWorkbenchDraft();
@@ -722,6 +744,7 @@ public sealed partial class MainForm
         _mapMakerExportJpgButton.Click += (_, _) => ExportCurrentMapWorkbenchJpg();
         _mapMakerExtractMaterialButton.Click += (_, _) => OpenMapMaterialExtractionDialogFromSelection();
         _mapMakerMaterialPlanButton.Click += (_, _) => OpenMapWorkbenchMaterialPlanDialog();
+        _mapMakerTerrainStyleButton.Click += (_, _) => GenerateTerrainStyleAlignedPreviewFromPage();
         _mapMakerPublishAllButton.Click += (_, _) => PublishCurrentMapWorkbenchMapAndTerrain();
         _mapMakerPublishMapButton.Click += (_, _) => PublishCurrentMapWorkbenchMapImage();
         _mapMakerPublishTerrainButton.Click += (_, _) => PublishCurrentMapWorkbenchTerrain();
