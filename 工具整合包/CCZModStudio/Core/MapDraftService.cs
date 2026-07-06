@@ -16,17 +16,26 @@ public sealed class MapDraftService
     };
 
     public string GetSettingsPath(CczProject project)
-        => Path.Combine(GetNotesRoot(project), $"{MakeSafeFileName(project.Name)}_MapWorkbenchSettings.json");
+        => GetSettingsPath(GetNotesRoot(project), project.Name);
+
+    public string GetSettingsPath(string notesRoot, string profileName)
+        => Path.Combine(NormalizeNotesRoot(notesRoot), $"{MakeSafeFileName(profileName)}_MapWorkbenchSettings.json");
 
     public string GetDraftStoreRoot(CczProject project)
-        => Path.Combine(GetNotesRoot(project), "MapWorkbenchDrafts", MakeSafeFileName(project.Name));
+        => GetDraftStoreRoot(GetNotesRoot(project), project.Name);
+
+    public string GetDraftStoreRoot(string notesRoot, string profileName)
+        => Path.Combine(NormalizeNotesRoot(notesRoot), "MapWorkbenchDrafts", MakeSafeFileName(profileName));
 
     public string GetDraftAssetRoot(CczProject project, string draftId)
         => Path.Combine(GetNotesRoot(project), "MapWorkbenchAssets", MakeSafeFileName(project.Name), MakeSafeFileName(draftId));
 
     public MapWorkbenchSettings LoadSettings(CczProject project)
+        => LoadSettings(GetNotesRoot(project), project.Name);
+
+    public MapWorkbenchSettings LoadSettings(string notesRoot, string profileName)
     {
-        var path = GetSettingsPath(project);
+        var path = GetSettingsPath(notesRoot, profileName);
         if (!File.Exists(path)) return new MapWorkbenchSettings();
 
         try
@@ -44,8 +53,11 @@ public sealed class MapDraftService
     }
 
     public void SaveSettings(CczProject project, MapWorkbenchSettings settings)
+        => SaveSettings(GetNotesRoot(project), project.Name, settings);
+
+    public void SaveSettings(string notesRoot, string profileName, MapWorkbenchSettings settings)
     {
-        var path = GetSettingsPath(project);
+        var path = GetSettingsPath(notesRoot, profileName);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(settings, JsonOptions), Encoding.UTF8);
     }
@@ -69,6 +81,9 @@ public sealed class MapDraftService
     }
 
     public MapWorkbenchDraft CreateDraftFromMap(CczProject project, MapResourceItem item, string materialRoot)
+        => CreateDraftFromMap(item, materialRoot);
+
+    public MapWorkbenchDraft CreateDraftFromMap(MapResourceItem item, string materialRoot)
     {
         var gridWidth = item.GridWidth > 0 ? item.GridWidth : 30;
         var gridHeight = item.GridHeight > 0 ? item.GridHeight : 30;
@@ -80,8 +95,11 @@ public sealed class MapDraftService
     }
 
     public MapWorkbenchDraft LoadDraft(CczProject project, string draftId)
+        => LoadDraft(GetNotesRoot(project), project.Name, draftId);
+
+    public MapWorkbenchDraft LoadDraft(string notesRoot, string profileName, string draftId)
     {
-        var path = GetDraftPath(project, draftId);
+        var path = GetDraftPath(notesRoot, profileName, draftId);
         if (!File.Exists(path))
         {
             throw new FileNotFoundException("Map workbench draft does not exist.", path);
@@ -100,11 +118,14 @@ public sealed class MapDraftService
     }
 
     public void SaveDraft(CczProject project, MapWorkbenchDraft draft)
+        => SaveDraft(GetNotesRoot(project), project.Name, draft);
+
+    public void SaveDraft(string notesRoot, string profileName, MapWorkbenchDraft draft)
     {
         draft = NormalizeDraft(draft);
         draft.UpdatedAtText = NowText();
         if (string.IsNullOrWhiteSpace(draft.CreatedAtText)) draft.CreatedAtText = draft.UpdatedAtText;
-        var path = GetDraftPath(project, draft.DraftId);
+        var path = GetDraftPath(notesRoot, profileName, draft.DraftId);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         if (File.Exists(path))
         {
@@ -115,8 +136,11 @@ public sealed class MapDraftService
     }
 
     public IReadOnlyList<MapWorkbenchDraft> ListDrafts(CczProject project)
+        => ListDrafts(GetNotesRoot(project), project.Name);
+
+    public IReadOnlyList<MapWorkbenchDraft> ListDrafts(string notesRoot, string profileName)
     {
-        var root = GetDraftStoreRoot(project);
+        var root = GetDraftStoreRoot(notesRoot, profileName);
         if (!Directory.Exists(root)) return Array.Empty<MapWorkbenchDraft>();
 
         var drafts = new List<MapWorkbenchDraft>();
@@ -219,7 +243,10 @@ public sealed class MapDraftService
     }
 
     private string GetDraftPath(CczProject project, string draftId)
-        => Path.Combine(GetDraftStoreRoot(project), $"{MakeSafeFileName(draftId)}.json");
+        => GetDraftPath(GetNotesRoot(project), project.Name, draftId);
+
+    private string GetDraftPath(string notesRoot, string profileName, string draftId)
+        => Path.Combine(GetDraftStoreRoot(notesRoot, profileName), $"{MakeSafeFileName(draftId)}.json");
 
     private static MapWorkbenchDraft NormalizeDraft(MapWorkbenchDraft draft)
     {
@@ -558,6 +585,11 @@ public sealed class MapDraftService
 
     private static string GetNotesRoot(CczProject project)
         => Path.Combine(project.WorkspaceRoot, "CCZModStudio_Notes");
+
+    private static string NormalizeNotesRoot(string notesRoot)
+        => Path.GetFullPath(string.IsNullOrWhiteSpace(notesRoot)
+            ? Path.Combine(Environment.CurrentDirectory, "CCZModStudio_Notes")
+            : notesRoot);
 
     private static string NowText()
         => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);

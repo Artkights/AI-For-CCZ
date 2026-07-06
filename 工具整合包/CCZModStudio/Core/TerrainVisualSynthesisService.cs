@@ -72,7 +72,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             g.FillRectangle(brush, new Rectangle(0, 0, width, height));
         }
 
-        var objectGroundPlan = baseImage != null
+        var objectGroundPlan = profile.UseObjectGroundInpaint
             ? _objectGroundInpaintPlanner.Build(draft, profile)
             : CreateEmptyObjectGroundInpaintPlan(draft);
         var groundDraft = objectGroundPlan.ObjectFootprintIndexes.Count > 0
@@ -219,6 +219,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             plan.ColorTransferIndexes);
         colorWatch.Stop();
         diagnostics.ColorTransferMs = colorWatch.ElapsedMilliseconds;
+        OverlayTerrainObjectFootprints(output, draft, profile, objectGroundPlan, candidatesByTerrain, diagnostics);
         diagnostics.BoundaryBlendCount = diagnostics.MixedTerrainCellCount;
         diagnostics.MissingTerrainIds.Sort();
         if (styleProfile.SampleCount == 0)
@@ -1115,6 +1116,85 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         }
     }
 
+    private void OverlayTerrainObjectFootprints(
+        Bitmap output,
+        MapWorkbenchDraft draft,
+        TerrainVisualProfile profile,
+        ObjectGroundInpaintPlan objectGroundPlan,
+        IReadOnlyDictionary<byte, List<MaterialAsset>> candidatesByTerrain,
+        TerrainVisualSynthesisDiagnostics diagnostics)
+    {
+        if (objectGroundPlan.ObjectFootprintIndexes.Count == 0 ||
+            draft.TerrainCells.Length != draft.CellCount)
+        {
+            return;
+        }
+
+        using var g = CreateGraphics(output);
+        foreach (var index in objectGroundPlan.ObjectFootprintIndexes.OrderBy(index => index))
+        {
+            if ((uint)index >= (uint)draft.CellCount) continue;
+            var terrainId = draft.TerrainCells[index];
+            if (!ObjectGroundInpaintPlanner.IsObjectFootprintTerrain(terrainId) ||
+                !candidatesByTerrain.TryGetValue(terrainId, out var candidates) ||
+                candidates.Count == 0)
+            {
+                continue;
+            }
+
+            var mask = TerrainAutoTileResolver.BuildSameTerrainMask(draft, index);
+            var material = _patchSelector.Select(
+                candidates,
+                mask,
+                TileVisualStats.Empty,
+                profile.Seed,
+                index,
+                terrainId,
+                GetMaterialStats);
+            if (material == null)
+            {
+                continue;
+            }
+
+            using var tile = CreateMaterialTile(draft, material, TileVisualStats.Empty, profile, index);
+            using var overlaySelection = SelectObjectOverlay(tile, profile, diagnostics);
+            var overlay = overlaySelection.Bitmap;
+            if (overlay == null)
+            {
+                continue;
+            }
+
+            g.DrawImage(overlay, GetTileRectangle(draft, index));
+        }
+    }
+
+    private ObjectOverlaySelection SelectObjectOverlay(Bitmap tile, TerrainVisualProfile profile, TerrainVisualSynthesisDiagnostics diagnostics)
+    {
+        using var tileBuffer = FastBitmapBuffer.FromBitmap(tile);
+        if (tileBuffer.HasAlphaBelow(250))
+        {
+            return new ObjectOverlaySelection(new Bitmap(tile));
+        }
+
+        var repaired = _objectAlphaRepairService.Repair(tile, profile);
+        if (repaired.Repaired)
+        {
+            diagnostics.AlphaRepairedObjectCount++;
+            diagnostics.AlphaRepairedPixelCount += repaired.RepairedPixelCount;
+            diagnostics.BlackBackgroundRejectedPixelCount += repaired.RejectedPixelCount;
+            return new ObjectOverlaySelection(repaired.Bitmap, repaired);
+        }
+
+        diagnostics.BlackBackgroundRejectedPixelCount += repaired.RejectedPixelCount;
+        if (repaired.RejectedPixelCount == 0)
+        {
+            return new ObjectOverlaySelection(repaired.Bitmap, repaired);
+        }
+
+        repaired.Dispose();
+        return new ObjectOverlaySelection(null);
+    }
+
     private static Dictionary<string, MaterialAsset> BuildMaterialLookup(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
     {
         var result = new Dictionary<string, MaterialAsset>(StringComparer.OrdinalIgnoreCase);
@@ -1671,4 +1751,16 @@ public sealed class TerrainVisualSynthesisService : IDisposable
 
     private sealed record CachedSynthesisResult(string CacheKey, Bitmap Bitmap, TerrainVisualSynthesisDiagnostics Diagnostics);
     private sealed record CachedImage(DateTime LastWriteUtc, long Length, Bitmap Bitmap);
+
+    private sealed record ObjectOverlaySelection(Bitmap? Bitmap, ObjectAlphaRepairResult? RepairResult = null) : IDisposable
+    {
+        public void Dispose()
+        {
+            Bitmap?.Dispose();
+            if (RepairResult != null && !ReferenceEquals(Bitmap, RepairResult.Bitmap))
+            {
+                RepairResult.Dispose();
+            }
+        }
+    }
 }

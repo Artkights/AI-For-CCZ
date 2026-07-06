@@ -40,6 +40,7 @@ public sealed partial class CczMcpRuntime
 
     private readonly ProjectDetector _projectDetector = new();
     private readonly CczEngineProfileService _engineProfileService = new();
+    private readonly OfficialImageAssignerOracleService _imageAssignerOracleService = new();
     private readonly HexTableParser _tableParser = new();
     private readonly HexTableReader _tableReader = new();
     private readonly HexTableWriter _tableWriter = new();
@@ -55,8 +56,12 @@ public sealed partial class CczMcpRuntime
     private readonly ImageResourceCatalogService _imageResourceCatalog = new();
     private readonly IconResourceReplaceService _iconResourceReplace = new();
     private readonly AiImageAssetService _aiImageAssetService = new();
+    private readonly RsPixelCharacterDesignService _rsPixelCharacterDesignService = new();
+    private readonly RsPixelEditWorkspaceService _rsPixelEditWorkspaceService = new();
+    private readonly RsPixelSampleLearningService _rsPixelSampleLearningService = new();
     private readonly RImageReplaceService _rImageReplaceService = new();
     private readonly SImageReplaceService _sImageReplaceService = new();
+    private readonly RsPixelMaterialValidationService _rsPixelMaterialValidationService = new();
     private readonly JobSImageReplaceService _jobSImageReplaceService = new();
     private readonly BatchRImageReplaceService _batchRImageReplaceService = new();
     private readonly BatchSImageReplaceService _batchSImageReplaceService = new();
@@ -71,6 +76,7 @@ public sealed partial class CczMcpRuntime
     private readonly SceneStringParser _sceneStringParser = new();
     private readonly ScenarioCommandParameterTemplateService _scenarioCommandTemplates = new();
     private readonly EffectPackageService _effectPackageService = new();
+    private readonly CmfDerivedCapabilityService _cmfDerivedCapabilityService = new();
     private readonly BattlefieldEditorService _battlefieldEditorService = new();
     private readonly BattlefieldUnitStatusWriteService _battlefieldUnitStatusWriteService = new();
 
@@ -105,6 +111,15 @@ public sealed partial class CczMcpRuntime
     {
         var project = LoadProject(gameRoot);
         var engine = _engineProfileService.Detect(project);
+        var tables = File.Exists(project.HexTableXmlPath)
+            ? LoadTables(project)
+            : Array.Empty<HexTableDefinition>();
+        var qinger66Diagnostics = _qinger66DiagnosticsService.Build(project, engine, tables, _tableReader);
+        engine.TableStatusSummary = qinger66Diagnostics.TableStatusSummary;
+        engine.Qinger66Diagnostics = qinger66Diagnostics;
+        var cmfEvidence = BuildCmfEvidence(project);
+        var cmfKnowledge = _cmfDerivedCapabilityService.BuildSummary(project);
+        var imageAssignerOracle = _imageAssignerOracleService.Detect(project);
         return new
         {
             project.Name,
@@ -118,6 +133,13 @@ public sealed partial class CczMcpRuntime
             project.PatchConfigRoot,
             project.IsTestCopy,
             Engine = engine,
+            TableStatusSummary = qinger66Diagnostics.TableStatusSummary,
+            Qinger66Diagnostics = qinger66Diagnostics,
+            ImageAssignerOracle = imageAssignerOracle,
+            CmfEvidence = cmfEvidence,
+            CmfEvidenceSummary = cmfEvidence,
+            CmfKnowledge = cmfKnowledge,
+            CmfDerivedCapabilitySummary = cmfKnowledge,
             Files = project.GetFileStatuses().Select(x => new
             {
                 x.Name,
@@ -132,6 +154,245 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    private static object? BuildCmfEvidence(CczProject project)
+    {
+        var report = BuildCmfCorpusReport(project);
+        if (report == null || report.TotalFiles == 0) return null;
+
+        var coreSamples = report.Entries
+            .Where(entry => entry.EvidenceCategory.Equals("CczRelevantRootSample", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(entry => entry.Length)
+            .Select(entry => new
+            {
+                entry.RelativePath,
+                entry.Length,
+                entry.Sha256,
+                entry.FormatSignature,
+                entry.FormatVersion,
+                entry.Utf16CrlfCount,
+                entry.LooksProtectedOrObfuscated,
+                entry.EvidenceCategory,
+                entry.Summary
+            })
+            .ToArray();
+
+        return new
+        {
+            report.EvidenceOnly,
+            report.SafetyNote,
+            report.RootPath,
+            report.TotalFiles,
+            report.CheatMakerCmfCount,
+            report.SignatureCounts,
+            report.CategoryCounts,
+            CoreSamples = coreSamples
+        };
+    }
+
+    private static CheatMakerCmfCorpusReport? BuildCmfCorpusReport(CczProject project)
+    {
+        var root = CheatMakerCmfProbe.FindDefaultOldToolsRoot(project.WorkspaceRoot);
+        return string.IsNullOrWhiteSpace(root)
+            ? null
+            : new CheatMakerCmfProbe().ScanCorpus(root);
+    }
+
+    private static string ResolveCmfEvidencePath(CheatMakerCmfCorpusReport report, string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+        {
+            throw new InvalidOperationException("CMF relative path is required.");
+        }
+
+        var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(Path.IsPathRooted(normalized)
+            ? normalized
+            : Path.Combine(report.RootPath, normalized));
+        var rootWithSlash = Path.GetFullPath(report.RootPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(rootWithSlash, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("CMF evidence path escapes the old tools root.");
+        }
+
+        return fullPath;
+    }
+
+    public object ListCmfEvidence(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = BuildCmfCorpusReport(project)
+            ?? new CheatMakerCmfCorpusReport();
+        return new
+        {
+            report.EvidenceOnly,
+            report.SafetyNote,
+            report.RootPath,
+            report.TotalFiles,
+            report.CheatMakerCmfCount,
+            report.SignatureCounts,
+            report.CategoryCounts,
+            Entries = report.Entries.Select(entry => new
+            {
+                entry.RelativePath,
+                entry.FileName,
+                entry.Length,
+                entry.Sha256,
+                entry.FormatSignature,
+                entry.FormatVersion,
+                entry.Utf16CrlfCount,
+                entry.IsCheatMakerCmf,
+                entry.LooksProtectedOrObfuscated,
+                entry.VisibleKeywordHits,
+                SegmentCount = entry.Segments.Count,
+                Segments = entry.Segments.Take(8),
+                entry.EvidenceCategory,
+                entry.EvidenceOnly,
+                entry.AuthoritativeToolSource,
+                entry.Summary,
+                entry.Warnings
+            })
+        };
+    }
+
+    public object ReadCmfEvidence(string? gameRoot, string relativePath)
+    {
+        var project = LoadProject(gameRoot);
+        var report = BuildCmfCorpusReport(project)
+            ?? throw new DirectoryNotFoundException("Old tools CMF root was not found.");
+        var fullPath = ResolveCmfEvidencePath(report, relativePath);
+        var probe = new CheatMakerCmfProbe().Probe(fullPath, null, "MCP CMF evidence read", report.RootPath);
+        return new
+        {
+            probe.EvidenceOnly,
+            probe.SafetyNote,
+            probe.RelativePath,
+            probe.Path,
+            probe.Exists,
+            probe.Length,
+            probe.Sha256,
+            probe.Signature,
+            probe.FormatSignature,
+            probe.FormatVersion,
+            probe.IsCheatMakerCmf,
+            probe.Utf16CrlfCount,
+            probe.FirstUtf16CrlfOffsets,
+            probe.LooksProtectedOrObfuscated,
+            probe.VisibleKeywordHits,
+            SegmentCount = probe.Segments.Count,
+            Segments = probe.Segments,
+            probe.EvidenceCategory,
+            probe.Summary,
+            probe.Warnings
+        };
+    }
+
+    public object ExtractCmfKnowledge(string? gameRoot, string relativePath)
+    {
+        var project = LoadProject(gameRoot);
+        var cmf = _cmfDerivedCapabilityService.ExtractProject(project, relativePath);
+        return new
+        {
+            project.GameRoot,
+            cmf.AuthoritativeToolSource,
+            cmf.ConversionPolicy,
+            Project = cmf,
+            SafetyNote = "CMF knowledge extraction is read-only. Static candidates require CheatMaker export/UI metadata, version match, address classification, and reread validation before writes."
+        };
+    }
+
+    public object ImportCmfExportKnowledge(string? gameRoot, string relativePath, string exportPath)
+    {
+        var project = LoadProject(gameRoot);
+        var cmf = _cmfDerivedCapabilityService.ImportCheatMakerExport(project, relativePath, exportPath);
+        return new
+        {
+            project.GameRoot,
+            cmf.AuthoritativeToolSource,
+            cmf.ConversionPolicy,
+            cmf.ExtractionMode,
+            FieldCount = cmf.ExportFields.Count,
+            BindingCount = cmf.DataBindings.Count,
+            FeatureCount = cmf.FeatureCandidates.Count,
+            ExportFields = cmf.ExportFields.Take(200),
+            Features = cmf.FeatureCandidates.Take(100),
+            Warnings = cmf.Warnings,
+            SafetyNote = "CheatMaker export data is treated as stronger field metadata, but this import is read-only. Writes still require version match, address classification, PE/file mapping, bounds check, test-copy write, and reread validation."
+        };
+    }
+
+    public object ListCmfFeatures(string? gameRoot, string? category, string? keyword, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var effectiveLimit = NormalizeLimit(limit, 100, 1000);
+        var features = _cmfDerivedCapabilityService.ListFeatures(project, category, keyword);
+        return new
+        {
+            project.GameRoot,
+            AuthoritativeToolSource = true,
+            TotalFeatures = features.Count,
+            Features = features.Take(effectiveLimit),
+            SafetyNote = "CMF features are high-trust old-tool candidates. promote_cmf_feature_candidate reports validation gaps before any write rule can be created."
+        };
+    }
+
+    public object ReadCmfFeature(string? gameRoot, string featureId)
+    {
+        var project = LoadProject(gameRoot);
+        var feature = _cmfDerivedCapabilityService.ReadFeature(project, featureId);
+        return new
+        {
+            project.GameRoot,
+            AuthoritativeToolSource = true,
+            Feature = feature,
+            SafetyNote = feature.WritePolicy
+        };
+    }
+
+    public object PromoteCmfFeatureCandidate(string? gameRoot, string featureId)
+    {
+        var project = LoadProject(gameRoot);
+        var draft = _cmfDerivedCapabilityService.PromoteFeature(project, featureId);
+        return new
+        {
+            project.GameRoot,
+            Draft = draft,
+            SafetyNote = "This creates a rule draft only. No game files are modified and CanWriteNow remains false until all validation blockers are cleared."
+        };
+    }
+
+    public object CompareCmfEvidence(string? gameRoot, string leftRelativePath, string rightRelativePath)
+    {
+        var project = LoadProject(gameRoot);
+        var report = BuildCmfCorpusReport(project)
+            ?? throw new DirectoryNotFoundException("Old tools CMF root was not found.");
+        var leftPath = ResolveCmfEvidencePath(report, leftRelativePath);
+        var rightPath = ResolveCmfEvidencePath(report, rightRelativePath);
+        var left = new CheatMakerCmfProbe().Probe(leftPath, rightPath, "MCP CMF evidence comparison target", report.RootPath);
+        return new
+        {
+            left.EvidenceOnly,
+            left.SafetyNote,
+            Left = new
+            {
+                left.RelativePath,
+                left.Length,
+                left.Sha256,
+                left.FormatSignature,
+                left.Utf16CrlfCount,
+                left.EvidenceCategory
+            },
+            Right = left.Comparison == null ? null : new
+            {
+                RelativePath = Path.GetRelativePath(report.RootPath, rightPath),
+                Length = left.Comparison.BaselineLength,
+                Sha256 = left.Comparison.BaselineSha256,
+                FormatSignature = left.Comparison.BaselineSignature,
+                Utf16CrlfCount = left.Comparison.BaselineUtf16CrlfCount
+            },
+            left.Comparison
+        };
+    }
+
     private IReadOnlyList<HexTableDefinition> LoadTables(CczProject project)
     {
         if (!File.Exists(project.HexTableXmlPath))
@@ -139,7 +400,7 @@ public sealed partial class CczMcpRuntime
             throw new FileNotFoundException(ProjectDetector.BuildMissingHexTableMessage(project), project.HexTableXmlPath);
         }
 
-        return _tableParser.Load(project.HexTableXmlPath);
+        return new Ccz66HexTableAugmentationService().LoadForProject(project, _tableParser);
     }
 
     private HexTableDefinition FindTable(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
@@ -173,6 +434,15 @@ public sealed partial class CczMcpRuntime
         {
             foreach (DataColumn column in table.Columns)
             {
+                if (!includeId || !column.ColumnName.Equals("ID", StringComparison.Ordinal))
+                {
+                    if (column.ExtendedProperties["FieldDefinition"] is HexFieldDefinition field &&
+                        !field.VisibleByDefault)
+                    {
+                        continue;
+                    }
+                }
+
                 if (!result.Contains(column)) result.Add(column);
             }
         }
@@ -355,6 +625,44 @@ public sealed partial class CczMcpRuntime
         var fileName = Path.GetFileName(targetPath);
 
         return targetPath;
+    }
+
+    private static void EnsureNotObsolete66DllIconTarget(CczProject project, string targetRelativePath, int iconIndex)
+    {
+        if (!ItemIconMappingService.IsObsolete66DllIconResource(project, targetRelativePath))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(ItemIconMappingService.BuildObsolete66DllIconMessage(project, targetRelativePath, iconIndex));
+    }
+
+    private static bool TryBuildObsolete66DllIconPayload(CczProject project, string targetRelativePath, int iconIndex, out object payload)
+    {
+        payload = new { };
+        if (!ItemIconMappingService.IsObsolete66DllIconResource(project, targetRelativePath))
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(targetRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var kind = fileName.Equals("Mgcicon.dll", StringComparison.OrdinalIgnoreCase) ? "strategy" : "item";
+        var mapping = new ItemIconMappingService().Resolve(project, iconIndex, kind);
+        payload = new
+        {
+            Error = "ObsoleteRuntimeResource",
+            Message = ItemIconMappingService.BuildObsolete66DllIconMessage(project, targetRelativePath, iconIndex),
+            project.GameRoot,
+            TargetRelativePath = targetRelativePath,
+            IconIndex = iconIndex,
+            ReplacementKind = kind,
+            SuggestedResource = mapping.ResourceRelativePath,
+            SuggestedSmallImageNumber = mapping.SmallImageNumber,
+            SuggestedLargeImageNumber = mapping.LargeImageNumber,
+            mapping.MappingRule,
+            SafetyNote = "6.6 projects read/write item and strategy icons through E5 resources. DLL icon tools are intentionally blocked for Itemicon.dll and Mgcicon.dll; Cmdicon.dll remains a DLL resource."
+        };
+        return true;
     }
 
     private static void EnsureGenericResourceAllowed(CczProject project, string targetPath)
@@ -735,7 +1043,7 @@ public sealed partial class CczMcpRuntime
     }
 
     private static object BuildAiImagePromptPlanPayload(AiImagePromptPlan plan)
-        => new { Preset = plan.Preset, plan.Description, plan.Prompt, plan.NegativePrompt, plan.TargetRelativePath, plan.TargetImageNumbers, plan.TargetWidth, plan.TargetHeight, plan.OutputFormat, plan.GenerationSize, plan.Quality, plan.MappingSummary, plan.Warnings, SafetyNote = "AI drawing plan only describes generation, post-processing, and replacement preview; it does not write game resources." };
+        => new { Preset = plan.Preset, plan.Description, plan.Prompt, plan.NegativePrompt, plan.TargetRelativePath, plan.TargetImageNumbers, plan.TargetWidth, plan.TargetHeight, plan.OutputFormat, plan.GenerationSize, plan.Quality, plan.MappingSummary, plan.Warnings, plan.ReferenceImages, SafetyNote = "AI drawing plan only describes generation, post-processing, and replacement preview; it does not write game resources." };
 
     private static object BuildAiImagePreparePayload(AiImagePrepareResult result)
         => new { Plan = BuildAiImagePromptPlanPayload(result.Plan), result.SourcePath, result.OutputPath, result.ManifestPath, result.SourceWidth, result.SourceHeight, result.OutputWidth, result.OutputHeight, result.OutputFormat, result.SourceSha256, result.OutputSha256, result.PostProcessSummary, result.ReplacementPreview, PreparedFiles = result.PreparedFiles.Select(BuildAiImagePreparedFilePayload) };
@@ -745,6 +1053,124 @@ public sealed partial class CczMcpRuntime
 
     private static object BuildAiImageDrawPayload(AiImageDrawResult result)
         => new { result.DryRun, Plan = BuildAiImagePromptPlanPayload(result.Plan), result.Provider, result.ApiMode, result.BaseUrl, result.TextModel, result.ImageModel, result.RawResponsePath, result.GeneratedSourcePath, Prepared = result.Prepared == null ? null : BuildAiImagePreparePayload(result.Prepared), result.Logs };
+
+    private static object BuildRsPixelCharacterDesignPayload(RsPixelCharacterDesignResult result)
+        => new
+        {
+            result.PackageId,
+            result.PackageRoot,
+            result.GenerationStatus,
+            result.DesignImagePath,
+            result.FormatActionImagePath,
+            result.Warnings,
+            result.Errors,
+            result.Reports,
+            SUnitPlan = BuildAiImagePromptPlanPayload(result.SUnitPlan),
+            RActorPlan = BuildAiImagePromptPlanPayload(result.RActorPlan),
+            SUnitDraw = result.SUnitDraw == null ? null : BuildAiImageDrawPayload(result.SUnitDraw),
+            RActorDraw = result.RActorDraw == null ? null : BuildAiImageDrawPayload(result.RActorDraw),
+            result.SafetyNote
+        };
+
+    private static object BuildRsPixelEditWorkspacePayload(RsPixelEditWorkspaceResult result)
+        => new
+        {
+            result.PackageId,
+            result.PackageRoot,
+            result.WorkspaceRoot,
+            result.MaterialsRoot,
+            MaterialFiles = result.MaterialFiles.Select(file => new
+            {
+                file.Role,
+                file.SourcePath,
+                file.WorkspacePath,
+                file.MaterialPath,
+                file.Width,
+                file.Height,
+                file.FrameWidth,
+                file.FrameHeight,
+                file.FrameCount,
+                file.Sha256
+            }),
+            result.Reports,
+            result.Warnings,
+            result.SafetyNote
+        };
+
+    private static object BuildRsPixelEditPlanPayload(RsPixelEditPlanResult result)
+        => new
+        {
+            result.PackageRoot,
+            result.PlanPath,
+            RecommendedOperations = result.RecommendedOperations.Select(BuildRsPixelFrameEditOperationPayload),
+            result.ReviewGates,
+            result.SafetyNote
+        };
+
+    private static object BuildRsPixelFrameEditBatchPayload(RsPixelFrameEditBatchResult result)
+        => new
+        {
+            result.PackageRoot,
+            result.OperationCount,
+            result.ChangedPixelCount,
+            result.EditLogPath,
+            result.WrittenFiles,
+            result.Warnings,
+            EditLogEntries = result.EditLogEntries.Select(entry => new
+            {
+                entry.Timestamp,
+                entry.Operation,
+                entry.Target,
+                entry.Frames,
+                entry.X,
+                entry.Y,
+                entry.Width,
+                entry.Height,
+                entry.ChangedPixelCount,
+                entry.Note
+            })
+        };
+
+    private static object BuildRsPixelContactSheetPayload(RsPixelContactSheetResult result)
+        => new
+        {
+            result.PackageRoot,
+            result.Scale,
+            result.ContactSheets,
+            result.ReportPath,
+            SafetyNote = "Contact sheets are preview exports only and do not write game resources."
+        };
+
+    private static object BuildRsPixelEditValidationPayload(RsPixelEditValidationResult result)
+        => new
+        {
+            result.PackageRoot,
+            result.LocalPixelEditPassed,
+            result.ReportPath,
+            result.SingleSpearRiskFrames,
+            result.FaceRiskFrames,
+            result.Warnings,
+            FrameCheckCount = result.FrameChecks.Count,
+            EmptyFrames = result.FrameChecks.Where(check => !check.NonEmpty).Select(check => $"{check.Target}:{check.FrameIndex.ToString(CultureInfo.InvariantCulture)}").ToArray(),
+            MaterialValidation = BuildRsPixelMaterialValidationPayload(result.MaterialValidation)
+        };
+
+    private static object BuildRsPixelFrameEditOperationPayload(RsPixelFrameEditOperation operation)
+        => new
+        {
+            operation.Operation,
+            operation.Target,
+            operation.Frames,
+            operation.X,
+            operation.Y,
+            operation.Width,
+            operation.Height,
+            operation.X2,
+            operation.Y2,
+            operation.Color,
+            operation.SecondaryColor,
+            operation.Note
+        };
 
     private List<E5ImageBatchReplaceRequest> BuildE5ImageBatchRequests(CczProject project, IReadOnlyList<E5ImageBatchUpdate> updates)
     {

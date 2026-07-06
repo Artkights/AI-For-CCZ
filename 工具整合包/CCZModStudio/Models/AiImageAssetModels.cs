@@ -34,6 +34,14 @@ public sealed class AiImagePromptPlan
     public required string Quality { get; init; }
     public required string MappingSummary { get; init; }
     public required IReadOnlyList<string> Warnings { get; init; }
+    public required IReadOnlyList<AiImageReferenceImage> ReferenceImages { get; init; }
+}
+
+public sealed class AiImageReferenceImage
+{
+    public required string Role { get; init; }
+    public required string Path { get; init; }
+    public required string Sha256 { get; init; }
 }
 
 public sealed class AiImagePrepareResult

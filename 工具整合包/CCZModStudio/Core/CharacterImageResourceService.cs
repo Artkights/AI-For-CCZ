@@ -105,6 +105,61 @@ public sealed class CharacterImageResourceService
 
     public static string BuildSMappingShortText(int sImageId) => ResolveSUnitImageMapping(sImageId).ShortText;
 
+    public static IReadOnlyList<int> GetAvailableSImageStageSlots(int sImageId)
+        => sImageId is >= 1 and <= 32 ? new[] { 1, 2, 3 } : new[] { 1 };
+
+    public static string BuildSImageStageText(int stageSlot)
+        => stageSlot switch
+        {
+            1 => "第一转",
+            2 => "第二转",
+            3 => "第三转",
+            _ => $"第{stageSlot}转"
+        };
+
+    public static IReadOnlyList<int> NormalizeSImageStageSlots(
+        int sImageId,
+        IReadOnlyList<int> selectedStages,
+        bool defaultAllStages)
+    {
+        var available = GetAvailableSImageStageSlots(sImageId);
+        if (selectedStages.Count == 0)
+        {
+            return defaultAllStages ? available.ToArray() : new[] { available[0] };
+        }
+
+        var normalized = selectedStages
+            .Distinct()
+            .OrderBy(slot => slot)
+            .Where(available.Contains)
+            .ToArray();
+        return normalized;
+    }
+
+    public static IReadOnlyList<SImageStageTarget> ResolveSImageStageTargets(
+        SUnitImageMapping mapping,
+        IReadOnlyList<int> selectedStages,
+        bool defaultAllStages)
+    {
+        var stages = NormalizeSImageStageSlots(mapping.SImageId, selectedStages, defaultAllStages);
+        var targets = new List<SImageStageTarget>();
+        foreach (var stage in stages)
+        {
+            var index = stage - 1;
+            if (index < 0 || index >= mapping.ImageNumbers.Count)
+            {
+                continue;
+            }
+
+            targets.Add(new SImageStageTarget(
+                stage,
+                mapping.ImageNumbers[index],
+                BuildSImageStageText(stage)));
+        }
+
+        return targets.ToArray();
+    }
+
     public static int NormalizeSPreviewFactionSlot(int factionSlot) =>
         factionSlot is >= 1 and <= 3 ? factionSlot : DefaultSPreviewFactionSlot;
 

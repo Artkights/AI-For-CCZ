@@ -38,9 +38,10 @@ internal partial class Program
 
             using var service = new MaterialDrivenTerrainService();
             AssertLineCornerDirections(service, materials, materialRoot, wall);
+            AssertLineEndpointDirections(service, materials, materialRoot, wall);
             AssertRegionRectangleKeepsCross(service, materials, materialRoot, region);
             AssertIndexerRebuildsCanonicalStripVariants(tempRoot);
-            Console.WriteLine("AUTOTILE_REGION_SMOKE_OK line=ok region=ok cross=ok index=ok");
+            Console.WriteLine("AUTOTILE_REGION_SMOKE_OK line=ok endpoints=ok region=ok cross=ok index=ok");
         }
         finally
         {
@@ -105,7 +106,7 @@ internal partial class Program
 
     private static void AddAutoTileSmokeStrip(List<MaterialAsset> result, string path, byte terrainId, string name, string mode)
     {
-        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder();
+        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder(mode);
         for (var i = 0; i < order.Length; i++)
         {
             var (role, mask) = order[i];
@@ -146,6 +147,35 @@ internal partial class Program
             .ToList();
         using var map = service.ComposeVisualMap(draft, materials, checkerboardBlank: false, beautifyTerrain: false);
         AssertFrame(map, 1, 1, 3, "line upper-right corner should use west+south frame");
+    }
+
+    private static void AssertLineEndpointDirections(
+        MaterialDrivenTerrainService service,
+        IReadOnlyList<MaterialAsset> materials,
+        string materialRoot,
+        MaterialAsset representative)
+    {
+        var horizontal = NewAutoTileSmokeDraft(materialRoot, 3, 1);
+        horizontal.BuildingOverlayCells = new[] { 0, 1, 2 }
+            .Select(index => AutoTileSmokeCell(materialRoot, representative, index))
+            .ToList();
+        using (var map = service.ComposeVisualMap(horizontal, materials, checkerboardBlank: false, beautifyTerrain: false))
+        {
+            AssertFrame(map, 0, 0, 8, "line left endpoint should use east-facing horizontal end");
+            AssertFrame(map, 1, 0, 0, "line horizontal middle should use straight horizontal frame");
+            AssertFrame(map, 2, 0, 9, "line right endpoint should use west-facing horizontal end");
+        }
+
+        var vertical = NewAutoTileSmokeDraft(materialRoot, 3, 3);
+        vertical.BuildingOverlayCells = new[] { 1, 4, 7 }
+            .Select(index => AutoTileSmokeCell(materialRoot, representative, index))
+            .ToList();
+        using (var map = service.ComposeVisualMap(vertical, materials, checkerboardBlank: false, beautifyTerrain: false))
+        {
+            AssertFrame(map, 1, 0, 7, "line top endpoint should use south-facing vertical end");
+            AssertFrame(map, 1, 1, 1, "line vertical middle should use straight vertical frame");
+            AssertFrame(map, 1, 2, 6, "line bottom endpoint should use north-facing vertical end");
+        }
     }
 
     private static void AssertRegionRectangleKeepsCross(
@@ -204,6 +234,32 @@ internal partial class Program
         AssertAutoTileSmokeEqual(MaterialAutoTileMasks.CornerNE, pool[3].AutoTileMask, "indexed frame 3 mask");
         AssertAutoTileSmokeEqual(MaterialAutoTileRoles.Cross, pool[14].AutoTileRole, "indexed cross role");
         AssertAutoTileSmokeEqual(0, indexed.Count(asset => asset.TerrainId == 25 && asset.AutoTileRole.Equals(MaterialAutoTileRoles.Fill, StringComparison.OrdinalIgnoreCase)), "indexed fill variant count");
+
+        var wallDir = Path.Combine(buildingRoot, "15\uff1a\u6805\u680f");
+        Directory.CreateDirectory(wallDir);
+        SaveAutoTileSmokeSheet(Path.Combine(wallDir, "1.png"));
+        File.WriteAllText(
+            Path.Combine(wallDir, "_variants.json"),
+            """
+            [
+              { "FileName": "1.png", "Role": "endE", "Mask": 2, "Mode": "mask", "Priority": 6, "X": 288, "Y": 0, "Width": 48, "Height": 48 }
+            ]
+            """);
+
+        indexed = new MaterialLibraryIndexer().IndexExplicitRoot(indexRoot);
+        var wallPool = indexed
+            .Where(asset => asset.TerrainId == 15 && asset.FileName == "1.png")
+            .OrderBy(asset => asset.AutoTilePriority)
+            .ToList();
+        AssertAutoTileSmokeEqual(15, wallPool.Count, "indexed line canonical strip variant count");
+        AssertAutoTileSmokeEqual(MaterialAutoTileRoles.EndN, wallPool[6].AutoTileRole, "indexed line frame 6 role");
+        AssertAutoTileSmokeEqual(MaterialAutoTileMasks.North, wallPool[6].AutoTileMask, "indexed line frame 6 mask");
+        AssertAutoTileSmokeEqual(MaterialAutoTileRoles.EndS, wallPool[7].AutoTileRole, "indexed line frame 7 role");
+        AssertAutoTileSmokeEqual(MaterialAutoTileMasks.South, wallPool[7].AutoTileMask, "indexed line frame 7 mask");
+        AssertAutoTileSmokeEqual(MaterialAutoTileRoles.EndE, wallPool[8].AutoTileRole, "indexed line frame 8 role");
+        AssertAutoTileSmokeEqual(MaterialAutoTileMasks.East, wallPool[8].AutoTileMask, "indexed line frame 8 mask");
+        AssertAutoTileSmokeEqual(MaterialAutoTileRoles.EndW, wallPool[9].AutoTileRole, "indexed line frame 9 role");
+        AssertAutoTileSmokeEqual(MaterialAutoTileMasks.West, wallPool[9].AutoTileMask, "indexed line frame 9 mask");
     }
 
     private static MapWorkbenchDraft NewAutoTileSmokeDraft(string materialRoot, int width, int height)

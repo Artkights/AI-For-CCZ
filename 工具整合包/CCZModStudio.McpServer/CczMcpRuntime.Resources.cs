@@ -262,10 +262,12 @@ public sealed partial class CczMcpRuntime
         int factionSlot,
         string? outputFormat,
         int? width,
-        int? height)
+        int? height,
+        List<string>? referenceImagePaths = null,
+        List<string>? referenceRoles = null)
     {
         var project = LoadProject(gameRoot);
-        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height);
+        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height, referenceImagePaths, referenceRoles);
         return BuildAiImagePromptPlanPayload(plan);
     }
 
@@ -306,10 +308,12 @@ public sealed partial class CczMcpRuntime
         string? outputFormat,
         int? width,
         int? height,
-        bool dryRun)
+        bool dryRun,
+        List<string>? referenceImagePaths = null,
+        List<string>? referenceRoles = null)
     {
         var project = LoadProject(gameRoot);
-        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height);
+        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height, referenceImagePaths, referenceRoles);
         var result = _aiImageAssetService.DrawAsync(project, plan, dryRun, (itemPlan, outputPath) => BuildAiImageReplacementPreview(project, itemPlan, outputPath)).GetAwaiter().GetResult();
         return BuildAiImageDrawPayload(result);
     }
@@ -327,11 +331,13 @@ public sealed partial class CczMcpRuntime
         int factionSlot,
         string? outputFormat,
         int? width,
-        int? height)
+        int? height,
+        List<string>? referenceImagePaths = null,
+        List<string>? referenceRoles = null)
     {
         var project = LoadProject(gameRoot);
         EnsureWriteMode(project, "direct");
-        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height);
+        var plan = _aiImageAssetService.BuildPromptPlan(project, preset, description, targetRelativePath, imageNumber, rImageId, sImageId, faceId, jobId, factionSlot, outputFormat, width, height, referenceImagePaths, referenceRoles);
         var draw = _aiImageAssetService.DrawAsync(project, plan, dryRun: false, (itemPlan, outputPath) => BuildAiImageReplacementPreview(project, itemPlan, outputPath)).GetAwaiter().GetResult();
         if (draw.Prepared == null)
         {
@@ -346,6 +352,277 @@ public sealed partial class CczMcpRuntime
             ReplacementCount = replacements.Count,
             Replacements = replacements,
             SafetyNote = "AI image was generated, post-processed, and written directly to the target E5/DLL resource through dedicated backup/report/reread replacement services."
+        };
+    }
+
+    public object PreviewItemIconField(string? gameRoot, int fieldValue, string? kind, int canvasSize)
+    {
+        var project = LoadProject(gameRoot);
+        var normalizedKind = string.IsNullOrWhiteSpace(kind) ? "item" : kind;
+        var mapping = new ItemIconMappingService().Resolve(project, fieldValue, normalizedKind);
+        var preview = new ItemIconPreviewService().BuildPreview(
+            project,
+            fieldValue,
+            mapping.ResourceRelativePath,
+            mapping.Kind.Equals("strategy", StringComparison.OrdinalIgnoreCase) ? "strategy icon" : "item icon",
+            NormalizeLimit(canvasSize, 96, 512));
+
+        string exportPath = string.Empty;
+        if (preview.Bitmap != null)
+        {
+            var exportRoot = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Exports", "ImagePreviews");
+            Directory.CreateDirectory(exportRoot);
+            exportPath = Path.Combine(exportRoot, $"{DateTime.Now:yyyyMMdd_HHmmss_fff}_field_{fieldValue}_{mapping.Kind}.png");
+            preview.Bitmap.Save(exportPath, ImageFormat.Png);
+        }
+
+        return new
+        {
+            project.GameRoot,
+            Mapping = mapping,
+            Preview = new
+            {
+                preview.SourcePath,
+                preview.IconIndex,
+                preview.AvailableIconCount,
+                preview.RenderMode,
+                preview.SelectionMode,
+                HasBitmap = preview.Bitmap != null,
+                ExportPath = exportPath,
+                preview.Message,
+                preview.Warnings
+            },
+            SafetyNote = "Read-only preview by table icon field value. 6.6 item icons use E5/Item.e5 small/large mapping; strategy icons use E5/Mtem.e5."
+        };
+    }
+
+    public object ReplaceItemIconPair(string? gameRoot, int fieldValue, string largeSource, string? smallSource, string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var mapping = new ItemIconMappingService().Resolve(project, fieldValue, "item");
+        if (!Ccz66RevisedLayout.Is66(project))
+        {
+            throw new InvalidOperationException("replace_item_icon_pair is the 6.6 E5 item-icon pair writer. Use DLL icon tools for pre-6.6 projects.");
+        }
+
+        if (!mapping.InRange || !mapping.SmallImageNumber.HasValue)
+        {
+            throw new InvalidOperationException("Item icon field mapping is not writable: " + mapping.Error);
+        }
+
+        var largePath = ResolveExternalFile(project, largeSource);
+        var smallPath = string.IsNullOrWhiteSpace(smallSource) ? string.Empty : ResolveExternalFile(project, smallSource);
+        var normalizer = new ItemIconRasterNormalizeService();
+        ItemIconRasterPair pair;
+        if (string.IsNullOrWhiteSpace(smallPath))
+        {
+            pair = normalizer.NormalizePairFromFile(largePath);
+        }
+        else
+        {
+            using var largeImage = System.Drawing.Image.FromFile(largePath);
+            using var smallImage = System.Drawing.Image.FromFile(smallPath);
+            var large = normalizer.NormalizeToSize(largeImage, ItemIconRasterNormalizeService.LargeIconSize, "large");
+            var small = normalizer.NormalizeToSize(smallImage, ItemIconRasterNormalizeService.SmallIconSize, "small");
+            pair = new ItemIconRasterPair($"{smallPath};{largePath}", largeImage.Width, largeImage.Height, small, large);
+        }
+
+        var requests = new[]
+        {
+            new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = mapping.SmallImageNumber.Value,
+                SourceBytes = pair.Small.BmpBytes,
+                SourceLabel = string.IsNullOrWhiteSpace(smallPath) ? largePath + " (normalized small 16x16)" : smallPath + " (normalized small 16x16)",
+                OperationKind = "replace_item_icon_pair small"
+            },
+            new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = mapping.LargeImageNumber,
+                SourceBytes = pair.Large.BmpBytes,
+                SourceLabel = largePath + " (normalized large 32x32)",
+                OperationKind = "replace_item_icon_pair large"
+            }
+        };
+        var result = _e5ImageReplace.ReplaceBatch(project, mapping.ResourcePath, requests);
+        return new
+        {
+            project.GameRoot,
+            Mapping = mapping,
+            NormalizeSummary = pair.Summary,
+            Result = BuildE5ImageBatchReplacePayload(result),
+            SafetyNote = "6.6 Item.e5 pair write: small is normalized to 16x16 BMP, large to 32x32 BMP, with backup/report/reread validation."
+        };
+    }
+
+    public object BuildRsPixelCharacterDesign(
+        string? gameRoot,
+        string packageId,
+        string displayName,
+        string unitType,
+        string designImagePath,
+        string? formatActionImagePath,
+        string? formatReferenceFolder,
+        string? formatReferenceGameRoot,
+        int? formatReferenceSImageId,
+        int? formatReferenceRowId,
+        string? formatReferenceDisplayName,
+        string characterBrief,
+        string weaponBrief,
+        string forbiddenReadings,
+        bool generateNow,
+        bool dryRun,
+        int? rImageId,
+        int? sImageId,
+        int? jobId,
+        int factionSlot)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new RsPixelCharacterDesignRequest
+        {
+            PackageId = packageId,
+            DisplayName = displayName,
+            UnitType = unitType,
+            DesignImagePath = designImagePath,
+            FormatActionImagePath = formatActionImagePath,
+            FormatReferenceFolder = formatReferenceFolder,
+            FormatReferenceGameRoot = string.IsNullOrWhiteSpace(formatReferenceGameRoot) ? null : ResolveExternalDirectory(project, formatReferenceGameRoot),
+            FormatReferenceSImageId = formatReferenceSImageId,
+            FormatReferenceRowId = formatReferenceRowId,
+            FormatReferenceDisplayName = formatReferenceDisplayName,
+            CharacterBrief = characterBrief,
+            WeaponBrief = weaponBrief,
+            ForbiddenReadings = forbiddenReadings,
+            GenerateNow = generateNow,
+            DryRun = dryRun,
+            RImageId = rImageId,
+            SImageId = sImageId,
+            JobId = jobId,
+            FactionSlot = factionSlot
+        };
+        var result = _rsPixelCharacterDesignService.Build(project, request, (itemPlan, outputPath) => BuildAiImageReplacementPreview(project, itemPlan, outputPath));
+        return BuildRsPixelCharacterDesignPayload(result);
+    }
+
+    public object CreateRsPixelEditWorkspace(
+        string? gameRoot,
+        string packageId,
+        string displayName,
+        string unitType,
+        string designImagePath,
+        string formatReferenceRoot,
+        bool overwriteExisting)
+    {
+        var project = LoadProject(gameRoot);
+        var result = _rsPixelEditWorkspaceService.CreateWorkspace(project, new RsPixelEditWorkspaceRequest
+        {
+            PackageId = packageId,
+            DisplayName = displayName,
+            UnitType = unitType,
+            DesignImagePath = designImagePath,
+            FormatReferenceRoot = formatReferenceRoot,
+            OverwriteExisting = overwriteExisting
+        });
+        return BuildRsPixelEditWorkspacePayload(result);
+    }
+
+    public object BuildRsPixelEditPlan(
+        string packageRoot,
+        string unitType,
+        string characterBrief,
+        string weaponBrief)
+    {
+        var result = _rsPixelEditWorkspaceService.BuildPlan(new RsPixelEditPlanRequest
+        {
+            PackageRoot = packageRoot,
+            UnitType = unitType,
+            CharacterBrief = characterBrief,
+            WeaponBrief = weaponBrief
+        });
+        return BuildRsPixelEditPlanPayload(result);
+    }
+
+    public object ApplyRsPixelFrameEdits(
+        string packageRoot,
+        List<RsPixelFrameEditOperation> operations)
+    {
+        var result = _rsPixelEditWorkspaceService.ApplyEdits(new RsPixelFrameEditBatchRequest
+        {
+            PackageRoot = packageRoot,
+            Operations = operations
+        });
+        return BuildRsPixelFrameEditBatchPayload(result);
+    }
+
+    public object ExportRsPixelContactSheets(
+        string packageRoot,
+        int scale,
+        bool annotate)
+    {
+        var result = _rsPixelEditWorkspaceService.ExportContactSheets(new RsPixelContactSheetRequest
+        {
+            PackageRoot = packageRoot,
+            Scale = scale,
+            Annotate = annotate
+        });
+        return BuildRsPixelContactSheetPayload(result);
+    }
+
+    public object ValidateRsPixelEditWorkspace(
+        string? gameRoot,
+        string packageRoot,
+        int? rImageId,
+        int? sImageId,
+        int? jobId,
+        int factionSlot)
+    {
+        var project = LoadProject(gameRoot);
+        var result = _rsPixelEditWorkspaceService.Validate(project, new RsPixelEditValidationRequest
+        {
+            PackageRoot = packageRoot,
+            RImageId = rImageId,
+            SImageId = sImageId,
+            JobId = jobId,
+            FactionSlot = factionSlot
+        });
+        return BuildRsPixelEditValidationPayload(result);
+    }
+
+    public object BuildRsPixelSampleLearningMvp(
+        string? gameRoot,
+        string unitType,
+        string outputId,
+        bool overwriteExisting,
+        int topReviewCount,
+        List<string>? referenceRoots,
+        List<string>? negativeRoots)
+    {
+        var project = LoadProject(gameRoot);
+        var result = _rsPixelSampleLearningService.Build(project, new RsPixelSampleLearningRequest
+        {
+            UnitType = unitType,
+            OutputId = outputId,
+            OverwriteExisting = overwriteExisting,
+            TopReviewCount = topReviewCount,
+            ReferenceRoots = referenceRoots ?? [],
+            NegativeRoots = negativeRoots ?? []
+        });
+        return new
+        {
+            result.UnitType,
+            result.OutputRoot,
+            result.CandidateCount,
+            result.CompleteCandidateCount,
+            result.RGroupCount,
+            result.SGroupCount,
+            result.StrongMachineCandidateCount,
+            result.PartialCandidateCount,
+            result.NegativeCandidateCount,
+            result.Reports,
+            result.ContactSheets,
+            result.Warnings,
+            result.SafetyNote
         };
     }
 
@@ -439,6 +716,11 @@ public sealed partial class CczMcpRuntime
     public object PreviewDllIconReplace(string? gameRoot, string targetRelativePath, int iconIndex, string replacementPath)
     {
         var project = LoadProject(gameRoot);
+        if (TryBuildObsolete66DllIconPayload(project, targetRelativePath, iconIndex, out var obsolete))
+        {
+            return obsolete;
+        }
+
         var targetPath = ResolveDllIconTarget(project, targetRelativePath);
         var sourcePath = ResolveExternalFile(project, replacementPath);
         var preview = _iconResourceReplace.PreviewReplaceBitmapIcon(project, targetPath, iconIndex, sourcePath);
@@ -449,6 +731,11 @@ public sealed partial class CczMcpRuntime
     {
         var project = LoadProject(gameRoot);
         EnsureWriteMode(project, writeMode);
+        if (TryBuildObsolete66DllIconPayload(project, targetRelativePath, iconIndex, out var obsolete))
+        {
+            return obsolete;
+        }
+
         var targetPath = ResolveDllIconTarget(project, targetRelativePath);
         var sourcePath = ResolveExternalFile(project, replacementPath);
         var result = _iconResourceReplace.ReplaceBitmapIcon(project, targetPath, iconIndex, sourcePath);
@@ -467,6 +754,11 @@ public sealed partial class CczMcpRuntime
     public object PreviewClearDllIcon(string? gameRoot, string targetRelativePath, int iconIndex)
     {
         var project = LoadProject(gameRoot);
+        if (TryBuildObsolete66DllIconPayload(project, targetRelativePath, iconIndex, out var obsolete))
+        {
+            return obsolete;
+        }
+
         var targetPath = ResolveDllIconTarget(project, targetRelativePath);
         var preview = _iconResourceReplace.PreviewClearBitmapIcon(project, targetPath, iconIndex);
         return BuildDllIconReplacePayload(preview);
@@ -476,6 +768,11 @@ public sealed partial class CczMcpRuntime
     {
         var project = LoadProject(gameRoot);
         EnsureWriteMode(project, writeMode);
+        if (TryBuildObsolete66DllIconPayload(project, targetRelativePath, iconIndex, out var obsolete))
+        {
+            return obsolete;
+        }
+
         var targetPath = ResolveDllIconTarget(project, targetRelativePath);
         var result = _iconResourceReplace.ClearBitmapIcon(project, targetPath, iconIndex);
         return new

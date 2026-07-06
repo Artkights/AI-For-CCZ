@@ -78,7 +78,7 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         => runtime.GameCaptureFrame(game_root, output_dir, label);
 
     [McpServerTool]
-    [Description("Read the 6.5 battle state from Ekd5.exe with read-only ReadProcessMemory.")]
+    [Description("Read the verified profile-derived battle state from Ekd5.exe with read-only ReadProcessMemory.")]
     public object game_read_battle_state(
         [Description("Optional game root.")]
         string? game_root = null,

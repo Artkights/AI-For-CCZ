@@ -109,5 +109,5 @@ public sealed class E5TrueColorImageCodec
     }
 
     private static bool IsMagentaKey(Color color)
-        => color.R >= 248 && color.G <= 8 && color.B >= 248;
+        => color.R >= 247 && color.G <= 8 && color.B >= 248;
 }

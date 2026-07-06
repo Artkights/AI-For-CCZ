@@ -1,28 +1,40 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Collections.Concurrent;
+using CCZModStudio.Formats;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
 
 public sealed class CczEngineProfileService
 {
-    private const long Version65ExeSize = 1_196_032;
-    private const long Version66ExeSize = 1_130_496;
+    public const long Version65ExeSize = 1_196_032;
+    public const long Version66ExeSize = 1_130_496;
+    private const string Known65Sha256 = "84E3A1DC085AE6F9900D1E8C388A9CD6766379832DDF51BC7BDF780C6615B4A3";
+    private const string Known66Sha256 = "4A4FD8DDBF83E5F0B769D1B97BF8F6E6431C3AB42892024A354228212D3D06A4";
+    private static readonly ConcurrentDictionary<string, CczEngineDetectionEvidence[]> CmfEvidenceCache = new(StringComparer.OrdinalIgnoreCase);
 
     public CczEngineProfile Detect(CczProject project)
     {
         var exePath = project.ResolveGameFile("Ekd5.exe");
         var exeSize = TryGetLength(exePath);
-        var versionText = TryReadVersion(exePath);
+        var versionInfo = TryReadVersionInfo(exePath);
         var pathHint = Extract6xVersionHint(project.GameRoot) ?? Extract6xVersionHint(project.WorkspaceRoot);
-        var profile = BuildProfile(exeSize, versionText, pathHint);
+        var sha256 = TryComputeSha256(exePath);
+        var profile = BuildProfile(exeSize, versionInfo.Text, versionInfo.LowWord, pathHint, sha256);
 
         profile.ExePath = File.Exists(exePath) ? exePath : string.Empty;
         profile.ExeSize = exeSize;
+        profile.ExeSha256 = sha256 ?? string.Empty;
+        profile.VersionResourceText = versionInfo.Text ?? string.Empty;
+        profile.VersionResourceLowWord = versionInfo.LowWord;
+        profile.PathHint = pathHint ?? string.Empty;
         profile.DataSize = TryGetLength(project.ResolveGameFile("Data.e5"));
         profile.ImsgSize = TryGetLength(project.ResolveGameFile("Imsg.e5"));
         profile.StarSize = TryGetLength(project.ResolveGameFile("Star.e5"));
         profile.ItemSize = TryGetLength(project.ResolveGameFile("Item.e5"));
+        AddCmfEvidenceIfAvailable(project, profile);
 
         if (!profile.IsKnown)
         {
@@ -51,29 +63,94 @@ public sealed class CczEngineProfileService
         return profile;
     }
 
-    private static CczEngineProfile BuildProfile(long? exeSize, string? versionText, string? pathHint)
+    private static void AddCmfEvidenceIfAvailable(CczProject project, CczEngineProfile profile)
     {
-        var versionHint = NormalizeVersionHint(versionText) ?? NormalizeVersionHint(pathHint);
-        var source = !string.IsNullOrWhiteSpace(versionText)
-            ? "Ekd5.exe version resource"
-            : !string.IsNullOrWhiteSpace(pathHint)
-                ? "path hint"
-                : string.Empty;
+        if (!Ccz66RevisedLayout.Is66(profile)) return;
+        var key = string.IsNullOrWhiteSpace(project.WorkspaceRoot)
+            ? project.GameRoot
+            : project.WorkspaceRoot;
+        if (string.IsNullOrWhiteSpace(key) || !Directory.Exists(key)) return;
 
-        if (exeSize == Version66ExeSize)
-        {
-            versionHint = "6.6";
-            source = "Ekd5.exe size";
-        }
-        else if (exeSize == Version65ExeSize)
-        {
-            versionHint = "6.5";
-            source = "Ekd5.exe size";
-        }
+        var evidence = CmfEvidenceCache.GetOrAdd(key, BuildCmfEvidence);
+        profile.DetectionEvidence.AddRange(evidence);
+    }
 
-        if (versionHint is "6.3" or "6.4" or "6.5" or "6.6")
+    private static CczEngineDetectionEvidence[] BuildCmfEvidence(string workspaceRoot)
+    {
+        try
         {
-            return CreateKnown(versionHint, source);
+            var sample = CheatMakerCmfProbe.FindDefaultStar66XSample(workspaceRoot);
+            if (string.IsNullOrWhiteSpace(sample)) return Array.Empty<CczEngineDetectionEvidence>();
+
+            var baseline = CheatMakerCmfProbe.FindDefaultStar66KBaseline(workspaceRoot);
+            var probe = new CheatMakerCmfProbe().Probe(sample, baseline, "6.6X CheatMaker CMF evidence sample");
+            if (!probe.Exists) return Array.Empty<CczEngineDetectionEvidence>();
+
+            return new[]
+            {
+                new CczEngineDetectionEvidence
+                {
+                    Kind = "CheatMaker CMF evidence",
+                    Value = $"{probe.Sha256}; length={probe.Length.ToString(CultureInfo.InvariantCulture)}; utf16Crlf={probe.Utf16CrlfCount.ToString(CultureInfo.InvariantCulture)}",
+                    VersionHint = "6.6",
+                    Priority = 90,
+                    Note = "Evidence-only 6.6X modifier project sample; not used as runtime engine identity or writable offset source."
+                }
+            };
+        }
+        catch
+        {
+            return Array.Empty<CczEngineDetectionEvidence>();
+        }
+    }
+
+    public static string? MapOldWrenchLowWordToVersion(int? lowWord)
+        => lowWord switch
+        {
+            1 => "6.1",
+            2 => "6.2",
+            3 => "6.3",
+            4 => "6.4",
+            5 => "6.5",
+            6 => "6.6",
+            _ => null
+        };
+
+    public static string? InferVersionFromExeSize(long? exeSize)
+        => exeSize switch
+        {
+            Version66ExeSize => "6.6",
+            Version65ExeSize => "6.5",
+            _ => null
+        };
+
+    public static string? InferVersionFromSha256(string? sha256)
+        => sha256?.ToUpperInvariant() switch
+        {
+            Known65Sha256 => "6.5",
+            Known66Sha256 => "6.6",
+            _ => null
+        };
+
+    public static CczEngineProfile BuildProfileForTest(long? exeSize, string? versionText, int? versionLowWord, string? pathHint, string? sha256 = null)
+        => BuildProfile(exeSize, versionText, versionLowWord, pathHint, sha256);
+
+    private static CczEngineProfile BuildProfile(long? exeSize, string? versionText, int? versionLowWord, string? pathHint, string? sha256)
+    {
+        var evidence = BuildDetectionEvidence(exeSize, versionText, versionLowWord, pathHint, sha256);
+        var selected = evidence
+            .Where(item => !string.IsNullOrWhiteSpace(item.VersionHint))
+            .OrderBy(item => item.Priority)
+            .FirstOrDefault();
+        var versionHint = selected?.VersionHint;
+        var source = selected?.Kind ?? string.Empty;
+
+        if (versionHint is "6.1" or "6.2" or "6.3" or "6.4" or "6.5" or "6.6")
+        {
+            var known = CreateKnown(versionHint, source);
+            known.DetectionEvidence = evidence;
+            AddConflictWarnings(known, evidence);
+            return known;
         }
 
         var profile = CreateKnown("6.5", string.IsNullOrWhiteSpace(source) ? "fallback" : source);
@@ -83,7 +160,97 @@ public sealed class CczEngineProfileService
         profile.IsKnown = false;
         profile.DetectionSource = string.IsNullOrWhiteSpace(source) ? "fallback" : source;
         profile.LegacyRuntimeLayout = null;
+        profile.DetectionEvidence = evidence;
         return profile;
+    }
+
+    private static List<CczEngineDetectionEvidence> BuildDetectionEvidence(long? exeSize, string? versionText, int? versionLowWord, string? pathHint, string? sha256)
+    {
+        var evidence = new List<CczEngineDetectionEvidence>();
+
+        var shaVersion = InferVersionFromSha256(sha256);
+        if (!string.IsNullOrWhiteSpace(sha256))
+        {
+            evidence.Add(new CczEngineDetectionEvidence
+            {
+                Kind = "Ekd5.exe SHA256",
+                Value = sha256,
+                VersionHint = shaVersion ?? string.Empty,
+                Priority = 5,
+                Note = shaVersion is null ? "未命中内置 SHA 样本。" : $"命中内置 {shaVersion} Ekd5.exe 样本。"
+            });
+        }
+
+        var sizeVersion = InferVersionFromExeSize(exeSize);
+        if (exeSize is not null)
+        {
+            evidence.Add(new CczEngineDetectionEvidence
+            {
+                Kind = "Ekd5.exe size",
+                Value = exeSize.Value.ToString(CultureInfo.InvariantCulture),
+                VersionHint = sizeVersion ?? string.Empty,
+                Priority = 30,
+                Note = sizeVersion is null ? "未命中内置 EXE 大小样本。" : "EXE 大小命中内置版本样本。"
+            });
+        }
+
+        var textVersion = NormalizeVersionHint(versionText);
+        if (!string.IsNullOrWhiteSpace(versionText))
+        {
+            evidence.Add(new CczEngineDetectionEvidence
+            {
+                Kind = "Ekd5.exe version resource",
+                Value = versionText,
+                VersionHint = textVersion ?? string.Empty,
+                Priority = 20,
+                Note = textVersion is null ? "版本资源没有可解析的 6.x 文本。" : "版本资源含明确 6.x 文本。"
+            });
+        }
+
+        var lowWordVersion = MapOldWrenchLowWordToVersion(versionLowWord);
+        if (versionLowWord is not null)
+        {
+            evidence.Add(new CczEngineDetectionEvidence
+            {
+                Kind = "old-wrench FileVersionLS low word",
+                Value = versionLowWord.Value.ToString(CultureInfo.InvariantCulture),
+                VersionHint = lowWordVersion ?? string.Empty,
+                Priority = 8,
+                Note = lowWordVersion is null
+                    ? "版本资源低位值不在旧扳手 6.1-6.6 映射范围内。"
+                    : "按旧扳手自动识别规则映射 6.1-6.6。"
+            });
+        }
+
+        var pathVersion = NormalizeVersionHint(pathHint);
+        if (!string.IsNullOrWhiteSpace(pathHint))
+        {
+            evidence.Add(new CczEngineDetectionEvidence
+            {
+                Kind = "path hint",
+                Value = pathHint,
+                VersionHint = pathVersion ?? string.Empty,
+                Priority = 40,
+                Note = pathVersion is null ? "路径提示没有可解析的 6.x 文本。" : "从路径名提取的版本提示。"
+            });
+        }
+
+        return evidence;
+    }
+
+    private static void AddConflictWarnings(CczEngineProfile profile, IReadOnlyList<CczEngineDetectionEvidence> evidence)
+    {
+        var conflicting = evidence
+            .Where(item => !string.IsNullOrWhiteSpace(item.VersionHint))
+            .Where(item => !item.VersionHint.Equals(profile.VersionHint, StringComparison.OrdinalIgnoreCase))
+            .Select(item => $"{item.Kind}={item.Value}->{item.VersionHint}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (conflicting.Count > 0)
+        {
+            profile.Warnings.Add($"版本识别证据存在冲突，已按优先级选择 {profile.VersionHint}（{profile.DetectionSource}）；冲突证据：{string.Join("；", conflicting)}。");
+        }
     }
 
     private static CczEngineProfile CreateKnown(string version, string source)
@@ -102,6 +269,8 @@ public sealed class CczEngineProfileService
 
         profile.LegacyRuntimeLayout = version switch
         {
+            "6.1" => BuildLegacyRuntimeLayout(version, merit: 0x508400, talent: 0x5089B0, exclusive: 0x50E800, war: 0x4B2C50, warLen: 0x24, revive: 0x40930F, bisha: 0x508800, itemCapacity: 154),
+            "6.2" => BuildLegacyRuntimeLayout(version, merit: 0x508400, talent: 0x5089B0, exclusive: 0x50E800, war: 0x4B2C50, warLen: 0x24, revive: 0x4092E0, bisha: 0x508800, itemCapacity: 154),
             "6.3" => BuildLegacyRuntimeLayout(version, merit: 0x508400, talent: 0x5089B0, exclusive: 0x50E400, war: 0x4B2C50, warLen: 0x24, revive: 0x4092E0, bisha: 0x508800, itemCapacity: 154),
             "6.4" => BuildLegacyRuntimeLayout(version, merit: 0x508000, talent: 0x508998, exclusive: 0x50E400, war: 0x4A7B20, warLen: 0x30, revive: 0x4092C7, bisha: 0x511800, itemCapacity: 255),
             "6.5" => new CczLegacyRuntimeMemoryLayout
@@ -113,6 +282,7 @@ public sealed class CczEngineProfileService
                 FriendlyCapacity = 40,
                 EnemyCapacity = 190,
                 ItemCapacity = 255,
+                SpecialSkillCatalogOffset = 0x9E800,
                 Applicability = "当前 6.5 已验证战场数组/HP 几何接近旧 6.4；其它运行时地址仍必须动态验证。"
             },
             _ => null
@@ -176,11 +346,36 @@ public sealed class CczEngineProfileService
             FriendlyCapacity = version == "6.4" ? 40 : 19,
             EnemyCapacity = version == "6.4" ? 190 : 80,
             ItemCapacity = itemCapacity,
+            CharacterMaxHpOffset = version is "6.4" ? 0x1B : 0x1C,
+            CharacterMaxHpByteWidth = 4,
+            CharacterMaxMpOffset = version is "6.4" ? 0x1F : 0x20,
+            CharacterMaxMpByteWidth = version is "6.4" ? 2 : 1,
+            ConsumableNameTableAddress = version == "6.4" ? 0x4A1FE6u : 0x4A19BFu,
+            ConsumableCount = version == "6.4" ? 105 : 43,
+            ConsumableEncoding = version == "6.4" ? "gbk" : "gb18030",
+            TalentNameTableAddress = version switch
+            {
+                "6.4" => 0x4FF560u,
+                "6.2" => 0x4FF960u,
+                "6.1" => 0x4FFA80u,
+                _ => 0x4FF7A0u
+            },
+            TalentCount = version switch
+            {
+                "6.4" => 180,
+                "6.3" => 144,
+                "6.2" => 91,
+                "6.1" => 88,
+                _ => 144
+            },
+            KillNameTableAddress = version == "6.4" ? 0x4A7510u : version is "6.1" or "6.2" ? 0x4FF710u : 0x4FF551u,
+            KillCount = version == "6.4" ? 80 : version == "6.3" ? 36 : 0,
             ReviveFunctionAddress = revive,
             BishaTableAddress = bisha,
             TalentTableAddress = talent,
             ExclusiveSetTableAddress = exclusive,
-            MeritTableAddress = merit
+            MeritTableAddress = merit,
+            SpecialSkillCatalogOffset = 0x9E800
         };
 
     private static long? TryGetLength(string path)
@@ -195,13 +390,31 @@ public sealed class CczEngineProfileService
         }
     }
 
-    private static string? TryReadVersion(string path)
+    private static (string? Text, int? LowWord) TryReadVersionInfo(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return (null, null);
+            var info = FileVersionInfo.GetVersionInfo(path);
+            var text = FirstNonEmpty(info.FileVersion, info.ProductVersion);
+            var lowWord = info.FilePrivatePart != 0 || info.FileBuildPart != 0 || info.FileMinorPart != 0 || info.FileMajorPart != 0
+                ? info.FilePrivatePart
+                : (int?)null;
+            return (text, lowWord);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private static string? TryComputeSha256(string path)
     {
         try
         {
             if (!File.Exists(path)) return null;
-            var info = FileVersionInfo.GetVersionInfo(path);
-            return FirstNonEmpty(info.FileVersion, info.ProductVersion);
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexString(SHA256.HashData(stream));
         }
         catch
         {

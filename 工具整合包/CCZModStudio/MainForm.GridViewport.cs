@@ -288,14 +288,20 @@ public sealed partial class MainForm
         DataTable expected,
         DataTable actual,
         IReadOnlyList<DataRow> changedRows)
-        => VerifySavedDataTableChanges(expected, actual, changedRows, null, table.TableName);
+        => VerifySavedDataTableChanges(expected, actual, changedRows, null, table.TableName, column => IsWritableVerificationColumn(table, column));
+
+    private static bool IsWritableVerificationColumn(HexTableDefinition table, DataColumn column)
+        => column.ExtendedProperties["FieldDefinition"] is HexFieldDefinition field &&
+           (field.ConsumesBytes ||
+            (table.Fields.Count == 1 && field.Size == 0 && table.RowSize > 0 && field.Kind != HexFieldKind.Derived));
 
     private static void VerifySavedDataTableChanges(
         DataTable expected,
         DataTable actual,
         IReadOnlyList<DataRow> changedRows,
         IReadOnlyList<string>? columns = null,
-        string? label = null)
+        string? label = null,
+        Predicate<DataColumn>? columnFilter = null)
     {
         if (changedRows.Count == 0)
         {
@@ -311,7 +317,7 @@ public sealed partial class MainForm
                 throw new InvalidOperationException($"Save verification failed for {tableLabel}: row {DescribeDataRow(expected, expectedRow)} was not found after reread.");
             }
 
-            var columnsToCheck = ResolveColumnsToVerify(expectedRow, columns);
+            var columnsToCheck = ResolveColumnsToVerify(expectedRow, columns, columnFilter);
             foreach (var columnName in columnsToCheck)
             {
                 if (!expected.Columns.Contains(columnName) || !actual.Columns.Contains(columnName))
@@ -474,20 +480,27 @@ public sealed partial class MainForm
         }
     }
 
-    private static IReadOnlyList<string> ResolveColumnsToVerify(DataRow row, IReadOnlyList<string>? columns)
+    private static IReadOnlyList<string> ResolveColumnsToVerify(DataRow row, IReadOnlyList<string>? columns, Predicate<DataColumn>? columnFilter = null)
     {
         if (columns is { Count: > 0 })
         {
-            return columns;
+            return columns
+                .Where(columnName => !row.Table.Columns.Contains(columnName) || columnFilter == null || columnFilter(row.Table.Columns[columnName]!))
+                .ToList();
         }
 
         if (row.RowState == DataRowState.Added || !row.HasVersion(DataRowVersion.Original))
         {
-            return row.Table.Columns.Cast<DataColumn>().Select(column => column.ColumnName).ToList();
+            return row.Table.Columns
+                .Cast<DataColumn>()
+                .Where(column => columnFilter == null || columnFilter(column))
+                .Select(column => column.ColumnName)
+                .ToList();
         }
 
         return row.Table.Columns
             .Cast<DataColumn>()
+            .Where(column => columnFilter == null || columnFilter(column))
             .Where(column =>
             {
                 var original = Convert.ToString(row[column, DataRowVersion.Original], CultureInfo.InvariantCulture) ?? string.Empty;

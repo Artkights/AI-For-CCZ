@@ -212,6 +212,9 @@ public sealed class GlobalSettingsUpdate
     [JsonPropertyName("game_title")]
     public string? GameTitle { get; init; }
 
+    [JsonPropertyName("numeric_settings")]
+    public Dictionary<string, int> NumericSettings { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
     [JsonPropertyName("job_series_names")]
     public Dictionary<int, string> JobSeriesNames { get; init; } = new();
 

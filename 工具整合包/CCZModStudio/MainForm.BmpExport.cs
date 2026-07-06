@@ -12,7 +12,7 @@ public sealed partial class MainForm
     {
         var rows = GetSelectedRowsForBmpExport(_roleEditorGrid);
         var targets = BuildRoleFaceBmpExportTargets(rows, "头像");
-        ExecuteBmpExport(BmpExportKind.Face, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, _roleEditorInfoBox, "导出头像BMP");
+        ExecuteBmpExport(BmpExportKind.Face, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, Array.Empty<int>(), _roleEditorInfoBox, "导出头像BMP");
     }
 
     private void ExportSelectedJobSImagesBmp()
@@ -30,7 +30,7 @@ public sealed partial class MainForm
             });
         }
 
-        ExecuteBmpExport(BmpExportKind.JobSImage, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, _jobAreaPreviewInfoBox, "导出兵种S形象BMP");
+        ExecuteBmpExport(BmpExportKind.JobSImage, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, Array.Empty<int>(), _jobAreaPreviewInfoBox, "导出兵种S形象BMP");
     }
 
     private void ExportSelectedItemIconsBmp()
@@ -56,7 +56,7 @@ public sealed partial class MainForm
             });
         }
 
-        ExecuteBmpExport(BmpExportKind.ItemIcon, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, _itemEditorInfoBox, "导出宝物图标BMP");
+        ExecuteBmpExport(BmpExportKind.ItemIcon, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, Array.Empty<int>(), _itemEditorInfoBox, "导出宝物图标BMP");
     }
 
     private void ExportSelectedJobStrategyIconsBmp()
@@ -80,7 +80,7 @@ public sealed partial class MainForm
             });
         }
 
-        ExecuteBmpExport(BmpExportKind.StrategyIcon, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, _jobStrategyPreviewInfoBox, "导出策略图标BMP");
+        ExecuteBmpExport(BmpExportKind.StrategyIcon, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, Array.Empty<int>(), _jobStrategyPreviewInfoBox, "导出策略图标BMP");
     }
 
     private void ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind kind)
@@ -115,13 +115,19 @@ public sealed partial class MainForm
             ImageAssignmentResourceKind.S => "导出S形象BMP",
             _ => "导出R形象BMP"
         };
-        ExecuteBmpExport(exportKind, targets, GetImageAssignmentSPreviewFactionSlot(), _imageAssignmentInfoBox, title);
+        var stageSlots = kind == ImageAssignmentResourceKind.S
+            ? SelectSImageStageSlots("选择导出 S 形象转数", "选择要导出的人物 S 形象转。三转 S 会按选择导出；单转 S 只支持第一转。")
+            : Array.Empty<int>();
+        if (kind == ImageAssignmentResourceKind.S && stageSlots.Count == 0) return;
+
+        ExecuteBmpExport(exportKind, targets, GetImageAssignmentSPreviewFactionSlot(), stageSlots, _imageAssignmentInfoBox, title);
     }
 
     private void ExecuteBmpExport(
         BmpExportKind kind,
         IReadOnlyList<BmpExportTarget> targets,
         int factionSlot,
+        IReadOnlyList<int> sImageStageSlots,
         TextBox infoBox,
         string title)
     {
@@ -166,6 +172,7 @@ public sealed partial class MainForm
             SingleMode = singleMode,
             OverwriteExisting = overwrite,
             FactionSlot = factionSlot,
+            SImageStageSlots = sImageStageSlots,
             Targets = targets
         };
 

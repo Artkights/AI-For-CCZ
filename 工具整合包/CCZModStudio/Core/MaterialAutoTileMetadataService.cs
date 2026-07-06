@@ -68,7 +68,7 @@ public sealed class MaterialAutoTileMetadataService
     private static IReadOnlyList<MaterialAutoTileVariant> BuildCanonicalStripVariants(string fileName, int columns, int imageWidth, int imageHeight, string autoTileMode)
     {
         var variants = new List<MaterialAutoTileVariant>();
-        var order = GetCanonicalMaskOrder();
+        var order = GetCanonicalMaskOrder(autoTileMode);
         var tile = MapResourceItem.MapTilePixelSize;
         for (var i = 0; i < Math.Min(order.Length, columns); i++)
         {
@@ -125,6 +125,34 @@ public sealed class MaterialAutoTileMetadataService
             (MaterialAutoTileRoles.TeeE, MaterialAutoTileMasks.TeeE),
             (MaterialAutoTileRoles.Cross, MaterialAutoTileMasks.Cross)
         ];
+
+    public static (string Role, int Mask)[] GetCanonicalMaskOrder(string autoTileMode)
+    {
+        var normalized = NormalizeAutoTileMode(autoTileMode);
+        if (!normalized.Equals(MaterialAutoTileModes.LinePath, StringComparison.OrdinalIgnoreCase))
+        {
+            return GetCanonicalMaskOrder();
+        }
+
+        return
+        [
+            (MaterialAutoTileRoles.StraightH, MaterialAutoTileMasks.StraightH),
+            (MaterialAutoTileRoles.StraightV, MaterialAutoTileMasks.StraightV),
+            (MaterialAutoTileRoles.CornerNW, MaterialAutoTileMasks.CornerNW),
+            (MaterialAutoTileRoles.CornerNE, MaterialAutoTileMasks.CornerNE),
+            (MaterialAutoTileRoles.CornerSW, MaterialAutoTileMasks.CornerSW),
+            (MaterialAutoTileRoles.CornerSE, MaterialAutoTileMasks.CornerSE),
+            (MaterialAutoTileRoles.EndN, MaterialAutoTileMasks.North),
+            (MaterialAutoTileRoles.EndS, MaterialAutoTileMasks.South),
+            (MaterialAutoTileRoles.EndE, MaterialAutoTileMasks.East),
+            (MaterialAutoTileRoles.EndW, MaterialAutoTileMasks.West),
+            (MaterialAutoTileRoles.TeeN, MaterialAutoTileMasks.TeeN),
+            (MaterialAutoTileRoles.TeeS, MaterialAutoTileMasks.TeeS),
+            (MaterialAutoTileRoles.TeeW, MaterialAutoTileMasks.TeeW),
+            (MaterialAutoTileRoles.TeeE, MaterialAutoTileMasks.TeeE),
+            (MaterialAutoTileRoles.Cross, MaterialAutoTileMasks.Cross)
+        ];
+    }
 
     public static string RoleFromMask(int mask)
         => mask switch

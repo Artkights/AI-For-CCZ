@@ -222,6 +222,7 @@ public sealed partial class MainForm
         AddDataTableItem(items, "兵种设定", "详细兵种", _currentJobEditorData, () => SaveJobEditorSilentlyAsync(), () => LoadJobEditor());
         AddDataTableItem(items, "兵种设定", "兵种系/地形", _currentJobTerrainData, () => SaveJobTerrainEditorSilentlyAsync(), () => LoadJobTerrainEditor());
         AddDataTableItem(items, "兵种设定", "兵种相克矩阵", _jobRestraintRead?.Data, () => SaveJobMatrixEditorSilentlyAsync(), () => LoadJobMatrixEditor());
+        AddDataTableItem(items, "兵种设定", "兵种属性矩阵", _jobAttributeRead?.Data, () => SaveJobMatrixEditorSilentlyAsync(), () => LoadJobMatrixEditor());
         AddDataTableItem(items, "兵种设定", "策略", _currentJobStrategyData, () => SaveJobStrategyEditorSilentlyAsync(), () => LoadJobStrategyEditor());
         AddDataTableItem(items, "兵种设定", "兵种特效", _currentJobEffectData, () => SaveJobEffectEditorSilentlyAsync(), () => LoadJobEffectEditor());
         AddDataTableItem(items, "宝物设定", "宝物/物品", _currentItemEditorData, () => SaveItemEditorSilentlyAsync(), () => LoadItemEditor());
@@ -259,7 +260,13 @@ public sealed partial class MainForm
     private DataTable? GetRoleTextCombinedChanges()
     {
         if (_roleBiographyRead == null || _roleCriticalQuoteRead == null || _roleRetreatQuoteRead == null) return null;
-        if (!HasChanges(_roleBiographyRead.Data) && !HasChanges(_roleCriticalQuoteRead.Data) && !HasChanges(_roleRetreatQuoteRead.Data)) return null;
+        var assignmentChanged = false;
+        if (_project != null && _roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } roleRow)
+        {
+            assignmentChanged = BuildRoleCriticalAssignmentPreview(roleRow, GetCurrentRoleCriticalQuoteSelection()).HasChanges;
+        }
+
+        if (!assignmentChanged && !HasChanges(_roleBiographyRead.Data) && !HasChanges(_roleCriticalQuoteRead.Data) && !HasChanges(_roleRetreatQuoteRead.Data)) return null;
 
         var table = new DataTable("RoleTexts");
         table.Columns.Add("ID", typeof(int));
@@ -287,7 +294,7 @@ public sealed partial class MainForm
 
     private void AddCurrentMapWorkbenchUnsavedItem(List<UnsavedEditorItem> items)
     {
-        if (_project == null || _currentMapWorkbenchDraft == null || !IsCurrentMapWorkbenchDraftDirty()) return;
+        if (_currentMapWorkbenchDraft == null || !IsCurrentMapWorkbenchDraftDirty()) return;
         items.Add(new UnsavedEditorItem
         {
             Page = "地图编辑",
@@ -555,7 +562,8 @@ public sealed partial class MainForm
 
         var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
         var bioRow = FindRowById(_roleBiographyRead.Data, roleId);
-        var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuote(_project, roleRow, _roleCriticalQuoteRead.Data);
+        var criticalSelection = GetCurrentRoleCriticalQuoteSelection();
+        var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuoteSelection(roleRow, _roleCriticalQuoteRead.Data, criticalSelection);
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         bioRow["浠嬬粛"] = _roleBiographyBox.Text;
@@ -611,9 +619,21 @@ public sealed partial class MainForm
     private Task SaveRoleTextDetailsSilentlyAsync()
     {
         if (_project == null || _roleBiographyRead == null || _roleCriticalQuoteRead == null || _roleRetreatQuoteRead == null) return Task.CompletedTask;
-        var saves = SaveRoleTextDetailsCore();
-        if (_roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } roleRow) ShowRoleTextDetails(roleRow);
-        SetStatus($"角色文本已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
+        DataRow? roleRow = null;
+        RoleCriticalQuoteSelection? selection = null;
+        if (_roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } currentRoleRow)
+        {
+            roleRow = currentRoleRow;
+            selection = GetCurrentRoleCriticalQuoteSelection();
+            ValidateRoleTextCapacities(
+                _roleQuoteMappingService.ResolveCriticalQuoteSelection(currentRoleRow, _roleCriticalQuoteRead.Data, selection),
+                _roleQuoteMappingService.ResolveRetreatQuote(currentRoleRow, _roleRetreatQuoteRead.Data));
+        }
+
+        SyncSelectedRoleTextDetailsIntoTables();
+        var saves = SaveRoleTextDetailsCore(roleRow, selection);
+        if (_roleEditorGrid.CurrentRow != null && TryGetDataRow(_roleEditorGrid.CurrentRow) is { } refreshedRoleRow) ShowRoleTextDetails(refreshedRoleRow);
+        SetStatus($"角色文本已保存：{saves.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -649,11 +669,15 @@ public sealed partial class MainForm
 
     private Task SaveJobMatrixEditorSilentlyAsync()
     {
-        if (_project == null || _jobRestraintRead == null || !HasChanges(_jobRestraintRead.Data)) return Task.CompletedTask;
-        var changedCells = GetChangedCellKeys(_jobRestraintRead.Data);
-        var result = SaveChangedTableAndVerify(_jobRestraintRead)!;
-        RefreshJobMatrixCellsAfterEdit(changedCells);
-        SetStatus($"兵种相克矩阵已保存：{result.ChangedBytes} 字节变化");
+        if (_project == null || _jobRestraintRead == null || _jobAttributeRead == null) return Task.CompletedTask;
+        if (!HasChanges(_jobRestraintRead.Data) && !HasChanges(_jobAttributeRead.Data)) return Task.CompletedTask;
+        var restraintChangedCells = GetChangedCellKeys(_jobRestraintRead.Data);
+        var attributeChangedCells = GetChangedCellKeys(_jobAttributeRead.Data);
+        var changedBytes = 0;
+        if (SaveChangedTableAndVerify(_jobRestraintRead) is { } restraintSave) changedBytes += restraintSave.ChangedBytes;
+        if (SaveChangedTableAndVerify(_jobAttributeRead) is { } attributeSave) changedBytes += attributeSave.ChangedBytes;
+        RefreshJobMatrixCellsAfterEdit(restraintChangedCells.Concat(attributeChangedCells).ToList());
+        SetStatus($"兵种相克/属性矩阵已保存：{changedBytes} 字节变化");
         return Task.CompletedTask;
     }
 
@@ -718,9 +742,16 @@ public sealed partial class MainForm
 
     private Task SaveMapWorkbenchDraftSilentlyAsync()
     {
-        if (_project == null || _currentMapWorkbenchDraft == null) return Task.CompletedTask;
+        if (_currentMapWorkbenchDraft == null) return Task.CompletedTask;
         SyncMapWorkbenchDraftFromEditor();
-        _mapDraftService.SaveDraft(_project, _currentMapWorkbenchDraft);
+        if (_project != null)
+        {
+            _mapDraftService.SaveDraft(_project, _currentMapWorkbenchDraft);
+        }
+        else
+        {
+            _mapDraftService.SaveDraft(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName(), _currentMapWorkbenchDraft);
+        }
         _mapWorkbenchSettings.LastDraftId = _currentMapWorkbenchDraft.DraftId;
         _mapWorkbenchSettings.LastBoundMapId = _currentMapWorkbenchDraft.BoundMapId;
         _mapWorkbenchSettings.LastMaterialRoot = _currentMapWorkbenchDraft.MaterialRoot;

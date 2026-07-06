@@ -70,6 +70,14 @@ public static class CsvService
         => ImportIntoWithChanges(table, path, allowPartialColumns, matchByIdWhenPresent).ImportedRows;
 
     public static CsvImportResult ImportIntoWithChanges(DataTable table, string path, bool allowPartialColumns, bool matchByIdWhenPresent)
+        => ImportIntoWithChanges(table, path, allowPartialColumns, matchByIdWhenPresent, canImportColumn: null);
+
+    public static CsvImportResult ImportIntoWithChanges(
+        DataTable table,
+        string path,
+        bool allowPartialColumns,
+        bool matchByIdWhenPresent,
+        Func<string, bool>? canImportColumn)
     {
         var records = ReadRecords(path, table);
         if (records.Count == 0) throw new InvalidOperationException("CSV 文件为空。 ");
@@ -170,7 +178,7 @@ public static class CsvService
 
             foreach (var (csvIndex, column) in columnMap)
             {
-                if (column.ColumnName == "ID" || column.ReadOnly)
+                if (column.ColumnName == "ID" || column.ReadOnly || canImportColumn?.Invoke(column.ColumnName) == false)
                 {
                     skippedReadOnlyCells++;
                     continue;

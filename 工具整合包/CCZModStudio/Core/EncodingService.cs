@@ -25,7 +25,8 @@ public static class EncodingService
     public static string DecodeFixedString(ReadOnlySpan<byte> bytes)
     {
         EnsureCodePages();
-        var end = bytes.Length;
+        var nul = bytes.IndexOf((byte)0x00);
+        var end = nul >= 0 ? nul : bytes.Length;
         while (end > 0 && (bytes[end - 1] == 0x00 || bytes[end - 1] == 0x20 || bytes[end - 1] == 0xFF))
         {
             end--;

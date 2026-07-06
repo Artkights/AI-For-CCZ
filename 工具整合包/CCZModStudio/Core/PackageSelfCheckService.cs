@@ -31,6 +31,7 @@ public static class PackageSelfCheckService
         ("Assets\\About\\Doro-white.png", PortableInstallPaths.AboutAsset("Doro-white.png"), "缺少应用图标 png，跨设备复用和图标素材预览会退化。"),
         ("Assets\\About\\doro.jpg", PortableInstallPaths.AboutAsset("doro.jpg"), "缺少关于页图片。"),
         ("Assets\\About\\Doro.webp", PortableInstallPaths.AboutAsset("Doro.webp"), "缺少关于页备用图片。"),
+        ("Assets\\PortraitFrames\\heiy01.png", PortableInstallPaths.PortraitFrameAsset("heiy01.png"), "缺少内置头像框素材，一键/批量头像框默认素材目录不可用；仍可手动选择本地头像框图片。"),
         ("Templates\\剧本文本导入AI说明模板.md", PortableInstallPaths.ScenarioTextImportTemplatePath, "缺少剧本文本导入模板。"),
         ("Package\\GUI-PACKAGE-MANIFEST.txt", PortableInstallPaths.PackageManifestPath, "缺少 GUI 包清单。"),
         ("Package\\self-check.json", PortableInstallPaths.SelfCheckPath, "缺少 GUI 包自检定义。")

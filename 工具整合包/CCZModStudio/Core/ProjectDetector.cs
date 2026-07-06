@@ -367,7 +367,7 @@ public sealed class ProjectDetector
             diagnostics.Add("requestedPrefix=6.6");
             diagnostics.Add("actualPrefixes=" + (actualPrefixes.Count == 0 ? "<none>" : string.Join(",", actualPrefixes)));
             diagnostics.Add("tableFallback=true");
-            diagnostics.Add("CrossVersionFallback=6.6 engine is using a non-6.6 HexTable.xml; writes are not blocked, but offsets must be reviewed.");
+            diagnostics.Add("CrossVersionFallback=6.6 engine is using a non-6.6 HexTable.xml; writes are blocked by default, and MCP table writes require write_mode=CrossVersionFallbackWrite.");
         }
         else
         {
@@ -548,13 +548,7 @@ public sealed class ProjectDetector
         {
             var ekd5 = Path.Combine(gameRoot, "Ekd5.exe");
             if (!File.Exists(ekd5)) return null;
-            var size = new FileInfo(ekd5).Length;
-            return size switch
-            {
-                1_130_496 => "6.6",
-                1_196_032 => "6.5",
-                _ => null
-            };
+            return CczEngineProfileService.InferVersionFromExeSize(new FileInfo(ekd5).Length);
         }
         catch
         {

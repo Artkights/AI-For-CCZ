@@ -111,7 +111,7 @@ public sealed partial class MainForm
 
         using (TracePerf("LoadProject.HexTable"))
         {
-            _tables = _tableParser.Load(project.HexTableXmlPath);
+            _tables = new Ccz66HexTableAugmentationService().LoadForProject(project, _tableParser);
         }
         using (TracePerf("LoadProject.SceneDictionary"))
         {
@@ -181,6 +181,7 @@ public sealed partial class MainForm
         _projectLabel.Text = projectText;
         ResetProjectBoundState();
         _tableList.DataSource = null;
+        LoadMapWorkbenchSettings();
         SetStatus(statusText);
     }
 
@@ -227,6 +228,7 @@ public sealed partial class MainForm
         _exportRoleFaceBmpButton.Enabled = false;
         _saveRoleTextDetailButton.Enabled = false;
         ClearRoleEquipmentDetailControls();
+        ClearRoleCriticalQuoteAssignmentControls();
 
         _currentJobEditorData = null;
         _jobEditorGrid.DataSource = null;
@@ -268,6 +270,8 @@ public sealed partial class MainForm
         _queryFreeSImageIdsButton.Enabled = false;
         _importImageAssignmentFaceButton.Enabled = false;
         _batchImportImageAssignmentFaceButton.Enabled = false;
+        _applyImageAssignmentFaceFrameButton.Enabled = false;
+        _batchApplyImageAssignmentFaceFrameButton.Enabled = false;
         _exportRImageBmpButton.Enabled = false;
         _exportSImageBmpButton.Enabled = false;
         _exportImageAssignmentFaceBmpButton.Enabled = false;

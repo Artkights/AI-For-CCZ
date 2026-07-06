@@ -52,8 +52,14 @@ public sealed class SImageReplaceRequest
     public int? CharacterId { get; init; }
     public int? JobId { get; init; }
     public int FactionSlot { get; init; } = 1;
+    public IReadOnlyList<int> StageSlots { get; init; } = Array.Empty<int>();
     public string WriteMode { get; init; } = "direct";
 }
+
+public sealed record SImageStageTarget(
+    int StageSlot,
+    int ImageNumber,
+    string DisplayName);
 
 public sealed class SImageMappingSnapshot
 {
@@ -61,6 +67,7 @@ public sealed class SImageMappingSnapshot
     public int? JobId { get; init; }
     public int FactionSlot { get; init; } = 1;
     public IReadOnlyList<int> ImageNumbers { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<SImageStageTarget> StageTargets { get; init; } = Array.Empty<SImageStageTarget>();
     public string ShortText { get; init; } = string.Empty;
     public string Detail { get; init; } = string.Empty;
 }
@@ -68,6 +75,9 @@ public sealed class SImageMappingSnapshot
 public sealed class SImageReplaceFilePreview
 {
     public string ActionName { get; init; } = string.Empty;
+    public int StageSlot { get; init; }
+    public string StageName { get; init; } = string.Empty;
+    public int ImageNumber { get; init; }
     public string TargetFileName { get; init; } = string.Empty;
     public string TargetPath { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
@@ -87,6 +97,9 @@ public sealed class SImageReplacePreviewResult
 public sealed class SImageReplaceFileResult
 {
     public string ActionName { get; init; } = string.Empty;
+    public int StageSlot { get; init; }
+    public string StageName { get; init; } = string.Empty;
+    public int ImageNumber { get; init; }
     public string TargetFileName { get; init; } = string.Empty;
     public string TargetPath { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;

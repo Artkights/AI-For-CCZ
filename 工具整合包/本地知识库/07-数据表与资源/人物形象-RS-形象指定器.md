@@ -547,3 +547,269 @@ S 编号不是 Unit 直接图号，而是人物指定表里的紧凑编号。当
 ```text
 GLOBAL_SETTINGS_WRITE_SMOKE_OK series=君主->烟测全局 detailed=群雄->烟测职业 title=【三国志曹操传 加强版】->全局设定烟测
 ```
+
+#### 2026-07-04 MCP 官方形象指定器 Oracle 接入
+
+本轮把 `B形象指定器` 从知识库参考升级为 MCP 可调用的官方修改器判定标准。它不替代 CCZModStudio 写入器，而是作为 referee 校验当前工具是否写到了官方工具认可的位置。
+
+已接入 MCP 工具：
+
+- `detect_image_assigner_oracle`：定位 `形象指定器65.exe` / `形象指定器66x.exe`、`System.ini`、依赖文件和版本兼容状态。
+- `read_image_assigner_oracle_config`：只读返回 `FileHead/RFileHead/UserXK/DefID/AssID/SMagic/SCount` 等键值。
+- `compare_image_assigner_oracle`：对比当前 HexTable 与官方配置，重点校验 `RFileHead=E1000`、`FileHead=D2800`、`UserXK=A3280`、`DefID=70`、`AssID=109`、`SMagic=144`。
+- `plan_image_assigner_validation`：为 R/S、头像或全局参数实验生成测试副本验证计划。
+- `run_image_assigner_oracle_smoke`：默认 `static` 只做配置/依赖/表定义对照；`launch_only` 和 `ui_probe` 只读启动，不执行保存。
+- `compare_image_assigner_output`：比较 `before / official_after / ccz_after` 三个测试副本目录的核心文件字节差异。
+
+新的自动化判定口径：
+
+- `detect_project` 返回 `ImageAssignerOracle` 摘要。
+- `read_table/write_table_rows` 对 R/S 形象表返回 `OracleStatus`：`MatchedOfficialImageAssigner`、`ConfigMissing`、`OffsetMismatch` 或 `CrossVersionOracle`。
+- R/S 写入仍走 CCZModStudio 的备份、报告、复读链路；官方工具只作为验证标准。
+- 左侧全局数字参数继续标为 `NeedsUiOrDiffExtraction`。只有通过官方工具输出 diff、地址分类、CCZ 测试副本写回、复读和运行时验证后，才可升级为可写设置。
+
+#### 2026-07-04 官方 Oracle 写入实验结果
+
+本轮新增 `run_image_assigner_assignment_experiment` / `--image-assigner-oracle-experiment-smoke`，用于自动化验证“官方形象指定器配置偏移”和“CCZModStudio HexTable 写入偏移”是否一致。实验只写入自动生成的测试副本，不修改正式基底。
+
+实验方法：
+
+- 生成三份测试副本：`before`、`official_case`、`ccz_case`。
+- `official_case` 不驱动旧 VB6 界面保存，而是严格按形象指定器 `System.ini` 中的 `RFileHead/FileHead` 计算官方 oracle 偏移并写入 UInt16。
+- `ccz_case` 通过 CCZModStudio `HexTableWriter` 写入同一人物行、同一新值。
+- 比较 `before -> official_case` 与 `before -> ccz_case` 的 `Ekd5.exe` 变更偏移、变更字节和 CCZ 复读结果。
+
+实测结果：
+
+```text
+R 行 0：official offset=0E1000，ccz offset=0E1000，原值 0 -> 新值 1，字节一致，复读一致。
+S 行 0：official offset=0D2800，ccz offset=0D2800，原值 1 -> 新值 2，字节一致，复读一致。
+IMAGE_ASSIGNER_ORACLE_EXPERIMENT_SMOKE_OK
+```
+
+本次测试副本路径：
+
+```text
+R before   = CCZModStudio_TestCopies\ImageAssignerOracle_r_image_assignment_0_20260704_215037_087\before
+R official = CCZModStudio_TestCopies\ImageAssignerOracle_r_image_assignment_0_20260704_215037_087\official_case
+R ccz      = CCZModStudio_TestCopies\ImageAssignerOracle_r_image_assignment_0_20260704_215037_087\ccz_case
+S before   = CCZModStudio_TestCopies\ImageAssignerOracle_s_image_assignment_0_20260704_215041_771\before
+S official = CCZModStudio_TestCopies\ImageAssignerOracle_s_image_assignment_0_20260704_215041_771\official_case
+S ccz      = CCZModStudio_TestCopies\ImageAssignerOracle_s_image_assignment_0_20260704_215041_771\ccz_case
+```
+
+结论：当前 6.5 基底下，人物 R/S 形象指定表的 CCZModStudio 写入地址与官方形象指定器 `System.ini` 完全一致：
+
+- R 形象指定：`Ekd5.exe @ 0xE1000 + rowId * 2`
+- S 形象指定：`Ekd5.exe @ 0xD2800 + rowId * 2`
+
+该实验闭环可以作为后续 R/S 形象指定写入正确性的自动化判定标准。若未来扩展到头像或全局参数，仍需先建立对应的官方 oracle 偏移来源；不能把本次 R/S 结论外推到未验证字段。
+
+#### 2026-07-04 全局数字参数继续采证结果
+
+本轮继续测试旧 B 形象指定器“全局设置”左侧数字项，结论是：功能存在性比 2026-06-08 时更明确，但仍没有任何数字项达到可写标准，因此 CCZModStudio 继续保持这些项目只读，不放开保存权限。
+
+已确认事实：
+
+- `形象指定器65.exe` 中静态命中 `Form8 / 全局设置` 资源和相关标签，说明这些功能确实由官方工具提供，不只是截图或外部资料传闻。
+- 已命中的标签包括：`能力显示`、`能力条件`、`转职等级`、`等级上限`、`升级经验`、`普装升级经验`、`特装升级经验`、`普装等级上限`、`特装等级上限`、`新加武将功勋`、`敌友武将功勋`、`普装提升等级`、`特装提升等级`、`中级装备出现等级`、`游戏标题`、`单数`、`双数`。
+- `System.ini` 仍只提供 `FileHead/RFileHead/UserXK/BzXG/SMagic/SCount/DefID/AssID` 等配置，不包含这些左侧全局数字项的文件偏移、运行时地址或字段宽度。
+- 官方工具可只读启动；在测试副本工具目录中，`System.ini` 可指向自动复制出的 `official_case`。但旧 VB6 工具按钮事件不能稳定用同步 `SendMessage/BM_CLICK` 驱动，`打开文件/全局设置` 自动保存 diff 本轮未闭环。
+- `CMF_KNOWLEDGE_SMOKE` 曾使用过示例导出行 `等级上限 0048D3C4 Byte 1B Ekd5.exe / 升级经验 0048D3C5 Word 2B Ekd5.exe`。本轮用当前 6.5 基底 `Ekd5.exe` 重新映射验证：`VA 0048D3C4 -> 文件偏移 0x8BDC4`，读取到的是 GBK 文本片段，首字节 `D0-B6-AF`，不是 `60/73`，因此该示例不能作为等级上限/升级经验写回规则。
+- 对当前 `Ekd5.exe` 搜索默认值组合：完整序列 `135,144,144,144,20,40,60,73,150,200,5,9,25,25,4,6,20` 未命中；`60,73`、`20,40`、`5,9`、`25,25` 等短序列存在但落在代码或噪声上下文中，不能作为字段地址。
+
+当前九个数字项状态：
+
+| 项目 | 旧工具默认/显示值 | 官方 UI 标签 | System.ini 偏移 | CMF/地址线索 | 当前权限 |
+| --- | --- | --- | --- | --- | --- |
+| 能力显示（单数/双数） | 单数 | 已确认 | 无 | 无字段级地址 | 只读 |
+| 能力条件 | `135 / 144 / 144 / 144` | 已确认 | 无 | 默认值完整序列未命中 | 只读 |
+| 转职等级（一转/二转） | `20 / 40` | 已确认 | 无 | 短序列存在但不能定位 | 只读 |
+| 等级上限 / 升级经验 | `60 / 73` | 已确认 | 无 | `0048D3C4/0048D3C5` 已证伪为当前基底规则 | 只读 |
+| 普装/特装升级经验 | `150 / 200` | 已确认 | 无 | 未取得可靠偏移 | 只读 |
+| 普装/特装等级上限 | `5 / 9` | 已确认 | 无 | 短序列存在但不能定位 | 只读 |
+| 新加/敌武将功勋 | `25 / 25` | 已确认 | 无 | 功勋字段另有动态调试缺口 | 只读 |
+| 普装/特装提升等级 | `4 / 6` | 已确认 | 无 | 短序列存在但不能定位 | 只读 |
+| 中级装备出现等级 | `20` | 已确认 | 无 | 单值无法排除误报 | 只读 |
+
+本轮生成的证据目录：
+
+```text
+CCZModStudio_Reports\DebugEvidence\global-settings-static-scan
+CCZModStudio_Reports\DebugEvidence\global-settings-value-cluster
+CCZModStudio_Reports\DebugEvidence\global-settings-official-ui-20260704_221058_311
+```
+
+新增代码与 smoke：
+
+- `GlobalSettingsService` 的九个数字项继续 `CanEdit=false`，但说明改为“官方 UI 标签已确认；仍需官方输出 diff/偏移闭环”。
+- 全局参数证据页新增 `B形象指定器 Form8 全局设置页` 与 `CMF 示例地址 0048D3C4/0048D3C5` 两条证据。
+- `GlobalSettingsDialog` 的全局参数表新增 `Oracle覆盖` 列。
+- 新增 `--global-numeric-evidence-smoke`，当前输出：
+
+```text
+GLOBAL_NUMERIC_EVIDENCE_SMOKE_OK locked=9 cmfExampleVA=0048D3C4 fileOffset=0x8BDC4 firstBytes=D0-B6-AF ...
+```
+
+升级为可写的最低条件保持不变：
+
+- 官方工具或 CheatMaker 正常导出拿到字段名、地址、类型、长度。
+- 地址能分类到 `Ekd5.exe` 文件偏移、PE 映射地址或其它明确资源文件偏移。
+- 当前 6.5 样本原值能复读为旧工具显示值。
+- 测试副本写入后能由 CCZModStudio 复读一致。
+- 最好再用官方工具输出 diff 或 x32dbg/runtime 观察闭环。
+
+在这些条件满足前，不得把任何左侧全局数字项从 `Pending/NeedsUiOrDiffExtraction` 升级为可写。
+
+#### 2026-07-06 全局数字参数两项闭环与查询入口
+
+本轮通过人工操作旧 `形象指定器65.exe`，补齐了两个左侧全局数字项的官方单字段 diff、测试副本写回和复读闭环。结论只适用于当前 6.5 未加密基底 `Ekd5.exe`，SHA256 为 `F13D275C8F4CF32C93B06C6B754D14C2AC577F626E62CECF7780E62322238813`。
+
+关键经验：
+
+- 旧工具“保存”即使不改字段，也会规范化若干字节；本次必须先做 `noop_case`，再用 `noop_case -> 单字段修改 case` 分类真实字段变化。
+- 静态默认值搜索只能作为断点和 diff 对照线索，不能作为可写地址来源。最新查询报告中，`等级上限` 默认值 `60` 相关静态命中达 `7746`，`升级经验` 默认值 `73` 相关静态命中达 `2956`，若没有官方单字段 diff 会产生大量误报。
+- 可写定义必须记录所有官方 diff 命中的目标，而不是只写主读取偏移。`等级上限` 需要同步写 6 处，其中 `0xB7D6` 为 UI 值 `+1`；`升级经验` 需要同步写 7 处。
+- 功勋字段即使后续 diff 找到偏移，也继续保持锁定，直到运行时确认“新加入武将”和“敌友武将”实际使用同一组字段。
+
+本轮已开放写回项：
+
+| Key | 旧工具字段 | 当前值 | 编码 | 主读取偏移 | 运行时 VA | 写回目标 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `LevelLimit` | 等级上限 | `60` | Byte | `Ekd5.exe@0x68F1` | `0x4074F1` | 6 处：`0x68F1/0x7CD3/0xB7D6(+1)/0x116C8/0x117CE/0x1B98E` | 已验证，可写 |
+| `UpgradeExperience` | 升级经验 | `73` | Byte | `Ekd5.exe@0x7CD6` | `0x4088D6` | 7 处：`0x7CD6/0x4F45A/0x4FF33/0x4FF48/0x5001F/0x5BAA3/0x78958` | 已验证，可写 |
+
+官方 diff 证据目录：
+
+```text
+CCZModStudio_Reports\DebugEvidence\global-numeric-discovery\20260706_211950_213
+```
+
+其中：
+
+- `before`：未操作基线。
+- `noop_case`：用户手工选择测试副本后只保存，不改字段，用于扣除旧工具保存噪声。
+- `official_case`：只改 `等级上限 60 -> 61`。
+- `exp_case`：只改 `升级经验 73 -> 74`。
+- `validated-fields\validated-global-numeric-fields.json`：字段级确认报告。
+
+本轮新增只读查询入口：
+
+- `GlobalNumericQueryService`：按 `GlobalSettingsService` 的全局数字项定义，扫描 `Ekd5.exe/Data.e5/Imsg.e5/Star.e5` 的默认值候选，输出 JSON 证据报告。
+- MCP 工具 `query_global_numeric_definitions`：只读生成候选报告，不改变任何 `CanEdit`。
+- GUI 中“生成定位证据”按钮会同时生成官方 diff 实验目录和静态查询报告。
+
+最新静态查询报告：
+
+```text
+CCZModStudio_Reports\DebugEvidence\global-numeric-query\20260706_220601_636\global-numeric-query-report.json
+```
+
+查询摘要：
+
+| Key | 字段 | 权限 | 静态候选计数 | 当前结论 |
+| --- | --- | --- | ---: | --- |
+| `AbilityDisplay` | 能力显示（单数/双数） | 只读 | 0 | 没有数字默认值可形成静态模式，必须继续官方单字段 diff |
+| `AbilityThreshold` | 能力条件 | 只读 | 337216 | 只有短序列/单值噪声，误报极高 |
+| `PromotionLevel` | 转职等级（一转/二转） | 只读 | 3906 | 完整默认序列有命中，但缺官方单字段 diff |
+| `LevelLimit` | 等级上限 | 可写 | 7746 | 已由官方 diff 和写回复读确认；静态查询只作复核 |
+| `UpgradeExperience` | 升级经验 | 可写 | 2956 | 已由官方 diff 和写回复读确认；静态查询只作复核 |
+| `EquipmentExp` | 普装/特装升级经验 | 只读 | 274 | 只有短序列/单值噪声，保持只读 |
+| `EquipmentLevelLimit` | 普装/特装等级上限 | 只读 | 5882 | 完整默认序列有命中，但缺官方单字段 diff |
+| `Merit` | 新加/敌武将功勋 | 只读 | 676 | 完整默认序列有命中，但还缺官方 diff 和运行时功勋语义验证 |
+| `EquipmentLevelRaise` | 普装/特装提升等级 | 只读 | 10448 | 完整默认序列有命中，但缺官方单字段 diff |
+| `MiddleEquipmentLevel` | 中级装备出现等级 | 只读 | 5014 | 完整默认序列有命中，但缺官方单字段 diff |
+
+验证入口：
+
+```text
+dotnet _BuildCheck\SmokeTestsGlobalNumeric\CCZModStudio.SmokeTests.dll --global-numeric-query-smoke
+dotnet _BuildCheck\SmokeTestsGlobalNumeric\CCZModStudio.SmokeTests.dll --global-numeric-evidence-smoke
+dotnet _BuildCheck\SmokeTestsGlobalNumeric\CCZModStudio.SmokeTests.dll --global-numeric-discovery-smoke
+dotnet _BuildCheck\SmokeTestsGlobalNumeric\CCZModStudio.SmokeTests.dll --global-numeric-write-smoke
+```
+
+本轮输出：
+
+```text
+GLOBAL_NUMERIC_QUERY_SMOKE_OK fields=10 editable=2 levelCandidates=7746 expCandidates=2956
+GLOBAL_NUMERIC_EVIDENCE_SMOKE_OK editable=2 locked=8
+GLOBAL_NUMERIC_DISCOVERY_SMOKE_OK status=NeedsManualOfficialDiff fields=10
+GLOBAL_NUMERIC_WRITE_SMOKE_OK verified=LevelLimit,UpgradeExperience
+```
+
+后续继续定位其它全局数字项时，必须沿用本轮流程：为同一测试副本建立 `noop_case`，每次只改一个字段，扣除 no-op 差异后再分类偏移、宽度和编码，最后用 CCZ 测试副本写回、复读和必要运行时验证闭环。未完成前不允许把待验证字段改为 `CanEdit=true`。
+
+#### 2026-07-06 低风险等级类 leaf 字段采证入口
+
+本轮将低风险等级类组合字段拆成 leaf key，并接入批量人工 diff 实验目录。由于尚未取得这些 leaf 字段的官方单字段 diff，本轮不新增可写字段；当前可写仍只有 `LevelLimit` 和 `UpgradeExperience`。
+
+新增 leaf key：
+
+| 父级组合项 | leaf key | 字段 | 实验值 |
+| --- | --- | --- | --- |
+| `PromotionLevel` | `PromotionLevelFirst` | 转职等级（一转） | `20 -> 21` |
+| `PromotionLevel` | `PromotionLevelSecond` | 转职等级（二转） | `40 -> 41` |
+| `EquipmentLevelLimit` | `EquipmentLevelLimitNormal` | 普装等级上限 | `5 -> 6` |
+| `EquipmentLevelLimit` | `EquipmentLevelLimitSpecial` | 特装等级上限 | `9 -> 10` |
+| `EquipmentLevelRaise` | `EquipmentLevelRaiseNormal` | 普装提升等级 | `4 -> 5` |
+| `EquipmentLevelRaise` | `EquipmentLevelRaiseSpecial` | 特装提升等级 | `6 -> 7` |
+| - | `MiddleEquipmentLevel` | 中级装备出现等级 | `20 -> 21` |
+
+父级组合 key `PromotionLevel`、`EquipmentLevelLimit`、`EquipmentLevelRaise` 只用于 UI 展示，MCP/API 写入时必须失败并提示使用 leaf key，不能静默忽略或把组合值拆写。
+
+新增 MCP/服务入口：
+
+- `run_global_numeric_low_risk_discovery`：生成 `noop_case`、7 个 low-risk case 和对应 `official_tool_<caseKey>`。
+- `compare_global_numeric_low_risk_diffs`：比较 `noop_case` 与每个 case，输出 `low-risk-case-diff-report.json`。
+
+最新 smoke 生成的低风险实验目录：
+
+```text
+CCZModStudio_Reports\DebugEvidence\global-numeric-discovery\20260706_222400_150\low-risk-experiment-report.json
+```
+
+初始 compare 状态为 `NeedsManualOfficialDiff`，因为 7 个 case 尚未经过人工旧工具保存。晋级规则保持保守：必须是 `Ekd5.exe` only、1 字节 `old+1=new`、无跨 leaf 共享 offset，并且后续写入 `VerifiedDefinition` 后通过 CCZ 测试副本 round-trip，才可把对应 leaf 设为 `CanEdit=true`。
+
+本轮 smoke 输出已更新：
+
+```text
+GLOBAL_NUMERIC_QUERY_SMOKE_OK fields=16 editable=2
+GLOBAL_NUMERIC_EVIDENCE_SMOKE_OK editable=2 locked=14
+GLOBAL_NUMERIC_DISCOVERY_SMOKE_OK status=NeedsManualOfficialDiff fields=16 lowRiskCases=7
+GLOBAL_NUMERIC_WRITE_SMOKE_OK verified=LevelLimit,UpgradeExperience
+```
+
+#### 2026-07-06 低风险等级类字段写回闭环
+
+用户完成低风险批量实验目录 `CCZModStudio_Reports\DebugEvidence\global-numeric-discovery\20260706_223300_608` 的人工旧工具操作后，继续比较 `noop_case -> leaf case`。本轮确认可晋级 5 个 leaf 字段，另 2 个保持锁定：
+
+- `PromotionLevelSecond`：旧工具强制二转等级为一转等级的两倍，不能独立编辑；CCZ 只开放 `PromotionLevelFirst`，并同步写二转派生常量。
+- `MiddleEquipmentLevel`：旧工具固定为 `20`，不能编辑；本轮 case 只出现旧工具保存噪声，没有字段级变更，继续只读。
+
+本轮必须先剔除旧工具保存时共同出现的升级经验规范化噪声：`Ekd5.exe@0x4F45A/0x4FF33/0x4FF48/0x5001F/0x5BAA3/0x78958 -> 0x49`。这些偏移来自旧工具写回已有 `UpgradeExperience=73`，不是低风险 leaf 字段自身，不能归入本批新字段。
+
+已开放写回项：
+
+| Key | 字段 | 主读取偏移 | 写回目标 | 派生规则 |
+| --- | --- | --- | --- | --- |
+| `PromotionLevelFirst` | 转职等级（一转） | `Ekd5.exe@0x7E67` | `0x7E67/0xB7BD/0x1C7E3/0x41D03/0x41D39/0x680B8`，以及 `0xB7AE/0x41D21` | 后两处写 `一转值 * 2`，对应二转派生常量 |
+| `EquipmentLevelLimitNormal` | 普装等级上限 | `Ekd5.exe@0x71D9` | `0x71D9/0x7409/0x744C/0x74E6/0x772B/0x1F5D2`，以及 `0x71A9/0x73DE` | 后两处写 `普装等级上限 * 普装提升等级` |
+| `EquipmentLevelLimitSpecial` | 特装等级上限 | `Ekd5.exe@0x71AC` | `0x71AC/0x7727/0x1F5E1`，以及 `0x1F5CE` | `0x1F5CE` 写 `特装等级上限 + 1` |
+| `EquipmentLevelRaiseNormal` | 普装提升等级 | `Ekd5.exe@0x73A3` | `0x73A3`，以及 `0x71A9/0x73DE` | 后两处写 `普装等级上限 * 普装提升等级` |
+| `EquipmentLevelRaiseSpecial` | 特装提升等级 | `Ekd5.exe@0x7392` | `0x7392` | 直接写 UI 值 |
+
+因此全局数字写回目标不再只有 `value + delta`，还支持 `value * multiplier + delta` 和 `value * 其它已读字段 + delta`。目前派生目标只用于：
+
+- `PromotionLevelFirst -> 二转派生常量`
+- `EquipmentLevelLimitNormal/EquipmentLevelRaiseNormal -> 普装等级上限 * 普装提升等级`
+
+当前权限：
+
+```text
+GLOBAL_NUMERIC_QUERY_SMOKE_OK fields=16 editable=7
+GLOBAL_NUMERIC_EVIDENCE_SMOKE_OK editable=7 locked=9
+GLOBAL_NUMERIC_WRITE_SMOKE_OK verified=EquipmentLevelLimitNormal,EquipmentLevelLimitSpecial,EquipmentLevelRaiseNormal,EquipmentLevelRaiseSpecial,LevelLimit,PromotionLevelFirst,UpgradeExperience
+```
+
+写回 smoke 已扩展为对所有 `CanEdit=true` 数字项执行测试副本 round-trip，并逐字节校验 preview 中列出的每个目标偏移。父级组合 key 仍不接受写入，`AbilityThreshold/EquipmentExp/Merit/PromotionLevelSecond/MiddleEquipmentLevel` 继续锁定。

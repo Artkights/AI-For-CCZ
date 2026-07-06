@@ -109,9 +109,9 @@ public sealed class AiImageAssetService
             Quality = "high",
             Foreground = true,
             NumberingRule = "R=n 对应 Pmapobj.e5 正面图 2n+1、反面图 2n+2，E5 图号为 1-based。",
-            PostProcessRule = "v1 生成静态 20 帧条带草稿：将同一立绘缩放到 48x64 后纵向复制 20 帧，纯洋红背景转透明。",
+            PostProcessRule = "要求上游输出 2 列 x 20 行 R 正背动作表：左列 front、右列 back；后处理只裁切缩放为两条 48x1280 条带，不复制单帧补动作。",
             PreviewTool = "preview_e5_image_batch_replace",
-            SafetyNote = "v1 不是完整 R 动作帧制作器；只生成可替换的静态条带草稿。"
+            SafetyNote = "R 形象必须来自真实正背 20 帧动作表；本工具不会把单张立绘伪造成 20 帧成品。"
         },
         new AiImageAssetPreset
         {
@@ -148,7 +148,9 @@ public sealed class AiImageAssetService
         int factionSlot,
         string? outputFormat,
         int? width,
-        int? height)
+        int? height,
+        IReadOnlyList<string>? referenceImagePaths = null,
+        IReadOnlyList<string>? referenceRoles = null)
     {
         var basePreset = FindPreset(presetKey);
         var target = NormalizeTargetPath(project, basePreset, targetRelativePath);
@@ -160,6 +162,7 @@ public sealed class AiImageAssetService
         var warnings = BuildPlanWarnings(project, preset, target, targetNumbers, dimensions.Width, dimensions.Height).ToArray();
         var prompt = BuildPrompt(preset, description, dimensions.Width, dimensions.Height, format, mapping);
         var negative = BuildNegativePrompt(preset);
+        var references = ResolveReferenceImages(project, referenceImagePaths, referenceRoles);
 
         return new AiImagePromptPlan
         {
@@ -175,7 +178,8 @@ public sealed class AiImageAssetService
             GenerationSize = preset.GenerationSize,
             Quality = preset.Quality,
             MappingSummary = mapping,
-            Warnings = warnings
+            Warnings = warnings,
+            ReferenceImages = references
         };
     }
 
@@ -269,7 +273,14 @@ public sealed class AiImageAssetService
         var rawPath = Path.Combine(rawRoot, $"{DateTime.Now:yyyyMMdd_HHmmss_fff}_{plan.Preset.Key}_response.json");
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(8) };
         using var message = new HttpRequestMessage(HttpMethod.Post, request.Url);
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+        if (config.Provider.Equals(ProviderRetroDiffusion, StringComparison.OrdinalIgnoreCase))
+        {
+            message.Headers.TryAddWithoutValidation("X-RD-Token", config.ApiKey);
+        }
+        else
+        {
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
+        }
         message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         message.Content = new StringContent(request.JsonPayload, Encoding.UTF8, "application/json");
 
@@ -360,6 +371,87 @@ public sealed class AiImageAssetService
                 ? "6.6 revised Mtem.e5 icon replacement uses the normal E5 backup, report, and reread validation path."
                 : "6.6 revised Item.e5 icon replacement uses the normal E5 backup, report, and reread validation path."
         };
+    }
+
+    private static IReadOnlyList<AiImageReferenceImage> ResolveReferenceImages(
+        CczProject project,
+        IReadOnlyList<string>? referenceImagePaths,
+        IReadOnlyList<string>? referenceRoles)
+    {
+        if (referenceImagePaths == null || referenceImagePaths.Count == 0)
+        {
+            return Array.Empty<AiImageReferenceImage>();
+        }
+
+        if (referenceImagePaths.Count > 9)
+        {
+            throw new InvalidOperationException("reference_image_paths supports at most 9 images.");
+        }
+
+        if (referenceRoles != null && referenceRoles.Count > 0 && referenceRoles.Count != referenceImagePaths.Count)
+        {
+            throw new InvalidOperationException("reference_roles must be empty or have the same length as reference_image_paths.");
+        }
+
+        var result = new List<AiImageReferenceImage>();
+        for (var i = 0; i < referenceImagePaths.Count; i++)
+        {
+            var rawPath = referenceImagePaths[i];
+            if (string.IsNullOrWhiteSpace(rawPath)) continue;
+            var resolved = ResolveImageReferencePath(project, rawPath);
+            if (!File.Exists(resolved))
+            {
+                throw new FileNotFoundException("Reference image was not found.", resolved);
+            }
+
+            var ext = Path.GetExtension(resolved).ToLowerInvariant();
+            if (ext is not ".png" and not ".jpg" and not ".jpeg" and not ".bmp" and not ".webp")
+            {
+                throw new InvalidOperationException("Unsupported reference image extension: " + resolved);
+            }
+
+            var bytes = File.ReadAllBytes(resolved);
+            result.Add(new AiImageReferenceImage
+            {
+                Role = NormalizeReferenceRole(referenceRoles != null && referenceRoles.Count > i ? referenceRoles[i] : null, i),
+                Path = resolved,
+                Sha256 = ComputeSha256(bytes)
+            });
+        }
+
+        return result;
+    }
+
+    private static string ResolveImageReferencePath(CczProject project, string path)
+    {
+        var trimmed = path.Trim().Trim('"');
+        if (Path.IsPathRooted(trimmed)) return Path.GetFullPath(trimmed);
+
+        var candidates = new[]
+        {
+            Path.Combine(project.GameRoot, trimmed),
+            Path.Combine(Directory.GetCurrentDirectory(), trimmed)
+        };
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+        }
+
+        return Path.GetFullPath(candidates[0]);
+    }
+
+    private static string NormalizeReferenceRole(string? role, int index)
+    {
+        var value = string.IsNullOrWhiteSpace(role)
+            ? index switch
+            {
+                0 => "design",
+                1 => "format_action",
+                2 => "style_optional",
+                _ => "reference_" + (index + 1).ToString(CultureInfo.InvariantCulture)
+            }
+            : role.Trim();
+        return value.Replace('\\', '/');
     }
 
     private static IReadOnlyList<int> ResolveTargetImageNumbers(
@@ -478,7 +570,7 @@ public sealed class AiImageAssetService
     {
         if (numbers.Any(x => x < 0)) yield return "目标编号小于 0。";
         if (preset.Foreground && (width < 16 || height < 16)) yield return "前景素材目标尺寸过小，模型生成后会强烈缩放。";
-        if (preset.Key == "r_actor") yield return "v1 只生成静态条带草稿，不代表完整动作帧。";
+        if (preset.Key == "r_actor") yield return "R 形象要求上游输出 2列x20行正背动作表；front/back 会分别切成 48x1280 条带。";
         if (preset.Key == "s_unit") yield return "S 形象要求上游输出 4x6/24 格动作表；Unit_mov/atk/spc 的精确实机帧序仍需验证。";
         if (preset.Key == "dll_icon" && Ccz66RevisedLayout.Is66(project) && Ccz66RevisedLayout.IsE5IconResource(target)) yield break;
         if (!target.Equals(preset.DefaultTargetRelativePath, StringComparison.OrdinalIgnoreCase)) yield return "目标资源路径已覆盖默认值，请确认仍属于 6.5 图片资源。";
@@ -495,7 +587,7 @@ public sealed class AiImageAssetService
             "face" =>
                 $"为曹操传加强版 6.5 MOD 绘制角色头像。角色描述：{description}。三国/古代武将风格，半身或肩部以上，脸部清晰，正面或三分之二视角，适合 120x120 小头像；纯色背景；不要文字、不要水印。",
             "r_actor" =>
-                $"为曹操传加强版 6.5 MOD 绘制 R 剧情角色立绘素材。角色描述：{description}。单人全身或近全身，站姿清楚，正面朝向，轮廓清晰，适合缩放成 48x64 小人帧；纯洋红背景或透明背景；不要文字、不要水印、不要场景。",
+                BuildRActorSpriteSheetPrompt(description),
             "s_unit" =>
                 BuildSUnitSpriteSheetPrompt(description),
             _ => description
@@ -506,9 +598,12 @@ public sealed class AiImageAssetService
             basePrompt,
             $"最终后处理目标：{width}x{height} {format}。",
             $"资源映射：{mapping}。",
-            preset.Key == "s_unit"
-                ? "请优先保证每格动作差异、帧内不出界、角色身份一致、当前角色武器始终在手、无文字无水印。"
-                : "请优先保证主体可读性、边缘干净、无文字、无水印。"
+            preset.Key switch
+            {
+                "s_unit" => "请优先保证每格动作差异、帧内不出界、角色身份一致、当前角色武器始终在手、无文字无水印。",
+                "r_actor" => "请优先保证 front/back 都是 20 个不同但连贯的 R 帧；不要只画单帧，不要用正面镜像冒充背面。",
+                _ => "请优先保证主体可读性、边缘干净、无文字、无水印。"
+            }
         });
     }
 
@@ -519,16 +614,30 @@ public sealed class AiImageAssetService
             ? "文字, 水印, 签名, 多个角色, 复杂背景, 现代物品, 模糊边缘, 低清晰度, 被裁断的主体, 过暗"
             : "文字, 水印, UI界面, 现代建筑, 科幻元素, 模糊, 过曝, 过暗, 人物特写遮挡背景";
 
+    private static string BuildRActorSpriteSheetPrompt(string description)
+        => $"""
+为曹操传加强版 6.5 MOD 绘制 R 剧情人物正背动作表。角色描述：{description}
+优先使用“角色替换型”工作流：第一张参考图是角色形象图，只用于角色身份、服装、发型、配色、阵营气质和关键装饰；第二张参考图是曹操传 6.5 R/S 格式参考，只用于低像素比例、粗轮廓、动作节奏、占格和洋红键。
+
+输出一张完整 R sprite sheet：2 列 x 20 行，共 40 格；左列为 front 正面/正侧可见帧，右列为 back 背面/背侧可见帧。每格最终对应 48x64，整列后处理为 48x1280；可以输出 1024x1536 或相近高分辨率硬边放大图，但视觉必须像原生 48x64 低分辨率像素帧最近邻放大。
+
+R 帧要求：20 行必须有站立、说话/轻微动作、转身、举武器、受击/特殊动作等差异；不得把同一帧复制 20 次。back 右列必须单独绘制，体现披风、背甲、后发束/冠背影、背持或斜持武器关系，不得由 front 镜像得到。
+
+风格约束：必须像曹操传 6.5 Pmapobj.e5 R 人物条带，短身比例，深色粗轮廓，有限调色盘，硬边像素，纯洋红键背景。不要高清立绘缩小感，不要现代像素贴纸，不要平滑渐变，不要柔边抗锯齿。
+
+武器与身份：当前武器必须在 front/back 关键帧中可读，且同一角色身份、主色、冠饰、披风和武器形状保持一致。背景使用纯洋红 #F700FF 或 #FF00FF；无文字、无水印、无网格线、无边框、无场景。
+""";
+
     private static string BuildSUnitSpriteSheetPrompt(string description)
         => $"""
 为曹操传加强版 6.5 MOD 绘制 S 战场角色小人动作表。角色描述：{description}
-优先使用“角色替换型”工作流：第一张参考图是角色形象图，只用于角色身份、服装、发型、配色、阵营气质、当前武器和关键装饰；第二张参考图是曹操传 MOD S 形象格式图，只用于 4x6 格子布局、动作、朝向、动作节奏、人物比例、像素画法、占格比例、洋红色键背景、轮廓粗细和特效尺度。
+优先使用“角色替换型”工作流：第一张参考图是角色形象图，只用于角色身份、服装、发型、配色、阵营气质和关键装饰；第二张参考图是曹操传 MOD S 形象格式图，只用于 4x6 格子布局、动作、朝向、动作节奏、人物比例、像素画法、占格比例、洋红色键背景、轮廓粗细和特效尺度。武器以文字描述为最高优先级；当文字明确指定武器时，忽略第一张参考图里的任何旧武器、第二武器、交叉武器或特效弧。
 
 替换要求：把第一张角色图中的人物替换到第二张曹操传 S 格式图中的所有动作格里；保留第二张图的格子布局、行列顺序、每格朝向、动作姿态、动作节奏、人物短身比例、像素风格和特效尺度。不要改变第二张格式图布局，不要重排格子，不要把 24 格画成一张连续场景。不要复制参考图里的背景、UI、文字、水印。
 
 输出一张完整像素图 sprite sheet：4 列 x 6 行，共 24 格；从左上到右下为动画/GIF 播放顺序；每格等宽等高，无边框、无网格线、无间距、无裁切。可以输出 1024x1536 的 4 倍硬边参考图，但视觉上必须像原生 48x48/64x64 低分辨率像素帧最近邻放大；不能画成高清像素插画或现代手游像素立绘。
 
-武器规则：不要默认画剑。必须识别并沿用角色参考图或描述中的当前武器，例如枪、戟、刀、剑、斧、锤、弓、弩、扇、杖、法器或徒手格斗武器；如果参考图没有明确武器，就选择与角色职业最相称的一种古代武器，并在 24 格中保持同一武器。所有“格挡、庆祝、蓄力、攻击、收招、支撑休息”动作都使用这个当前武器；弓弩角色用拉弓、放箭和收弓表现攻击，法师/扇杖角色用挥扇/举杖施法表现攻击，长兵器角色用突刺或横扫，重武器角色用劈砍或砸击。
+武器规则：不要默认画剑。必须优先沿用文字描述中的当前武器，例如枪、戟、刀、剑、斧、锤、弓、弩、扇、杖、法器或徒手格斗武器；只有文字没有明确武器时，才参考角色图或职业选择一种古代武器，并在 24 格中保持同一武器。所有“格挡、庆祝、蓄力、攻击、收招、支撑休息”动作都使用这个当前武器；弓弩角色用拉弓、放箭和收弓表现攻击，法师/扇杖角色用挥扇/举杖施法表现攻击，长兵器角色用突刺或横扫，重武器角色用劈砍或砸击。若文字指定“单枪/长枪/长矛”，每格只能有一条主长杆轴线，枪芒只能来自枪尖，不得出现剑、短刃、腰剑、背剑、第二枪、双武器或宽白剑弧。
 
 曹操传 S 风格约束：必须像真实 6.5 `Unit_mov/Unit_atk/Unit_spc` 条带，而不是现代高清像素贴纸。真实移动/特技帧是 48x48，攻击帧是 64x64；角色、当前武器、裙摆和特效应接近撑满单帧，允许贴近边界但不能被裁断。不要把人物画成小图标悬在大空白里。移动帧平均应占满约 44-48 像素宽、46-48 像素高；攻击帧应利用约 58-64 像素宽和 50-64 像素高，武器轨迹或法术特效可占半个格子。每格必须像在目标低分辨率格内原生绘制，再最近邻放大展示：硬边像素、深色粗轮廓、有限调色盘、少量明暗层次、底部曹操传式深色落地阴影。人物是短身战棋小人：头盔/头部偏大但不能巨头，躯干紧凑，腿短，肩背宽，整体约 2 到 3 头身；服装细节要概括成缩小后仍可读的色块，不要画成高清插画、精细立绘、写实长身比例、现代高清像素画或现代手游像素立绘。24 格中的角色比例、武器形状和主色必须一致。
 
@@ -553,6 +662,11 @@ public sealed class AiImageAssetService
         string sourcePath,
         Func<AiImagePromptPlan, string, object?>? previewFactory)
     {
+        if (plan.Preset.Key == "r_actor")
+        {
+            return PrepareRActorFiles(project, plan, sourcePath, previewFactory);
+        }
+
         if (plan.Preset.Key == "s_unit")
         {
             return PrepareSUnitFiles(project, plan, sourcePath, previewFactory);
@@ -630,6 +744,52 @@ public sealed class AiImageAssetService
         return files;
     }
 
+    private IReadOnlyList<AiImagePreparedFile> PrepareRActorFiles(
+        CczProject project,
+        AiImagePromptPlan plan,
+        string sourcePath,
+        Func<AiImagePromptPlan, string, object?>? previewFactory)
+    {
+        if (plan.TargetImageNumbers.Count < 2)
+        {
+            throw new InvalidOperationException("r_actor plans must target both front and back Pmapobj entries.");
+        }
+
+        var root = Path.Combine(GetExportRoot(project), "r_actor");
+        Directory.CreateDirectory(root);
+        var stem = MakeSafeFileStem(plan.Preset.Key + "_" + plan.Description);
+        var extension = ExtensionForFormat(plan.OutputFormat);
+        var roles = new[]
+        {
+            new { Role = "front", ImageNumber = plan.TargetImageNumbers[0], Column = 0 },
+            new { Role = "back", ImageNumber = plan.TargetImageNumbers[1], Column = 1 }
+        };
+
+        var files = new List<AiImagePreparedFile>();
+        foreach (var role in roles)
+        {
+            var outputPath = Path.Combine(root, $"{DateTime.Now:yyyyMMdd_HHmmss_fff}_{stem}_{role.Role}{extension}");
+            using var source = Image.FromFile(sourcePath);
+            using var strip = BuildRActorStripFromSheet(source, role.Column, transparentForeground: true);
+            SaveBitmap(strip, outputPath, plan.OutputFormat);
+            var outputBytes = File.ReadAllBytes(outputPath);
+            var rolePlan = ClonePlanForTarget(plan, plan.TargetRelativePath, 48, 1280, [role.ImageNumber]);
+            files.Add(new AiImagePreparedFile
+            {
+                Role = role.Role,
+                TargetRelativePath = plan.TargetRelativePath,
+                TargetImageNumbers = rolePlan.TargetImageNumbers,
+                OutputPath = outputPath,
+                OutputWidth = strip.Width,
+                OutputHeight = strip.Height,
+                OutputSha256 = ComputeSha256(outputBytes),
+                ReplacementPreview = previewFactory?.Invoke(rolePlan, outputPath)
+            });
+        }
+
+        return files;
+    }
+
     private IReadOnlyList<AiImagePreparedFile> PrepareSUnitFiles(
         CczProject project,
         AiImagePromptPlan plan,
@@ -639,6 +799,7 @@ public sealed class AiImageAssetService
         var root = Path.Combine(GetExportRoot(project), "s_unit");
         Directory.CreateDirectory(root);
         var stem = MakeSafeFileStem(plan.Preset.Key + "_" + plan.Description);
+        var extension = ExtensionForFormat(plan.OutputFormat);
         var roles = new[]
         {
             new { Role = "move", Target = "Unit_mov.e5", Width = 48, Height = 528 },
@@ -649,7 +810,7 @@ public sealed class AiImageAssetService
         var files = new List<AiImagePreparedFile>();
         foreach (var role in roles)
         {
-            var outputPath = Path.Combine(root, $"{DateTime.Now:yyyyMMdd_HHmmss_fff}_{stem}_{role.Role}.png");
+            var outputPath = Path.Combine(root, $"{DateTime.Now:yyyyMMdd_HHmmss_fff}_{stem}_{role.Role}{extension}");
             var rolePlan = ClonePlanForTarget(plan, role.Target, role.Width, role.Height);
             var post = PostProcessImage(rolePlan, sourcePath, outputPath, role.Width, role.Height);
             var outputBytes = File.ReadAllBytes(outputPath);
@@ -685,11 +846,12 @@ public sealed class AiImageAssetService
             TargetImageNumbers = targetImageNumbers ?? plan.TargetImageNumbers,
             TargetWidth = width,
             TargetHeight = height,
-            OutputFormat = "png",
+            OutputFormat = plan.OutputFormat,
             GenerationSize = plan.GenerationSize,
             Quality = plan.Quality,
             MappingSummary = plan.MappingSummary,
-            Warnings = plan.Warnings
+            Warnings = plan.Warnings,
+            ReferenceImages = plan.ReferenceImages
         };
 
     private static PostProcessInfo BuildPostProcessInfo(string sourcePath, IReadOnlyList<AiImagePreparedFile> files)
@@ -705,14 +867,6 @@ public sealed class AiImageAssetService
     private static PostProcessInfo PostProcessImage(AiImagePromptPlan plan, string sourcePath, string outputPath, int targetWidth, int targetHeight)
     {
         using var source = Image.FromFile(sourcePath);
-        if (plan.Preset.Key == "r_actor")
-        {
-            using var frame = BuildFrameBitmap(source, 48, 64, transparentForeground: true);
-            using var strip = RepeatFrame(frame, 20);
-            SaveBitmap(strip, outputPath, plan.OutputFormat);
-            return new PostProcessInfo(source.Width, source.Height, strip.Width, strip.Height, "生成 R 静态条带：48x64 帧纵向复制 20 帧。");
-        }
-
         if (plan.Preset.Key == "s_unit")
         {
             var frameOrder = SelectSUnitFrameOrder(targetWidth, targetHeight);
@@ -767,15 +921,28 @@ public sealed class AiImageAssetService
         return bitmap;
     }
 
-    private static Bitmap RepeatFrame(Bitmap frame, int count)
+    private static Bitmap BuildRActorStripFromSheet(Image source, int column, bool transparentForeground)
     {
-        var bitmap = new Bitmap(frame.Width, frame.Height * count, PixelFormat.Format32bppArgb);
+        const int columns = 2;
+        const int rows = 20;
+        var bitmap = new Bitmap(48, 64 * rows, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.Transparent);
         graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
-        for (var i = 0; i < count; i++)
+        graphics.SmoothingMode = SmoothingMode.None;
+        graphics.PixelOffsetMode = PixelOffsetMode.Half;
+
+        for (var row = 0; row < rows; row++)
         {
-            graphics.DrawImageUnscaled(frame, 0, i * frame.Height);
+            var frameIndex = row * columns + Math.Clamp(column, 0, columns - 1);
+            var sourceRect = GridCellRectangle(source.Width, source.Height, columns, rows, frameIndex);
+            var destRect = new Rectangle(0, row * 64, 48, 64);
+            graphics.DrawImage(source, destRect, sourceRect, GraphicsUnit.Pixel);
+        }
+
+        if (transparentForeground)
+        {
+            ApplyMagentaTransparency(bitmap);
         }
 
         return bitmap;
@@ -911,6 +1078,7 @@ public sealed class AiImageAssetService
             plan.OutputFormat,
             SourcePath = sourcePath,
             OutputPath = outputPath,
+            ReferenceImages = plan.ReferenceImages,
             PostProcess = post,
             PreparedFiles = files,
             SafetyNote = "AI 绘图工具只生成素材并调用 preview，不直接写入游戏资源。"
@@ -941,7 +1109,18 @@ public sealed class AiImageAssetService
                 ["background_color"] = "#F700FF",
                 ["remove_background"] = false
             };
+            if (plan.ReferenceImages.Count > 0)
+            {
+                payload["reference_images"] = plan.ReferenceImages
+                    .Select(reference => Convert.ToBase64String(File.ReadAllBytes(reference.Path)))
+                    .ToArray();
+            }
             return new ImageRequest(baseUrl + "/v1/inferences", ToJson(payload));
+        }
+
+        if (plan.ReferenceImages.Count > 0)
+        {
+            throw new InvalidOperationException("reference_image_paths are currently supported only by the RetroDiffusion R/S provider.");
         }
 
         if (config.ApiMode.Equals("images", StringComparison.OrdinalIgnoreCase))

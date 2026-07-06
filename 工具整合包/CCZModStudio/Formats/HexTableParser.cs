@@ -56,7 +56,8 @@ public sealed class HexTableParser
             OnMem = GetBool(element, "OnMem"),
             ReadOnly = GetBool(element, "ReadOnly"),
             Version = DetectVersion(tableName),
-            Fields = fields
+            Fields = fields,
+            EvidenceStatus = "NativeDefinition"
         };
     }
 

@@ -47,7 +47,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         List<TableRowUpdate> updates,
         [Description("Optional game root.")]
         string? game_root = null,
-        [Description("Default direct writes the detected project.")]
+        [Description("Default direct writes only native/exact tables. For a 6.6 CrossVersionFallback table, pass CrossVersionFallbackWrite to explicitly accept the non-native layout risk.")]
         string? write_mode = null)
         => runtime.WriteTableRows(game_root, table_name, updates, write_mode);
 
@@ -322,6 +322,34 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ExportImageResourcePreview(game_root, resource, image_number, width, height);
 
     [McpServerTool]
+    [Description("Preview an item or strategy icon by the table field value. 6.6 item icons map to E5/Item.e5 small #2N+1 and large #2N+2; strategy icons map to E5/Mtem.e5 #N+1.")]
+    public object preview_item_icon_field(
+        [Description("Icon field value from the table, for example item 图标=N.")]
+        int field_value,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Icon kind: item or strategy. Defaults to item.")]
+        string? kind = "item",
+        [Description("Preview canvas size. Defaults to 96; capped at 512.")]
+        int canvas_size = 96)
+        => runtime.PreviewItemIconField(game_root, field_value, kind, canvas_size);
+
+    [McpServerTool]
+    [Description("Replace a 6.6 Item.e5 item-icon pair by table field value. Writes small #2N+1 as 16x16 BMP and large #2N+2 as 32x32 BMP with backup/report/reread validation.")]
+    public object replace_item_icon_pair(
+        [Description("Item icon table field value N.")]
+        int field_value,
+        [Description("Large/source image path. Relative paths resolve from workspace/game/current directory.")]
+        string large_source,
+        [Description("Optional explicit small image source. If omitted, small is downscaled from large_source.")]
+        string? small_source = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes with backups and reports.")]
+        string? write_mode = null)
+        => runtime.ReplaceItemIconPair(game_root, field_value, large_source, small_source, write_mode);
+
+    [McpServerTool]
     [Description("Export importable BMP material files for job S, R, S, face, item icon, or strategy icon assets. Writes BMP files only; no game resources are modified.")]
     public object export_bmp_assets(
         [Description("Export kind: job_s_image, r_image, s_image, face, item_icon, or strategy_icon.")]
@@ -373,8 +401,12 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional final output width.")]
         int? width = null,
         [Description("Optional final output height.")]
-        int? height = null)
-        => runtime.BuildCczImagePrompt(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height);
+        int? height = null,
+        [Description("Optional reference image paths. For R/S RetroDiffusion these are sent as reference_images; roles should usually be design, format_action, style_optional.")]
+        List<string>? reference_image_paths = null,
+        [Description("Optional roles for reference_image_paths. Must be empty or the same length as reference_image_paths.")]
+        List<string>? reference_roles = null)
+        => runtime.BuildCczImagePrompt(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height, reference_image_paths, reference_roles);
 
     [McpServerTool]
     [Description("Prepare an existing generated image for a CCZ 6.5 asset and run replacement preview. Writes only CCZModStudio_Exports.")]
@@ -439,8 +471,12 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional final output height.")]
         int? height = null,
         [Description("When true, only returns prompt and target plan without network calls.")]
-        bool dry_run = true)
-        => runtime.DrawCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height, dry_run);
+        bool dry_run = true,
+        [Description("Optional reference image paths. For R/S RetroDiffusion these are sent as reference_images; roles should usually be design, format_action, style_optional.")]
+        List<string>? reference_image_paths = null,
+        [Description("Optional roles for reference_image_paths. Must be empty or the same length as reference_image_paths.")]
+        List<string>? reference_roles = null)
+        => runtime.DrawCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height, dry_run, reference_image_paths, reference_roles);
 
     [McpServerTool]
     [Description("Draw, post-process, and directly replace a CCZ image asset in an E5 or DLL resource. Creates backups and reports.")]
@@ -470,8 +506,145 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional final output width.")]
         int? width = null,
         [Description("Optional final output height.")]
-        int? height = null)
-        => runtime.DrawAndReplaceCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height);
+        int? height = null,
+        [Description("Optional reference image paths. For R/S RetroDiffusion these are sent as reference_images; roles should usually be design, format_action, style_optional.")]
+        List<string>? reference_image_paths = null,
+        [Description("Optional roles for reference_image_paths. Must be empty or the same length as reference_image_paths.")]
+        List<string>? reference_roles = null)
+        => runtime.DrawAndReplaceCczImageAsset(game_root, preset, description, target_relative_path, image_number, r_image_id, s_image_id, face_id, job_id, faction_slot, output_format, width, height, reference_image_paths, reference_roles);
+
+    [McpServerTool]
+    [Description("Build an MCP-first R/S character pixel package from a design image and a format/action reference image or folder. It records reference images, writes package reports and prompt plans, and can optionally call RetroDiffusion generation. It never writes game resources.")]
+    public object build_rs_pixel_character_design(
+        [Description("Package id under CCZModStudio_Exports/RS_PixelDesign, for example SunCe_MCP_SingleSpearCavalry_v1.")]
+        string package_id,
+        [Description("Design image path. Relative paths resolve from workspace, project root, then cwd.")]
+        string design_image_path,
+        [Description("Character display name.")]
+        string display_name = "孙策 MCP 单枪枪骑兵 v1",
+        [Description("Unit type profile, for example spear_cavalry.")]
+        string unit_type = "spear_cavalry",
+        [Description("Optional format/action reference image path. If omitted, format_reference_folder or the default local S64 mounted reference is used.")]
+        string? format_action_image_path = null,
+        [Description("Optional folder containing format/action reference images such as mov.bmp/atk.bmp/spc.bmp or a contact sheet.")]
+        string? format_reference_folder = null,
+        [Description("Optional game root used to export an S image format reference when no format image/folder is supplied.")]
+        string? format_reference_game_root = null,
+        [Description("Optional S image id used with format_reference_game_root for format reference export.")]
+        int? format_reference_s_image_id = null,
+        [Description("Optional row id label for exported format reference.")]
+        int? format_reference_row_id = null,
+        [Description("Optional display name label for exported format reference.")]
+        string? format_reference_display_name = null,
+        [Description("Character brief. The design image remains authoritative for appearance; this text records constraints.")]
+        string character_brief = "孙策；江东主将；黑金重甲；金冠束发；红黑披风；主将气质；曹操传 6.5 短身骑乘战棋小人。",
+        [Description("Weapon brief. For this workflow default is single spear cavalry.")]
+        string weapon_brief = "唯一武器是一把长枪/长矛；攻击为蓄力、突刺、挑击、枪尖白金枪芒爆发、收枪。",
+        [Description("Forbidden visual readings.")]
+        string forbidden_readings = "禁止剑、短刃、腰剑、背剑、第二枪、双武器、宽白剑弧、现代像素贴纸、程序化几何块。",
+        [Description("When true, call draw pipeline. When false, only create package, reference records, and prompt plans.")]
+        bool generate_now = false,
+        [Description("Passed to draw pipeline when generate_now=true. dry_run=true does not call the network.")]
+        bool dry_run = true,
+        [Description("Optional R image id for mapping preview/plan.")]
+        int? r_image_id = null,
+        [Description("Optional S image id for mapping preview/plan.")]
+        int? s_image_id = null,
+        [Description("Optional job id when S=0 default unit mapping is used.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.BuildRsPixelCharacterDesign(game_root, package_id, display_name, unit_type, design_image_path, format_action_image_path, format_reference_folder, format_reference_game_root, format_reference_s_image_id, format_reference_row_id, format_reference_display_name, character_brief, weapon_brief, forbidden_readings, generate_now, dry_run, r_image_id, s_image_id, job_id, faction_slot);
+
+    [McpServerTool]
+    [Description("Create a local MCP R/S pixel-edit workspace from local design and format-reference BMPs. No external image generation and no game resource writes.")]
+    public object create_rs_pixel_edit_workspace(
+        [Description("Package id under CCZModStudio_Exports/RS_PixelDesign, for example SunCe_LocalPixelEditor_SingleSpearCavalry_v1.")]
+        string package_id,
+        [Description("Display name for reports, for example 孙策.")]
+        string display_name,
+        [Description("Unit type, for example spear_cavalry.")]
+        string unit_type,
+        [Description("Local design image path. Used as visual reference record only.")]
+        string design_image_path,
+        [Description("Folder containing front.bmp/back.bmp/mov.bmp/atk.bmp/spc.bmp, or materials/r_actor and materials/s_unit.")]
+        string format_reference_root,
+        [Description("When true, rebuild an existing workspace folder.")]
+        bool overwrite_existing = false,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.CreateRsPixelEditWorkspace(game_root, package_id, display_name, unit_type, design_image_path, format_reference_root, overwrite_existing);
+
+    [McpServerTool]
+    [Description("Build a deterministic local R/S pixel-edit recipe for an existing workspace. Does not call external image providers.")]
+    public object build_rs_pixel_edit_plan(
+        [Description("Workspace package root, usually CCZModStudio_Exports/RS_PixelDesign/<PackageId>.")]
+        string package_root,
+        [Description("Unit type, for example spear_cavalry.")]
+        string unit_type = "spear_cavalry",
+        [Description("Character visual brief. Does not override explicit edit operations.")]
+        string character_brief = "",
+        [Description("Weapon brief. For spear cavalry this should require exactly one long spear/lance.")]
+        string weapon_brief = "")
+        => runtime.BuildRsPixelEditPlan(package_root, unit_type, character_brief, weapon_brief);
+
+    [McpServerTool]
+    [Description("Apply audited frame-level local pixel edits to R/S BMP materials in a workspace. No external image generation and no game resource writes.")]
+    public object apply_rs_pixel_frame_edits(
+        [Description("Workspace package root, usually CCZModStudio_Exports/RS_PixelDesign/<PackageId>.")]
+        string package_root,
+        [Description("Edit operations. Supported operations include recolor_palette, tint_region_by_luminance, clean_face_box, erase_weapon_residue, erase_effect_residue, erase_rect_to_magenta, draw_spear_axis, draw_spear_tip, draw_spear_tip_diamond, draw_spear_effect, draw_polyline, paint_pixel_runs, paint_region_mask, repaint_armor_blocks, repaint_cape_blocks, magenta_key_cleanup, copy_region_from_reference, copy_region_from_frame.")]
+        List<RsPixelFrameEditOperation> operations)
+        => runtime.ApplyRsPixelFrameEdits(package_root, operations);
+
+    [McpServerTool]
+    [Description("Export original-size-aware contact sheets for a local R/S pixel-edit workspace. Writes only under the workspace drafts folder.")]
+    public object export_rs_pixel_contact_sheets(
+        [Description("Workspace package root, usually CCZModStudio_Exports/RS_PixelDesign/<PackageId>.")]
+        string package_root,
+        [Description("Nearest-neighbor preview scale. Defaults 4.")]
+        int scale = 4,
+        [Description("Annotate face boxes and spear guide lines.")]
+        bool annotate = true)
+        => runtime.ExportRsPixelContactSheets(package_root, scale, annotate);
+
+    [McpServerTool]
+    [Description("Validate a local R/S pixel-edit workspace, including existing package validation plus local frame, face, and single-spear checks. Does not write game resources.")]
+    public object validate_rs_pixel_edit_workspace(
+        [Description("Workspace package root, usually CCZModStudio_Exports/RS_PixelDesign/<PackageId>.")]
+        string package_root,
+        [Description("Optional R image id for read-only replacement preview.")]
+        int? r_image_id = null,
+        [Description("Optional S image id for read-only replacement preview.")]
+        int? s_image_id = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ValidateRsPixelEditWorkspace(game_root, package_root, r_image_id, s_image_id, job_id, faction_slot);
+
+    [McpServerTool]
+    [Description("Build a read-only R/S sample-learning MVP workspace from local real 6.5 reference exports. Generates normalized candidates, metrics, contact sheets, annotation templates, and reports without writing game resources or local_sample_index.json.")]
+    public object build_rs_pixel_sample_learning_mvp(
+        [Description("Unit type to learn. Defaults to spear_cavalry.")]
+        string unit_type = "spear_cavalry",
+        [Description("Output folder id under CCZModStudio_Exports/RS_PixelDesign/_sample_learning. Defaults to spear_cavalry_mvp.")]
+        string output_id = "spear_cavalry_mvp",
+        [Description("When true, rebuild an existing sample-learning output folder.")]
+        bool overwrite_existing = false,
+        [Description("Number of complete candidates to place in the top review set.")]
+        int top_review_count = 12,
+        [Description("Optional local roots to scan for real reference exports. Defaults to known local reference/base roots.")]
+        List<string>? reference_roots = null,
+        [Description("Optional local roots to scan as negative cases. Defaults to old failed SunCe/smoke/procedural packages when present.")]
+        List<string>? negative_roots = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.BuildRsPixelSampleLearningMvp(game_root, unit_type, output_id, overwrite_existing, top_review_count, reference_roots, negative_roots);
 
     [McpServerTool]
     [Description("List image index entries from an E5 image resource such as Face.e5 or Unit_mov.e5.")]
@@ -550,6 +723,27 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root.")]
         string? game_root = null)
         => runtime.PreviewRImageRawReplace(game_root, r_image_id, material_folder);
+
+    [McpServerTool]
+    [Description("Validate a CCZ 6.5 R/S pixel material package and run read-only replacement previews. Checks front/back/mov/atk/spc names, strict dimensions, magenta-key risk, R/S mapping, and RAW->PNG test-copy risk. Does not write game resources.")]
+    public object validate_rs_pixel_material_package(
+        [Description("Optional package root. If supplied, materials/r_actor and materials/s_unit are used when present. Relative paths resolve from workspace, project root, then cwd.")]
+        string? material_root = null,
+        [Description("Optional R material folder containing front.bmp/back.bmp. Overrides material_root detection.")]
+        string? r_material_folder = null,
+        [Description("Optional S material folder containing mov.bmp/atk.bmp/spc.bmp. Overrides material_root detection.")]
+        string? s_material_folder = null,
+        [Description("Optional R image id. r_actor maps R=n to Pmapobj.e5 images 2n+1/2n+2.")]
+        int? r_image_id = null,
+        [Description("Optional S image id. s_unit maps compact S ids to Unit image numbers.")]
+        int? s_image_id = null,
+        [Description("Optional job id for S=0 default unit mapping.")]
+        int? job_id = null,
+        [Description("Faction slot for S=0 default unit mapping: 1=ally, 2=friendly, 3=enemy.")]
+        int faction_slot = 1,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ValidateRsPixelMaterialPackage(game_root, material_root, r_material_folder, s_material_folder, r_image_id, s_image_id, job_id, faction_slot);
 
     [McpServerTool]
     [Description("Replace R actor image assets as true-color PNG entries from a material folder. Creates backup and structured report. The tool name is kept for legacy clients.")]
@@ -907,9 +1101,154 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReadKnowledgeEntry(name);
 
     [McpServerTool]
-    [Description("List item/job/personal/patch effects from CCZModStudio catalogs and 6.5 tables.")]
+    [Description("List CheatMaker CMF old-tool knowledge sources from the old tool bundle. CMF projects are high-trust sources, but writable rules still require field extraction and reread validation.")]
+    public object list_cmf_evidence(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ListCmfEvidence(game_root);
+
+    [McpServerTool]
+    [Description("Read one CheatMaker CMF probe by path relative to the old tool bundle, including segment analysis.")]
+    public object read_cmf_evidence(
+        [Description("CMF path relative to 老版游戏制作工具, for example Star6.6X 引擎.cmf.")]
+        string relative_path,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ReadCmfEvidence(game_root, relative_path);
+
+    [McpServerTool]
+    [Description("Compare two CheatMaker CMF files. This reports project differences and never enables writes by itself.")]
+    public object compare_cmf_evidence(
+        [Description("Left CMF path relative to 老版游戏制作工具.")]
+        string left_relative_path,
+        [Description("Right CMF path relative to 老版游戏制作工具.")]
+        string right_relative_path,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.CompareCmfEvidence(game_root, left_relative_path, right_relative_path);
+
+    [McpServerTool]
+    [Description("Extract structured high-trust knowledge from a CMF project using static segment analysis. Does not modify CheatMaker or game files.")]
+    public object extract_cmf_knowledge(
+        [Description("CMF path relative to 老版游戏制作工具, for example Star6.5引擎exe修改器.cmf.")]
+        string relative_path,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ExtractCmfKnowledge(game_root, relative_path);
+
+    [McpServerTool]
+    [Description("Import a normal CheatMaker exported data/address list for one CMF project. This upgrades static CMF candidates with field metadata, but remains read-only.")]
+    public object import_cmf_export_knowledge(
+        [Description("CMF path relative to 老版游戏制作工具, for example Star6.5引擎exe修改器.cmf.")]
+        string relative_path,
+        [Description("Path to a CheatMaker exported text/CSV/TSV data or address list.")]
+        string export_path,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ImportCmfExportKnowledge(game_root, relative_path, export_path);
+
+    [McpServerTool]
+    [Description("List CMF-derived feature candidates for effects, EXE modifications, global settings, variables, and resources.")]
+    public object list_cmf_features(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Optional category or target subsystem filter, such as Effect, GlobalSetting, EffectPackageService.")]
+        string? category = null,
+        [Description("Optional keyword across name/category/subsystem/source.")]
+        string? keyword = null,
+        [Description("Maximum features to return. Defaults to 100; capped at 1000.")]
+        int limit = 100)
+        => runtime.ListCmfFeatures(game_root, category, keyword, limit);
+
+    [McpServerTool]
+    [Description("Read one CMF-derived feature candidate by feature id.")]
+    public object read_cmf_feature(
+        [Description("Feature id from list_cmf_features.")]
+        string feature_id,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ReadCmfFeature(game_root, feature_id);
+
+    [McpServerTool]
+    [Description("Promote a CMF-derived feature candidate into a rule draft report. This never writes game files.")]
+    public object promote_cmf_feature_candidate(
+        [Description("Feature id from list_cmf_features.")]
+        string feature_id,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.PromoteCmfFeatureCandidate(game_root, feature_id);
+
+    [McpServerTool]
+    [Description("Detect the official B image assigner oracle for the current project. Read-only.")]
+    public object detect_image_assigner_oracle(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.DetectImageAssignerOracle(game_root);
+
+    [McpServerTool]
+    [Description("Read the official B image assigner System.ini oracle config. Read-only.")]
+    public object read_image_assigner_oracle_config(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ReadImageAssignerOracleConfig(game_root);
+
+    [McpServerTool]
+    [Description("Compare CCZModStudio table assumptions against the official B image assigner oracle. Read-only.")]
+    public object compare_image_assigner_oracle(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Include pending global numeric settings as NeedsUiOrDiffExtraction candidates.")]
+        bool include_global_candidates = false)
+        => runtime.CompareImageAssignerOracle(game_root, include_global_candidates);
+
+    [McpServerTool]
+    [Description("Build a safe test-copy validation plan for comparing official image assigner output with CCZModStudio output. Read-only.")]
+    public object plan_image_assigner_validation(
+        [Description("Change kind, for example r_image_assignment, s_image_assignment, face_assignment, or global_numeric_setting.")]
+        string change_kind,
+        [Description("Optional row/person id for row-specific byte ranges.")]
+        int? row_id = null,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.PlanImageAssignerValidation(game_root, change_kind, row_id);
+
+    [McpServerTool]
+    [Description("Run a read-only official image assigner oracle smoke: static, launch_only, or ui_probe. No save action is performed.")]
+    public object run_image_assigner_oracle_smoke(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null,
+        [Description("Smoke mode: static, launch_only, or ui_probe. Defaults to static.")]
+        string? mode = "static")
+        => runtime.RunImageAssignerOracleSmoke(game_root, mode);
+
+    [McpServerTool]
+    [Description("Compare before/official-after/CCZ-after test-copy outputs for official image assigner validation. Does not write files.")]
+    public object compare_image_assigner_output(
+        [Description("Before test-copy root.")]
+        string before_root,
+        [Description("Official-tool modified test-copy root.")]
+        string official_after_root,
+        [Description("CCZModStudio modified test-copy root.")]
+        string ccz_after_root)
+        => runtime.CompareImageAssignerOutput(before_root, official_after_root, ccz_after_root);
+
+    [McpServerTool]
+    [Description("Run a controlled test-copy R/S image assignment experiment: official oracle offset write vs CCZ HexTable write, then compare bytes. Does not modify the original project.")]
+    public object run_image_assigner_assignment_experiment(
+        [Description("Change kind: r_image_assignment or s_image_assignment.")]
+        string change_kind,
+        [Description("Person row id to edit in the generated test copies.")]
+        int row_id,
+        [Description("Optional new UInt16 value. If omitted, the experiment uses original+1.")]
+        int? new_value = null,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.RunImageAssignerAssignmentExperiment(game_root, change_kind, row_id, new_value);
+
+    [McpServerTool]
+    [Description("List item/job/personal/patch/cmf effects from CCZModStudio catalogs, tables, manifests, and CMF-derived old-tool candidates.")]
     public object list_effects(
-        [Description("Effect domain: item, job, personal, or patch.")]
+        [Description("Effect domain: item, job, personal, patch, or cmf.")]
         string domain,
         [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
         string? game_root = null,
@@ -922,7 +1261,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Read one effect entry by domain and effect id.")]
     public object read_effect(
-        [Description("Effect domain: item, job, personal, or patch.")]
+        [Description("Effect domain: item, job, personal, patch, or cmf.")]
         string domain,
         [Description("Effect id / fixed row id.")]
         int effect_id,
@@ -933,7 +1272,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Export one effect as an EffectPackage object.")]
     public object export_effect_package(
-        [Description("Effect domain: item, job, personal, or patch.")]
+        [Description("Effect domain: item, job, personal, patch, or cmf.")]
         string domain,
         [Description("Effect id / fixed row id.")]
         int effect_id,
@@ -1288,6 +1627,26 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.WriteGlobalSettings(game_root, update, write_mode);
 
     [McpServerTool]
+    [Description("Prepare a safe manual diff experiment for global numeric settings. Creates test copies and a JSON report only.")]
+    public object run_global_numeric_discovery(string? game_root = null)
+        => runtime.RunGlobalNumericDiscovery(game_root);
+
+    [McpServerTool]
+    [Description("Prepare low-risk global numeric manual diff cases: noop plus seven leaf field cases. Creates test copies only.")]
+    public object run_global_numeric_low_risk_discovery(string? game_root = null)
+        => runtime.RunGlobalNumericLowRiskDiscovery(game_root);
+
+    [McpServerTool]
+    [Description("Compare noop_case against low-risk global numeric case folders and write a read-only diff report.")]
+    public object compare_global_numeric_low_risk_diffs(string evidence_root, string? game_root = null)
+        => runtime.CompareGlobalNumericLowRiskDiffs(game_root, evidence_root);
+
+    [McpServerTool]
+    [Description("Query static candidates for global numeric definitions. Read-only; does not promote pending fields.")]
+    public object query_global_numeric_definitions(string? game_root = null)
+        => runtime.QueryGlobalNumericDefinitions(game_root);
+
+    [McpServerTool]
     [Description("Parse AI scenario text import markup into legacy command previews. Read-only.")]
     public object parse_scenario_text_import(string input, string? game_root = null, string? scenario_kind = "R")
         => runtime.ParseScenarioTextImport(game_root, input, scenario_kind);
@@ -1380,6 +1739,19 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [Description("Save the project-side item effect catalog JSON. Does not write fixed-width game tables.")]
     public object save_item_effect_catalog(List<ItemEffectCatalogEntry> entries, string? game_root = null, string? write_mode = null)
         => runtime.SaveItemEffectCatalog(game_root, entries, write_mode);
+
+    [McpServerTool]
+    [Description("Write one 6.6 Ekd5.exe item-effect name slot at 0x9E800 + slot_index * 16. Does not change effect-id bindings.")]
+    public object write_item_effect_name_66_slot(
+        [Description("0-based 6.6 item-effect name slot index in Ekd5.exe.")]
+        int slot_index,
+        [Description("New GBK name. Must fit in one 16-byte slot including NUL terminator.")]
+        string name,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes with backup/report/reread validation.")]
+        string? write_mode = null)
+        => runtime.WriteItemEffectName66Slot(game_root, slot_index, name, write_mode);
 
     [McpServerTool]
     [Description("Read project equipment type profile and evidence. Read-only.")]

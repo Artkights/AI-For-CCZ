@@ -7,6 +7,15 @@ public static class Ccz66RevisedLayout
     public const string Version = "6.6";
     public const long Ekd5ExeSize = 1_130_496;
     public const string ReleasePostUrl = "https://www.xycq.org.cn/forum/thread-310256-1-1.html";
+    public const string Native66TableStatus = "Native66";
+    public const string CrossVersionFallbackTableStatus = "CrossVersionFallback";
+    public const string ReadOnlyEvidenceOnlyTableStatus = "ReadOnlyEvidenceOnly";
+    public const string ExactOrCompatibleTableStatus = "ExactOrCompatible";
+    public const string Star66XCheatMakerCmfSha256 = "EBE2DD8A336EB83654114A913581684C6AA62908F03E63C1E38C58020C13F297";
+    public const long Star66XCheatMakerCmfLength = 1_145_916;
+    public const int Star66XCheatMakerCmfUtf16CrlfCount = 15;
+    public const long Star66KCheatMakerCmfLength = 763_592;
+    public const int Star66KCheatMakerCmfUtf16CrlfCount = 11;
 
     public static readonly IReadOnlyList<string> RequiredE5Resources =
     [

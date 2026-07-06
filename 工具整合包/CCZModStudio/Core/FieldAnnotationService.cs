@@ -82,9 +82,26 @@ public sealed class FieldAnnotationService
             $"表说明：{table.TableName}\r\n" +
             $"文件：{table.FileName}    行数：{table.RowCount}    行长：{table.RowSize} 字节    起始偏移：{HexDisplayFormatter.FormatOffset(table.DataPos)}\r\n" +
             $"字段数：{table.Fields.Count}    版本：{table.Version}    ReadOnly标记={table.ReadOnly}（不再作为写入拦截）\r\n" +
-            $"{writeMode}\r\n" +
+            $"TableStatus: {validation.TableStatus}    WriteRisk: {(string.IsNullOrWhiteSpace(validation.WriteRisk) ? "none" : validation.WriteRisk)}\r\n" +
+            $"EvidenceStatus: {(string.IsNullOrWhiteSpace(table.EvidenceStatus) ? "none" : table.EvidenceStatus)}    SourceTable: {(string.IsNullOrWhiteSpace(table.SourceTableName) ? "none" : table.SourceTableName)}\r\n" +
+            $"{BuildTableWriteModeSummary(validation, writeMode)}\r\n" +
             $"结构检查：{warnings}\r\n" +
             "操作建议：先选中单元格查看字段说明；不确定含义的原始字节字段不要直接大批量修改。";
+    }
+
+    private static string BuildTableWriteModeSummary(HexTableValidationResult validation, string defaultSummary)
+    {
+        if (validation.IsCrossVersionFallback)
+        {
+            return "Current table is CrossVersionFallback: readable for preview, but direct UI save is disabled until a native 6.6 table is verified.";
+        }
+
+        if (validation.IsReadOnlyEvidenceOnly)
+        {
+            return "Current table is ReadOnlyEvidenceOnly: readable for evidence review, but saving is blocked until the layout is verified.";
+        }
+
+        return defaultSummary;
     }
 
     public string BuildCellAnnotation(HexTableDefinition table, HexFieldDefinition field, int rowId, object? value)

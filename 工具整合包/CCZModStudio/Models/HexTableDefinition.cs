@@ -17,6 +17,10 @@ public sealed class HexTableDefinition
     public bool ReadOnly { get; init; }
     public required string Version { get; init; }
     public IReadOnlyList<HexFieldDefinition> Fields { get; init; } = Array.Empty<HexFieldDefinition>();
+    public string EvidenceStatus { get; init; } = string.Empty;
+    public string SourceTableName { get; init; } = string.Empty;
+    public bool IsGeneratedCompatibilityTable { get; init; }
+    public bool IsEvidenceReadOnlyTable { get; init; }
 
     public int PositiveBytesSum => ByteSizes.Where(x => x > 0).Sum();
     public long EndOffsetExclusive => DataPos + ((long)RowCount * RowSize);

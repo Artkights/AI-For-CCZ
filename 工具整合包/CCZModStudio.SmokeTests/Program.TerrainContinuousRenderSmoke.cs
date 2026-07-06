@@ -507,22 +507,29 @@ internal partial class Program
         {
             var materialRoot = Path.Combine(tempRoot, "materials");
             Directory.CreateDirectory(materialRoot);
-            var basePath = Path.Combine(tempRoot, "M004.png");
             var grassPath = Path.Combine(materialRoot, "grass.png");
+            var roadPath = Path.Combine(materialRoot, "road.png");
+            var buildingPath = Path.Combine(materialRoot, "terrain-object-building.png");
             var grass = Color.FromArgb(72, 146, 64);
-            SaveObjectFootprintBase(basePath, 3, 3, index => index == 4 ? Color.Black : grass);
+            var road = Color.FromArgb(176, 164, 92);
+            var building = Color.FromArgb(174, 112, 62);
             SaveSolidBitmap(grassPath, 48, 48, grass);
+            SaveSolidBitmap(roadPath, 48, 48, road);
+            SaveBlackBackgroundBuilding(buildingPath, building);
 
-            var terrain = Enumerable.Repeat((byte)1, 9).ToArray();
+            var terrain = new byte[]
+            {
+                1, 1, 0,
+                1, 15, 0,
+                1, 1, 0
+            };
             terrain[4] = 15;
             var draft = new MapWorkbenchDraft
             {
                 DraftId = "terrain-object-ground-inpaint-smoke",
-                BoundMapId = "M004",
                 GridWidth = 3,
                 GridHeight = 3,
                 TileSize = MapResourceItem.MapTilePixelSize,
-                BaseLayerPath = basePath,
                 MaterialRoot = materialRoot,
                 OriginalTerrainCells = terrain.ToArray(),
                 TerrainCells = terrain,
@@ -547,7 +554,9 @@ internal partial class Program
 
             var materials = new List<MaterialAsset>
             {
-                MakeTerrainStyleAsset(grassPath, 1, "grass", 0)
+                MakeTerrainStyleAsset(roadPath, 0, "road", 0),
+                MakeTerrainStyleAsset(grassPath, 1, "grass", 1),
+                MakeBuildingStyleAsset(buildingPath, 15, "terrain-object-building", "Building:15:terrain-object", MaterialAssetTypes.Building, MaterialAutoTileModes.Default)
             };
 
             using var synthesis = new TerrainVisualSynthesisService();
@@ -557,10 +566,16 @@ internal partial class Program
                 Materials = materials
             });
 
-            var center = result.Bitmap.GetPixel(48 + 24, 48 + 24);
-            if (ColorDistance(center, grass) >= ColorDistance(center, Color.Black))
+            var footprintCorner = result.Bitmap.GetPixel(48 + 3, 48 + 3);
+            if (ColorDistance(footprintCorner, Color.Black) <= Math.Min(ColorDistance(footprintCorner, grass), ColorDistance(footprintCorner, road)))
             {
-                throw new InvalidOperationException($"Terrain object ground inpaint left the old black footprint. actual={center}");
+                throw new InvalidOperationException($"Terrain object ground inpaint left a black footprint corner without a base layer. actual={footprintCorner}");
+            }
+
+            var body = result.Bitmap.GetPixel(48 + 20, 48 + 24);
+            if (ColorDistance(body, building) > 4)
+            {
+                throw new InvalidOperationException($"Terrain object overlay body was not drawn over the rebuilt ground. actual={body}");
             }
 
             if (draft.TerrainCells[4] != 15)
@@ -570,14 +585,15 @@ internal partial class Program
 
             if (result.Diagnostics.ObjectGroundFootprintCellCount == 0 ||
                 result.Diagnostics.ObjectGroundInferredCellCount == 0 ||
-                result.Diagnostics.TerrainObjectOverlayCellCount == 0)
+                result.Diagnostics.TerrainObjectOverlayCellCount == 0 ||
+                result.Diagnostics.AlphaRepairedObjectCount == 0)
             {
                 throw new InvalidOperationException(
                     "Terrain object ground inpaint diagnostics failed. " +
-                    $"footprints={result.Diagnostics.ObjectGroundFootprintCellCount}, inferred={result.Diagnostics.ObjectGroundInferredCellCount}, terrainObjects={result.Diagnostics.TerrainObjectOverlayCellCount}");
+                    $"footprints={result.Diagnostics.ObjectGroundFootprintCellCount}, inferred={result.Diagnostics.ObjectGroundInferredCellCount}, terrainObjects={result.Diagnostics.TerrainObjectOverlayCellCount}, alphaRepaired={result.Diagnostics.AlphaRepairedObjectCount}");
             }
 
-            Console.WriteLine("TERRAIN_OBJECT_GROUND_INPAINT_SMOKE_OK ground=rebuilt terrainPreserved=ok diagnostics=ok");
+            Console.WriteLine("TERRAIN_OBJECT_GROUND_INPAINT_SMOKE_OK noBaseGround=rebuilt terrainPreserved=ok overlay=ok diagnostics=ok");
         }
         finally
         {

@@ -577,18 +577,19 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var detail = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 8,
+            RowCount = 9,
             ColumnCount = 1,
             Padding = new Padding(6)
         };
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 18));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 16));
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
         detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 46));
+        detail.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        detail.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
 
         var top = CreateToolbarRow();
         top.Controls.Add(new Label
@@ -606,6 +607,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
 
         ConfigureRoleTextBox(_roleBiographyBox);
         var equipmentPanel = BuildRoleEquipmentDetailPanel();
+        var criticalAssignmentPanel = BuildRoleCriticalQuoteAssignmentPanel();
         var criticalQuotePanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -629,10 +631,36 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         detail.Controls.Add(MakeHeader("默认装备"), 0, 2);
         detail.Controls.Add(equipmentPanel, 0, 3);
         detail.Controls.Add(MakeHeader("暴击台词"), 0, 4);
-        detail.Controls.Add(criticalQuotePanel, 0, 5);
-        detail.Controls.Add(MakeHeader("撤退台词"), 0, 6);
-        detail.Controls.Add(_roleRetreatQuoteBox, 0, 7);
+        detail.Controls.Add(criticalAssignmentPanel, 0, 5);
+        detail.Controls.Add(criticalQuotePanel, 0, 6);
+        detail.Controls.Add(MakeHeader("撤退台词"), 0, 7);
+        detail.Controls.Add(_roleRetreatQuoteBox, 0, 8);
         return detail;
+    }
+
+    private Control BuildRoleCriticalQuoteAssignmentPanel()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            ColumnCount = 2,
+            RowCount = 2,
+            Margin = new Padding(0, 0, 0, 2)
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+
+        ConfigureRoleCriticalQuoteCombo(_roleCriticalQuoteModeCombo);
+        ConfigureRoleCriticalQuoteCombo(_roleCriticalQuoteAssignmentCombo);
+
+        panel.Controls.Add(BuildRoleEquipmentLabel("模式"), 0, 0);
+        panel.Controls.Add(_roleCriticalQuoteModeCombo, 1, 0);
+        panel.Controls.Add(BuildRoleEquipmentLabel("分配"), 0, 1);
+        panel.Controls.Add(_roleCriticalQuoteAssignmentCombo, 1, 1);
+        return panel;
     }
 
     private Control BuildRoleEquipmentDetailPanel()
@@ -673,6 +701,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
     };
 
     private static void ConfigureRoleEquipmentCombo(ComboBox combo)
+    {
+        combo.Dock = DockStyle.Fill;
+        combo.DropDownStyle = ComboBoxStyle.DropDownList;
+        combo.DisplayMember = "显示";
+        combo.ValueMember = "ID";
+        combo.Enabled = false;
+    }
+
+    private static void ConfigureRoleCriticalQuoteCombo(ComboBox combo)
     {
         combo.Dock = DockStyle.Fill;
         combo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1154,10 +1191,14 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobMatrixButton.Enabled = false;
         _openJobMatrixRestraintTableButton.Text = "通用兵种相克表";
         ConfigureToolbarButton(_openJobMatrixRestraintTableButton, 128);
+        _openJobMatrixAttributeTableButton.Text = "通用兵种属性表";
+        ConfigureToolbarButton(_openJobMatrixAttributeTableButton, 128);
         matrixToolbar.Controls.AddRange(new Control[]
         {
             _loadJobMatrixButton,
-            _saveJobMatrixButton
+            _saveJobMatrixButton,
+            _openJobMatrixRestraintTableButton,
+            _openJobMatrixAttributeTableButton
         });
         matrixLayout.Controls.Add(matrixToolbar, 0, 0);
 
@@ -1168,15 +1209,24 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobRestraintGrid.AllowUserToDeleteRows = false;
         _jobRestraintGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobRestraintGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        restraintPage.Controls.Add(_jobRestraintGrid);
+        restraintPage.Controls.Add(CreateSearchableGridPanel(_jobRestraintGrid, "兵种/数值"));
         matrixTabs.TabPages.Add(restraintPage);
+
+        var attributePage = new TabPage("兵种属性");
+        _jobAttributeGrid.Dock = DockStyle.Fill;
+        _jobAttributeGrid.AllowUserToAddRows = false;
+        _jobAttributeGrid.AllowUserToDeleteRows = false;
+        _jobAttributeGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
+        _jobAttributeGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        attributePage.Controls.Add(CreateSearchableGridPanel(_jobAttributeGrid, "字段/兵种/数值"));
+        matrixTabs.TabPages.Add(attributePage);
 
         _jobMatrixInfoBox.Dock = DockStyle.Fill;
         _jobMatrixInfoBox.Multiline = true;
         _jobMatrixInfoBox.ReadOnly = true;
         _jobMatrixInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobMatrixInfoBox.WordWrap = true;
-        _jobMatrixInfoBox.Text = "相克矩阵：读取后可编辑 40x40 兵种相克矩阵；保存前自动备份，保存后复读校验。";
+        _jobMatrixInfoBox.Text = "相克/属性矩阵：读取后可编辑 40x40 兵种相克矩阵和 8x40 兵种属性矩阵；保存前自动备份，保存后复读校验。";
         matrixLayout.Controls.Add(matrixTabs, 0, 1);
         tabs.TabPages.Add(matrixPage);
 
@@ -1447,6 +1497,11 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         ConfigureToolbarButton(_battlefieldScriptSearchButton, 72);
         _battlefieldScriptClearSearchButton.Text = "清除";
         ConfigureToolbarButton(_battlefieldScriptClearSearchButton, 72);
+        ConfigureToolbarInput(_battlefieldScriptReplaceBox, 150, 110);
+        _battlefieldScriptReplaceBox.PlaceholderText = "替换为";
+        _battlefieldScriptReplaceButton.Text = "替换文本";
+        ConfigureToolbarButton(_battlefieldScriptReplaceButton, 88);
+        _battlefieldScriptReplaceButton.Enabled = false;
         _saveBattlefieldScriptTextButton.Text = "保存选中文本";
         ConfigureToolbarButton(_saveBattlefieldScriptTextButton, 118);
         _saveBattlefieldScriptTextButton.Enabled = false;
@@ -1462,6 +1517,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _battlefieldScriptClearSearchButton,
             _showBattlefieldVariablesButton);
         AddToolbarRow(scriptToolbar, 1,
+            CreateToolbarLabel("替换：", 0),
+            _battlefieldScriptReplaceBox,
+            _battlefieldScriptReplaceButton,
             _saveBattlefieldScriptTextButton,
             _saveBattlefieldScriptStructureButton);
         scriptLayout.Controls.Add(scriptToolbar, 0, 0);
@@ -1472,10 +1530,20 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldScriptTree.FullRowSelect = true;
         _battlefieldScriptTree.CheckBoxes = true;
         EnableDoubleBuffering(_battlefieldScriptTree);
+        RegisterSearchableTree(_battlefieldScriptTree);
         ConfigureLegacyStyleScriptTreeContextMenu(_battlefieldScriptTreeContextMenu, LegacyScriptEditorScope.Battlefield);
         _battlefieldScriptTree.ContextMenuStrip = _battlefieldScriptTreeContextMenu;
 
-        scriptLayout.Controls.Add(_battlefieldScriptTree, 0, 1);
+        var battlefieldScriptTabs = new TabControl { Dock = DockStyle.Fill };
+        var battlefieldScriptTreePage = new TabPage("S剧本");
+        var battlefieldScriptSearchPage = new TabPage("搜索结果");
+        battlefieldScriptTreePage.Controls.Add(_battlefieldScriptTree);
+        ConfigureLegacyScriptSearchResultGrid(_battlefieldScriptSearchResultGrid);
+        battlefieldScriptSearchPage.Controls.Add(_battlefieldScriptSearchResultGrid);
+        battlefieldScriptTabs.TabPages.Add(battlefieldScriptTreePage);
+        battlefieldScriptTabs.TabPages.Add(battlefieldScriptSearchPage);
+
+        scriptLayout.Controls.Add(battlefieldScriptTabs, 0, 1);
         scriptPage.Controls.Add(scriptLayout);
 
         var textPage = new TabPage("标题/胜败");
@@ -1793,7 +1861,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldCommandGrid.AllowUserToDeleteRows = false;
         _battlefieldCommandGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _battlefieldCommandGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        commandPage.Controls.Add(_battlefieldCommandGrid);
+        commandPage.Controls.Add(CreateSearchableGridPanel(_battlefieldCommandGrid, "命令/坐标/人物"));
         unitTabs.TabPages.Add(unitPage);
         unitTabs.TabPages.Add(commandPage);
         unitTabs.Visible = false;
@@ -1869,12 +1937,30 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jumpRSceneScriptButton.Text = "跳到剧本编辑";
         ConfigureToolbarButton(_jumpRSceneScriptButton, 118);
         _jumpRSceneScriptButton.Enabled = false;
+        ConfigureToolbarInput(_rSceneScriptSearchBox, 160, 120);
+        _rSceneScriptSearchBox.PlaceholderText = "搜索R剧本";
+        _rSceneScriptSearchButton.Text = "搜索";
+        ConfigureToolbarButton(_rSceneScriptSearchButton, 72);
+        _rSceneScriptClearSearchButton.Text = "清除";
+        ConfigureToolbarButton(_rSceneScriptClearSearchButton, 72);
+        ConfigureToolbarInput(_rSceneScriptReplaceBox, 150, 110);
+        _rSceneScriptReplaceBox.PlaceholderText = "替换为";
+        _rSceneScriptReplaceButton.Text = "替换文本";
+        ConfigureToolbarButton(_rSceneScriptReplaceButton, 88);
+        _rSceneScriptReplaceButton.Enabled = false;
         AddToolbarRow(toolbar, 0,
             _loadRSceneButton,
             CreateToolbarLabel("R剧情："),
             _rSceneScenarioCombo,
-            _saveRSceneDraftButton);
+            _saveRSceneDraftButton,
+            CreateToolbarLabel("搜索："),
+            _rSceneScriptSearchBox,
+            _rSceneScriptSearchButton,
+            _rSceneScriptClearSearchButton);
         AddToolbarRow(toolbar, 1,
+            CreateToolbarLabel("替换：", 0),
+            _rSceneScriptReplaceBox,
+            _rSceneScriptReplaceButton,
             _saveRSceneScriptStructureButton,
             _showRSceneVariablesButton,
             _jumpRSceneScriptButton);
@@ -1884,12 +1970,14 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
 
         var leftTabs = new TabControl { Dock = DockStyle.Fill };
         var scriptPage = new TabPage("R剧本");
+        var searchPage = new TabPage("搜索结果");
         _rSceneScriptTree.Dock = DockStyle.Fill;
         _rSceneScriptTree.HideSelection = false;
         _rSceneScriptTree.ShowNodeToolTips = true;
         _rSceneScriptTree.FullRowSelect = true;
         _rSceneScriptTree.CheckBoxes = true;
         EnableDoubleBuffering(_rSceneScriptTree);
+        RegisterSearchableTree(_rSceneScriptTree);
         ConfigureLegacyStyleScriptTreeContextMenu(_rSceneScriptTreeContextMenu, LegacyScriptEditorScope.RScene);
         _rSceneScriptTree.ContextMenuStrip = _rSceneScriptTreeContextMenu;
         _rSceneScriptDetailBox.Dock = DockStyle.Fill;
@@ -1900,6 +1988,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _rSceneScriptDetailBox.Text = "读取 R 剧情后显示对应 R 剧本树。";
         _rSceneScriptDetailBox.Visible = false;
         scriptPage.Controls.Add(_rSceneScriptTree);
+        ConfigureLegacyScriptSearchResultGrid(_rSceneScriptSearchResultGrid);
+        searchPage.Controls.Add(_rSceneScriptSearchResultGrid);
 
         var commandPage = new TabPage("R场景候选集");
         _rSceneCommandGrid.Dock = DockStyle.Fill;
@@ -1908,8 +1998,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _rSceneCommandGrid.AllowUserToDeleteRows = false;
         _rSceneCommandGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _rSceneCommandGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        commandPage.Controls.Add(_rSceneCommandGrid);
+        commandPage.Controls.Add(CreateSearchableGridPanel(_rSceneCommandGrid, "场景/命令/摘要"));
         leftTabs.TabPages.Add(scriptPage);
+        leftTabs.TabPages.Add(searchPage);
         leftTabs.TabPages.Add(commandPage);
         AddCollapsibleSplitPanel(mainSplit, 1, "R剧本", leftTabs, "BuildRSceneEditorPage.ScriptScene.Script");
 
@@ -2123,6 +2214,11 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         ConfigureToolbarButton(_scriptSearchButton, 72);
         _scriptClearSearchButton.Text = "清除";
         ConfigureToolbarButton(_scriptClearSearchButton, 72);
+        ConfigureToolbarInput(_scriptReplaceBox, 160, 120);
+        _scriptReplaceBox.PlaceholderText = "替换为";
+        _scriptReplaceButton.Text = "替换命中文本";
+        ConfigureToolbarButton(_scriptReplaceButton, 112);
+        _scriptReplaceButton.Enabled = false;
         _showScriptVariablesButton.Text = "变量 Ctrl+L";
         ConfigureToolbarButton(_showScriptVariablesButton, 104);
         _showScriptVariablesButton.Enabled = false;
@@ -2189,6 +2285,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _saveScriptStructureButton,
             _jumpScriptBattlefieldButton);
         AddToolbarRow(toolbar, 1,
+            CreateToolbarLabel("替换：", 0),
+            _scriptReplaceBox,
+            _scriptReplaceButton,
             _copyScriptCommandButton,
             _cutScriptCommandButton,
             _deleteScriptCommandButton,
@@ -2222,6 +2321,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _scriptTree.CheckBoxes = true;
         _scriptTree.BorderStyle = BorderStyle.FixedSingle;
         EnableDoubleBuffering(_scriptTree);
+        RegisterSearchableTree(_scriptTree);
         ConfigureLegacyStyleScriptTreeContextMenu();
         _scriptTree.ContextMenuStrip = _legacyScriptTreeContextMenu;
         _scriptTree.NodeMouseClick += (_, e) => HandleScriptTreeNodeMouseClick(e);
@@ -2266,7 +2366,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         });
         structureToolbar.Visible = false;
         treePanel.Controls.Add(structureToolbar, 0, 1);
-        treePanel.Controls.Add(_scriptTree, 0, 2);
+        _scriptLowerLeftTabs.Dock = DockStyle.Fill;
+        var scriptTreePage = new TabPage("事件树");
+        var scriptSearchPage = new TabPage("搜索结果");
+        scriptTreePage.Controls.Add(_scriptTree);
+        scriptSearchPage.Controls.Add(_scriptSearchResultGrid);
+        _scriptLowerLeftTabs.TabPages.Clear();
+        _scriptLowerLeftTabs.TabPages.Add(scriptTreePage);
+        _scriptLowerLeftTabs.TabPages.Add(scriptSearchPage);
+        treePanel.Controls.Add(_scriptLowerLeftTabs, 0, 2);
         AddCollapsibleSplitPanel(mainSplit, 1, "事件树", treePanel, "BuildScriptEditorPage.TreeDetail.Tree");
 
         ConfigureHiddenScriptGrids();
@@ -2275,7 +2383,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             Visible = false,
             Size = Size.Empty
         };
-        hiddenBindingsPanel.Controls.AddRange(new Control[] { _scriptCommandGrid, _scriptTextGrid, _scriptSearchResultGrid });
+        hiddenBindingsPanel.Controls.AddRange(new Control[] { _scriptCommandGrid, _scriptTextGrid });
         page.Controls.Add(hiddenBindingsPanel);
 
         _scriptImagePreviewBox.Dock = DockStyle.Fill;

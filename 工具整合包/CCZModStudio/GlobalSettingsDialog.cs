@@ -18,11 +18,14 @@ public sealed class GlobalSettingsDialog : Form
     private readonly DataGridView _detailedJobGrid = new();
     private readonly TextBox _titleBox = new();
     private readonly Label _titleCapacityLabel = new();
+    private readonly DataGridView _cmfCandidateGrid = new();
     private readonly DataGridView _evidenceGrid = new();
     private readonly TextBox _statusBox = new();
     private readonly Button _saveJobSeriesButton = new();
     private readonly Button _saveDetailedJobsButton = new();
     private readonly Button _saveTitleButton = new();
+    private readonly Button _saveNumericButton = new();
+    private readonly Button _discoverNumericButton = new();
     private readonly Button _reloadButton = new();
 
     public GlobalSettingsDialog(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -81,6 +84,7 @@ public sealed class GlobalSettingsDialog : Form
 
         var tabs = new TabControl { Dock = DockStyle.Fill };
         tabs.TabPages.Add(BuildNumericPage());
+        tabs.TabPages.Add(BuildCmfCandidatePage());
         tabs.TabPages.Add(BuildJobSeriesPage());
         tabs.TabPages.Add(BuildDetailedJobPage());
         tabs.TabPages.Add(BuildTitlePage());
@@ -99,13 +103,64 @@ public sealed class GlobalSettingsDialog : Form
     private TabPage BuildNumericPage()
     {
         var page = new TabPage("全局参数");
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var toolbar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true
+        };
+        _saveNumericButton.Text = "保存全局参数";
+        _saveNumericButton.AutoSize = true;
+        _saveNumericButton.Click += (_, _) => SaveNumericSettings();
+        toolbar.Controls.Add(_saveNumericButton);
+
+        _discoverNumericButton.Text = "生成定位证据";
+        _discoverNumericButton.AutoSize = true;
+        _discoverNumericButton.Click += (_, _) => PrepareNumericDiscovery();
+        toolbar.Controls.Add(_discoverNumericButton);
+
+        toolbar.Controls.Add(new Label
+        {
+            Text = "只有完成官方单字段 diff、复读和运行时验证的字段允许编辑；未验证字段保持灰显。",
+            AutoSize = true,
+            Padding = new Padding(8, 7, 0, 0)
+        });
+        layout.Controls.Add(toolbar, 0, 0);
+
         _numericGrid.Dock = DockStyle.Fill;
-        _numericGrid.ReadOnly = true;
+        _numericGrid.ReadOnly = false;
         _numericGrid.AllowUserToAddRows = false;
         _numericGrid.AllowUserToDeleteRows = false;
         _numericGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-        _numericGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        page.Controls.Add(_numericGrid);
+        _numericGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        _numericGrid.CellValidating += ValidateNumericCell;
+        _numericGrid.DataError += (_, e) => { e.ThrowException = false; };
+        layout.Controls.Add(_numericGrid, 0, 1);
+        page.Controls.Add(layout);
+        return page;
+    }
+
+    private TabPage BuildCmfCandidatePage()
+    {
+        var page = new TabPage("CMF候选");
+        _cmfCandidateGrid.Dock = DockStyle.Fill;
+        _cmfCandidateGrid.ReadOnly = true;
+        _cmfCandidateGrid.AllowUserToAddRows = false;
+        _cmfCandidateGrid.AllowUserToDeleteRows = false;
+        _cmfCandidateGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _cmfCandidateGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        page.Controls.Add(_cmfCandidateGrid);
         return page;
     }
 
@@ -234,7 +289,9 @@ public sealed class GlobalSettingsDialog : Form
         _jobSeriesGrid.DataSource = _document.JobSeriesNames;
         _detailedJobGrid.DataSource = _document.DetailedJobNames;
         _titleBox.Text = _document.GameTitle.Title;
+        _cmfCandidateGrid.DataSource = ToCmfCandidateGrid(_document.CmfCandidates);
         _evidenceGrid.DataSource = ToEvidenceGrid(_document.Evidence);
+        ConfigureNumericGrid();
         ConfigureNameGrid(_jobSeriesGrid);
         ConfigureNameGrid(_detailedJobGrid);
         RefreshTitleCapacityLabel();
@@ -288,6 +345,149 @@ public sealed class GlobalSettingsDialog : Form
         }
     }
 
+    private void SaveNumericSettings()
+    {
+        try
+        {
+            Validate();
+            var updates = CollectNumericUpdates();
+            var result = _service.SaveNumericSettings(_project, _document, updates);
+            LastSaveSummary = result.Summary;
+            _statusBox.Text = BuildNumericSaveStatus(result);
+            MessageBox.Show(this, result.Summary, "保存全局参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _document = _service.Load(_project, _tables);
+            BindDocument();
+        }
+        catch (Exception ex)
+        {
+            _statusBox.Text = ex.ToString();
+            MessageBox.Show(this, ex.Message, "保存全局参数失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void PrepareNumericDiscovery()
+    {
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var report = new GlobalNumericDiscoveryService().PrepareManualDiffExperiment(_project, _service.GetNumericDefinitions());
+            var lowRisk = new GlobalNumericDiscoveryService().PrepareLowRiskManualDiffExperiment(_project);
+            var query = new GlobalNumericQueryService().Query(_project, _service.GetNumericDefinitions());
+            _statusBox.Text =
+                "已生成全局数字项定位证据目录。\r\n" +
+                "状态：" + report.Status + "\r\n" +
+                "报告：" + report.ReportPath + "\r\n" +
+                "低风险批量实验：" + lowRisk.ReportPath + "\r\n" +
+                "静态查询：" + query.ReportPath + "\r\n" +
+                "官方工具副本：" + report.OfficialToolRoot + "\r\n" +
+                "低风险 noop 工具：" + lowRisk.NoopOfficialToolRoot + "\r\n" +
+                "测试项目副本：" + report.OfficialCaseRoot;
+            MessageBox.Show(this, "已生成定位证据报告：\r\n" + report.ReportPath + "\r\n\r\n低风险批量实验：\r\n" + lowRisk.ReportPath + "\r\n\r\n静态查询报告：\r\n" + query.ReportPath, "全局参数定位", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            _statusBox.Text = ex.ToString();
+            MessageBox.Show(this, ex.Message, "生成定位证据失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private Dictionary<string, int> CollectNumericUpdates()
+    {
+        var updates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (_numericGrid.DataSource is not DataTable table) return updates;
+        foreach (DataRow row in table.Rows)
+        {
+            var canEdit = row.Field<bool>("CanEdit");
+            if (!canEdit) continue;
+
+            var key = Convert.ToString(row["Key"], CultureInfo.InvariantCulture) ?? string.Empty;
+            var current = Convert.ToString(row["CurrentValue"], CultureInfo.InvariantCulture) ?? string.Empty;
+            var valueText = Convert.ToString(row["NewValue"], CultureInfo.InvariantCulture) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(valueText) || string.Equals(valueText, current, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!int.TryParse(valueText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+            {
+                throw new InvalidOperationException($"全局参数 {key} 的新值不是整数：{valueText}");
+            }
+
+            updates[key] = value;
+        }
+
+        return updates;
+    }
+
+    private static string BuildNumericSaveStatus(GlobalSettingsSaveResult result)
+        => result.Summary + "\r\n" +
+           "ChangedBytes=" + result.ChangedBytes.ToString(CultureInfo.InvariantCulture) + "\r\n" +
+           "Backups=" + string.Join("; ", result.BackupPaths.Select(Path.GetFileName)) + "\r\n" +
+           "Reports=" + string.Join("; ", result.ReportJsonPaths.Select(Path.GetFileName));
+
+    private void ConfigureNumericGrid()
+    {
+        _saveNumericButton.Enabled = _document.NumericSettings.Any(setting => setting.CanEdit);
+        if (_numericGrid.Columns.Count == 0) return;
+
+        foreach (DataGridViewColumn column in _numericGrid.Columns)
+        {
+            column.ReadOnly = column.DataPropertyName != "NewValue";
+            if (column.DataPropertyName == "Detail") column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            if (column.DataPropertyName is "Key" or "CanEdit" or "ByteLength") column.MinimumWidth = 72;
+            if (column.DataPropertyName == "NewValue") column.HeaderText = "新值";
+        }
+
+        foreach (DataGridViewRow row in _numericGrid.Rows)
+        {
+            var canEdit = row.Cells["CanEdit"].Value is bool editable && editable;
+            row.ReadOnly = !canEdit;
+            row.DefaultCellStyle.ForeColor = canEdit ? SystemColors.ControlText : SystemColors.GrayText;
+            row.DefaultCellStyle.BackColor = canEdit ? SystemColors.Window : SystemColors.Control;
+            if (_numericGrid.Columns.Contains("NewValue"))
+            {
+                row.Cells["NewValue"].ReadOnly = !canEdit;
+            }
+        }
+    }
+
+    private void ValidateNumericCell(object? sender, DataGridViewCellValidatingEventArgs e)
+    {
+        if (sender is not DataGridView grid || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        var column = grid.Columns[e.ColumnIndex];
+        if (column.DataPropertyName != "NewValue") return;
+
+        var row = grid.Rows[e.RowIndex];
+        var canEdit = row.Cells["CanEdit"].Value is bool editable && editable;
+        if (!canEdit) return;
+
+        var valueText = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(valueText)) return;
+        if (!int.TryParse(valueText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        {
+            e.Cancel = true;
+            row.ErrorText = "新值必须是整数。";
+            _statusBox.Text = row.ErrorText;
+            return;
+        }
+
+        var min = Convert.ToInt32(row.Cells["MinValue"].Value, CultureInfo.InvariantCulture);
+        var max = Convert.ToInt32(row.Cells["MaxValue"].Value, CultureInfo.InvariantCulture);
+        if (min != max && (value < min || value > max))
+        {
+            e.Cancel = true;
+            row.ErrorText = $"新值超出范围：{value}，允许 {min}..{max}。";
+            _statusBox.Text = row.ErrorText;
+            return;
+        }
+
+        row.ErrorText = string.Empty;
+    }
+
     private void ConfigureNameGrid(DataGridView grid)
     {
         foreach (DataGridViewColumn column in grid.Columns)
@@ -337,14 +537,81 @@ public sealed class GlobalSettingsDialog : Form
     private static DataTable ToNumericGrid(IReadOnlyList<GlobalNumericSetting> settings)
     {
         var table = new DataTable("全局参数");
+        table.Columns.Add("Key", typeof(string));
+        table.Columns.Add("CanEdit", typeof(bool));
         table.Columns.Add("项目", typeof(string));
-        table.Columns.Add("当前值", typeof(string));
-        table.Columns.Add("旧工具默认/截图值", typeof(string));
+        table.Columns.Add("CurrentValue", typeof(string));
+        table.Columns.Add("NewValue", typeof(string));
+        table.Columns.Add("默认/截图值", typeof(string));
+        table.Columns.Add("目标文件", typeof(string));
+        table.Columns.Add("偏移", typeof(string));
+        table.Columns.Add("运行时VA", typeof(string));
+        table.Columns.Add("ByteLength", typeof(int));
+        table.Columns.Add("ValueKind", typeof(string));
+        table.Columns.Add("MinValue", typeof(int));
+        table.Columns.Add("MaxValue", typeof(int));
         table.Columns.Add("状态", typeof(string));
-        table.Columns.Add("说明", typeof(string));
+        table.Columns.Add("Oracle覆盖", typeof(string));
+        table.Columns.Add("Detail", typeof(string));
         foreach (var setting in settings)
         {
-            table.Rows.Add(setting.DisplayName, setting.CurrentValueText, setting.SuggestedDefaultText, setting.Status, setting.Detail);
+            table.Rows.Add(
+                setting.Key,
+                setting.CanEdit,
+                setting.DisplayName,
+                setting.CurrentValueText,
+                string.Empty,
+                setting.SuggestedDefaultText,
+                setting.TargetFileName,
+                FormatNumericTargets(setting),
+                setting.RuntimeAddress == 0 ? string.Empty : "0x" + setting.RuntimeAddress.ToString("X", CultureInfo.InvariantCulture),
+                setting.ByteLength,
+                setting.ValueKind.ToString(),
+                setting.MinValue,
+                setting.MaxValue,
+                setting.Status,
+                setting.OracleCoverage,
+                setting.Detail);
+        }
+
+        return table;
+    }
+
+    private static string FormatNumericTargets(GlobalNumericSetting setting)
+    {
+        if (setting.WriteTargets.Count == 0)
+        {
+            return setting.Offset == 0 ? string.Empty : HexDisplayFormatter.FormatOffset(setting.Offset);
+        }
+
+        var offsets = setting.WriteTargets
+            .Select(target => HexDisplayFormatter.FormatOffset(target.FileOffset))
+            .ToArray();
+        return offsets.Length == 1
+            ? offsets[0]
+            : $"{offsets[0]} 等 {offsets.Length} 处";
+    }
+
+    private static DataTable ToCmfCandidateGrid(IReadOnlyList<CmfFeatureCandidate> candidates)
+    {
+        var table = new DataTable("CMF候选");
+        table.Columns.Add("功能候选", typeof(string));
+        table.Columns.Add("类别", typeof(string));
+        table.Columns.Add("版本范围", typeof(string));
+        table.Columns.Add("来源CMF", typeof(string));
+        table.Columns.Add("目标模块", typeof(string));
+        table.Columns.Add("转换状态", typeof(string));
+        table.Columns.Add("写入条件", typeof(string));
+        foreach (var candidate in candidates)
+        {
+            table.Rows.Add(
+                candidate.Name,
+                candidate.Category,
+                candidate.VersionScope,
+                candidate.SourceCmfRelativePath,
+                candidate.TargetSubsystem,
+                candidate.ConversionStatus,
+                candidate.WritePolicy);
         }
 
         return table;

@@ -23,6 +23,7 @@ public sealed class ShopEditorService
     private readonly HexTableReader _tableReader = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
+    private readonly ItemEffectResolutionService _itemEffectResolutionService = new();
     private readonly CczEngineProfileService _engineProfile = new();
 
     public IReadOnlyDictionary<int, ShopItemInfo> BuildShopItemInfoLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -397,7 +398,6 @@ public sealed class ShopEditorService
         };
 
         var boundary = ItemCategoryBoundaryService.Resolve(project);
-        var itemEffectNames = BuildItemEffectNameLookup(project, tables);
         var hints = _engineProfile.Detect(project).TableHints;
         var lowDescription = HexTableNameResolver.BuildVersionedTableName(_engineProfile.Detect(project).TableVersionPrefix, "6.5-1-1 物品说明（0-103）");
         var highDescription = HexTableNameResolver.BuildVersionedTableName(_engineProfile.Detect(project).TableVersionPrefix, "6.5-2-1 物品说明（104-255）");
@@ -424,8 +424,9 @@ public sealed class ShopEditorService
                 var classification = ItemClassificationService.Classify(row, boundary);
                 var category = classification.DisplayName;
                 var typeText = ItemTypeCatalogService.BuildDescription(typeId, category, catalog);
-                var effectName = BuildItemEffectNameDisplay(category, typeId, effectId, itemEffectNames);
-                var effectHint = ItemEffectInterpretationService.BuildEffectHint(category, typeId, effectId, effectName, effectValue, growth);
+                var effect = _itemEffectResolutionService.Resolve(project, tables, category, typeId, effectId);
+                var effectName = effect.DisplayName;
+                var effectHint = BuildEffectHint(effect, effectValue, growth);
                 var description = TryFindRowById(descriptionRead.Data, id) is { } descriptionRow
                     ? Convert.ToString(descriptionRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty
                     : string.Empty;
@@ -456,20 +457,7 @@ public sealed class ShopEditorService
     }
 
     private IReadOnlyList<ItemEffectCatalogEntry> BuildDefaultItemEffectCatalogEntries(CczProject project, IReadOnlyList<HexTableDefinition> tables)
-    {
-        var entries = new List<ItemEffectCatalogEntry>();
-        foreach (var pair in BuildBaseItemEffectNameLookup(project, tables).OrderBy(pair => pair.Key))
-        {
-            entries.Add(new ItemEffectCatalogEntry
-            {
-                EffectId = pair.Key,
-                Name = pair.Value,
-                Description = string.Empty
-            });
-        }
-
-        return entries;
-    }
+        => _itemEffectNameReader.ReadBaseCatalogEntries(project, tables);
 
     private IReadOnlyDictionary<int, string> BuildBaseItemEffectNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
         => _itemEffectNameReader.ReadBaseNames(project, tables);
@@ -507,6 +495,11 @@ public sealed class ShopEditorService
             : GetItemEffectName(itemEffectNames, effectiveEffectId);
     }
 
+    private static string BuildEffectHint(ItemEffectResolutionResult effect, int effectValue, int growth)
+    {
+        var warnings = effect.Warnings.Count == 0 ? string.Empty : "; warnings=" + string.Join(" | ", effect.Warnings);
+        return $"{effect.DisplayName}; source={effect.Source}; confidence={effect.Confidence}; value={effectValue}; growth={growth}{warnings}";
+    }
     private static IReadOnlyDictionary<int, string> BuildIdNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
     {
         var table = FindTable(project, tables, tableName);

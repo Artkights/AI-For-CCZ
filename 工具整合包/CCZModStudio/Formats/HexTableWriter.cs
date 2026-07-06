@@ -21,6 +21,10 @@ public sealed class HexTableWriter
         {
             throw new InvalidOperationException("表结构或目标文件不可写，请先查看诊断信息。 ");
         }
+        if (validation.IsReadOnlyEvidenceOnly)
+        {
+            throw new InvalidOperationException("当前 6.6 表为 ReadOnlyEvidenceOnly，只允许读取/预览；需要完成样本复读验证后才能写入。");
+        }
 
         if (data.Rows.Count != table.RowCount)
         {
@@ -46,6 +50,19 @@ public sealed class HexTableWriter
             {
                 if (!field.ConsumesBytes)
                 {
+                    if (Ccz66ItemLayoutService.IsDisplayEffectColumn(field) && dataColumnIndex < data.Columns.Count)
+                    {
+                        Ccz66ItemLayoutService.EncodeDerivedWrites(
+                            table,
+                            data.Rows[rowIndex],
+                            rowBuffer,
+                            changes,
+                            rowIndex,
+                            rowOffset);
+                        dataColumnIndex++;
+                        continue;
+                    }
+
                     if (CanWriteSingleZeroSizeRowStringField(table, field) && dataColumnIndex < data.Columns.Count)
                     {
                         var zeroSizeValue = data.Rows[rowIndex][dataColumnIndex];
@@ -68,7 +85,11 @@ public sealed class HexTableWriter
                 var currentFieldOffset = fieldOffset;
                 if (shouldEncode)
                 {
-                    var encoded = EncodeField(field, value);
+                    var encoded = Ccz66ItemNameEncodingService.Is66ItemNameField(project, table, field)
+                        ? Ccz66ItemNameEncodingService.EncodePreservingHiddenTail(
+                            rowBuffer.AsSpan(fieldOffset, field.Size),
+                            Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty)
+                        : EncodeField(field, value);
                     if (encoded.Length != field.Size)
                     {
                         throw new InvalidOperationException($"字段 {field.ColumnName} 编码长度 {encoded.Length} 与定义长度 {field.Size} 不一致。 ");
@@ -92,7 +113,7 @@ public sealed class HexTableWriter
         }
 
         File.WriteAllBytes(filePath, output);
-        var reportJsonPath = WriteStructuredReport(project, table, filePath, backupPath, original, output, changedBytes, changes);
+        var reportJsonPath = WriteStructuredReport(project, table, validation, filePath, backupPath, original, output, changedBytes, changes);
 
         return new TableSaveResult
         {
@@ -101,13 +122,17 @@ public sealed class HexTableWriter
             RowsWritten = table.RowCount,
             ChangedBytes = changedBytes,
             BackupPath = backupPath,
-            ReportJsonPath = reportJsonPath
+            ReportJsonPath = reportJsonPath,
+            TableStatus = validation.TableStatus,
+            WriteRisk = validation.WriteRisk,
+            WriteMode = validation.IsCrossVersionFallback ? "CrossVersionFallbackWrite" : "Direct"
         };
     }
 
     private string WriteStructuredReport(
         CczProject project,
         HexTableDefinition table,
+        HexTableValidationResult validation,
         string filePath,
         string backupPath,
         byte[] original,
@@ -116,6 +141,15 @@ public sealed class HexTableWriter
         List<WriteOperationChange> changes)
     {
         var targetRelative = WriteOperationReportService.ToProjectRelativePath(project, filePath);
+        var writeMode = validation.IsCrossVersionFallback ? "CrossVersionFallbackWrite" : "Direct";
+        var safetyNotes = project.IsTestCopy
+            ? "该报告由测试副本写入流程自动生成。还原时请使用保存前生成的备份文件手动恢复。"
+            : "该报告由当前 MOD 项目直接保存流程自动生成。保存前已备份目标文件；如需回退，请使用备份文件手动恢复。";
+        if (!string.IsNullOrWhiteSpace(validation.WriteRisk))
+        {
+            safetyNotes += " " + validation.WriteRisk;
+        }
+
         var report = new WriteOperationReport
         {
             OperationKind = "数据表保存",
@@ -127,15 +161,22 @@ public sealed class HexTableWriter
             BeforeSha256 = WriteOperationReportService.ComputeSha256(original),
             AfterSha256 = WriteOperationReportService.ComputeSha256(output),
             ChangedBytes = changedBytes,
-            Summary = $"保存数据表“{table.TableName}”，目标 {targetRelative}，字段改动 {changes.Count} 项，字节改动 {changedBytes:N0}。",
-            SafetyNotes = project.IsTestCopy
-                ? "该报告由测试副本写入流程自动生成。还原时请使用保存前生成的备份文件手动恢复。"
-                : "该报告由当前 MOD 项目直接保存流程自动生成。保存前已备份目标文件；如需回退，请使用备份文件手动恢复。",
+            Summary = $"保存数据表“{table.TableName}”，目标 {targetRelative}，字段改动 {changes.Count} 项，字节改动 {changedBytes:N0}，TableStatus={validation.TableStatus}，WriteMode={writeMode}。",
+            SafetyNotes = safetyNotes,
             Changes = changes,
             Metadata =
             {
                 ["TableName"] = table.TableName,
                 ["Version"] = table.Version,
+                ["TableStatus"] = validation.TableStatus,
+                ["WriteMode"] = writeMode,
+                ["WriteRisk"] = validation.WriteRisk,
+                ["SemanticValidationStatus"] = validation.SemanticValidationStatus,
+                ["HiddenTailPolicy"] = validation.HiddenTailPolicy,
+                ["EffectResolutionSource"] = validation.EffectResolutionSource,
+                ["EvidenceStatus"] = table.EvidenceStatus,
+                ["SourceTableName"] = table.SourceTableName,
+                ["IsGeneratedCompatibilityTable"] = table.IsGeneratedCompatibilityTable.ToString(CultureInfo.InvariantCulture),
                 ["RowCount"] = table.RowCount.ToString(CultureInfo.InvariantCulture),
                 ["RowSize"] = table.RowSize.ToString(CultureInfo.InvariantCulture),
                 ["DataPos"] = HexDisplayFormatter.FormatOffset(table.DataPos)

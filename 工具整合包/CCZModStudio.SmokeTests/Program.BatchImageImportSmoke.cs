@@ -98,6 +98,7 @@ internal partial class Program
         CreateBatchSFolder(materialRoot, "S1", Color.FromArgb(255, 220, 30, 80), Color.FromArgb(255, 30, 160, 220));
         CreateBatchSFolder(materialRoot, "S250", Color.FromArgb(255, 30, 180, 90), Color.FromArgb(255, 220, 140, 30));
         CreateBatchSFolder(materialRoot, "0", Color.FromArgb(255, 140, 80, 220), Color.FromArgb(255, 240, 220, 40));
+        CreateBatchSFolder(Path.Combine(materialRoot, "S1", "turn2"), "", Color.FromArgb(255, 80, 210, 230), Color.FromArgb(255, 210, 80, 120));
 
         var service = new BatchSImageReplaceService();
         var request = new BatchSImageReplaceRequest
@@ -111,14 +112,16 @@ internal partial class Program
             },
             IncludeOnlySelectedOrFiltered = true,
             FactionSlot = 1,
+            StageSlots = new[] { 1, 2, 3 },
             WriteMode = "test_copy"
         };
         var preview = service.Preview(testProject, request);
         if (!preview.CanWrite ||
-            preview.Items.Count != 3 ||
+            preview.Items.Count != 5 ||
             preview.TotalOperationCount != 15 ||
             preview.FilePreviews.Count != 3 ||
-            preview.Items.Single(item => item.SImageId == 1).ImageNumbers.SequenceEqual(new[] { 241, 242, 243 }) == false ||
+            !preview.Items.Where(item => item.SImageId == 1).Select(item => item.ImageNumber).SequenceEqual(new[] { 241, 242, 243 }) ||
+            preview.Items.Single(item => item.SImageId == 1 && item.StageSlot == 2).MovSourcePath.Contains("turn2", StringComparison.OrdinalIgnoreCase) == false ||
             preview.Items.Single(item => item.SImageId == 250).ImageNumbers.SequenceEqual(new[] { 554 }) == false ||
             preview.Items.Single(item => item.SImageId == 0).ImageNumbers.SequenceEqual(new[] { 23 }) == false)
         {
@@ -140,6 +143,29 @@ internal partial class Program
             VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
             VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
         }
+
+        var beforeS1Turn1Mov = e5.ReadEntryBytes(CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 241);
+        var beforeS1Turn3Mov = e5.ReadEntryBytes(CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 243);
+        var secondTurnOnlyRoot = Path.Combine(smokeRoot, "_BatchSSecondTurnOnly");
+        CreateBatchSFolder(secondTurnOnlyRoot, "S1", Color.FromArgb(255, 20, 210, 80), Color.FromArgb(255, 210, 60, 210));
+        var secondTurnOnly = service.Replace(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = secondTurnOnlyRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(1, null, 1) },
+            IncludeOnlySelectedOrFiltered = true,
+            StageSlots = new[] { 2 },
+            WriteMode = "test_copy"
+        });
+        if (secondTurnOnly.TotalOperationCount != 3 ||
+            secondTurnOnly.Items.Count != 1 ||
+            secondTurnOnly.Items[0].ImageNumber != 242)
+        {
+            throw new InvalidOperationException("Batch S image second-turn-only import did not write only Unit #242.");
+        }
+
+        AssertEntryBytesEqual(e5.ReadEntryBytes(CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 241), beforeS1Turn1Mov, "Batch S second-turn-only import changed Unit_mov.e5 #241.");
+        AssertEntryBytesEqual(e5.ReadEntryBytes(CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 243), beforeS1Turn3Mov, "Batch S second-turn-only import changed Unit_mov.e5 #243.");
+        VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 242, 48 * 528);
 
         var duplicatePreview = service.Preview(testProject, new BatchSImageReplaceRequest
         {

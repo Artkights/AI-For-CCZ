@@ -8,4 +8,7 @@ public sealed class TableSaveResult
     public int ChangedBytes { get; init; }
     public required string BackupPath { get; init; }
     public string ReportJsonPath { get; init; } = string.Empty;
+    public string TableStatus { get; init; } = string.Empty;
+    public string WriteRisk { get; init; } = string.Empty;
+    public string WriteMode { get; init; } = string.Empty;
 }

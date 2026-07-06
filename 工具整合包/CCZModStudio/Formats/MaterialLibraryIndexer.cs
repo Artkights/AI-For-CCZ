@@ -554,7 +554,16 @@ public sealed class MaterialLibraryIndexer
     private static void NormalizeCanonicalStripVariant(MaterialAutoTileVariant variant, int imageWidth, int imageHeight, string groupDir)
     {
         var tile = MapResourceItem.MapTilePixelSize;
-        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder();
+        var mode = MaterialAutoTileMetadataService.NormalizeAutoTileMode(
+            string.IsNullOrWhiteSpace(variant.Mode)
+                ? MaterialAutoTileMetadataService.InferAutoTileModeFromPath(groupDir)
+                : variant.Mode);
+        if (mode is MaterialAutoTileModes.Mask or MaterialAutoTileModes.Default)
+        {
+            mode = MaterialAutoTileMetadataService.NormalizeAutoTileMode(MaterialAutoTileMetadataService.InferAutoTileModeFromPath(groupDir));
+        }
+
+        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder(mode);
         if (imageWidth < tile * order.Length || imageHeight > tile)
         {
             return;
@@ -573,7 +582,7 @@ public sealed class MaterialLibraryIndexer
         var (role, mask) = order[frameIndex];
         variant.Role = role;
         variant.Mask = mask;
-        variant.Mode = MaterialAutoTileMetadataService.NormalizeAutoTileMode(MaterialAutoTileMetadataService.InferAutoTileModeFromPath(groupDir));
+        variant.Mode = mode;
         variant.Priority = frameIndex;
     }
 

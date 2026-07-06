@@ -62,9 +62,12 @@ public sealed class ItemClassificationService
         var name = ReadString(row, "名称");
         var typeId = ReadInt(row, "类型");
         var effectId = ReadInt(row, "装备特效号");
+        var kindEffectId = row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
+            ? ReadInt(row, Ccz66ItemLayoutService.RawEffectMarkerColumnName)
+            : effectId;
         var catalog = ReadInt(row, "宝物图鉴");
         var isEmptyName = string.IsNullOrWhiteSpace(name);
-        var kind = ClassifyKind(id, isEmptyName, effectId, boundary);
+        var kind = ClassifyKind(id, isEmptyName, kindEffectId, boundary);
         return new ItemClassification(
             id,
             kind,

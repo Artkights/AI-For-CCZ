@@ -23,23 +23,34 @@ public sealed partial class CczMcpRuntime
             Engine = engine,
             TableDiagnostics = BuildTableDiagnostics(engine, tables),
             Count = tables.Count,
-            Tables = tables.Select(table => new
+            Tables = tables.Select(table =>
             {
-                table.TableName,
-                table.Version,
-                table.FileName,
-                BeginId = table.BeginId,
-                table.RowCount,
-                table.RowSize,
-                DataPosHex = HexDisplayFormatter.FormatOffset(table.DataPos),
-                table.ReadOnly,
-                Fields = table.Fields.Select(field => new
+                var validation = _tableReader.Validate(project, table);
+                return new
                 {
-                    field.ColumnName,
-                    Kind = field.Kind.ToString(),
-                    field.Size,
-                    field.ConsumesBytes
-                })
+                    table.TableName,
+                    table.Version,
+                    table.FileName,
+                    BeginId = table.BeginId,
+                    table.RowCount,
+                    table.RowSize,
+                    DataPosHex = HexDisplayFormatter.FormatOffset(table.DataPos),
+                    table.ReadOnly,
+                    validation.TableStatus,
+                    validation.WriteRisk,
+                    table.EvidenceStatus,
+                    table.SourceTableName,
+                    table.IsGeneratedCompatibilityTable,
+                    table.IsEvidenceReadOnlyTable,
+                    Fields = table.Fields.Select(field => new
+                    {
+                        field.ColumnName,
+                        Kind = field.Kind.ToString(),
+                        field.Size,
+                        field.ConsumesBytes,
+                        field.VisibleByDefault
+                    })
+                };
             })
         };
     }
@@ -60,9 +71,11 @@ public sealed partial class CczMcpRuntime
             requestedPrefix = engine.TableVersionPrefix,
             actualPrefixes,
             tableFallback = fallback,
-            source = fallback ? "CrossVersionFallback" : "ExactOrCompatible",
+            source = fallback ? Ccz66RevisedLayout.CrossVersionFallbackTableStatus : Ccz66RevisedLayout.ExactOrCompatibleTableStatus,
+            generated66Tables = tables.Count(table => table.Version.Equals("6.6", StringComparison.OrdinalIgnoreCase) && table.IsGeneratedCompatibilityTable),
+            readOnlyEvidenceTables = tables.Count(table => table.IsEvidenceReadOnlyTable),
             warning = fallback
-                ? "6.6 engine is using a non-6.6 HexTable.xml. Writes are not blocked; verify offsets and row definitions before saving."
+                ? "6.6 engine is using a non-6.6 HexTable.xml. Writes are blocked by default; MCP table writes require write_mode=CrossVersionFallbackWrite and reports will be marked risky."
                 : string.Empty
         };
     }
@@ -88,12 +101,22 @@ public sealed partial class CczMcpRuntime
         {
             table.TableName,
             table.FileName,
+            Oracle = BuildImageAssignerOracleStatusPayload(project, table),
             Validation = new
             {
                 result.Validation.IsUsable,
+                result.Validation.CanWrite,
                 result.Validation.FilePath,
                 result.Validation.FileExists,
                 result.Validation.FileLength,
+                result.Validation.TableStatus,
+                result.Validation.WriteRisk,
+                result.Validation.IsNative66,
+                result.Validation.IsCrossVersionFallback,
+                result.Validation.IsReadOnlyEvidenceOnly,
+                result.Validation.SemanticValidationStatus,
+                result.Validation.HiddenTailPolicy,
+                result.Validation.EffectResolutionSource,
                 result.Validation.Warnings
             },
             TotalRows = result.Data.Rows.Count,
@@ -116,6 +139,18 @@ public sealed partial class CczMcpRuntime
         if (!result.Validation.IsUsable)
         {
             throw new InvalidOperationException("The selected table is not usable for writing.");
+        }
+        if (result.Validation.IsReadOnlyEvidenceOnly)
+        {
+            throw new InvalidOperationException("The selected table is read-only/evidence-only and cannot be written: " + result.Validation.TableStatus);
+        }
+        if (result.Validation.IsCrossVersionFallback && !IsCrossVersionFallbackWriteMode(writeMode))
+        {
+            throw new InvalidOperationException("The selected 6.6 table resolved through CrossVersionFallback. Re-run with write_mode=CrossVersionFallbackWrite to explicitly accept the non-native 6.6 layout risk.");
+        }
+        if (!result.Validation.CanWrite && !result.Validation.IsCrossVersionFallback)
+        {
+            throw new InvalidOperationException("The selected table cannot be written: " + result.Validation.TableStatus);
         }
 
         foreach (var update in updates)
@@ -157,7 +192,16 @@ public sealed partial class CczMcpRuntime
             save.ReportJsonPath,
             save.RowsWritten,
             save.ChangedBytes,
-            table.TableName
+            save.TableStatus,
+            save.WriteRisk,
+            save.WriteMode,
+            table.TableName,
+            Oracle = BuildImageAssignerOracleStatusPayload(project, table)
         };
     }
+
+    private static bool IsCrossVersionFallbackWriteMode(string? writeMode)
+        => string.Equals(writeMode, "CrossVersionFallbackWrite", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(writeMode, "cross_version_fallback_write", StringComparison.OrdinalIgnoreCase);
+
 }

@@ -716,13 +716,57 @@ public sealed partial class MainForm
         return string.Empty;
     }
 
+    private const string StandaloneMapWorkbenchProfileName = "StandaloneMapWorkbench";
+    private const string StandaloneMapWorkbenchWriteMessage = "当前为离线地图工作台；打开 MOD 项目后才能写回 Map/Hexzmap。";
+
+    private bool IsStandaloneMapWorkbench => _project == null;
+
+    private string GetMapWorkbenchNotesRoot()
+        => _project != null
+            ? Path.Combine(_project.WorkspaceRoot, "CCZModStudio_Notes")
+            : PortableInstallPaths.MapWorkbenchStandaloneNotesRoot;
+
+    private string GetMapWorkbenchExportsRoot(params string[] children)
+    {
+        var root = _project != null
+            ? Path.Combine(_project.WorkspaceRoot, "CCZModStudio_Exports")
+            : PortableInstallPaths.MapWorkbenchStandaloneExportsRoot;
+        return children.Length == 0 ? root : Path.Combine(new[] { root }.Concat(children).ToArray());
+    }
+
+    private string GetMapWorkbenchProfileName()
+        => _project?.Name ?? StandaloneMapWorkbenchProfileName;
+
+    private bool HasProjectBoundMapWriteTarget()
+        => _project != null &&
+           _currentMapMakerItem != null &&
+           !_currentMapMakerItem.SourceKind.Equals("ExternalImage", StringComparison.OrdinalIgnoreCase);
+
+    private void LoadMapWorkbenchSettingsForCurrentContext()
+    {
+        _mapWorkbenchSettings = _project != null
+            ? _mapDraftService.LoadSettings(_project)
+            : _mapDraftService.LoadSettings(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName());
+    }
+
+    private void SaveMapWorkbenchSettingsForCurrentContext()
+    {
+        if (_project != null)
+        {
+            _mapDraftService.SaveSettings(_project, _mapWorkbenchSettings);
+        }
+        else
+        {
+            _mapDraftService.SaveSettings(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName(), _mapWorkbenchSettings);
+        }
+    }
+
     private void LoadMapWorkbenchSettings()
     {
         using var perf = TracePerf("LoadMapWorkbenchSettings");
-        if (_project == null) return;
         try
         {
-            _mapWorkbenchSettings = _mapDraftService.LoadSettings(_project);
+            LoadMapWorkbenchSettingsForCurrentContext();
             _mapWorkbenchSettings.PersistedTerrainMaterialPlans ??= new List<PersistedTerrainMaterialPlan>();
             var materialRoot = ResolveDefaultMapWorkbenchMaterialRoot();
             if (!string.IsNullOrWhiteSpace(materialRoot))
@@ -742,11 +786,27 @@ public sealed partial class MainForm
             System.Diagnostics.Debug.WriteLine("读取地图工作台设置失败：" + ex.Message);
             _mapWorkbenchSettings = new MapWorkbenchSettings();
         }
+
+        _loadMapImagesButton.Text = IsStandaloneMapWorkbench ? "打开底图" : "读取 Map 图片";
+        UpdateMapMakerEditingButtons();
     }
 
     private string ResolveDefaultMapWorkbenchMaterialRoot()
     {
-        if (_project == null) return string.Empty;
+        if (_project == null)
+        {
+            if (TryResolveExistingMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, out var standaloneRoot)) return standaloneRoot;
+
+            var standaloneCandidates = new List<string>();
+            AddMaterialRootCandidate(standaloneCandidates, _mapWorkbenchSettings.LastMaterialRoot);
+            AddMaterialRootCandidate(standaloneCandidates, Path.Combine(PortableInstallPaths.LauncherRoot, "LegacyResources", "普罗-综合工具v0.3", "素材库"));
+            AddMaterialRootCandidate(standaloneCandidates, Path.Combine(PortableInstallPaths.LauncherRoot, "素材库"));
+            AddMaterialRootCandidate(standaloneCandidates, MaterialLibraryIndexer.ResolveMaterialLibraryRoot(PortableInstallPaths.LauncherRoot));
+            AddMaterialRootCandidate(standaloneCandidates, MaterialLibraryIndexer.ResolveMaterialLibraryRoot(Environment.CurrentDirectory));
+            AddMaterialRootCandidate(standaloneCandidates, PortableInstallPaths.LegacyResource("普罗-综合工具v0.3", "素材库"));
+            return MaterialLibraryIndexer.SelectBestMaterialLibraryRoot(standaloneCandidates) ?? string.Empty;
+        }
+
         if (TryResolveExistingMaterialRoot(_mapWorkbenchSettings.LastMaterialRoot, out var existingRoot)) return existingRoot;
         if (TryResolveExistingMaterialRoot(_project.MaterialLibraryRoot, out existingRoot)) return existingRoot;
 
@@ -823,10 +883,9 @@ public sealed partial class MainForm
 
     private void SaveMapWorkbenchSettings()
     {
-        if (_project == null) return;
         try
         {
-            _mapDraftService.SaveSettings(_project, _mapWorkbenchSettings);
+            SaveMapWorkbenchSettingsForCurrentContext();
         }
         catch (Exception ex)
         {
@@ -952,6 +1011,12 @@ public sealed partial class MainForm
     {
         if (_project == null)
         {
+            CreateNewStandaloneMapWorkbenchDraftFromInputs();
+            return;
+        }
+
+        if (_project == null)
+        {
             MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -970,6 +1035,12 @@ public sealed partial class MainForm
 
     private void LoadLastMapWorkbenchDraft()
     {
+        if (_project == null)
+        {
+            LoadLastStandaloneMapWorkbenchDraft();
+            return;
+        }
+
         if (_project == null)
         {
             MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1014,6 +1085,12 @@ public sealed partial class MainForm
 
     private void SaveCurrentMapWorkbenchDraft()
     {
+        if (_project == null)
+        {
+            SaveCurrentStandaloneMapWorkbenchDraft();
+            return;
+        }
+
         if (_project == null || _currentMapWorkbenchDraft == null)
         {
             MessageBox.Show(this, "当前没有可保存的地图草稿。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -1037,6 +1114,88 @@ public sealed partial class MainForm
         {
             System.Diagnostics.Debug.WriteLine("保存地图工作台草稿失败：" + ex);
             MessageBox.Show(this, ex.Message, "保存草稿失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void CreateNewStandaloneMapWorkbenchDraftFromInputs()
+    {
+        EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+        var width = (int)_mapMakerGridWidthInput.Value;
+        var height = (int)_mapMakerGridHeightInput.Value;
+        _currentMapMakerItem = null;
+        _currentMapWorkbenchDraft = _mapDraftService.CreateBlankDraft(width, height, _mapWorkbenchSettings.LastMaterialRoot);
+        _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+        _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
+        BindMapWorkbenchDraftToEditor(resetHistory: true);
+        _mapViewerInfoBox.Text = BuildMapMakerInfo($"已新建离线空白草稿。草稿目录：{_mapDraftService.GetDraftStoreRoot(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName())}");
+        SetStatus($"地图工作台：离线 {width}x{height}");
+    }
+
+    private void LoadLastStandaloneMapWorkbenchDraft()
+    {
+        var draftId = _mapWorkbenchSettings.LastDraftId;
+        if (string.IsNullOrWhiteSpace(draftId))
+        {
+            var latest = _mapDraftService.ListDrafts(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName()).FirstOrDefault();
+            draftId = latest?.DraftId ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(draftId))
+        {
+            MessageBox.Show(this, "离线地图工作台还没有保存过草稿。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            _currentMapWorkbenchDraft = _mapDraftService.LoadDraft(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName(), draftId);
+            _currentMapMakerItem = CreateExternalMapResourceItemFromDraft(_currentMapWorkbenchDraft);
+            RefreshDraftBaseLayerFromCurrentMap(_currentMapWorkbenchDraft, _currentMapMakerItem);
+            BindMapWorkbenchDraftToEditor(resetHistory: true);
+            var missing = _mapDraftService.FindMissingAssets(_currentMapWorkbenchDraft);
+            _mapViewerInfoBox.Text = BuildMapMakerInfo(missing.Count == 0
+                ? $"已载入离线地图草稿。草稿目录：{_mapDraftService.GetDraftStoreRoot(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName())}"
+                : $"已载入离线草稿，但有 {missing.Count} 个素材/底图缺失。");
+            if (missing.Count > 0)
+            {
+                _mapMakerMaterialInfoBox.Text = "缺失清单：\r\n" + string.Join("\r\n", missing.Take(40).Select(x => $"{x.Index}: {x.RelativePath} - {x.Reason}"));
+            }
+
+            SetStatus("地图工作台：离线草稿载入完成");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("载入离线地图工作台草稿失败：" + ex);
+            MessageBox.Show(this, ex.Message, "载入离线草稿失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void SaveCurrentStandaloneMapWorkbenchDraft()
+    {
+        if (_currentMapWorkbenchDraft == null)
+        {
+            MessageBox.Show(this, "当前没有可保存的离线地图草稿。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            SyncMapWorkbenchDraftFromEditor();
+            EnsureCurrentTerrainMaterialPlan(persist: true);
+            _mapDraftService.SaveDraft(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName(), _currentMapWorkbenchDraft);
+            _mapWorkbenchSettings.LastDraftId = _currentMapWorkbenchDraft.DraftId;
+            _mapWorkbenchSettings.LastBoundMapId = _currentMapWorkbenchDraft.BoundMapId;
+            _mapWorkbenchSettings.LastMaterialRoot = _currentMapWorkbenchDraft.MaterialRoot;
+            SaveMapWorkbenchSettings();
+            _mapViewerInfoBox.Text = BuildMapMakerInfo($"离线草稿已保存。草稿目录：{_mapDraftService.GetDraftStoreRoot(GetMapWorkbenchNotesRoot(), GetMapWorkbenchProfileName())}");
+            System.Diagnostics.Debug.WriteLine($"已保存离线地图工作台草稿：{_currentMapWorkbenchDraft.DraftId}");
+            ResetMapWorkbenchHistory();
+            SetStatus("地图工作台：离线草稿保存完成");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("保存离线地图工作台草稿失败：" + ex);
+            MessageBox.Show(this, ex.Message, "保存离线草稿失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -1475,7 +1634,7 @@ public sealed partial class MainForm
         {
             Description = "选择素材库根目录（包含分类子目录和 hex.txt）",
             UseDescriptionForTitle = true,
-            SelectedPath = Directory.Exists(initial) ? initial : (_project?.WorkspaceRoot ?? Directory.GetCurrentDirectory())
+            SelectedPath = Directory.Exists(initial) ? initial : (_project?.WorkspaceRoot ?? PortableInstallPaths.LauncherRoot)
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         IndexMapWorkbenchMaterialRoot(dialog.SelectedPath, showMessages: true, populateBrowser: true);
@@ -4860,6 +5019,7 @@ public sealed partial class MainForm
     {
         var hasDraft = _currentMapWorkbenchDraft != null;
         var hasBoundMap = hasDraft && _currentMapMakerItem != null;
+        var hasProjectWriteTarget = hasDraft && HasProjectBoundMapWriteTarget();
         var canPublishMap = CanPublishCurrentMapWorkbenchMap(out _);
         var terrainGenerateMode = IsMapWorkbenchTerrainGenerateMode;
         if (!hasDraft && _mapMakerEditTerrainCheckBox.Checked)
@@ -4878,13 +5038,13 @@ public sealed partial class MainForm
         _mapMakerRedoTerrainButton.Enabled = hasDraft && (_mapMakerMapRedoStack.Count > 0 || _mapMakerTerrainRedoStack.Count > 0);
         _mapMakerMaterialPlanButton.Enabled = hasDraft && !terrainGenerateMode;
         _mapMakerTerrainStyleButton.Enabled = hasDraft && terrainGenerateMode;
-        _mapMakerReplaceMapImageButton.Enabled = hasBoundMap;
+        _mapMakerReplaceMapImageButton.Enabled = hasProjectWriteTarget;
         _mapMakerExportPreviewButton.Enabled = _mapViewerBox.Image != null;
         _mapMakerExportJpgButton.Enabled = hasDraft;
         _mapMakerExtractMaterialButton.Enabled = hasDraft && !terrainGenerateMode && !_mapMakerSelectedCellRange.IsEmpty;
         _mapMakerPublishAllButton.Enabled = canPublishMap;
         _mapMakerPublishMapButton.Enabled = canPublishMap;
-        _mapMakerPublishTerrainButton.Enabled = hasBoundMap;
+        _mapMakerPublishTerrainButton.Enabled = hasProjectWriteTarget;
         _mapViewerBox.Cursor = hasDraft
             ? (!terrainGenerateMode && _mapWorkbenchBrushMode == MapWorkbenchBrushMode.SceneryBrush ? Cursors.SizeAll : Cursors.Cross)
             : Cursors.Default;
@@ -5122,6 +5282,11 @@ public sealed partial class MainForm
             reason = "未绑定已有 Mxxx 槽位";
             return false;
         }
+        if (!HasProjectBoundMapWriteTarget())
+        {
+            reason = StandaloneMapWorkbenchWriteMessage;
+            return false;
+        }
         if (_currentMapMakerItem.GridWidth != _currentMapWorkbenchDraft.GridWidth ||
             _currentMapMakerItem.GridHeight != _currentMapWorkbenchDraft.GridHeight)
         {
@@ -5247,9 +5412,7 @@ public sealed partial class MainForm
             return;
         }
 
-        var exportRoot = _project != null
-            ? Path.Combine(_project.WorkspaceRoot, "CCZModStudio_Exports")
-            : Directory.GetCurrentDirectory();
+        var exportRoot = GetMapWorkbenchExportsRoot();
         Directory.CreateDirectory(exportRoot);
         using var dialog = new SaveFileDialog
         {
@@ -5285,9 +5448,7 @@ public sealed partial class MainForm
         SyncMapWorkbenchDraftFromEditor();
         EnsureCurrentTerrainMaterialPlan(persist: true);
         ForceBeautifiedGeneratedMapForOutput();
-        var exportRoot = _project != null
-            ? Path.Combine(_project.WorkspaceRoot, "CCZModStudio_Exports", "MapWorkbench")
-            : Directory.GetCurrentDirectory();
+        var exportRoot = GetMapWorkbenchExportsRoot("MapWorkbench");
         Directory.CreateDirectory(exportRoot);
         using var dialog = new SaveFileDialog
         {
@@ -5593,6 +5754,12 @@ public sealed partial class MainForm
     {
         if (_project == null)
         {
+            OpenExternalMapImageDialog();
+            return;
+        }
+
+        if (_project == null)
+        {
             MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -5629,9 +5796,171 @@ public sealed partial class MainForm
         }
     }
 
+    private void OpenExternalMapImageDialog()
+    {
+        var initialDirectory = Directory.Exists(_mapWorkbenchSettings.LastMaterialRoot)
+            ? Directory.GetParent(_mapWorkbenchSettings.LastMaterialRoot)?.FullName ?? PortableInstallPaths.LauncherRoot
+            : PortableInstallPaths.LauncherRoot;
+        using var dialog = new OpenFileDialog
+        {
+            Title = "打开外部地图底图",
+            Filter = "图片文件 (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp|所有文件 (*.*)|*.*",
+            InitialDirectory = Directory.Exists(initialDirectory) ? initialDirectory : PortableInstallPaths.LauncherRoot,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var item = CreateExternalMapResourceItem(dialog.FileName);
+            _currentMapResources = new[] { item };
+            _mapImageList.DisplayMember = nameof(MapResourceItem.Name);
+            _mapImageList.DataSource = new BindingList<MapResourceItem>(_currentMapResources.ToList());
+            _mapImageList.SelectedIndex = 0;
+            if (!ReferenceEquals(_currentMapMakerItem, item))
+            {
+                LoadMapWorkbenchDraftFromExternalImage(item);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancelled the non-48px confirmation.
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("打开外部地图底图失败：" + ex);
+            MessageBox.Show(this, ex.Message, "打开外部底图失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private MapResourceItem? CreateExternalMapResourceItemFromDraft(MapWorkbenchDraft draft)
+    {
+        if (string.IsNullOrWhiteSpace(draft.BaseLayerPath) || !File.Exists(draft.BaseLayerPath)) return null;
+        try
+        {
+            return CreateExternalMapResourceItem(draft.BaseLayerPath, draft.GridWidth, draft.GridHeight);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private MapResourceItem CreateExternalMapResourceItem(string imagePath, int? gridWidthOverride = null, int? gridHeightOverride = null)
+    {
+        imagePath = Path.GetFullPath(imagePath);
+        if (!File.Exists(imagePath))
+        {
+            throw new FileNotFoundException("外部地图底图不存在。", imagePath);
+        }
+
+        int width;
+        int height;
+        using (var image = Image.FromFile(imagePath))
+        {
+            width = image.Width;
+            height = image.Height;
+        }
+
+        var gridWidth = gridWidthOverride.GetValueOrDefault(width / MapResourceItem.MapTilePixelSize);
+        var gridHeight = gridHeightOverride.GetValueOrDefault(height / MapResourceItem.MapTilePixelSize);
+        gridWidth = Math.Max(1, gridWidth);
+        gridHeight = Math.Max(1, gridHeight);
+
+        if (!gridWidthOverride.HasValue &&
+            (width % MapResourceItem.MapTilePixelSize != 0 || height % MapResourceItem.MapTilePixelSize != 0))
+        {
+            var result = MessageBox.Show(
+                this,
+                $"外部底图尺寸为 {width}x{height}，不能被 48 像素整除。\r\n将按 {gridWidth}x{gridHeight} 格创建草稿，超出整格范围的边缘像素不会作为可编辑格子。是否继续？",
+                "确认外部底图尺寸",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+            if (result != DialogResult.Yes)
+            {
+                throw new OperationCanceledException("已取消打开外部底图。");
+            }
+        }
+
+        var info = new FileInfo(imagePath);
+        var mapId = TryExtractMapIdFromFileName(info.Name);
+        var id = string.IsNullOrWhiteSpace(mapId) ? string.Empty : mapId.TrimStart('M', 'm');
+        return new MapResourceItem
+        {
+            Id = id,
+            MapId = mapId,
+            Name = info.Name,
+            Extension = info.Extension,
+            SizeBytes = info.Length,
+            SourceKind = "ExternalImage",
+            Width = width,
+            Height = height,
+            GridWidthOverride = gridWidth,
+            GridHeightOverride = gridHeight,
+            Path = imagePath
+        };
+    }
+
+    private static string TryExtractMapIdFromFileName(string fileName)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        if (name.Length > 1 &&
+            (name[0] == 'M' || name[0] == 'm') &&
+            int.TryParse(name[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var number))
+        {
+            return $"M{number:D3}";
+        }
+
+        return string.Empty;
+    }
+
+    private void LoadMapWorkbenchDraftFromExternalImage(MapResourceItem item)
+    {
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+            _currentMapMakerItem = item;
+            ClearMapMakerPreviewImages();
+            _currentMapWorkbenchDraft = _mapDraftService.CreateDraftFromMap(item, _mapWorkbenchSettings.LastMaterialRoot);
+            _currentMapWorkbenchDraft.BoundMapId = item.MapId;
+            RefreshDraftBaseLayerFromCurrentMap(_currentMapWorkbenchDraft, item);
+            _currentMapWorkbenchDraft.AutoGenerateMapFromTerrain = true;
+            _currentMapWorkbenchDraft.BeautifyGeneratedMap = false;
+            _terrainEditorBlock = null;
+            BindMapWorkbenchDraftToEditor(resetHistory: true);
+            _mapViewerInfoBox.Text = BuildMapMakerInfo($"已打开外部底图：{item.Name}。离线模式不会写回 Map/Hexzmap。");
+            FitMapToView();
+            SetStatus($"地图工作台：离线底图 {item.Name}");
+        }
+        catch (OperationCanceledException)
+        {
+            // User cancelled the non-48px confirmation.
+        }
+        catch (Exception ex)
+        {
+            _currentMapMakerItem = null;
+            _currentMapWorkbenchDraft = null;
+            ClearMapMakerPreviewImages();
+            _mapViewerInfoBox.Text = ex.ToString();
+            System.Diagnostics.Debug.WriteLine("External map image load failed: " + ex);
+            SetStatus("External map preview load failed: " + ex.Message);
+            UpdateMapMakerEditingButtons();
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
     private void LoadSelectedMapImage()
     {
         if (_mapImageList.SelectedItem is not MapResourceItem item) return;
+        if (_project == null && item.SourceKind.Equals("ExternalImage", StringComparison.OrdinalIgnoreCase))
+        {
+            LoadMapWorkbenchDraftFromExternalImage(item);
+            return;
+        }
         if (_project == null) return;
 
         try

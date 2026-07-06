@@ -215,6 +215,7 @@ public sealed partial class MainForm : Form
     private readonly BmpImageExportService _bmpImageExportService = new();
     private readonly BatchItemIconImportService _batchItemIconImportService = new();
     private readonly BatchRoleFaceImportService _batchRoleFaceImportService = new();
+    private readonly PortraitFrameApplyService _portraitFrameApplyService = new();
     private readonly BatchStrategyIconImportService _batchStrategyIconImportService = new();
     private readonly BatchJobSImageReplaceService _batchJobSImageReplaceService = new();
     private readonly E5RoleRawNormalizeService _e5RoleRawNormalizeService = new();
@@ -237,6 +238,7 @@ public sealed partial class MainForm : Form
     private readonly MapMaterialExtractionService _mapMaterialExtractionService = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
     private readonly ImageResourceCatalogService _imageResourceCatalogService = new();    private readonly TableReferenceLookupService _tableReferenceLookupService = new();
+    private readonly TableDerivedDisplayService _tableDerivedDisplayService = new();
     private readonly RoleQuoteMappingService _roleQuoteMappingService = new();
     private readonly ImageAssignmentService _imageAssignmentService = new();
     private readonly EexArchiveReader _eexArchiveReader = new();
@@ -268,6 +270,8 @@ public sealed partial class MainForm : Form
     private readonly ItemIconPreviewService _itemIconPreviewService = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
+    private readonly ItemEffectResolutionService _itemEffectResolutionService = new();
+    private readonly Ccz66ItemEffectNameService _ccz66ItemEffectNameService = new();
     private readonly ProjectEquipmentTypeProfileService _equipmentTypeProfileService = new();
     private readonly AccessoryJobGroupService _accessoryJobGroupService = new();
     private readonly ShopEditorService _shopEditorService = new();
@@ -301,6 +305,7 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<ScenarioSearchResultRow> _currentScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
     private string _currentScriptSearchKeyword = string.Empty;
     private int _currentScriptSearchResultIndex = -1;
+    private readonly HashSet<string> _currentScriptSearchCommandKeys = new(StringComparer.OrdinalIgnoreCase);
     private ScenarioFileInfo? _currentScriptScenario;
     private ScenarioStructureRow? _selectedScriptCommandRow;
     private ScenarioTextEntry? _selectedScriptTextEntry;
@@ -330,8 +335,10 @@ public sealed partial class MainForm : Form
     private ScenarioStructureProbeResult? _currentBattlefieldScriptStructure;
     private LegacyScenarioDocument? _currentBattlefieldLegacyScriptDocument;
     private IReadOnlyList<ScenarioTextEntry> _currentBattlefieldScriptTextEntries = Array.Empty<ScenarioTextEntry>();
+    private IReadOnlyList<ScenarioSearchResultRow> _currentBattlefieldScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
     private string _currentBattlefieldScriptSearchKeyword = string.Empty;
     private int _currentBattlefieldScriptSearchResultIndex = -1;
+    private readonly HashSet<string> _currentBattlefieldScriptSearchCommandKeys = new(StringComparer.OrdinalIgnoreCase);
     private ScenarioTextEntry? _selectedBattlefieldScriptTextEntry;
     private ScenarioStructureRow? _selectedBattlefieldScriptCommandRow;
     private readonly Dictionary<string, LegacyScenarioCommandNode> _battlefieldScriptCommandByKey = new(StringComparer.OrdinalIgnoreCase);
@@ -378,6 +385,8 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<LegacyScenarioDocument> _currentRScenePrecedingVariableDocuments = Array.Empty<LegacyScenarioDocument>();
     private ScenarioStructureProbeResult? _currentRSceneScriptStructure;
     private IReadOnlyList<ScenarioTextEntry> _currentRSceneScriptTextEntries = Array.Empty<ScenarioTextEntry>();
+    private IReadOnlyList<ScenarioSearchResultRow> _currentRSceneScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
+    private readonly HashSet<string> _currentRSceneScriptSearchCommandKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, LegacyScenarioCommandNode> _rSceneScriptCommandByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<LegacyScenarioCommandNode, LegacyScenarioItemData> _rSceneScriptItemDataByCommand = new();
     private readonly Dictionary<ScenarioStructureRow, LegacyScenarioItemData> _rSceneScriptItemDataByRow = new();
@@ -451,6 +460,7 @@ public sealed partial class MainForm : Form
     private TableReadResult? _jobTerrainPowerRead;
     private TableReadResult? _jobMoveCostRead;
     private TableReadResult? _jobRestraintRead;
+    private TableReadResult? _jobAttributeRead;
     private DataTable? _currentJobStrategyData;
     private TableReadResult? _jobStrategyRead;
     private readonly Dictionary<string, TableReadResult> _jobStrategyCompanionReads = new(StringComparer.Ordinal);
@@ -638,6 +648,10 @@ public sealed partial class MainForm : Form
     private readonly ComboBox _roleAssistCombo = new();
     private readonly Label[] _roleCriticalQuoteLabels = Enumerable.Range(0, RoleQuoteMappingService.CriticalGenericGroupSize).Select(_ => new Label()).ToArray();
     private readonly TextBox[] _roleCriticalQuoteBoxes = Enumerable.Range(0, RoleQuoteMappingService.CriticalGenericGroupSize).Select(_ => new TextBox()).ToArray();
+    private readonly ComboBox _roleCriticalQuoteModeCombo = new();
+    private readonly ComboBox _roleCriticalQuoteAssignmentCombo = new();
+    private bool _updatingRoleCriticalQuoteAssignmentControls;
+    private RoleCriticalQuoteSelection? _loadedRoleCriticalQuoteSelection;
     private readonly TextBox _roleRetreatQuoteBox = new();
     private readonly Button _loadJobEditorButton = new();
     private readonly Button _saveJobEditorButton = new();
@@ -678,7 +692,9 @@ public sealed partial class MainForm : Form
     private readonly Button _loadJobMatrixButton = new();
     private readonly Button _saveJobMatrixButton = new();
     private readonly Button _openJobMatrixRestraintTableButton = new();
+    private readonly Button _openJobMatrixAttributeTableButton = new();
     private readonly DataGridView _jobRestraintGrid = new();
+    private readonly DataGridView _jobAttributeGrid = new();
     private readonly TextBox _jobMatrixInfoBox = new();
     private readonly Button _loadJobStrategyEditorButton = new();
     private readonly Button _saveJobStrategyEditorButton = new();
@@ -903,6 +919,8 @@ public sealed partial class MainForm : Form
     private readonly Button _batchReplaceSImageSetButton = new();
     private readonly Button _importImageAssignmentFaceButton = new();
     private readonly Button _batchImportImageAssignmentFaceButton = new();
+    private readonly Button _applyImageAssignmentFaceFrameButton = new();
+    private readonly Button _batchApplyImageAssignmentFaceFrameButton = new();
     private readonly Button _exportRImageBmpButton = new();
     private readonly Button _exportSImageBmpButton = new();
     private readonly Button _exportImageAssignmentFaceBmpButton = new();
@@ -988,6 +1006,9 @@ public sealed partial class MainForm : Form
     private readonly TextBox _battlefieldScriptSearchBox = new();
     private readonly Button _battlefieldScriptSearchButton = new();
     private readonly Button _battlefieldScriptClearSearchButton = new();
+    private readonly TextBox _battlefieldScriptReplaceBox = new();
+    private readonly Button _battlefieldScriptReplaceButton = new();
+    private readonly DataGridView _battlefieldScriptSearchResultGrid = new();
     private readonly TextBox _battlefieldScriptTextBox = new();
     private readonly Label _battlefieldScriptTextCapacityLabel = new();
     private readonly Button _saveBattlefieldScriptTextButton = new();
@@ -1040,6 +1061,11 @@ public sealed partial class MainForm : Form
     private readonly Button _jumpRSceneScriptButton = new();
     private readonly TreeView _rSceneScriptTree = new();
     private readonly TextBox _rSceneScriptSearchBox = new();
+    private readonly Button _rSceneScriptSearchButton = new();
+    private readonly Button _rSceneScriptClearSearchButton = new();
+    private readonly TextBox _rSceneScriptReplaceBox = new();
+    private readonly Button _rSceneScriptReplaceButton = new();
+    private readonly DataGridView _rSceneScriptSearchResultGrid = new();
     private string _currentRSceneScriptSearchKeyword = string.Empty;
     private int _currentRSceneScriptSearchResultIndex = -1;
     private readonly TextBox _rSceneScriptDetailBox = new();
@@ -1070,6 +1096,8 @@ public sealed partial class MainForm : Form
     private readonly TextBox _scriptSearchBox = new();
     private readonly Button _scriptSearchButton = new();
     private readonly Button _scriptClearSearchButton = new();
+    private readonly TextBox _scriptReplaceBox = new();
+    private readonly Button _scriptReplaceButton = new();
     private readonly Button _showScriptVariablesButton = new();
     private readonly Button _locateScriptCommandButton = new();
     private readonly Button _copyScriptCommandButton = new();
@@ -1136,6 +1164,7 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _scriptTextGrid = new();
     private readonly DataGridView _scriptSearchResultGrid = new();
     private readonly TabControl _scriptLowerLeftTabs = new();
+    private readonly TextBox _genericGridSearchBox = new();
     private readonly TextBox _scriptTextEditorBox = new();
     private readonly Label _scriptTextCapacityLabel = new();
     private readonly Label _scriptHeaderLabel = new();
@@ -1876,6 +1905,12 @@ public sealed partial class MainForm : Form
         _batchImportImageAssignmentFaceButton.Text = "批量导入头像";
         ConfigureToolbarButton(_batchImportImageAssignmentFaceButton, 118);
         _batchImportImageAssignmentFaceButton.Enabled = false;
+        _applyImageAssignmentFaceFrameButton.Text = "一键头像框";
+        ConfigureToolbarButton(_applyImageAssignmentFaceFrameButton, 104);
+        _applyImageAssignmentFaceFrameButton.Enabled = false;
+        _batchApplyImageAssignmentFaceFrameButton.Text = "批量头像框";
+        ConfigureToolbarButton(_batchApplyImageAssignmentFaceFrameButton, 104);
+        _batchApplyImageAssignmentFaceFrameButton.Enabled = false;
         _exportRImageBmpButton.Text = "\u5bfc\u51faR BMP";
         ConfigureToolbarButton(_exportRImageBmpButton, 104);
         _exportRImageBmpButton.Enabled = false;
@@ -1912,6 +1947,8 @@ public sealed partial class MainForm : Form
             _batchReplaceSImageSetButton,
             _importImageAssignmentFaceButton,
             _batchImportImageAssignmentFaceButton,
+            _applyImageAssignmentFaceFrameButton,
+            _batchApplyImageAssignmentFaceFrameButton,
             _exportRImageBmpButton,
             _exportSImageBmpButton,
             _exportImageAssignmentFaceBmpButton,
@@ -2117,9 +2154,9 @@ public sealed partial class MainForm : Form
         var eexProbeGridPage = new TabPage("区段表格");
         var eexProbeTreePage = new TabPage("区段/动作候选树");
         var eexCrossFilePage = new TabPage("跨文件对比");
-        eexProbeGridPage.Controls.Add(_eexEntryProbeGrid);
-        eexProbeTreePage.Controls.Add(_eexEntryTree);
-        eexCrossFilePage.Controls.Add(_eexCrossFileGrid);
+        eexProbeGridPage.Controls.Add(CreateSearchableGridPanel(_eexEntryProbeGrid, "区段/文本/角色"));
+        eexProbeTreePage.Controls.Add(CreateSearchableTreePanel(_eexEntryTree, "区段/动作/文本"));
+        eexCrossFilePage.Controls.Add(CreateSearchableGridPanel(_eexCrossFileGrid, "文件/角色/差异"));
         eexProbeTabs.TabPages.Add(eexProbeGridPage);
         eexProbeTabs.TabPages.Add(eexProbeTreePage);
         eexProbeTabs.TabPages.Add(eexCrossFilePage);
@@ -2387,7 +2424,7 @@ public sealed partial class MainForm : Form
         commandTemplatePage.Controls.Add(commandTemplateLayout);
 
         AddCollapsibleSplitPanel(scenarioSplit, 1, "剧本文件", _scenarioFileGrid, "BuildScenarioProbePage.FileDetail.Files");
-        commandProbePage.Controls.Add(_scenarioCommandProbeGrid);
+        commandProbePage.Controls.Add(CreateSearchableGridPanel(_scenarioCommandProbeGrid, "命令/参数/注释"));
         var structureDetailTabs = new TabControl { Dock = DockStyle.Fill };
         var structureTreePage = new TabPage("事件树");
         var structureXmlPage = new TabPage("XML");
@@ -2577,7 +2614,7 @@ public sealed partial class MainForm : Form
         _hexzmapPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
         hexzmapPreviewLayout.Controls.Add(_hexzmapCellPreviewLabel, 0, 0);
         hexzmapPreviewLayout.Controls.Add(_hexzmapPreviewBox, 0, 1);
-        AddCollapsibleSplitPanel(hexzmapSplit, 1, "地形块", _hexzmapGrid, "BuildHexzmapPage.GridPreview.Grid");
+        AddCollapsibleSplitPanel(hexzmapSplit, 1, "地形块", CreateSearchableGridPanel(_hexzmapGrid, "地图/坐标/地形"), "BuildHexzmapPage.GridPreview.Grid");
         AddCollapsibleSplitPanel(hexzmapSplit, 2, "地形预览", hexzmapPreviewLayout, "BuildHexzmapPage.GridPreview.Preview");
         hexzmapLayout.Controls.Add(hexzmapSplit, 0, 1);
         _mainTabs.TabPages.Add(hexzmapPage);

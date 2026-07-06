@@ -15,6 +15,7 @@ public sealed class HexFieldDefinition
     public required string ColumnName { get; init; }
     public required int Size { get; init; }
     public required HexFieldKind Kind { get; init; }
+    public bool VisibleByDefault { get; init; } = true;
     public bool ConsumesBytes => Size > 0;
 
     public override string ToString() => $"{ColumnName} ({Kind}, {Size})";

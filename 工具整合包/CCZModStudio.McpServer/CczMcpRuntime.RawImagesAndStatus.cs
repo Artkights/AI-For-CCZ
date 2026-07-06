@@ -133,6 +133,30 @@ public sealed partial class CczMcpRuntime
         return BuildRImageRawReplacePreviewPayload(_rImageReplaceService.Preview(project, request));
     }
 
+    public object ValidateRsPixelMaterialPackage(
+        string? gameRoot,
+        string? materialRoot,
+        string? rMaterialFolder,
+        string? sMaterialFolder,
+        int? rImageId,
+        int? sImageId,
+        int? jobId,
+        int factionSlot)
+    {
+        var project = LoadProject(gameRoot);
+        var request = new RsPixelMaterialValidationRequest
+        {
+            MaterialRoot = ResolveOptionalExternalDirectory(project, materialRoot),
+            RMaterialFolder = ResolveOptionalExternalDirectory(project, rMaterialFolder),
+            SMaterialFolder = ResolveOptionalExternalDirectory(project, sMaterialFolder),
+            RImageId = rImageId,
+            SImageId = sImageId,
+            JobId = jobId,
+            FactionSlot = factionSlot
+        };
+        return BuildRsPixelMaterialValidationPayload(_rsPixelMaterialValidationService.Validate(project, request));
+    }
+
     public object ReplaceRImageRaw(string? gameRoot, int rImageId, string materialFolder, string? writeMode)
     {
         var project = LoadProject(gameRoot);
@@ -620,6 +644,67 @@ public sealed partial class CczMcpRuntime
             }),
             BatchPreview = BuildE5ImageBatchReplacePayload(preview.BatchPreview),
             SafetyNote = "Preview only. R image true-color replacement writes Pmapobj.e5 through replace_r_image_raw with backup and reread verification."
+        };
+
+    private static object BuildRsPixelMaterialValidationPayload(RsPixelMaterialValidationResult result)
+        => new
+        {
+            result.MaterialRoot,
+            result.RMaterialFolder,
+            result.SMaterialFolder,
+            result.Request.RImageId,
+            result.Request.SImageId,
+            result.Request.JobId,
+            result.Request.FactionSlot,
+            result.FormatPassed,
+            result.PreviewPassed,
+            result.ReadyForTestCopyWrite,
+            result.RequiresTestCopyWrite,
+            result.TotalOperationCount,
+            result.Warnings,
+            result.Errors,
+            Files = result.Files.Select(file => new
+            {
+                file.Group,
+                file.Role,
+                file.ExpectedFileName,
+                file.Path,
+                file.Exists,
+                ExpectedSize = $"{file.ExpectedWidth}x{file.ExpectedHeight}",
+                ActualSize = file.Width.HasValue && file.Height.HasValue ? $"{file.Width}x{file.Height}" : string.Empty,
+                file.Width,
+                file.Height,
+                file.DimensionPassed,
+                file.PixelCount,
+                file.TransparentPixelCount,
+                file.StrictMagentaPixelCount,
+                file.NearMagentaPixelCount,
+                file.StrictMagentaPercent,
+                file.NearMagentaPercent,
+                file.InteriorStrictMagentaPixelCount,
+                file.InteriorNearMagentaPixelCount,
+                file.MagentaKeyLikely,
+                file.Warnings,
+                file.Errors
+            }),
+            RPreview = result.RPreview == null ? null : BuildRImageRawReplacePreviewPayload(result.RPreview),
+            SPreview = result.SPreview == null ? null : BuildSImageRawReplacePreviewPayload(result.SPreview),
+            PreviewOperations = result.PreviewOperations.Select(operation => new
+            {
+                operation.Group,
+                operation.TargetFileName,
+                operation.TargetPath,
+                operation.SourcePath,
+                operation.ImageNumber,
+                operation.OldKind,
+                operation.NewKind,
+                operation.OldSizeBytes,
+                operation.NewSizeBytes,
+                RawToPng = operation.OldKind.Equals("RAW", StringComparison.OrdinalIgnoreCase) &&
+                           operation.NewKind.Equals("PNG", StringComparison.OrdinalIgnoreCase),
+                operation.FormatWarnings
+            }),
+            result.SafetyNote
         };
 
     private static object BuildRImageRawReplaceResultPayload(RImageReplaceResult result)

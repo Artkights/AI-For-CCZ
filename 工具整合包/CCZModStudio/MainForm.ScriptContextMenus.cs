@@ -57,15 +57,7 @@ public sealed partial class MainForm
         _scriptTextGrid.RowHeadersVisible = false;
         _scriptTextGrid.BorderStyle = BorderStyle.FixedSingle;
 
-        _scriptSearchResultGrid.Dock = DockStyle.Fill;
-        _scriptSearchResultGrid.ReadOnly = true;
-        _scriptSearchResultGrid.AllowUserToAddRows = false;
-        _scriptSearchResultGrid.AllowUserToDeleteRows = false;
-        _scriptSearchResultGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        _scriptSearchResultGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _scriptSearchResultGrid.MultiSelect = false;
-        _scriptSearchResultGrid.RowHeadersVisible = false;
-        _scriptSearchResultGrid.BorderStyle = BorderStyle.FixedSingle;
+        ConfigureLegacyScriptSearchResultGrid(_scriptSearchResultGrid);
     }
 
     private void ConfigureScriptTreeContextMenu()

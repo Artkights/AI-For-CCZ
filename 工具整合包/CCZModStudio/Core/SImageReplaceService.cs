@@ -20,12 +20,21 @@ public sealed class SImageReplaceService
     public SImageReplacePreviewResult Preview(CczProject project, SImageReplaceRequest request)
     {
         var resolvedMapping = ResolveMapping(request);
-        var mapping = ToSnapshot(resolvedMapping);
-        var filePlans = BuildFilePlans(project, request);
-        var warnings = new List<string>();
-        if (request.SImageId is >= 1 and <= 32)
+        var stageTargets = CharacterImageResourceService.ResolveSImageStageTargets(
+            resolvedMapping,
+            request.StageSlots,
+            defaultAllStages: true);
+        if (stageTargets.Count == 0)
         {
-            warnings.Add("S=1..32 会把同一套 mov/atk/spc 素材写入该 S 对应的三个 Unit 图号。");
+            throw new InvalidOperationException($"当前 S 形象不包含所选转数：{string.Join(", ", request.StageSlots)}。");
+        }
+
+        var mapping = ToSnapshot(resolvedMapping, stageTargets);
+        var filePlans = BuildFilePlans(project, request, stageTargets);
+        var warnings = new List<string>();
+        if (request.SImageId is >= 1 and <= 32 && request.StageSlots.Count == 0 && stageTargets.Count > 1)
+        {
+            warnings.Add("未指定转数，按旧行为写入该 S 对应的全部三转 Unit 图号。");
         }
 
         var files = new List<SImageReplaceFilePreview>();
@@ -33,11 +42,14 @@ public sealed class SImageReplaceService
         {
             var encode = _codec.EncodeFile(project, plan.SourcePath, plan.Spec, strictHeight: true);
             warnings.AddRange(encode.Warnings.Select(warning => $"{plan.TargetFileName}: {warning}"));
-            var requests = BuildRequests(mapping.ImageNumbers, encode, plan.ActionName);
+            var requests = BuildRequests(plan.ImageNumber, encode, plan.ActionName, plan.StageName);
             var preview = _replace.PreviewBatchReplacement(project, plan.TargetPath, requests);
             files.Add(new SImageReplaceFilePreview
             {
                 ActionName = plan.ActionName,
+                StageSlot = plan.StageSlot,
+                StageName = plan.StageName,
+                ImageNumber = plan.ImageNumber,
                 TargetFileName = plan.TargetFileName,
                 TargetPath = plan.TargetPath,
                 SourcePath = plan.SourcePath,
@@ -61,11 +73,14 @@ public sealed class SImageReplaceService
         var files = new List<SImageReplaceFileResult>();
         foreach (var file in preview.Files)
         {
-            var requests = BuildRequests(preview.Mapping.ImageNumbers, file.Encode, file.ActionName);
+            var requests = BuildRequests(file.ImageNumber, file.Encode, file.ActionName, file.StageName);
             var result = _replace.ReplaceBatch(project, file.TargetPath, requests);
             files.Add(new SImageReplaceFileResult
             {
                 ActionName = file.ActionName,
+                StageSlot = file.StageSlot,
+                StageName = file.StageName,
+                ImageNumber = file.ImageNumber,
                 TargetFileName = file.TargetFileName,
                 TargetPath = file.TargetPath,
                 SourcePath = file.SourcePath,
@@ -111,18 +126,24 @@ public sealed class SImageReplaceService
         return mapping;
     }
 
-    private static SImageMappingSnapshot ToSnapshot(SUnitImageMapping mapping)
+    private static SImageMappingSnapshot ToSnapshot(
+        SUnitImageMapping mapping,
+        IReadOnlyList<SImageStageTarget> stageTargets)
         => new()
         {
             SImageId = mapping.SImageId,
             JobId = mapping.JobId,
             FactionSlot = mapping.FactionSlot,
-            ImageNumbers = mapping.ImageNumbers.ToArray(),
+            ImageNumbers = stageTargets.Select(target => target.ImageNumber).ToArray(),
+            StageTargets = stageTargets.ToArray(),
             ShortText = mapping.ShortText,
             Detail = mapping.Detail
         };
 
-    private IReadOnlyList<SImageFilePlan> BuildFilePlans(CczProject project, SImageReplaceRequest request)
+    private IReadOnlyList<SImageFilePlan> BuildFilePlans(
+        CczProject project,
+        SImageReplaceRequest request,
+        IReadOnlyList<SImageStageTarget> stageTargets)
     {
         if (string.IsNullOrWhiteSpace(request.MaterialFolder))
         {
@@ -135,16 +156,36 @@ public sealed class SImageReplaceService
             throw new DirectoryNotFoundException($"找不到 S 形象素材目录：{folder}");
         }
 
-        var plans = new[]
+        var actions = new[]
         {
-            new SImageFilePlan("移动", "Unit_mov.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5"), ResolveMaterialFile(folder, "mov.bmp"), E5RawImageCodec.UnitMovSpec),
-            new SImageFilePlan("攻击", "Unit_atk.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), ResolveMaterialFile(folder, "atk.bmp"), E5RawImageCodec.UnitAtkSpec),
-            new SImageFilePlan("特技", "Unit_spc.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), ResolveMaterialFile(folder, "spc.bmp"), E5RawImageCodec.UnitSpcSpec)
-        }
-            .Where(plan => !string.IsNullOrWhiteSpace(plan.SourcePath))
-            .ToArray();
+            new SImageActionPlan("移动", "Unit_mov.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5"), "mov.bmp", E5RawImageCodec.UnitMovSpec),
+            new SImageActionPlan("攻击", "Unit_atk.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), "atk.bmp", E5RawImageCodec.UnitAtkSpec),
+            new SImageActionPlan("特技", "Unit_spc.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), "spc.bmp", E5RawImageCodec.UnitSpcSpec)
+        };
+        var plans = new List<SImageFilePlan>();
+        foreach (var stageTarget in stageTargets)
+        {
+            foreach (var action in actions)
+            {
+                var sourcePath = ResolveMaterialFile(folder, stageTarget.StageSlot, action.SourceFileName);
+                if (string.IsNullOrWhiteSpace(sourcePath))
+                {
+                    continue;
+                }
 
-        if (plans.Length == 0)
+                plans.Add(new SImageFilePlan(
+                    action.ActionName,
+                    stageTarget.StageSlot,
+                    stageTarget.DisplayName,
+                    stageTarget.ImageNumber,
+                    action.TargetFileName,
+                    action.TargetPath,
+                    sourcePath,
+                    action.Spec));
+            }
+        }
+
+        if (plans.Count == 0)
         {
             throw new InvalidOperationException("没有找到可导入的 S 形象素材。");
         }
@@ -160,6 +201,17 @@ public sealed class SImageReplaceService
         return plans;
     }
 
+    private static string ResolveMaterialFile(string folder, int stageSlot, string fileName)
+    {
+        var stageFolder = Path.Combine(folder, $"turn{stageSlot.ToString(CultureInfo.InvariantCulture)}");
+        var staged = Directory.Exists(stageFolder)
+            ? ResolveMaterialFile(stageFolder, fileName)
+            : string.Empty;
+        return !string.IsNullOrWhiteSpace(staged)
+            ? staged
+            : ResolveMaterialFile(folder, fileName);
+    }
+
     private static string ResolveMaterialFile(string folder, string fileName)
     {
         var path = Directory
@@ -173,15 +225,22 @@ public sealed class SImageReplaceService
         return string.Empty;
     }
 
-    private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(IReadOnlyList<int> imageNumbers, E5TrueColorEncodeResult encode, string actionName)
-        => imageNumbers.Select(imageNumber => new E5ImageBatchReplaceRequest
+    private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(
+        int imageNumber,
+        E5TrueColorEncodeResult encode,
+        string actionName,
+        string stageName)
+        => new[]
         {
-            ImageNumber = imageNumber,
-            SourceBytes = encode.ImageBytes,
-            SourceBytesAreRaw = false,
-            SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
-            OperationKind = $"一键替换S形象-{actionName}"
-        }).ToArray();
+            new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = imageNumber,
+                SourceBytes = encode.ImageBytes,
+                SourceBytesAreRaw = false,
+                SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
+                OperationKind = $"一键替换S形象-{stageName}-{actionName}"
+            }
+        };
 
     private static string WriteAggregateReport(CczProject project, SImageReplaceResult result)
     {
@@ -208,6 +267,9 @@ public sealed class SImageReplaceService
             Files = result.Files.Select(file => new
             {
                 file.ActionName,
+                file.StageSlot,
+                file.StageName,
+                file.ImageNumber,
                 file.TargetFileName,
                 file.TargetPath,
                 file.SourcePath,
@@ -249,8 +311,18 @@ public sealed class SImageReplaceService
 
     private sealed record SImageFilePlan(
         string ActionName,
+        int StageSlot,
+        string StageName,
+        int ImageNumber,
         string TargetFileName,
         string TargetPath,
         string SourcePath,
+        E5RawImageSpec Spec);
+
+    private sealed record SImageActionPlan(
+        string ActionName,
+        string TargetFileName,
+        string TargetPath,
+        string SourceFileName,
         E5RawImageSpec Spec);
 }

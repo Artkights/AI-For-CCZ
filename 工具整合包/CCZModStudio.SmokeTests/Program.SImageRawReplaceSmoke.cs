@@ -95,19 +95,32 @@ internal partial class Program
         {
             SImageId = 1,
             MaterialFolder = atkOnlyRoot,
+            StageSlots = new[] { 1 },
             WriteMode = "test_copy"
         });
-        if (!atkOnly.Mapping.ImageNumbers.SequenceEqual(new[] { 241, 242, 243 }) ||
-            atkOnly.TotalOperationCount != 3 ||
+        if (!atkOnly.Mapping.ImageNumbers.SequenceEqual(new[] { 241 }) ||
+            atkOnly.TotalOperationCount != 1 ||
             atkOnly.Files.Count != 1 ||
-            atkOnly.Files[0].TargetFileName != "Unit_atk.e5")
+            atkOnly.Files[0].TargetFileName != "Unit_atk.e5" ||
+            atkOnly.Files[0].StageSlot != 1)
         {
-            throw new InvalidOperationException("S=1 部分导入未只写入攻击素材对应三张 Unit 图。");
+            throw new InvalidOperationException("S=1 第一转部分导入未只写入攻击素材对应 Unit 图。");
         }
 
-        foreach (var imageNumber in new[] { 241, 242, 243 })
+        VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), 241, 64 * 768);
+
+        var atkAllStages = service.Preview(testProject, new SImageReplaceRequest
         {
-            VerifyTrueColorEntry(replace, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
+            SImageId = 1,
+            MaterialFolder = atkOnlyRoot,
+            StageSlots = new[] { 1, 2, 3 },
+            WriteMode = "test_copy"
+        });
+        if (!atkAllStages.Mapping.ImageNumbers.SequenceEqual(new[] { 241, 242, 243 }) ||
+            atkAllStages.TotalOperationCount != 3 ||
+            atkAllStages.Files.Any(file => file.TargetFileName != "Unit_atk.e5"))
+        {
+            throw new InvalidOperationException("S=1 全转攻击素材预览未生成 3 条写入。");
         }
 
         var emptyRoot = Path.Combine(smokeRoot, "_SImageRawMaterialsEmpty");

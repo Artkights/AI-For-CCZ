@@ -34,10 +34,12 @@ public sealed partial class CczMcpRuntime
     private readonly FieldAnnotationService _fieldAnnotationService = new();
     private readonly ItemEffectCatalogService _itemEffectCatalogService = new();
     private readonly ItemEffectNameReader _itemEffectNameReader = new();
+    private readonly Ccz66ItemEffectNameService _ccz66ItemEffectNameService = new();
     private readonly ProjectEquipmentTypeProfileService _equipmentTypeProfileService = new();
     private readonly AccessoryJobGroupService _accessoryJobGroupService = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
     private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
+    private readonly Qinger66DiagnosticsService _qinger66DiagnosticsService = new();
 
     public object ListMapDrafts(string? gameRoot, int limit)
     {
@@ -435,11 +437,15 @@ public sealed partial class CczMcpRuntime
         var project = LoadProject(gameRoot);
         var tables = LoadTables(project);
         var document = _globalSettingsService.Load(project, tables);
+        var oracle = _imageAssignerOracleService.Compare(project, tables, includeGlobalCandidates: true);
         return new
         {
             project.GameRoot,
+            ImageAssignerOracle = oracle,
             document.GameTitle,
             NumericSettings = document.NumericSettings,
+            NumericDefinitions = document.NumericDefinitions,
+            CmfCandidates = document.CmfCandidates,
             Evidence = document.Evidence,
             JobSeriesNames = DataTableRows(document.JobSeriesNames, NormalizeLimit(limit, 80, 500)),
             DetailedJobNames = DataTableRows(document.DetailedJobNames, NormalizeLimit(limit, 80, 500)),
@@ -452,7 +458,7 @@ public sealed partial class CczMcpRuntime
         var project = LoadProject(gameRoot);
         var tables = LoadTables(project);
         var document = _globalSettingsService.Load(project, tables);
-        var changes = ApplyGlobalSettingsUpdate(document, update, mutate: false);
+        var changes = ApplyGlobalSettingsUpdate(project, document, update, mutate: false);
         return new
         {
             project.GameRoot,
@@ -467,7 +473,13 @@ public sealed partial class CczMcpRuntime
         EnsureWriteMode(project, writeMode);
         var tables = LoadTables(project);
         var document = _globalSettingsService.Load(project, tables);
-        var changes = ApplyGlobalSettingsUpdate(document, update, mutate: true);
+        var changes = ApplyGlobalSettingsUpdate(project, document, update, mutate: true);
+        GlobalSettingsSaveResult? numericResult = null;
+        if (update.NumericSettings.Count > 0)
+        {
+            numericResult = _globalSettingsService.SaveNumericSettings(project, document, update.NumericSettings);
+        }
+
         var result = _globalSettingsService.Save(
             project,
             tables,
@@ -481,7 +493,60 @@ public sealed partial class CczMcpRuntime
             project.GameRoot,
             Changes = changes,
             Result = result,
+            NumericResult = numericResult,
             SafetyNote = "Global-setting writes use GlobalSettingsService backups, reports, and reread validation."
+        };
+    }
+
+    public object RunGlobalNumericDiscovery(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = new GlobalNumericDiscoveryService().PrepareManualDiffExperiment(
+            project,
+            _globalSettingsService.GetNumericDefinitions());
+        return new
+        {
+            project.GameRoot,
+            Report = report,
+            SafetyNote = "Prepared test copies and a JSON report only; source project files were not modified."
+        };
+    }
+
+    public object RunGlobalNumericLowRiskDiscovery(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = new GlobalNumericDiscoveryService().PrepareLowRiskManualDiffExperiment(project);
+        return new
+        {
+            project.GameRoot,
+            Report = report,
+            SafetyNote = "Prepared noop/case test copies and official-tool copies only; source project files were not modified."
+        };
+    }
+
+    public object CompareGlobalNumericLowRiskDiffs(string? gameRoot, string evidenceRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = new GlobalNumericDiscoveryService().CompareLowRiskCaseDiffs(project, evidenceRoot);
+        return new
+        {
+            project.GameRoot,
+            Report = report,
+            SafetyNote = "Compare only. Candidate offsets are not promoted until metadata is added and write round-trip passes."
+        };
+    }
+
+    public object QueryGlobalNumericDefinitions(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = new GlobalNumericQueryService().Query(
+            project,
+            _globalSettingsService.GetNumericDefinitions());
+        return new
+        {
+            project.GameRoot,
+            Report = report,
+            SafetyNote = "Read-only static query. Candidate hits do not change CanEdit; pending fields still require official single-field diff."
         };
     }
 
@@ -914,7 +979,30 @@ public sealed partial class CczMcpRuntime
             StorePath = _itemEffectCatalogService.GetStorePath(project),
             Count = entries.Count,
             Entries = entries,
-            DisplayLookup = _itemEffectCatalogService.BuildDisplayLookup(entries)
+            DisplayLookup = _itemEffectCatalogService.BuildDisplayLookup(entries),
+            Native66NamePool = Ccz66RevisedLayout.Is66(project)
+                ? new
+                {
+                    Source = Ccz66ItemEffectNameService.SourceName,
+                    BaseOffset = HexDisplayFormatter.FormatOffset(Ccz66ItemEffectNameService.NamePoolOffset),
+                    SlotSize = Ccz66ItemEffectNameService.SlotSize,
+                    SentinelOk = _ccz66ItemEffectNameService.ValidateSentinels(project, out var warnings),
+                    Warnings = warnings
+                }
+                : null
+        };
+    }
+
+    public object WriteItemEffectName66Slot(string? gameRoot, int slotIndex, string name, string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var result = _ccz66ItemEffectNameService.WriteSlot(project, slotIndex, name ?? string.Empty);
+        return new
+        {
+            project.GameRoot,
+            Result = result,
+            SafetyNote = "Wrote only the 6.6 Ekd5.exe item-effect name slot at 0x9E800 + slot_index * 16. Effect-id bindings are unchanged."
         };
     }
 
@@ -1455,10 +1543,12 @@ public sealed partial class CczMcpRuntime
     private static object BuildTableSavePayload(TableSaveResult save)
         => new { save.Table.TableName, save.FilePath, save.BackupPath, save.ReportJsonPath, save.RowsWritten, save.ChangedBytes };
 
-    private object ApplyGlobalSettingsUpdate(GlobalSettingsDocument document, GlobalSettingsUpdate? update, bool mutate)
+    private object ApplyGlobalSettingsUpdate(CczProject project, GlobalSettingsDocument document, GlobalSettingsUpdate? update, bool mutate)
     {
         if (update == null) throw new InvalidOperationException("update is required.");
         var changes = new List<object>();
+        changes.AddRange(_globalSettingsService.PreviewNumericSettings(project, document, update.NumericSettings));
+
         if (update.GameTitle != null)
         {
             changes.Add(new { Field = "game_title", OldValue = document.GameTitle.Title, NewValue = update.GameTitle, document.GameTitle.CapacityBytes });
@@ -1626,10 +1716,7 @@ public sealed partial class CczMcpRuntime
     }
 
     private IReadOnlyList<ItemEffectCatalogEntry> BuildDefaultItemEffectCatalogEntries(CczProject project, IReadOnlyList<HexTableDefinition> tables)
-        => _itemEffectNameReader.ReadBaseNames(project, tables)
-            .OrderBy(pair => pair.Key)
-            .Select(pair => new ItemEffectCatalogEntry { EffectId = pair.Key, Name = pair.Value, Description = string.Empty })
-            .ToList();
+        => _itemEffectNameReader.ReadBaseCatalogEntries(project, tables);
 
     private string BuildExportDirectory(CczProject project, string category)
     {

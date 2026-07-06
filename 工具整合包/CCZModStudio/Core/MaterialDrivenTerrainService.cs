@@ -558,8 +558,12 @@ public sealed class MaterialDrivenTerrainService : IDisposable
                 tileGraphics.DrawImage(source, new Rectangle(0, 0, target.Width, target.Height), sourceRect, GraphicsUnit.Pixel);
             }
 
-            using var repaired = _objectAlphaRepairService.Repair(tile, profile ?? new TerrainVisualProfile());
-            g.DrawImage(repaired.Bitmap, target);
+            using var overlaySelection = SelectObjectOverlay(tile, profile ?? new TerrainVisualProfile());
+            if (overlaySelection.Bitmap != null)
+            {
+                g.DrawImage(overlaySelection.Bitmap, target);
+            }
+
             return;
         }
 
@@ -786,6 +790,42 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         MaterialAsset Asset,
         string FamilyKey,
         string StyleKey);
+
+    private ObjectOverlaySelection SelectObjectOverlay(Bitmap tile, TerrainVisualProfile profile)
+    {
+        using var tileBuffer = FastBitmapBuffer.FromBitmap(tile);
+        if (tileBuffer.HasAlphaBelow(250))
+        {
+            return new ObjectOverlaySelection(new Bitmap(tile));
+        }
+
+        var repaired = _objectAlphaRepairService.Repair(tile, profile);
+        if (repaired.Repaired || repaired.RejectedPixelCount == 0)
+        {
+            return new ObjectOverlaySelection(repaired.Bitmap, repaired);
+        }
+
+        repaired.Dispose();
+        return new ObjectOverlaySelection(null);
+    }
+
+    private sealed class ObjectOverlaySelection : IDisposable
+    {
+        private readonly IDisposable? _owner;
+
+        public ObjectOverlaySelection(Bitmap? bitmap, IDisposable? owner = null)
+        {
+            Bitmap = bitmap;
+            _owner = owner ?? bitmap;
+        }
+
+        public Bitmap? Bitmap { get; }
+
+        public void Dispose()
+        {
+            _owner?.Dispose();
+        }
+    }
 
     private sealed record CachedImage(DateTime LastWriteUtc, long Length, Bitmap Bitmap);
 }

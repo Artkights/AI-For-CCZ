@@ -26,6 +26,7 @@ public sealed class EffectPackageService
     private readonly PatchApplyService _patchApply = new();
     private readonly WriteOperationReportService _reportService = new();
     private readonly CczEngineProfileService _engineProfile = new();
+    private readonly CmfDerivedCapabilityService _cmfDerivedCapabilityService = new();
 
     public IReadOnlyList<EffectCatalogEntry> ListEffects(CczProject project, IReadOnlyList<HexTableDefinition> tables, string domain, string? keyword, int limit)
     {
@@ -36,6 +37,7 @@ public sealed class EffectPackageService
             "job" => ListJobEffects(project, tables),
             "personal" => ListPersonalEffects(project, tables),
             "patch" => ListPatchEffects(project),
+            "cmf" => ListCmfDerivedEffects(project),
             _ => throw new InvalidOperationException("Unsupported effect domain: " + domain)
         };
 
@@ -569,6 +571,32 @@ public sealed class EffectPackageService
             .Where(x => x != null)
             .Cast<EffectCatalogEntry>()
             .OrderByDescending(x => Convert.ToString(x.Details.GetValueOrDefault("CreatedAt"), CultureInfo.InvariantCulture))
+            .ToList();
+    }
+
+    private List<EffectCatalogEntry> ListCmfDerivedEffects(CczProject project)
+    {
+        return _cmfDerivedCapabilityService.ListEffectCandidates(project)
+            .Select((candidate, index) =>
+            {
+                var entry = new EffectCatalogEntry
+                {
+                    Domain = "cmf",
+                    EffectId = index,
+                    Name = candidate.Name,
+                    Description = string.Join(" / ", candidate.EvidenceNotes),
+                    Source = candidate.SourceCmfRelativePath,
+                    Status = candidate.ConversionStatus
+                };
+                entry.Details["FeatureId"] = candidate.FeatureId;
+                entry.Details["Category"] = candidate.Category;
+                entry.Details["VersionScope"] = candidate.VersionScope;
+                entry.Details["TrustLevel"] = candidate.TrustLevel.ToString();
+                entry.Details["TargetSubsystem"] = candidate.TargetSubsystem;
+                entry.Details["WritePolicy"] = candidate.WritePolicy;
+                entry.Details["SourcePageId"] = candidate.SourcePageId;
+                return entry;
+            })
             .ToList();
     }
 

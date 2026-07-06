@@ -190,6 +190,7 @@ public sealed partial class MainForm
             {
                 column.HeaderText = fieldProperty + "\n" + _fieldAnnotationService.BuildShortFieldAnnotation(result.Table, fieldDefinition);
                 column.ToolTipText = _fieldAnnotationService.BuildFieldAnnotation(result.Table, fieldDefinition);
+                column.Visible = fieldDefinition.VisibleByDefault;
             }
         }
 
@@ -197,7 +198,7 @@ public sealed partial class MainForm
     }
 
     private static bool CanEditTable(TableReadResult result)
-        => result.Validation.IsUsable;
+        => result.Validation.CanWrite;
 
     private static bool IsWritableTableField(HexTableDefinition table, HexFieldDefinition field)
         => field.ConsumesBytes ||
@@ -382,11 +383,12 @@ public sealed partial class MainForm
                 _currentTableResult.Data.Columns[propertyName]!.ExtendedProperties["FieldDefinition"] is HexFieldDefinition fieldDefinition)
             {
                 field = fieldDefinition;
+                visible = field.VisibleByDefault;
             }
 
             if (dangerOnly)
             {
-                visible = field != null && _fieldAnnotationService.IsHighRiskField(_currentTableResult.Table, field);
+                visible = field is { VisibleByDefault: true } && _fieldAnnotationService.IsHighRiskField(_currentTableResult.Table, field);
             }
 
             if (visible && !string.IsNullOrWhiteSpace(keyword))
@@ -413,7 +415,19 @@ public sealed partial class MainForm
         _dangerTableColumnsOnly.Checked = false;
         foreach (DataGridViewColumn column in _dataGrid.Columns)
         {
-            column.Visible = true;
+            if (column.Index == 0)
+            {
+                column.Visible = true;
+                continue;
+            }
+
+            var propertyName = column.DataPropertyName;
+            var data = _currentTableResult?.Data;
+            column.Visible = string.IsNullOrWhiteSpace(propertyName) ||
+                             data == null ||
+                             !data.Columns.Contains(propertyName) ||
+                             data.Columns[propertyName]!.ExtendedProperties["FieldDefinition"] is not HexFieldDefinition field ||
+                             field.VisibleByDefault;
         }
 
         if (_currentTableResult != null)
@@ -907,10 +921,87 @@ public sealed partial class MainForm
 
     private void RefreshGenericTableCellsAfterEdit(IReadOnlyList<GridCellKey> changedCells)
     {
-        RefreshChangedGridCells(_dataGrid, changedCells);
-        RefreshChangedGridRowsOnly(_dataGrid, changedCells, RefreshDataGridRowStyle);
+        var cellsToRefresh = RefreshCurrentTableDerivedRows(changedCells);
+        RefreshChangedGridCells(_dataGrid, cellsToRefresh);
+        RefreshChangedGridRowsOnly(_dataGrid, cellsToRefresh, RefreshDataGridRowStyle);
         _undoTableEditButton.Enabled = CanUndoGridEdit(_dataGrid);
         _redoTableEditButton.Enabled = CanRedoGridEdit(_dataGrid);
+    }
+
+    private void RefreshCurrentTableDerivedCellsAfterCellEdit(int rowIndex, int columnIndex)
+    {
+        var changedCells = new List<GridCellKey>();
+        if (rowIndex >= 0 && columnIndex >= 0)
+        {
+            changedCells.Add(BuildGridCellKey(_dataGrid, rowIndex, columnIndex));
+        }
+
+        var cellsToRefresh = RefreshCurrentTableDerivedRows(changedCells);
+        RefreshChangedGridCells(_dataGrid, cellsToRefresh);
+        RefreshDataGridRowStyle(rowIndex);
+    }
+
+    private IReadOnlyList<GridCellKey> RefreshCurrentTableDerivedRows(IReadOnlyList<GridCellKey> changedCells)
+    {
+        if (_project == null || _currentTableResult == null || changedCells.Count == 0)
+        {
+            return changedCells;
+        }
+
+        var result = new List<GridCellKey>(changedCells);
+        var seen = new HashSet<(string? RowKey, int RowIndex, string? ColumnName)>();
+        foreach (var cell in changedCells)
+        {
+            seen.Add((cell.RowKey, cell.RowIndex, cell.ColumnName));
+        }
+
+        foreach (var row in ResolveCurrentTableRows(changedCells))
+        {
+            var changedColumns = _tableDerivedDisplayService.RefreshRow(
+                _project,
+                _tables,
+                _currentTableResult.Table,
+                row);
+            if (changedColumns.Count == 0)
+            {
+                continue;
+            }
+
+            var rowIndex = FindDataRowGridIndex(_dataGrid, row);
+            var rowKey = _currentTableResult.Data.Columns.Contains("ID")
+                ? Convert.ToString(row["ID"], CultureInfo.InvariantCulture)
+                : null;
+            foreach (var columnName in changedColumns)
+            {
+                var key = (rowKey, rowIndex, columnName);
+                if (seen.Add(key))
+                {
+                    result.Add(new GridCellKey(rowKey, rowIndex, columnName));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private IEnumerable<DataRow> ResolveCurrentTableRows(IEnumerable<GridCellKey> changedCells)
+    {
+        if (_currentTableResult == null)
+        {
+            yield break;
+        }
+
+        var seen = new List<DataRow>();
+        foreach (var key in changedCells)
+        {
+            var row = FindDataRowByGridCellKey(_currentTableResult.Data, key, "ID");
+            if (row is { RowState: not DataRowState.Detached and not DataRowState.Deleted } &&
+                !seen.Any(existing => ReferenceEquals(existing, row)))
+            {
+                seen.Add(row);
+                yield return row;
+            }
+        }
     }
 
     private void RefreshDataGridRowStyle(int rowIndex)
@@ -957,8 +1048,7 @@ public sealed partial class MainForm
                 changedCells = result.ChangedCells
                     .Select(cell => new GridCellKey(cell.RowKey, cell.RowIndex, cell.ColumnName))
                     .ToList();
-                RefreshChangedGridCells(_dataGrid, changedCells);
-                RefreshChangedGridRowsOnly(_dataGrid, changedCells, RefreshDataGridRowStyle);
+                RefreshGenericTableCellsAfterEdit(changedCells);
             });
             RestoreGridViewport(_dataGrid, viewport);
             System.Diagnostics.Debug.WriteLine("已导入 CSV：" + dialog.FileName);

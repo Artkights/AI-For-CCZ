@@ -7344,44 +7344,10 @@ public sealed partial class MainForm
     }
 
     private void ApplyBattlefieldScriptSearch()
-    {
-        if (_currentBattlefieldScriptStructure == null) return;
-        var keyword = _battlefieldScriptSearchBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(keyword))
-        {
-            ClearBattlefieldScriptSearch();
-            return;
-        }
-
-        var match = _battlefieldScriptTree.Nodes
-            .Cast<TreeNode>()
-            .SelectMany(EnumerateScriptTreeNodes)
-            .FirstOrDefault(node => node.Text.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
-                                    (node.Tag is ScenarioStructureRow row && (row.CommandName.Contains(keyword, StringComparison.CurrentCultureIgnoreCase) ||
-                                                                               row.CommandIdHex.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
-                                                                               row.ParameterPreview.Contains(keyword, StringComparison.CurrentCultureIgnoreCase))) ||
-                                    (node.Tag is ScenarioTextEntry text && text.Text.Contains(keyword, StringComparison.CurrentCultureIgnoreCase)));
-        if (match == null)
-        {
-            _battlefieldScriptDetailBox.Text = $"S 剧本搜索：未命中“{keyword}”。";
-            return;
-        }
-
-        _battlefieldScriptTree.SelectedNode = match;
-        match.EnsureVisible();
-        SetStatus($"战场制作 S 剧本搜索命中：{keyword}");
-    }
+        => ApplyLegacyScriptSearch(LegacyScriptEditorScope.Battlefield);
 
     private void ClearBattlefieldScriptSearch()
-    {
-        _battlefieldScriptSearchBox.Clear();
-        if (_currentBattlefieldScriptStructure != null)
-        {
-            _battlefieldScriptDetailBox.Text =
-                $"S剧本：{_currentBattlefieldScriptStructure.FileName}\r\n" +
-                $"Scene：{_currentBattlefieldScriptStructure.SceneCount}  Section：{_currentBattlefieldScriptStructure.SectionCount}  Command：{_currentBattlefieldScriptStructure.CommandCandidateCount}  文本：{_currentBattlefieldScriptTextEntries.Count}";
-        }
-    }
+        => ClearLegacyScriptSearch(LegacyScriptEditorScope.Battlefield);
 
     private void DrawBattlefieldCoordinateMarker(Image image, int gridX, int gridY, int gridWidth, int gridHeight, Color markerColor, string label)
     {

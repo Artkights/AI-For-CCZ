@@ -178,6 +178,7 @@
             Path.Combine("Assets", "About", "doro.jpg"),
             Path.Combine("Assets", "About", "Doro.webp"),
             Path.Combine("Assets", "Palettes", "tsb"),
+            Path.Combine("Assets", "PortraitFrames", "heiy01.png"),
             Path.Combine("Templates", "剧本文本导入AI说明模板.md"),
             Path.Combine("Package", "GUI-PACKAGE-MANIFEST.txt"),
             Path.Combine("Package", "self-check.json")
@@ -335,6 +336,11 @@
     <Content Include="Assets\LegacyResources\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>LegacyResources\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="..\..\老版游戏制作工具\头像框\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>Assets\PortraitFrames\%(Filename)%(Extension)</TargetPath>
     </Content>
     <Content Include="..\本地知识库\08-剧本与战场\剧本文本导入AI说明模板.md">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

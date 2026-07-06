@@ -889,6 +889,8 @@ public sealed partial class MainForm
             _queryFreeSImageIdsButton.Enabled = true;
             _importImageAssignmentFaceButton.Enabled = true;
             _batchImportImageAssignmentFaceButton.Enabled = true;
+            _applyImageAssignmentFaceFrameButton.Enabled = true;
+            _batchApplyImageAssignmentFaceFrameButton.Enabled = true;
             _exportRImageBmpButton.Enabled = true;
             _exportSImageBmpButton.Enabled = true;
             _exportImageAssignmentFaceBmpButton.Enabled = true;
@@ -1518,20 +1520,17 @@ public sealed partial class MainForm
             ? Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)
             : (int?)null;
 
-        using var folderDialog = new FolderBrowserDialog
-        {
-            Description = "选择包含 mov.bmp / atk.bmp / spc.bmp 的 S 形象素材目录",
-            UseDescriptionForTitle = true
-        };
-        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+        using var dialog = new SImageReplaceDialog(sImageId, jobId, GetImageAssignmentSPreviewFactionSlot(), TryGetRoleDisplayName(row));
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         var request = new SImageReplaceRequest
         {
             SImageId = sImageId,
-            MaterialFolder = folderDialog.SelectedPath,
+            MaterialFolder = dialog.MaterialFolder,
             CharacterId = roleId,
             JobId = jobId,
             FactionSlot = GetImageAssignmentSPreviewFactionSlot(),
+            StageSlots = dialog.StageSlots,
             WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
         };
 
@@ -1555,7 +1554,7 @@ public sealed partial class MainForm
         var previewText = BuildSImageReplacePreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
         if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会把三条素材标准化为真彩 PNG 并写入 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5，写入前自动备份。是否继续？",
+                previewText + "\r\n\r\n确认后会把素材标准化为真彩 PNG，并只写入已选择的转对应的 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5 图号，写入前自动备份。是否继续？",
                 "确认一键替换 S 形象",
                 MessageBoxButtons.YesNo,
                 _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
@@ -1590,14 +1589,14 @@ public sealed partial class MainForm
            $"素材目录：{preview.Request.MaterialFolder}\r\n" +
            $"写入条目：{preview.TotalOperationCount} 条\r\n" +
            string.Join("\r\n", preview.Files.Select(file =>
-               $"{file.TargetFileName}: {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> {file.Encode.StorageFormat} {file.Encode.ImageLength:N0} bytes；图号 {string.Join(", ", file.BatchPreview.Operations.Select(op => "#" + op.ImageNumber.ToString(CultureInfo.InvariantCulture)))}")) +
+               $"{file.StageName} {file.ActionName}: {file.TargetFileName} #{file.ImageNumber} <- {Path.GetFileName(file.SourcePath)} {file.Encode.SourceWidth}x{file.Encode.SourceHeight} -> {file.Encode.StorageFormat} {file.Encode.ImageLength:N0} bytes")) +
            "\r\n提示：" + (preview.Warnings.Count == 0 ? "无" : string.Join("；", preview.Warnings));
 
     private static string BuildSImageReplaceResultText(SImageReplaceResult result)
         => "一键替换 S 形象完成\r\n" +
            $"S={result.Request.SImageId}    写入条目：{result.TotalOperationCount} 条\r\n" +
            string.Join("\r\n", result.Files.Select(file =>
-               $"{file.TargetFileName}: {file.WriteResult.OperationCount} 条，备份 {file.WriteResult.BackupPath}")) +
+               $"{file.StageName} {file.ActionName}: {file.TargetFileName} #{file.ImageNumber}，{file.WriteResult.OperationCount} 条，备份 {file.WriteResult.BackupPath}")) +
            $"\r\n汇总报告：{result.AggregateReportPath}";
 
     private void BatchReplaceRImageSets()
@@ -1803,10 +1802,13 @@ public sealed partial class MainForm
 
         using var folderDialog = new FolderBrowserDialog
         {
-            Description = "选择 S 形象批量素材根目录；子目录使用 S12 / S_12 / 12，且包含 mov.bmp、atk.bmp、spc.bmp。",
+            Description = "选择 S 形象批量素材根目录；子目录使用 S12 / S_12 / 12，且包含 mov.bmp、atk.bmp、spc.bmp 或 turn1/turn2/turn3。",
             UseDescriptionForTitle = true
         };
         if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var stageSlots = SelectSImageStageSlots("选择批量导入 S 形象转数", "选择要批量导入的人物 S 形象转。三转 S 会按选择写入；单转 S 只支持第一转。");
+        if (stageSlots.Count == 0) return;
 
         var request = new BatchSImageReplaceRequest
         {
@@ -1814,6 +1816,7 @@ public sealed partial class MainForm
             AllowedSImageUsages = CollectVisibleSImageUsages(),
             IncludeOnlySelectedOrFiltered = true,
             FactionSlot = GetImageAssignmentSPreviewFactionSlot(),
+            StageSlots = stageSlots,
             WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
         };
 
@@ -1902,6 +1905,14 @@ public sealed partial class MainForm
             .ToArray();
     }
 
+    private IReadOnlyList<int> SelectSImageStageSlots(string title, string description)
+    {
+        using var dialog = new SImageStageSelectionDialog(title, new[] { 1, 2, 3 }, description);
+        return dialog.ShowDialog(this) == DialogResult.OK
+            ? dialog.StageSlots
+            : Array.Empty<int>();
+    }
+
     private static int? TryGetImageAssignmentJobId(DataRow row)
     {
         var column = row.Table.Columns.Cast<DataColumn>().FirstOrDefault(c => c.ColumnName == "职业" || c.ColumnName == "鑱屼笟");
@@ -1934,7 +1945,7 @@ public sealed partial class MainForm
            $"目标文件：{string.Join(", ", preview.FilePreviews.Keys)}\r\n" +
            $"跳过/问题：{preview.SkippedItems.Count}\r\n" +
            string.Join("\r\n", preview.Items.Take(30).Select(item =>
-               $"- S{item.SImageId}: {string.Join("/", item.ImageNumbers.Select(x => "#" + x.ToString(CultureInfo.InvariantCulture)))} <- {Path.GetFileName(item.MaterialFolder)}")) +
+               $"- S{item.SImageId} {item.StageName}: #{item.ImageNumber} <- {Path.GetFileName(item.MaterialFolder)}")) +
            BuildSkippedItemsText(preview.SkippedItems) +
            BuildWarningsText(preview.Warnings);
 

@@ -27,6 +27,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>LegacyResources\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
     </Content>
+    <Content Include="..\CCZModStudio\Assets\Palettes\**\*" LinkBase="Assets\Palettes">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>Assets\Palettes\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
   </ItemGroup>
 
 </Project>

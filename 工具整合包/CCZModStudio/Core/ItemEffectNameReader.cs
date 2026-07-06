@@ -6,7 +6,37 @@ namespace CCZModStudio.Core;
 
 public sealed class ItemEffectNameReader
 {
+    private readonly Ccz66ItemEffectNameService _ccz66NameService = new();
+
     public IReadOnlyDictionary<int, string> ReadBaseNames(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        if (_ccz66NameService.IsSupported(project))
+        {
+            return _ccz66NameService.BuildDisplayLookup(project);
+        }
+
+        return ReadLegacyBaseNames(project, tables);
+    }
+
+    public IReadOnlyList<ItemEffectCatalogEntry> ReadBaseCatalogEntries(CczProject project, IReadOnlyList<HexTableDefinition> tables)
+    {
+        if (_ccz66NameService.IsSupported(project))
+        {
+            return _ccz66NameService.BuildCatalogEntries(project);
+        }
+
+        return ReadLegacyBaseNames(project, tables)
+            .OrderBy(pair => pair.Key)
+            .Select(pair => new ItemEffectCatalogEntry
+            {
+                EffectId = pair.Key,
+                Name = pair.Value,
+                Description = string.Empty
+            })
+            .ToList();
+    }
+
+    private IReadOnlyDictionary<int, string> ReadLegacyBaseNames(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         var result = new Dictionary<int, string>();
         var profile = new CczEngineProfileService().Detect(project);

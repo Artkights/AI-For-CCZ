@@ -1,0 +1,2450 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=gbk">
+<title>新引擎 71特效请求 指令的修改 - 曹操传MOD制作交流 -  轩辕春秋文化论坛 </title>
+<meta name="keywords" content="新引擎 71特效请求 指令的修改,曹操传MOD制作交流,轩辕工作室,轩辕春秋文化论坛">
+<meta name="description" content="轩辕春秋文化论坛 历史文化休闲论坛">
+<meta name="generator" content="轩辕春秋 www.xycq.net">
+<meta name="MSSmartTagsPreventParsing" content="TRUE">
+<meta http-equiv="MSThemeCompatible" content="Yes">
+<link rel="stylesheet" type="text/css" id="css" href="forumdata/cache/style_4.css">
+<script type="text/javascript" src="include/common1.js"></script>
+<script type="text/javascript" src="include/menu1.js"></script>
+</head>
+<body onkeydown="if(event.keyCode==27) return false;">
+
+<center>
+<div style="width: 100%; height: 145px; text-align: left; background-image: url(images/default/logo_bg.jpg)">
+</div>
+
+<div class="headerline" style="height: 6px"></div>
+<div class="headermenu">
+<div class="maintable">
+<div class="left" id="menu">
+<span class="bold"><a href="profile-uid-170977.html">WHITESHIP</a>: </span> <a href="logging.php?action=logout&amp;formhash=075c0761">退出</a>
+| <a href="pm.php" target="_blank">短消息</a> 
+|
+<span id="my"><a href="my.php">我的</a><script type="text/javascript">menuregister(false, "my")</script></span>
+| <span id="memcp"><a href="memcp.php">控制面板</a><script type="text/javascript">menuregister(false, "memcp")</script></span>
+| <a href="admincp.php" target="_blank">系统设置</a> 
+</div>
+<div class="right" id="menu">
+<a href="member.php?action=list">会员</a> 
+| <a href="search.php">搜索</a> 
+     
+| <a href="plugin.php?identifier=gamble&module=gamble">竞猜</a> 
+     
+| <a href="plugin.php?identifier=bank&module=bank">轩辕钱庄</a> 
+     
+| <a href="plugin.php?identifier=family&module=family">家族门派</a> 
+| 
+<span id="stats"><a href="stats.php">统计</a><script type="text/javascript">menuregister(false, "stats")</script></span>
+| <a href="faq.php">帮助</a>
+</div></div></div>
+<div class="headerline" style="height: 6px"></div>
+
+<div class="maintable"><br><div class="subtable nav" style="width:98%">
+<div class="right">
+<form name="xycqquery" method="post" action="search.php?srchtype=qihoo" onSubmit="this.target='_blank';">
+<input type="hidden" name="searchsubmit" value="yes">
+<input type="text" name="srchtxt" value="" size="27" class="input" style="background-image: url("images/default/bg.gif")" onmouseover="this.focus();this.value='';this.onmouseover=null;" onfocus="this.select()">
+<input name="searchsubmit" class="button" type="button" value="搜索" onclick="baidu.wd.value=xycqquery.srchtxt.value + baidu.wd.value;baidu.submit();">
+</form>
+<form name="baidu" action="http://www.baidu.com/s">
+  <input type="hidden" name="wd" value=" site:xycq.net">
+  </form>
+</div>
+<span id="forumlist"><a href="index.php">轩辕春秋文化论坛</a><script type="text/javascript">menuregister(false, "forumlist")</script></span>
+ &raquo; <a href="forum-76-1.html">曹操传MOD制作交流</a> &raquo; 新引擎 71特效请求 指令的修改</div><br></div>
+<div class="maintable">
+<div id="announcement" style="clear: both; width: 98%"><a href="http://www.xycq.net/forum/thread-290496-1-1.html" target="_blank"><span class="bold">论坛营运现状公告</span> (2014-8-10)</a>&nbsp; &nbsp; &nbsp; &nbsp;<a href="http://www.xycq.net/forum/thread-110767-1-1.html" target="_blank"><span class="bold">兴唐传·瓦岗山异闻录（2014新春版）发布</span> (2014-2-17)</a>&nbsp; &nbsp; &nbsp; &nbsp;<a href="http://www.xycq.net/forum/thread-281753-1-1.html" target="_blank"><span class="bold">三国志12pk版下载</span> (2013-4-20)</a>&nbsp; &nbsp; &nbsp; &nbsp;<a href="http://www.xycq.net/forum/forum-75-1.html" target="_blank"><span class="bold">《精忠报国岳飞传》制作组对外开放</span> (2013-1-16)</a>&nbsp; &nbsp; &nbsp; &nbsp;<a href="http://sg.70mt.com/" target="_blank"><span class="bold">秦王府荣誉出品——镁天三国</span> (2011-11-14)</a>&nbsp; &nbsp; &nbsp; &nbsp;<a href="http://www.xycq.net/forum/thread-225532-1-1.html" target="_blank"><span class="bold">岳飞传解密剧本发布</span> (2011-4-12)</a>&nbsp; &nbsp; &nbsp; &nbsp;<a href="announcement.php?id=12#12"><span class="bold">招募各版斑竹和网站管理技术人员</span> (2006-4-19)</a></div>
+<script type="text/javascript">announcement();</script>
+</div>
+<div class="maintable">
+
+<table width="98%" cellspacing="0" cellpadding="0" align="center" style="clear: both;">
+<tr><td valign="bottom">
+<div style="margin-bottom: 4px">
+<a href="redirect.php?fid=76&amp;tid=188434&amp;goto=nextoldset" style="font-weight: normal"> << 上一主题</a> | <a href="redirect.php?fid=76&amp;tid=188434&amp;goto=nextnewset" style="font-weight: normal">下一主题 >></a><br>
+</div>
+</td><td width="40%" align="right" valign="bottom">
+<div class="right"> <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;extra=page%3D1"><img src="images/default/reply.gif" border="0" alt="" /></a></div>
+<div id="newspecialheader" class="right"><a href="post.php?action=newthread&amp;fid=76&amp;extra=page%3D1"><img src="images/default/newtopic.gif" border="0" alt="" /></a><a href="###"><img src="images/default/newspecial.gif" border="0" alt="" /></a><script type="text/javascript">menuregister(false, "newspecialheader", true)</script></div>
+<div class="popupmenu_popup newspecialmenu" id="newspecialheader_menu" style="display: none">
+<table cellpadding="4" cellspacing="0" border="0" width="100%">
+<tr><td class="popupmenu_option"><div class="newspecial"><a href="post.php?action=newthread&amp;fid=76&amp;extra=page%3D1&amp;poll=yes">投票</a></div></td></tr>
+<tr><td class="popupmenu_option"><div class="newspecial"><a href="post.php?action=newthread&amp;fid=76&amp;extra=page%3D1&amp;reward=yes">悬赏</a></div></td></tr>
+</table></div>
+</td></tr></table></div>
+<script type="text/javascript">
+function fastreply(subject) {
+if($('postform')) {
+$('postform').subject.value = subject;
+$('postform').message.focus();
+}
+}
+</script>
+
+<div class="maintable">
+<div class="spaceborder" style="width: 98%; border-bottom: none">
+<table cellspacing="0" cellpadding="4" width="100%" align="center">
+<tr class="header"><td colspan="2" style="color: #FFFFFF">
+<div class="right" style="font-weight: normal">
+<a href="viewthread.php?action=printable&amp;tid=188434" target="_blank">打印</a> |
+<a href="misc.php?action=emailfriend&amp;tid=188434">推荐</a> |
+<a href="my.php?item=subscriptions&amp;subadd=188434">订阅</a> |
+<a href="my.php?item=favorites&amp;favadd=188434&amp;type=thread">收藏</a>
+| <a href="http://www.xycq.net/spacecp.php?action=spacenews&op=add&tid=188434" target="_blank">加入资讯</a>
+</div>
+标题:
+<a href="forumdisplay.php?fid=76&amp;filter=type&amp;typeid=7">[心得]</a> 新引擎 71特效请求 指令的修改</td></tr>
+</table></div>
+
+<form method="post" name="delpost" action="topicadmin.php?action=delpost&amp;fid=76&amp;tid=188434&amp;page=1">
+<input type="hidden" name="formhash" value="075c0761">
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+ border-top: none
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2606463"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-111321.html" target="_blank" class="bold">godtype</a>
+<br><span class="smalltxt" align="center" style="color:gray">(毅)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 73"><img src="customavatars/111321.jpg" width="73" height="84" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+<br><center><font color=red>刘国公</font><br><font color=blue>广南东路经略使</font><br>枢密直学士<br><font color=Purple>★★★★★★★★★★★★<br>★★★</font></center>
+                           <img src="images/common/qice.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level3.gif" alt="Rank: 23" /><img src="images/default/star_level2.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><br>
+
+                                           
+<img src="images/common/2.gif" border="0" alt="柱国（正二品）" />  
+<img src="images/common/8aaa.gif" border="0" alt="轩辕春秋年度最佳（轩辕工作室）" />  
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="purple">经略使</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  征东将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"> </img>好贴</td><td>  <a href="digest.php?authorid=111321">1</a></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  1309</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  5654</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  295 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  111321</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-2-18</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  我家</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2606463" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606463" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606463')">#1</a></div>
+<INPUT type=button onclick="text2606463.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2606463.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2606463.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-21 20:30 
+<a href="profile-uid-111321.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/111321" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=111321" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=111321">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2606463" title="评分 0"></a>
+<span class="bold">新引擎 71特效请求 指令的修改</span><br><br>
+<div name=style="font-size: 12px"><span id="text2606463"><img src="http://home.procivi.net/attachment/200904/21/419_1240316052PT33.jpg" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://home.procivi.net/attachment/200904/21/419_1240316052PT33.jpg');}" onmousewheel="return imgzoom(this);" alt="" /> <br />
+新引擎里面有两条指令是专为瓦岗而设的，分别是71特效请求和72信息传送，其他的MOD用不到。<br />
+最近编写剧本中的自由转职系统时，由于打算在转职后重新计算武将的能力（包括五围和HPMP），原本是在剧本继续写指令的，但是本身自由转职已经需要很多条指令了，不想再让剧本变得过大，于是想到了修改引擎，因为我发现71指令挺适合的（如上图），我只要输入武将的编号，当执行了这条指令后，马上就会重新按照新的兵种能力重新计算部队的五围和HPMP，而且还可以包括吃果后的成长。<br />
+经过翻阅资料，加上请教其他高手，终于改出了一个雏形，经过简单的测试，无出错，现在发上论坛，可能还会有一些代码有问题，希望有其他高手看出来并指出错误之处，再提供一下意见。<br />
+<br />
+00410C02&nbsp; &nbsp;&nbsp;&nbsp;00204D00&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;DD 004D2000<br />
+<br />
+004D2000&nbsp; &nbsp;55&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EBP<br />
+004D2001&nbsp; &nbsp;8BEC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EBP,ESP<br />
+004D2003&nbsp; &nbsp;83EC 14&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; SUB ESP,14<br />
+004D2006&nbsp; &nbsp;6A 04&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 4<br />
+004D2008&nbsp; &nbsp;8B4D 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP+8]<br />
+004D200B&nbsp; &nbsp;E8 E763F4FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 004183F7<br />
+004D2010&nbsp; &nbsp;25 FFFF0000&nbsp; &nbsp;&nbsp; &nbsp;AND EAX,0FFFF<br />
+004D2015&nbsp; &nbsp;8945 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-4],EAX<br />
+004D2018&nbsp; &nbsp;8B4D FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-4]<br />
+004D201B&nbsp; &nbsp;6BC9 48&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; IMUL ECX,ECX,48<br />
+004D201E&nbsp; &nbsp;81C1 0000D600&nbsp; &nbsp; ADD ECX,0D60000<br />
+004D2024&nbsp; &nbsp;894D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-8],ECX<br />
+004D2027&nbsp; &nbsp;8B45 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-4]<br />
+004D202A&nbsp; &nbsp;E8 D0000000&nbsp; &nbsp;&nbsp; &nbsp;CALL 004D20FF<br />
+004D202F&nbsp; &nbsp;C645 F0 00&nbsp; &nbsp;&nbsp; &nbsp; MOV BYTE PTR SS:[EBP-10],0<br />
+004D2033&nbsp; &nbsp;EB 07&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JMP SHORT 004D203C<br />
+004D2035&nbsp; &nbsp;8A4D F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV CL,BYTE PTR SS:[EBP-10]<br />
+004D2038&nbsp; &nbsp;41&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;INC ECX<br />
+004D2039&nbsp; &nbsp;884D F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV BYTE PTR SS:[EBP-10],CL<br />
+004D203C&nbsp; &nbsp;0FB655 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOVZX EDX,BYTE PTR SS:[EBP-10]<br />
+004D2040&nbsp; &nbsp;83FA 07&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; CMP EDX,7<br />
+004D2043&nbsp; &nbsp;0F8D AD000000&nbsp; &nbsp; JGE 004D20F6<br />
+004D2049&nbsp; &nbsp;0FB645 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOVZX EAX,BYTE PTR SS:[EBP-10]<br />
+004D204D&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D204E&nbsp; &nbsp;8B4D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-8]<br />
+004D2051&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D2053&nbsp; &nbsp;8A51 2B&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR DS:[ECX+2B]<br />
+004D2056&nbsp; &nbsp;8BCA&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,EDX<br />
+004D2058&nbsp; &nbsp;6BC9 1B&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; IMUL ECX,ECX,1B<br />
+004D205B&nbsp; &nbsp;81C1 A0BF4A00&nbsp; &nbsp; ADD ECX,004ABFA0<br />
+004D2061&nbsp; &nbsp;E8 3A75F3FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 004095A0<br />
+004D2066&nbsp; &nbsp;25 FF000000&nbsp; &nbsp;&nbsp; &nbsp;AND EAX,0FF<br />
+004D206B&nbsp; &nbsp;8945 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-C],EAX<br />
+004D206E&nbsp; &nbsp;0FB645 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOVZX EAX,BYTE PTR SS:[EBP-10]<br />
+004D2072&nbsp; &nbsp;83F8 04&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; CMP EAX,4<br />
+004D2075&nbsp; &nbsp;7F 46&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JG SHORT 004D20BD<br />
+004D2077&nbsp; &nbsp;0FB64D F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOVZX ECX,BYTE PTR SS:[EBP-10]<br />
+004D207B&nbsp; &nbsp;51&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH ECX<br />
+004D207C&nbsp; &nbsp;8B4D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-8]<br />
+004D207F&nbsp; &nbsp;E8 7852F3FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 004072FC<br />
+004D2084&nbsp; &nbsp;25 FF000000&nbsp; &nbsp;&nbsp; &nbsp;AND EAX,0FF<br />
+004D2089&nbsp; &nbsp;8B4D F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-C]<br />
+004D208C&nbsp; &nbsp;03C8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ECX,EAX<br />
+004D208E&nbsp; &nbsp;D1E9&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; SHR ECX,1<br />
+004D2090&nbsp; &nbsp;894D EC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-14],ECX<br />
+004D2093&nbsp; &nbsp;8B45 EC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-14]<br />
+004D2096&nbsp; &nbsp;8B4D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-8]<br />
+004D2099&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D209B&nbsp; &nbsp;8A51 2C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR DS:[ECX+2C]<br />
+004D209E&nbsp; &nbsp;0FAFC2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;IMUL EAX,EDX<br />
+004D20A1&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D20A3&nbsp; &nbsp;8A55 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR SS:[EBP-10]<br />
+004D20A6&nbsp; &nbsp;80C2 21&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD DL,21<br />
+004D20A9&nbsp; &nbsp;8A1411&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV DL,BYTE PTR DS:[ECX+EDX]<br />
+004D20AC&nbsp; &nbsp;03C2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,EDX<br />
+004D20AE&nbsp; &nbsp;0FB655 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOVZX EDX,BYTE PTR SS:[EBP-10]<br />
+004D20B2&nbsp; &nbsp;D1E2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; SHL EDX,1<br />
+004D20B4&nbsp; &nbsp;80C2 11&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD DL,11<br />
+004D20B7&nbsp; &nbsp;66:890411&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV WORD PTR DS:[ECX+EDX],AX<br />
+004D20BB&nbsp; &nbsp;EB 34&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JMP SHORT 004D20F1<br />
+004D20BD&nbsp; &nbsp;83F8 05&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; CMP EAX,5<br />
+004D20C0&nbsp; &nbsp;75 19&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JNZ SHORT 004D20DB<br />
+004D20C2&nbsp; &nbsp;8B45 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-C]<br />
+004D20C5&nbsp; &nbsp;8B4D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-8]<br />
+004D20C8&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D20CA&nbsp; &nbsp;8A51 2C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR DS:[ECX+2C]<br />
+004D20CD&nbsp; &nbsp;0FAFC2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;IMUL EAX,EDX<br />
+004D20D0&nbsp; &nbsp;66:8B51 1C&nbsp; &nbsp;&nbsp; &nbsp; MOV DX,WORD PTR DS:[ECX+1C]<br />
+004D20D4&nbsp; &nbsp;03C2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,EDX<br />
+004D20D6&nbsp; &nbsp;8941 1C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR DS:[ECX+1C],EAX<br />
+004D20D9&nbsp; &nbsp;EB 16&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JMP SHORT 004D20F1<br />
+004D20DB&nbsp; &nbsp;8B45 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-C]<br />
+004D20DE&nbsp; &nbsp;8B4D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-8]<br />
+004D20E1&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D20E3&nbsp; &nbsp;8A51 2C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR DS:[ECX+2C]<br />
+004D20E6&nbsp; &nbsp;0FAFC2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;IMUL EAX,EDX<br />
+004D20E9&nbsp; &nbsp;8A51 20&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR DS:[ECX+20]<br />
+004D20EC&nbsp; &nbsp;03C2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,EDX<br />
+004D20EE&nbsp; &nbsp;8841 20&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV BYTE PTR DS:[ECX+20],AL<br />
+004D20F1&nbsp;&nbsp;^E9 3FFFFFFF&nbsp; &nbsp;&nbsp; &nbsp;JMP 004D2035<br />
+004D20F6&nbsp; &nbsp;B8 01000000&nbsp; &nbsp;&nbsp; &nbsp;MOV EAX,1<br />
+004D20FB&nbsp; &nbsp;8BE5&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ESP,EBP<br />
+004D20FD&nbsp; &nbsp;5D&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;POP EBP<br />
+004D20FE&nbsp; &nbsp;C3&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;RETN<br />
+<br />
+004D20FF&nbsp; &nbsp;55&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EBP<br />
+004D2100&nbsp; &nbsp;8BEC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EBP,ESP<br />
+004D2102&nbsp; &nbsp;83EC 10&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; SUB ESP,10<br />
+004D2105&nbsp; &nbsp;894D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-8],ECX<br />
+004D2108&nbsp; &nbsp;8945 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-4],EAX<br />
+004D210B&nbsp; &nbsp;A1 606F4900&nbsp; &nbsp;&nbsp; &nbsp;MOV EAX,DWORD PTR DS:[496F60]<br />
+004D2110&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D2111&nbsp; &nbsp;6A 00&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 0<br />
+004D2113&nbsp; &nbsp;68 60BB4800&nbsp; &nbsp;&nbsp; &nbsp;PUSH 0048BB60&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;; ASCII &quot;DATA.E5&quot;<br />
+004D2118&nbsp; &nbsp;E8 0194F4FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 0041B51E<br />
+004D211D&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D2120&nbsp; &nbsp;85C0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; TEST EAX,EAX<br />
+004D2122&nbsp; &nbsp;75 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JNZ SHORT 004D2126<br />
+004D2124&nbsp; &nbsp;EB 56&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JMP SHORT 004D217C<br />
+004D2126&nbsp; &nbsp;8B0D 606F4900&nbsp; &nbsp; MOV ECX,DWORD PTR DS:[496F60]<br />
+004D212C&nbsp; &nbsp;8B45 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-4]<br />
+004D212F&nbsp; &nbsp;6BC0 20&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; IMUL EAX,EAX,20<br />
+004D2132&nbsp; &nbsp;03C1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,ECX<br />
+004D2134&nbsp; &nbsp;83C0 17&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,17<br />
+004D2137&nbsp; &nbsp;8945 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-C],EAX<br />
+004D213A&nbsp; &nbsp;8B45 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-C]<br />
+004D213D&nbsp; &nbsp;33C9&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR ECX,ECX<br />
+004D213F&nbsp; &nbsp;8A08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV CL,BYTE PTR DS:[EAX]<br />
+004D2141&nbsp; &nbsp;894D F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-10],ECX<br />
+004D2144&nbsp; &nbsp;8B55 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EDX,DWORD PTR SS:[EBP-C]<br />
+004D2147&nbsp; &nbsp;83C2 01&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EDX,1<br />
+004D214A&nbsp; &nbsp;8955 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-C],EDX<br />
+004D214D&nbsp; &nbsp;8B45 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-C]<br />
+004D2150&nbsp; &nbsp;33C9&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR ECX,ECX<br />
+004D2152&nbsp; &nbsp;8A08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV CL,BYTE PTR DS:[EAX]<br />
+004D2154&nbsp; &nbsp;C1E1 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; SHL ECX,8<br />
+004D2157&nbsp; &nbsp;8B55 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EDX,DWORD PTR SS:[EBP-10]<br />
+004D215A&nbsp; &nbsp;03D1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EDX,ECX<br />
+004D215C&nbsp; &nbsp;8955 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-10],EDX<br />
+004D215F&nbsp; &nbsp;8B45 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-C]<br />
+004D2162&nbsp; &nbsp;83C0 01&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,1<br />
+004D2165&nbsp; &nbsp;8945 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-C],EAX<br />
+004D2168&nbsp; &nbsp;8B4D F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-8]<br />
+004D216B&nbsp; &nbsp;8B55 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EDX,DWORD PTR SS:[EBP-10]<br />
+004D216E&nbsp; &nbsp;8951 1C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR DS:[ECX+1C],EDX<br />
+004D2171&nbsp; &nbsp;8B45 F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-8]<br />
+004D2174&nbsp; &nbsp;8B4D F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ECX,DWORD PTR SS:[EBP-C]<br />
+004D2177&nbsp; &nbsp;8A11&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DL,BYTE PTR DS:[ECX]<br />
+004D2179&nbsp; &nbsp;8850 20&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV BYTE PTR DS:[EAX+20],DL<br />
+004D217C&nbsp; &nbsp;8BE5&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ESP,EBP<br />
+004D217E&nbsp; &nbsp;5D&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;POP EBP<br />
+004D217F&nbsp; &nbsp;C3&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;RETN<br />
+<br />
+<br />
+不详细解释了，高手们一般都可以看得出来。<br />
+希望能够指出需要改进的地方。<br />
+<br />
+<font color="Silver">[<i> 本帖最后由 godtype 于 2009-4-22 19:19 编辑 </i>]</font></span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >,,,,,,,,,,,,</div>
+</td></tr>
+<tr><td valign="bottom">
+<br><img src="images/common/sigline.gif" alt="" />
+<br>
+<div class="maintable">
+<script type="text/javascript"><!--
+google_ad_client = "pub-0728498232792646";
+google_alternate_ad_url = "http://www.xycq.net/files/logo.jpg";
+google_ad_width = 728;
+google_ad_height = 90;
+google_ad_format = "728x90_as";
+google_ad_type = "text";
+//2007-05-09: 帖内
+google_ad_channel = "9253486758";
+//-->
+</script>
+<script type="text/javascript"
+  src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2606463&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2606463&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2606463&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=godtype" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2606463&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #1 godtype 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" disabled>
+</div>
+<div>
+[广告] <a href="http://sg.70mt.com/" target="_blank" >秦王府荣誉出品——镁天三国</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2606471"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-214815.html" target="_blank" class="bold">37610716</a>
+<br><span class="smalltxt" align="center" style="color:gray">(妖)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 49"><img src="customavatars/214815.jpg" width="49" height="49" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+<br><center>白衣伯爵<br><font color=red>★</font><font color=Purple>★</font></center>
+                           <img src="images/common/baiyi.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level2.gif" alt="Rank: 11" /><img src="images/default/star_level2.gif" alt="Rank: 11" /><img src="images/default/star_level1.gif" alt="Rank: 11" /><img src="images/default/star_level1.gif" alt="Rank: 11" /><img src="images/default/star_level1.gif" alt="Rank: 11" /><br>
+
+                                           
+<img src="images/common/8aaa.gif" border="0" alt="轩辕春秋年度最佳（轩辕工作室）" />  
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="#FF6600">白衣卿相</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  平东将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"> </img>好贴</td><td>  <a href="digest.php?authorid=214815">1</a></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  150</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  2512</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  2 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  24459 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  214815</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-9-12</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2606471" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606471" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606471')">#2</a></div>
+<INPUT type=button onclick="text2606471.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2606471.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2606471.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-21 20:47 
+<a href="profile-uid-214815.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/214815" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=214815" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=214815">只看该作者</a>
+<a href="http://wpa.qq.com/msgrd?V=1&amp;Uin=37610716&amp;Site=轩辕春秋文化论坛&amp;Menu=yes" target="_blank"><img src="http://wpa.qq.com/pa?p=1:37610716:4"  border="0" alt="QQ" /></a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2606471" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2606471"><img src="images/smilies/titter.gif" smilieid="56" border="0" alt="" />&nbsp;&nbsp;不过这个好像剧情增加的能力没有了？</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><a href="http://www.xycq.net/forum/thread-187881-1-2.html" target="_blank">兵熊熊一个</a> <a href="http://www.xycq.net/forum/thread-169228-1-8.html" target="_blank">将熊熊一窝</a><br />
+<img src="http://www.xycq.net/forum/attachments/month_0911/20091104_5a3dd0f03105e8af2ce7G79PlPbtuDXF.jpg" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://www.xycq.net/forum/attachments/month_0911/20091104_5a3dd0f03105e8af2ce7G79PlPbtuDXF.jpg');}" onmousewheel="return imgzoom(this);" alt="" /></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><img src="images/common/sigline.gif" alt="" />
+<br>
+<div class="maintable">
+<script type="text/javascript"><!--
+google_ad_client = "pub-0728498232792646";
+google_alternate_ad_url = "http://www.xycq.net/files/logo.jpg";
+google_ad_width = 728;
+google_ad_height = 90;
+google_ad_format = "728x90_as";
+google_ad_type = "text";
+//2007-05-09: 帖内
+google_ad_channel = "9253486758";
+//-->
+</script>
+<script type="text/javascript"
+  src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2606471&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2606471&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2606471&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=37610716" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2606471&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #2 37610716 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2606471">
+</div>
+<div>
+[广告] <a href="http://www.xycq.net/forum/thread-151152-1-1.html" target="_blank" >真诚支持说岳，携手共创辉煌</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2606643"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-211782.html" target="_blank" class="bold">obin</a>
+<br><span class="smalltxt" align="center" style="color:gray">(阿斌)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 90"><img src="http://obin989.googlepages.com/me.jpg" width="90" height="90" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  仁勇校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  3</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  159</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  7349 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  211782</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-9-6</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  台湾台北</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2606643" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606643" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606643')">#3</a></div>
+<INPUT type=button onclick="text2606643.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2606643.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2606643.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-22 03:23 
+<a href="profile-uid-211782.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/211782" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=211782" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=211782">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2606643" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2606643">其實我的武聖傳有另外計算劇情增加的能力..<br />
+另外建議一下，讓71指令配合變量來設定功能<br />
+例如71指令為1，變量4095為5，就重新計算武將編號5的能力<br />
+這樣71指令的用途就真的無可限量了..</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >傳承MOD學院</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2606643&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2606643&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2606643&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=obin" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2606643&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #3 obin 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2606643">
+</div>
+<div>
+[广告] <a href="http://wt.xycq.net/forum/thread-145662-1-1.html" target="_blank" >《精忠报国岳飞传完整版》火热发布</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2606971"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/secret_offline.gif" border="0" align="middle" style="float:left" alt="性别:未知-离线">
+<a href="profile-uid-310368.html" target="_blank" class="bold">花言乔语</a>
+         <center>
+ 
+ <div class="avatar" style="width: 150"><img src="http://pic.qnpic.com:83/r.jsp?fn=//qiannao/share/2010/2/2/201001271105_0021265088954031.jpg" width="150" height="114" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  忠义校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  3</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  287</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  10 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  310368</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2009-2-10</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  仙侠世界</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2606971" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606971" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2606971')">#4</a></div>
+<INPUT type=button onclick="text2606971.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2606971.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2606971.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-22 14:24 
+<a href="profile-uid-310368.html">资料</a>
+<a href="pm.php?action=send&amp;uid=310368" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=310368">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2606971" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2606971">哎，手机看不了图。</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><img src="http://pic.qnpic.com:83/r.jsp?fn=//qiannao/share/2010/2/2/201001270914_001.png" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://pic.qnpic.com:83/r.jsp?fn=//qiannao/share/2010/2/2/201001270914_001.png');}" onmousewheel="return imgzoom(this);" alt="" /></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2606971&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2606971&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2606971&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=花言乔语" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2606971&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #4 花言乔语 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2606971">
+</div>
+<div>
+[广告] <a href="http://www.xycq.net/forum/thread-151152-1-1.html" target="_blank" >真诚支持说岳，携手共创辉煌</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2607139"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-111321.html" target="_blank" class="bold">godtype</a>
+<br><span class="smalltxt" align="center" style="color:gray">(毅)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 73"><img src="customavatars/111321.jpg" width="73" height="84" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+<br><center><font color=red>刘国公</font><br><font color=blue>广南东路经略使</font><br>枢密直学士<br><font color=Purple>★★★★★★★★★★★★<br>★★★</font></center>
+                           <img src="images/common/qice.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level3.gif" alt="Rank: 23" /><img src="images/default/star_level2.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><br>
+
+                                           
+<img src="images/common/2.gif" border="0" alt="柱国（正二品）" />  
+<img src="images/common/8aaa.gif" border="0" alt="轩辕春秋年度最佳（轩辕工作室）" />  
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="purple">经略使</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  征东将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"> </img>好贴</td><td>  <a href="digest.php?authorid=111321">1</a></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  1309</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  5654</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  295 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  111321</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-2-18</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  我家</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2607139" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2607139" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2607139')">#5</a></div>
+<INPUT type=button onclick="text2607139.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2607139.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2607139.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-22 19:26 
+<a href="profile-uid-111321.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/111321" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=111321" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=111321">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2607139" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2607139">基本上已经完善好了，HP和MP已经可以正常计算出来了。</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >,,,,,,,,,,,,</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2607139&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2607139&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2607139&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=godtype" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2607139&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #5 godtype 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2607139">
+</div>
+<div>
+[广告] <a href="http://wt.xycq.net/forum/thread-145662-1-1.html" target="_blank" >《精忠报国岳飞传完整版》火热发布</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2607319"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-293516.html" target="_blank" class="bold">蛇夫座</a>
+         <center>
+ 
+ <div class="avatar" style="width: 122"><img src="http://manhua.k6yz.com/uploads/allimg/100717/0SSQB9-3.jpg" width="122" height="150" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  仁勇校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  2</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  200</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  5062 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  293516</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2008-10-5</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  永不言弃！</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2607319" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2607319" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2607319')">#6</a></div>
+<INPUT type=button onclick="text2607319.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2607319.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2607319.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-22 23:03 
+<a href="profile-uid-293516.html">资料</a>
+<a href="pm.php?action=send&amp;uid=293516" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=293516">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2607319" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2607319">用STAR的5.1输入后简单测试了一下，HP，MP确实可以重新计算，但其它能力好象没有变动。不知道我有无抄错，未有时间详细检查。<br />
+&nbsp; &nbsp;&nbsp; &nbsp;还有的是当执行此命令后，在此剧本命令后续的命令好象也没有反应...<br />
+&nbsp; &nbsp;&nbsp; &nbsp;我是在点击测试中设置的&nbsp;&nbsp;52 : 兵种改变&nbsp; &nbsp;其它OK</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >永不放弃的毅力！</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2607319&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2607319&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2607319&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=蛇夫座" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2607319&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #6 蛇夫座 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2607319">
+</div>
+<div>
+[广告] <a href="http://www.xycq.net/forum/thread-151152-1-1.html" target="_blank" >真诚支持说岳，携手共创辉煌</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2607421"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-111321.html" target="_blank" class="bold">godtype</a>
+<br><span class="smalltxt" align="center" style="color:gray">(毅)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 73"><img src="customavatars/111321.jpg" width="73" height="84" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+<br><center><font color=red>刘国公</font><br><font color=blue>广南东路经略使</font><br>枢密直学士<br><font color=Purple>★★★★★★★★★★★★<br>★★★</font></center>
+                           <img src="images/common/qice.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level3.gif" alt="Rank: 23" /><img src="images/default/star_level2.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><img src="images/default/star_level1.gif" alt="Rank: 23" /><br>
+
+                                           
+<img src="images/common/2.gif" border="0" alt="柱国（正二品）" />  
+<img src="images/common/8aaa.gif" border="0" alt="轩辕春秋年度最佳（轩辕工作室）" />  
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="purple">经略使</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  征东将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"> </img>好贴</td><td>  <a href="digest.php?authorid=111321">1</a></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  1309</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  5654</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  295 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  111321</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-2-18</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  我家</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2607421" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2607421" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2607421')">#7</a></div>
+<INPUT type=button onclick="text2607421.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2607421.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2607421.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-23 08:34 
+<a href="profile-uid-111321.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/111321" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=111321" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=111321">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2607421" title="评分 0"></a>
+<span class="bold">回复 #6 蛇夫座 的帖子</span><br><br>
+<div name=style="font-size: 12px"><span id="text2607421">5.1不能够照抄的，因为部队成长的写法改了。<br />
+将<br />
+004D207F&nbsp; &nbsp;E8 7852F3FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 004072FC<br />
+改成<br />
+CALL 004072F2<br />
+试一下<br />
+<br />
+后续指令我用52来测试是没有问题，兵种可以改变。<br />
+<br />
+STAR 5.1版如果要用这个修改，可能还要调整一下，等有时间再做。</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >,,,,,,,,,,,,</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2607421&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2607421&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2607421&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=godtype" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2607421&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #7 godtype 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2607421">
+</div>
+<div>
+[广告] <a href="http://www.xycq.net/forum/thread-151152-1-1.html" target="_blank" >真诚支持说岳，携手共创辉煌</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2608103"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-293516.html" target="_blank" class="bold">蛇夫座</a>
+         <center>
+ 
+ <div class="avatar" style="width: 122"><img src="http://manhua.k6yz.com/uploads/allimg/100717/0SSQB9-3.jpg" width="122" height="150" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  仁勇校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  2</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  200</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  5062 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  293516</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2008-10-5</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  永不言弃！</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2608103" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2608103" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2608103')">#8</a></div>
+<INPUT type=button onclick="text2608103.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2608103.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2608103.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-23 22:08 
+<a href="profile-uid-293516.html">资料</a>
+<a href="pm.php?action=send&amp;uid=293516" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=293516">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2608103" title="评分 0"></a>
+<span class="bold">回复 #7 godtype 的帖子</span><br><br>
+<div name=style="font-size: 12px"><span id="text2608103">改成 CALL 004072F2&nbsp;&nbsp;之后无问题了，后续指令也正常<img src="images/smilies/kuso.1.09.gif" smilieid="43" border="0" alt="" /><br />
+&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;感觉上参考这条指令的修改完全可以定制出属于自己的EXE。<br />
+&nbsp; &nbsp;&nbsp;&nbsp;自己无技术...期待版主继续无私的奉献。</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >永不放弃的毅力！</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2608103&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2608103&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2608103&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=蛇夫座" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2608103&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #8 蛇夫座 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2608103">
+</div>
+<div>
+[广告] <a href="http://sg.70mt.com/" target="_blank" >秦王府荣誉出品——镁天三国</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2608104"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-214815.html" target="_blank" class="bold">37610716</a>
+<br><span class="smalltxt" align="center" style="color:gray">(妖)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 49"><img src="customavatars/214815.jpg" width="49" height="49" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+<br><center>白衣伯爵<br><font color=red>★</font><font color=Purple>★</font></center>
+                           <img src="images/common/baiyi.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level2.gif" alt="Rank: 11" /><img src="images/default/star_level2.gif" alt="Rank: 11" /><img src="images/default/star_level1.gif" alt="Rank: 11" /><img src="images/default/star_level1.gif" alt="Rank: 11" /><img src="images/default/star_level1.gif" alt="Rank: 11" /><br>
+
+                                           
+<img src="images/common/8aaa.gif" border="0" alt="轩辕春秋年度最佳（轩辕工作室）" />  
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="#FF6600">白衣卿相</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  平东将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"> </img>好贴</td><td>  <a href="digest.php?authorid=214815">1</a></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  150</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  2512</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  2 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  24459 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  214815</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-9-12</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2608104" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2608104" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2608104')">#9</a></div>
+<INPUT type=button onclick="text2608104.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2608104.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2608104.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-4-23 22:09 
+<a href="profile-uid-214815.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/214815" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=214815" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=214815">只看该作者</a>
+<a href="http://wpa.qq.com/msgrd?V=1&amp;Uin=37610716&amp;Site=轩辕春秋文化论坛&amp;Menu=yes" target="_blank"><img src="http://wpa.qq.com/pa?p=1:37610716:4"  border="0" alt="QQ" /></a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2608104" title="评分 0"></a>
+<span class="bold">回复 #8 蛇夫座 的帖子</span><br><br>
+<div name=style="font-size: 12px"><span id="text2608104">我也测试无误，这里又碰到白老鼠！<img src="images/smilies/titter.gif" smilieid="56" border="0" alt="" /></span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><a href="http://www.xycq.net/forum/thread-187881-1-2.html" target="_blank">兵熊熊一个</a> <a href="http://www.xycq.net/forum/thread-169228-1-8.html" target="_blank">将熊熊一窝</a><br />
+<img src="http://www.xycq.net/forum/attachments/month_0911/20091104_5a3dd0f03105e8af2ce7G79PlPbtuDXF.jpg" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://www.xycq.net/forum/attachments/month_0911/20091104_5a3dd0f03105e8af2ce7G79PlPbtuDXF.jpg');}" onmousewheel="return imgzoom(this);" alt="" /></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2608104&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2608104&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2608104&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=37610716" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2608104&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #9 37610716 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2608104">
+</div>
+<div>
+[广告] <a href="http://www.xycq.net/forum/thread-151152-1-1.html" target="_blank" >真诚支持说岳，携手共创辉煌</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2776966"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-308223.html" target="_blank" class="bold">狂煞∑小星</a>
+<br><span class="smalltxt" align="center" style="color:gray">(じ★ve梦飞￠)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 141"><img src="http://y.photo.qq.com/img?s=YftBrHd5C&amp;l=y.jpg" width="141" height="150" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level2.gif" alt="Rank: 5" /><img src="images/default/star_level1.gif" alt="Rank: 5" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  破虏将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  7</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  714</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  3734 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  308223</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2009-1-29</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  宇宙地球亚洲中国云南昆明</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕学院</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2776966" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2776966" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2776966')">#10</a></div>
+<INPUT type=button onclick="text2776966.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2776966.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2776966.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-12-6 02:03 
+<a href="profile-uid-308223.html">资料</a>
+<a href="http://www.xycq.net/index.php?action/space/uid/308223" target="_blank">个人空间</a>
+<a href="pm.php?action=send&amp;uid=308223" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=308223">只看该作者</a>
+<a href="http://wpa.qq.com/msgrd?V=1&amp;Uin=525130234&amp;Site=轩辕春秋文化论坛&amp;Menu=yes" target="_blank"><img src="http://wpa.qq.com/pa?p=1:525130234:4"  border="0" alt="QQ" /></a>
+<script type="text/javascript">document.write('<a target="_blank" href="http://amos1.taobao.com/msg.ww?v=2&amp;uid='+encodeURIComponent('xuyangshuyi')+'&amp;s=2"><img src="http://amos1.taobao.com/online.ww?v=2&amp;uid='+encodeURIComponent('xuyangshuyi')+'&amp;s=2" alt="淘宝旺旺" border="0"  /></a> ');</script>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2776966" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2776966">厄，支持啊，这样的话MOD里可以用了，但是偶看不懂地址啊，是OB，还是UE，还是其他的（我是个编辑BC。。。）</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><img src="http://y.photo.qq.com/img?s=iky34qiHy&amp;l=y.jpg" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://y.photo.qq.com/img?s=iky34qiHy&amp;l=y.jpg');}" onmousewheel="return imgzoom(this);" alt="" /> </div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2776966&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2776966&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2776966&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=狂煞∑小星" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2776966&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #10 狂煞∑小星 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2776966">
+</div>
+<div>
+[广告] <a href="http://sg.70mt.com/" target="_blank" >秦王府荣誉出品——镁天三国</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2777157"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/secret_offline.gif" border="0" align="middle" style="float:left" alt="性别:未知-离线">
+<a href="profile-uid-292057.html" target="_blank" class="bold">大明英烈</a>
+         <center>
+ 
+ <img src="images/avatars/noavatar.gif">
+ 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/xzfy.GIF" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 1" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  限制发言用户</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  仁勇校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  2</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  182</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  809 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  292057</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2008-9-24</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2777157" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2777157" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2777157')">#11</a></div>
+<INPUT type=button onclick="text2777157.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2777157.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2777157.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-12-6 10:44 
+<a href="profile-uid-292057.html">资料</a>
+<a href="pm.php?action=send&amp;uid=292057" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=292057">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2777157" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2777157">支持一下</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" >英国人对印度的分裂就是一例。英国人把印度穆斯林；解释为一个新民族而独立；形成一个新的国家-巴基斯坦。</div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2777157&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2777157&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2777157&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=大明英烈" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2777157&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #11 大明英烈 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2777157">
+</div>
+<div>
+[广告] <a href="http://download.alexa.com/index.cgi" target="_blank" >安装Alexa工具条，提高轩辕排名，支持轩辕发展！</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2778882"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/secret_offline.gif" border="0" align="middle" style="float:left" alt="性别:未知-离线">
+<a href="profile-uid-171314.html" target="_blank" class="bold">morningboo</a>
+<br><span class="smalltxt" align="center" style="color:gray">(冰冷的山)</span>
+         <center>
+ 
+ <img src="images/avatars/noavatar.gif">
+ 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level2.gif" alt="Rank: 4" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  偏将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  4</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  352</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  353 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  171314</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2007-6-5</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2778882" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2778882" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2778882')">#12</a></div>
+<INPUT type=button onclick="text2778882.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2778882.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2778882.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-12-7 20:07 
+<a href="profile-uid-171314.html">资料</a>
+<a href="pm.php?action=send&amp;uid=171314" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=171314">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2778882" title="评分 0"></a>
+<span class="bold">回复 #10 狂煞∑小星 的帖子</span><br><br>
+<div name=style="font-size: 12px"><span id="text2778882">很明显是OB，修改时不能完全照抄，尤其是几个函数的调用</span></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2778882&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2778882&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2778882&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=morningboo" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2778882&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #12 morningboo 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2778882">
+</div>
+<div>
+[广告] <a href="http://wt.xycq.net/forum/thread-145662-1-1.html" target="_blank" >《精忠报国岳飞传完整版》火热发布</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2780527"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/secret_offline.gif" border="0" align="middle" style="float:left" alt="性别:未知-离线">
+<a href="profile-uid-349552.html" target="_blank" class="bold">huangkun0109</a>
+         <center>
+ 
+ <img src="images/avatars/noavatar.gif">
+ 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/baixing.GIF" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 2" /><img src="images/default/star_level1.gif" alt="Rank: 2" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  百姓</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  奋威校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  1</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  126</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  393 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  349552</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2009-12-6</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2780527" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2780527" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2780527')">#13</a></div>
+<INPUT type=button onclick="text2780527.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2780527.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2780527.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2009-12-9 10:36 
+<a href="profile-uid-349552.html">资料</a>
+<a href="pm.php?action=send&amp;uid=349552" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=349552">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2780527" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2780527">超级大白鼠路过，只能精神上支持了，自己也慢慢学习这方面的知识。</span></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2780527&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2780527&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2780527&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=huangkun0109" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2780527&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #13 huangkun0109 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2780527">
+</div>
+<div>
+[广告] <a href="http://www.xycq.net/forum/thread-151152-1-1.html" target="_blank" >真诚支持说岳，携手共创辉煌</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2921592"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-350019.html" target="_blank" class="bold">godtype001</a>
+<br><span class="smalltxt" align="center" style="color:gray">(毅)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 100"><img src="http://www.xycq.net/forum/customavatars/111321.png" width="100" height="135" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  忠义校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  2</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  228</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  5075 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  350019</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2009-12-10</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  我家</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2921592" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2921592" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2921592')">#14</a></div>
+<INPUT type=button onclick="text2921592.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2921592.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2921592.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2010-5-12 10:17 
+<a href="profile-uid-350019.html">资料</a>
+<a href="pm.php?action=send&amp;uid=350019" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=350019">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2921592" title="评分 0"></a>
+<span class="bold">更新一些实用性较高的用法</span><br><br>
+<div name=style="font-size: 12px"><span id="text2921592">顶楼的用法已经过时了，目前在自用的EXE和发布的引擎4.0系列里面，71的用法都是每一个设值配合特定的整形变量来代表一种效果，例如战场特效、自动计算能力等。<br />
+今天就更新一个实用性较高的用法，用途是自由R中，金钱的自动变化。<br />
+<br />
+金钱的自动变化，最有名的就是无双战略版了，但是要运行相当多的剧本指令来实现这种效果，影响系统的速度，所以我就进行了改良。代码如下（注意不是无双的，是我自用的）：<br />
+首先是71指令的再次改造<br />
+<font face="宋体">0040614C&nbsp;&nbsp;/. 55&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; PUSH EBP<br />
+0040614D&nbsp;&nbsp;|. 8BEC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV EBP,ESP<br />
+0040614F&nbsp;&nbsp;|. 51&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; PUSH ECX<br />
+00406150&nbsp;&nbsp;|. 6A 04&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; PUSH 4<br />
+00406152&nbsp;&nbsp;|. 8B4D 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV ECX,DWORD PTR SS:[EBP+8]<br />
+00406155&nbsp;&nbsp;|. E8 9D220100&nbsp; &nbsp; CALL 004183F7<br />
+0040615A&nbsp;&nbsp;|. 25 FFFF0000&nbsp; &nbsp; AND EAX,0FFFF<br />
+0040615F&nbsp;&nbsp;|. 8945 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV DWORD PTR SS:[EBP-4],EAX<br />
+00406162&nbsp;&nbsp;|. 83F8 14&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;CMP EAX,14<br />
+00406165&nbsp;&nbsp;|. 7C 07&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; JL SHORT 0040616E<br />
+00406167&nbsp;&nbsp;|. B8 05000000&nbsp; &nbsp; MOV EAX,5<br />
+0040616C&nbsp;&nbsp;|. EB 0F&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; JMP SHORT 0040617D<br />
+0040616E&nbsp;&nbsp;|&gt; 8B4D FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV ECX,DWORD PTR SS:[EBP-4]<br />
+00406171&nbsp;&nbsp;|. FF148D 8161400&gt;CALL DWORD PTR DS:[ECX*4+406181]<br />
+00406178&nbsp;&nbsp;|. B8 01000000&nbsp; &nbsp; MOV EAX,1<br />
+0040617D&nbsp;&nbsp;|&gt; 8BE5&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp;&nbsp;MOV ESP,EBP<br />
+0040617F&nbsp;&nbsp;|. 5D&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; POP EBP<br />
+00406180&nbsp;&nbsp;\. C3&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; RETN<br />
+00406181&nbsp; &nbsp;. FD1A4D00&nbsp; &nbsp;&nbsp; &nbsp; DD 004D1AFD<br />
+00406185&nbsp; &nbsp;&nbsp;&nbsp;80454300&nbsp; &nbsp;&nbsp; &nbsp; DD 00434580<br />
+00406189&nbsp; &nbsp;&nbsp;&nbsp;8C1F4D00&nbsp; &nbsp;&nbsp; &nbsp; DD 004D1F8C<br />
+0040618D&nbsp; &nbsp;&nbsp;&nbsp;391E4D00&nbsp; &nbsp;&nbsp; &nbsp; DD 004D1E39<br />
+00406191&nbsp; &nbsp;&nbsp;&nbsp;781F4D00&nbsp; &nbsp;&nbsp; &nbsp; DD 004D1F78<br />
+<font color="Red">00406195&nbsp; &nbsp;&nbsp;&nbsp;40264D00&nbsp; &nbsp;&nbsp; &nbsp; DD 004D2640</font></font><br />
+<br />
+在这里，我选用了71指令设效果值为5的时候实现金钱自动变化<br />
+<font face="宋体">004D2640&nbsp; &nbsp;55&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EBP<br />
+004D2641&nbsp; &nbsp;8BEC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EBP,ESP<br />
+004D2643&nbsp; &nbsp;83EC 18&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; SUB ESP,18<br />
+004D2646&nbsp; &nbsp;A1 7C074B00&nbsp; &nbsp;&nbsp; &nbsp;MOV EAX,DWORD PTR DS:[4B077C]<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;读出金钱数值</font><br />
+004D264B&nbsp; &nbsp;3D 3F420F00&nbsp; &nbsp;&nbsp; &nbsp;CMP EAX,0F423F<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;看金钱是否超过999999，预防有人用修改器改出过大数值</font><br />
+004D2650&nbsp; &nbsp;76 0A&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;JBE SHORT 004D265C<br />
+004D2652&nbsp; &nbsp;B8 3F420F00&nbsp; &nbsp;&nbsp; &nbsp;MOV EAX,0F423F<br />
+004D2657&nbsp; &nbsp;A3 7C074B00&nbsp; &nbsp;&nbsp; &nbsp;MOV DWORD PTR DS:[4B077C],EAX<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;超过999999就强制恢复为999999，并重新保存回金钱的内存地址中</font><br />
+004D265C&nbsp; &nbsp;8945 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-4],EAX<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;金钱数值保存到[EBP-4]中</font><br />
+004D265F&nbsp; &nbsp;8B45 FC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-4]<br />
+004D2662&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D2664&nbsp; &nbsp;B9 A0860100&nbsp; &nbsp;&nbsp; &nbsp;MOV ECX,186A0<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;金钱数值除以100000，用来判断十万位应该显示多少</font><br />
+004D2669&nbsp; &nbsp;F7F1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; DIV ECX<br />
+004D266B&nbsp; &nbsp;8955 F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-8],EDX<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;整除后将余数保存到[EBP-8]里面，用作后面万位的判断</font><br />
+004D266E&nbsp; &nbsp;83C0 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,8<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;整除后的结果+8，作为R形象的动作</font><br />
+004D2671&nbsp; &nbsp;6A 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 2<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;这个是R形象的方向值，02为向南</font><br />
+004D2673&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;R形象的动作</font><br />
+004D2674&nbsp; &nbsp;68 DE130000&nbsp; &nbsp;&nbsp; &nbsp;PUSH 13DE<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;十万位R形象的人物编号</font><br />
+004D2679&nbsp; &nbsp;E8 0965F5FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 00428B87<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;剧本指令中武将转向和武将动作的核心函数</font><br />
+004D267E&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D2681&nbsp; &nbsp;8B45 F8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-8]<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;轮到万位了，将之前的除以100000之后的余数读出来</font><br />
+004D2684&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D2686&nbsp; &nbsp;B9 10270000&nbsp; &nbsp;&nbsp; &nbsp;MOV ECX,2710<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;除以10000</font><br />
+004D268B&nbsp; &nbsp;F7F1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; DIV ECX<br />
+004D268D&nbsp; &nbsp;8955 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-C],EDX<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;余数继续保存起来</font><br />
+004D2690&nbsp; &nbsp;83C0 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,8<br />
+004D2693&nbsp; &nbsp;6A 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 2<br />
+004D2695&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D2696&nbsp; &nbsp;68 DF130000&nbsp; &nbsp;&nbsp; &nbsp;PUSH 13DF<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;万位R形象的人物编号</font><br />
+004D269B&nbsp; &nbsp;E8 E764F5FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 00428B87<br />
+004D26A0&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D26A3&nbsp; &nbsp;8B45 F4&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-C]<br />
+004D26A6&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D26A8&nbsp; &nbsp;B9 E8030000&nbsp; &nbsp;&nbsp; &nbsp;MOV ECX,3E8<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;除以1000</font><br />
+004D26AD&nbsp; &nbsp;F7F1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; DIV ECX<br />
+004D26AF&nbsp; &nbsp;8955 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-10],EDX<br />
+004D26B2&nbsp; &nbsp;83C0 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,8<br />
+004D26B5&nbsp; &nbsp;6A 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 2<br />
+004D26B7&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D26B8&nbsp; &nbsp;68 E0130000&nbsp; &nbsp;&nbsp; &nbsp;PUSH 13E0<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;千位R形象的人物编号</font><br />
+004D26BD&nbsp; &nbsp;E8 C564F5FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 00428B87<br />
+004D26C2&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D26C5&nbsp; &nbsp;8B45 F0&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-10]<br />
+004D26C8&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D26CA&nbsp; &nbsp;B9 64000000&nbsp; &nbsp;&nbsp; &nbsp;MOV ECX,64<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;除以100</font><br />
+004D26CF&nbsp; &nbsp;F7F1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; DIV ECX<br />
+004D26D1&nbsp; &nbsp;8955 EC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-14],EDX<br />
+004D26D4&nbsp; &nbsp;83C0 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,8<br />
+004D26D7&nbsp; &nbsp;6A 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 2<br />
+004D26D9&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D26DA&nbsp; &nbsp;68 E1130000&nbsp; &nbsp;&nbsp; &nbsp;PUSH 13E1<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;百位R形象的人物编号</font><br />
+004D26DF&nbsp; &nbsp;E8 A364F5FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 00428B87<br />
+004D26E4&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D26E7&nbsp; &nbsp;8B45 EC&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-14]<br />
+004D26EA&nbsp; &nbsp;33D2&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; XOR EDX,EDX<br />
+004D26EC&nbsp; &nbsp;B9 0A000000&nbsp; &nbsp;&nbsp; &nbsp;MOV ECX,0A<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;除以10</font><br />
+004D26F1&nbsp; &nbsp;F7F1&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; DIV ECX<br />
+004D26F3&nbsp; &nbsp;8955 E8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV DWORD PTR SS:[EBP-18],EDX<br />
+004D26F6&nbsp; &nbsp;83C0 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,8<br />
+004D26F9&nbsp; &nbsp;6A 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 2<br />
+004D26FB&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D26FC&nbsp; &nbsp;68 E2130000&nbsp; &nbsp;&nbsp; &nbsp;PUSH 13E2<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;十位R形象的人物编号</font><br />
+004D2701&nbsp; &nbsp;E8 8164F5FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 00428B87<br />
+004D2706&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D2709&nbsp; &nbsp;8B45 E8&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV EAX,DWORD PTR SS:[EBP-18]<br />
+004D270C&nbsp; &nbsp;83C0 08&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD EAX,8<br />
+004D270F&nbsp; &nbsp;6A 02&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH 2<br />
+004D2711&nbsp; &nbsp;50&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;PUSH EAX<br />
+004D2712&nbsp; &nbsp;68 E3130000&nbsp; &nbsp;&nbsp; &nbsp;PUSH 13E3<font color="Blue">&nbsp;&nbsp;——&nbsp;&nbsp;个位R形象的人物编号</font><br />
+004D2717&nbsp; &nbsp;E8 6B64F5FF&nbsp; &nbsp;&nbsp; &nbsp;CALL 00428B87<br />
+004D271C&nbsp; &nbsp;83C4 0C&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; ADD ESP,0C<br />
+004D271F&nbsp; &nbsp;8BE5&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp; MOV ESP,EBP<br />
+004D2721&nbsp; &nbsp;5D&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;POP EBP<br />
+004D2722&nbsp; &nbsp;C3&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;&nbsp; &nbsp;RETN<br />
+</font><br />
+<br />
+上面的代码当中，R形象的方向的对应值是00北、01东、02南、03西；而动作的对应值是从00普通开始到0F单手举起的，我这里用的是从08盘手举手开始，按0--9来对应显示，所以每一次整除后得出的数值都要加8，例如12345除以100000，得出结果是0，余数为12345，所以十万位显示为0，0对应的动作编号是08，所以0+8=8；而人物编号要在实际的编号的最前面补1，例如0号武将就是1000，我这里用的是990-995这6个武将，所以就是13DE（3DE就是990）--13E3了。<br />
+<br />
+简单的剧本用法<br />
+ Section<br />
+&nbsp; &nbsp; &nbsp; &nbsp; 2:内部信息 TEST<br />
+&nbsp; &nbsp; &nbsp; &nbsp; 2d:武将点击测试 0:曹操<br />
+&nbsp; &nbsp; &nbsp; &nbsp; 0:事件结束<br />
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 71:特效请求 5<br />
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 0:事件结束<br />
+例如这个例子，点击武将后，就会自动执行71指令，然后就会自动执行前面的代码，令自由R场景中的6位数金钱按照实际数值来显示变化了。具体应用的时候就可以将这条指令放在需要实时显示的地方就可以了。</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><a href="http://www.xycq.net/forum/thread-140079-1-1.html" target="_blank">http://www.xycq.net/forum/thread-140079-1-1.html</a><br />
+<a href="http://www.xycq.net/forum/thread-140104-1-1.html" target="_blank">http://www.xycq.net/forum/thread-140104-1-1.html</a><br />
+<a href="http://www.xycq.net/forum/thread-203992-1-1.html" target="_blank">http://www.xycq.net/forum/thread-203992-1-1.html</a></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2921592&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2921592&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2921592&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=godtype001" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2921592&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #14 godtype001 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2921592">
+</div>
+<div>
+[广告] <a href="http://sg.70mt.com/" target="_blank" >秦王府荣誉出品——镁天三国</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user">
+ 
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2921597"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-349592.html" target="_blank" class="bold">513633522</a>
+<br><span class="smalltxt" align="center" style="color:gray">(小越)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 120"><img src="http://www.ifabao.com/uc_server/data/avatar/000/04/59/06_avatar_middle.jpg" width="120" height="108" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/xiaowei.GIF" border="0" alt="" />  <br> 
+<img src="images/default/star_level2.gif" alt="Rank: 7" /><img src="images/default/star_level1.gif" alt="Rank: 7" /><img src="images/default/star_level1.gif" alt="Rank: 7" /><img src="images/default/star_level1.gif" alt="Rank: 7" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">校尉</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  右将军</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  12</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  1177</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  5158 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  349592</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2009-12-6</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 家族</td><td>  轩辕狼党</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2921597" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2921597" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2921597')">#15</a></div>
+<INPUT type=button onclick="text2921597.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2921597.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2921597.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2010-5-12 10:24 
+<a href="profile-uid-349592.html">资料</a>
+<a href="blog.php?uid=349592" target="_blank">文集</a>
+<a href="pm.php?action=send&amp;uid=349592" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=349592">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2921597" title="评分 0"></a>
+<div name=style="font-size: 12px"><span id="text2921597">改的什么<img src="images/smilies/1024.gif" smilieid="134" border="0" alt="" /><br />
+改引擎还是剧本编辑器<img src="images/smilies/1011.gif" smilieid="120" border="0" alt="" /></span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><img src="http://www.ifabao.com/data/attachment/forum/201203/16/1451397cszht7p4twspw4l.jpg" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://www.ifabao.com/data/attachment/forum/201203/16/1451397cszht7p4twspw4l.jpg');}" onmousewheel="return imgzoom(this);" alt="" /><img src="http://www.ifabao.com/data/attachment/forum/201203/16/145138olulywgro15yygwx.jpg" border="0" onload="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onmouseover="if(this.width>screen.width*0.7) {this.resized=true; this.width=screen.width*0.7; this.style.cursor='hand'; this.alt='Click here to open new window\nCTRL+Mouse wheel to zoom in/out';}" onclick="if(!this.resized) {return true;} else {window.open('http://www.ifabao.com/data/attachment/forum/201203/16/145138olulywgro15yygwx.jpg');}" onmousewheel="return imgzoom(this);" alt="" /></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2921597&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2921597&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2921597&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=513633522" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2921597&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #15 513633522 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2921597">
+</div>
+<div>
+[广告] <a href="http://sg.70mt.com/" target="_blank" >秦王府荣誉出品——镁天三国</a></div>
+</td></tr>
+</table></td></tr></table></div>
+<div class="spaceborder" style="width: 98%; margin-bottom: 4px;
+">
+<table cellspacing="0" cellpadding="4" width="100%" align="center" class="t_row">
+<tr style="height: 100%">
+<td width="180px" valign="top" class="t_user2">
+ <a name="lastpost"></a>
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td valign="middle">
+<a href="topicadmin.php?action=getip&amp;fid=76&amp;tid=188434&amp;pid=2921600"><img src="images/default/ip.gif" border="0" align="middle" style="float:right" alt="查看 IP" /></a>
+<img src="images/default/male_offline.gif" border="0" align="middle" style="float:left" alt="性别:男-离线">
+<a href="profile-uid-350019.html" target="_blank" class="bold">godtype001</a>
+<br><span class="smalltxt" align="center" style="color:gray">(毅)</span>
+         <center>
+ 
+ <div class="avatar" style="width: 100"><img src="http://www.xycq.net/forum/customavatars/111321.png" width="100" height="135" border="0" alt="" /></div> 
+ </center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+                     
+                     <table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<center>
+                           
+                           <img src="images/common/bubing.gif" border="0" alt="" />  <br> 
+<img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><img src="images/default/star_level1.gif" alt="Rank: 3" /><br>
+
+                                           
+</center>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+
+<table cellspacing=0 cellpadding=0 align="center" width=100%>
+<tr><td class="tb_ctl"></td><td class="tb_lt" ></td><td class="tb_ctr"></td></tr>
+<tr><td class="tb_ll"></td><td>
+<table cellspacing=0 cellpadding=2 align="center" width=100%>
+<tr><td width=35% align="right"><img src="images/default/dot1.gif"></img> 组别</td><td>  <font color="blue">士兵</font></td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 级别</td><td>  忠义校尉</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 功绩</td><td>  2</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 帖子</td><td>  228</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 精华</td><td>  0 点</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 现金</td><td>  5075 通宝</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 编号</td><td>  350019</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 注册</td><td>  2009-12-10</td></tr>
+<tr><td align="right"><img src="images/default/dot1.gif"></img> 来自</td><td>  我家</td></tr>
+</table>
+</td><td class="tb_lr"></td></tr>
+<tr><td class="tb_cbl"></td><td class="tb_lb"></td><td class="tb_cbr"></td></tr>
+<tr height=3><td colspan=3></td></tr>
+</table>
+<br><br>
+</td>
+<td valign="top" style="padding: 1px">
+<a name="pid2921600" ></a>
+<table border="0" cellspacing="0" cellpadding="4" class="t_msg2">
+<tr><td>
+<div>
+<div class="right t_number"><a href="http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2921600" class="bold" onclick="window.clipboardData.setData('text','http://www.xycq.net/forum/viewthread.php?tid=188434&page=1#pid2921600')">#16</a></div>
+<INPUT type=button onclick="text2921600.style.fontSize='9pt';" type=button value=" 小 " class="right"><INPUT type=button onclick="text2921600.style.fontSize='12pt';" type=button value= " 中 " class="right"><INPUT type=button onclick="text2921600.style.fontSize='15pt';" type=button value= " 大 " class="right">
+<div style="padding-top: 4px;">
+发表于 2010-5-12 10:26 
+<a href="profile-uid-350019.html">资料</a>
+<a href="pm.php?action=send&amp;uid=350019" target="_blank">短消息</a> 
+<a href="viewthread.php?tid=188434&amp;authoruid=350019">只看该作者</a>
+</div></div>
+</td></tr>
+<tr><td valign="top" class="line" height="100%" style="padding-top: 10px;">
+<a href="misc.php?action=viewratings&amp;tid=188434&amp;pid=2921600" title="评分 0"></a>
+<span class="bold">回复 #15 513633522 的帖子</span><br><br>
+<div name=style="font-size: 12px"><span id="text2921600"><img src="images/smilies/1030.gif" smilieid="140" border="0" alt="" />当然是改引擎了，不改引擎，剧本指令如何能够生效。</span></div>
+</td></tr>
+<tr><td valign="bottom">
+<br><br><img src="images/common/sigline.gif" alt="" /><br><div class="signature" ><a href="http://www.xycq.net/forum/thread-140079-1-1.html" target="_blank">http://www.xycq.net/forum/thread-140079-1-1.html</a><br />
+<a href="http://www.xycq.net/forum/thread-140104-1-1.html" target="_blank">http://www.xycq.net/forum/thread-140104-1-1.html</a><br />
+<a href="http://www.xycq.net/forum/thread-203992-1-1.html" target="_blank">http://www.xycq.net/forum/thread-203992-1-1.html</a></div>
+</td></tr>
+<tr class="t_infoline"><td class="line" style="padding: 5px">
+<div class="right">
+ <a href="post.php?action=edit&amp;fid=76&amp;tid=188434&amp;pid=2921600&amp;page=1&amp;extra=page%3D1">编辑</a>
+ <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;repquote=2921600&amp;extra=page%3D1">引用</a>
+ <a href="misc.php?action=report&amp;fid=76&amp;tid=188434&amp;pid=2921600&amp;page=1">报告</a>
+<a href="plugin.php?identifier=bank&amp;module=bank&amp;code=4&amp;targetuser=godtype001" target="_blank">发红包</a>
+ <a href="misc.php?action=rate&amp;tid=188434&amp;pid=2921600&amp;page=1">评分</a>
+<a href="###" onclick="fastreply('回复 #16 godtype001 的帖子')">回复</a>
+<a href="###" onclick="scroll(0,0)"><img src="images/default/top.gif" border="0" alt="顶部" /></a>
+<input class="checkbox" type="checkbox" name="delete[]" value="2921600">
+</div>
+<div>
+[广告] <a href="http://sg.70mt.com/" target="_blank" >秦王府荣誉出品——镁天三国</a></div>
+</td></tr>
+</table></td></tr></table></div>
+</form>
+</div>
+<script type="text/javascript">
+function setanswer(pid){
+if(confirm("您确认要把该回复选为“最佳答案”吗？")){
+document.delpost.action='misc.php?action=bestanswer&tid=188434&pid=' + pid + '&bestanswersubmit=yes';
+document.delpost.submit();
+}
+}
+</script>
+<div class="maintable" style="clear:both">
+<table width="98%" cellspacing="0" cellpadding="0" align="center">
+<tr><td valign="top"></td><td width="40%" align="right">
+<div class="right"> <a href="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;extra=page%3D1"><img src="images/default/reply.gif" border="0" alt="" /></a></div>
+<div id="newspecialfooter" class="right"><a href="post.php?action=newthread&amp;fid=76&amp;extra=page%3D1"><img src="images/default/newtopic.gif" border="0" alt="" /></a><a href="###"><img src="images/default/newspecial.gif" border="0" alt="" /></a><script type="text/javascript">menuregister(false, "newspecialfooter", true)</script></div>
+<div class="popupmenu_popup newspecialmenu" id="newspecialfooter_menu" style="display: none">
+<table cellpadding="4" cellspacing="0" border="0" width="100%">
+<tr><td class="popupmenu_option"><div class="newspecial"><a href="post.php?action=newthread&amp;fid=76&amp;extra=page%3D1&amp;poll=yes">投票</a></div></td></tr>
+<tr><td class="popupmenu_option"><div class="newspecial"><a href="post.php?action=newthread&amp;fid=76&amp;extra=page%3D1&amp;reward=yes">悬赏</a></div></td></tr>
+</table></div>
+</table><br></div>
+<script type="text/javascript">
+var postminchars = parseInt('0');
+var postmaxchars = parseInt('30000');
+var disablepostctrl = parseInt('1');
+function validate(theform) {
+if (theform.message.value == "" && theform.subject.value == "") {
+alert("请完成标题或内容栏。");
+return false;
+} else if (theform.subject.value.length > 80) {
+alert("您的标题超过 80 个字符的限制。");
+return false;
+}
+if (!disablepostctrl && ((postminchars != 0 && theform.message.value.length < postminchars) || (postmaxchars != 0 && theform.message.value.length > postmaxchars))) {
+alert("您的帖子长度不符合要求。\n\n当前长度: "+theform.message.value.length+" 字节\n系统限制: "+postminchars+" 发送到 "+postmaxchars+" 字节");
+return false;
+}
+theform.replysubmit.disabled = true;
+return true;
+}
+</script>
+<form method="post" id="postform" action="post.php?action=reply&amp;fid=76&amp;tid=188434&amp;extra=page%3D1&amp;replysubmit=yes" onSubmit="copypost(2);return validate(this)">
+<input type="hidden" name="formhash" value="075c0761">
+<div class="maintable"><div class="spaceborder" style="width: 98%">
+<table cellspacing="0" cellpadding="4" width="100%" align="center">
+<tr><td colspan="4" class="header"><a href="member.php?action=credits&amp;view=forum_reply&amp;fid=76" target="_blank"><img src="images/default/credits.gif" alt="查看积分策略说明" align="right" border="0" /></a>快速回复主题</td></tr>
+<tr>
+<td width="15%" class="altbg1"> <span class="bold">选项</span></td>
+<td width="5%" class="altbg2" align="center"><span class="bold">标题</span></td>
+<td width="50%" class="altbg2"> <input type="text" name="subject" style="width:60%" value="" tabindex="1"></td>
+<td width="30%" class="altbg1"><span class="bold" style="margin-left: 10%">Smilies</span></td>
+</tr>
+<tr class="bottom">
+<td width="15%" class="altbg1" valign="top">
+<!-- modified by Maxwell start 20080313 -->
+<input class="checkbox" type="checkbox" name="autocopyon" value="1" onClick="copypost(1)" > 复制发帖内容 &#160; <font color=red id="autocopying">&#160;</font><br>
+<script type="text/javascript">
+copy_post = 0;
+var copying = '复制中...';
+</script>
+<!-- modified by Maxwell end -->
+<input class="checkbox" type="checkbox" name="parseurloff" value="1"> 禁用 URL 识别<br>
+<input class="checkbox" type="checkbox" name="smileyoff" value="1"> 禁用 <a href="faq.php?page=messages#6" target="_blank">Smilies</a><br>
+<input class="checkbox" type="checkbox" name="bbcodeoff" value="1"> 禁用 <a href="faq.php?page=misc#1" target="_blank">Discuz! 代码</a><br>
+<input class="checkbox" type="checkbox" name="usesig" value="1" > 使用个人签名<br>
+<input class="checkbox" type="checkbox" name="emailnotify" value="1"> 接收新回复邮件通知
+</td>
+<td width="5%" class="altbg2" align="center" valign="top"><span class="bold">内容</span></td>
+<td width="50%" class="altbg2" valign="top">
+<div style="width: 97%" class="smalltxt" align="right">
+<textarea rows="7" cols="10" name="message" style="width: 100%; height: 140px; word-break: break-all" onKeyDown="ctlent(event);" tabindex="2"></textarea><br><br>
+<div class="left">
+<input class="button" type="submit" name="replysubmit" id="postsubmit" value="发表帖子" tabindex="3">
+[完成后可按 Ctrl+Enter 发布]  
+</div>
+<input type="submit" name="previewpost" class="lightbutton" value="预览帖子" tabindex="4">
+<input type="reset" name="topicsreset" class="lightbutton" value="清空内容" tabindex="5">
+</div>
+</td>
+<td width="30%" class="altbg1">
+<div id="fastpost_smiliebox">
+<table cellpadding="3" cellspacing="0" width="80%" border="0" align="center">
+<div style="overflow:auto; height:170; width:100%;"><img src="images/smilies/1000.GIF" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':!!');">
+<img src="images/smilies/1001.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1001:');">
+<img src="images/smilies/1004.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1004:');">
+<img src="images/smilies/1002.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1002:');">
+<img src="images/smilies/1003.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1003:');">
+<img src="images/smilies/1005.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1005:');">
+<img src="images/smilies/1006.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1006:');">
+<img src="images/smilies/1007.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1007:');">
+<img src="images/smilies/1008.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1008:');">
+<img src="images/smilies/1009.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1009:');">
+<img src="images/smilies/1010.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1010:');">
+<img src="images/smilies/1011.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1011:');">
+<img src="images/smilies/1012.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1012:');">
+<img src="images/smilies/1013.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1013:');">
+<img src="images/smilies/1014.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1014:');">
+<img src="images/smilies/1015.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1015:');">
+<img src="images/smilies/1016.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1016:');">
+<img src="images/smilies/1017.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1017:');">
+<img src="images/smilies/1018.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1018:');">
+<img src="images/smilies/1019.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1019:');">
+<img src="images/smilies/1026.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1026:');">
+<img src="images/smilies/1020.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1020:');">
+<img src="images/smilies/1021.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1021:');">
+<img src="images/smilies/1022.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1022:');">
+<img src="images/smilies/1023.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1023:');">
+<img src="images/smilies/1024.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1024:');">
+<img src="images/smilies/1025.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1025:');">
+<img src="images/smilies/1028.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1028:');">
+<img src="images/smilies/1027.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1027:');">
+<img src="images/smilies/1029.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1029:');">
+<img src="images/smilies/1030.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1030:');">
+<img src="images/smilies/1031.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1031:');">
+<img src="images/smilies/1032.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1032:');">
+<img src="images/smilies/1033.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1033:');">
+<img src="images/smilies/1034.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1034:');">
+<img src="images/smilies/1035.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1035:');">
+<img src="images/smilies/1036.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1036:');">
+<img src="images/smilies/1037.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1037:');">
+<img src="images/smilies/1038.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1038:');">
+<img src="images/smilies/1039.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1039:');">
+<img src="images/smilies/1040.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1040:');">
+<img src="images/smilies/1041.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1041:');">
+<img src="images/smilies/1042.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1042:');">
+<img src="images/smilies/1043.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1043:');">
+<img src="images/smilies/1044.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1044:');">
+<img src="images/smilies/1045.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1045:');">
+<img src="images/smilies/1046.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1046:');">
+<img src="images/smilies/1047.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1047:');">
+<img src="images/smilies/1048.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1048:');">
+<img src="images/smilies/1049.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1049:');">
+<img src="images/smilies/1050.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1050:');">
+<img src="images/smilies/1051.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1051:');">
+<img src="images/smilies/1052.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1052:');">
+<img src="images/smilies/1053.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1053:');">
+<img src="images/smilies/1054.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1054:');">
+<img src="images/smilies/1055.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1055:');">
+<img src="images/smilies/1056.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1056:');">
+<img src="images/smilies/1057.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1057:');">
+<img src="images/smilies/1058.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1058:');">
+<img src="images/smilies/1059.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1059:');">
+<img src="images/smilies/1060.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1060:');">
+<img src="images/smilies/1061.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1061:');">
+<img src="images/smilies/1062.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1062:');">
+<img src="images/smilies/1063.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1063:');">
+<img src="images/smilies/1064.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1064:');">
+<img src="images/smilies/1065.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hz1065:');">
+<img src="images/smilies/smile.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':)');">
+<img src="images/smilies/sad.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':(');">
+<img src="images/smilies/blink.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':blink:');">
+<img src="images/smilies/laugh.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':lol:');">
+<img src="images/smilies/cool.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		('B)');">
+<img src="images/smilies/rolleyes.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':rolleyes:');">
+<img src="images/smilies/dry.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':-_-:');">
+<img src="images/smilies/tongue.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':P');">
+<img src="images/smilies/wub.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':wub:');">
+<img src="images/smilies/angry.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':angry:');">
+<img src="images/smilies/unsure.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':unsure:');">
+<img src="images/smilies/huh.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':huh:');">
+<img src="images/smilies/hug.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':hug:');">
+<img src="images/smilies/ph34r.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':ph34r:');">
+<img src="images/smilies/em09.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':q(+');">
+<img src="images/smilies/em11.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':q```+');">
+<img src="images/smilies/em04.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':q((+');">
+<img src="images/smilies/loveliness.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':loveliness:');">
+<img src="images/smilies/funk.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':funk:');">
+<img src="images/smilies/mellow.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':mellow:');">
+<img src="images/smilies/victory.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':victory:');">
+<img src="images/smilies/wink.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':wink:');">
+<img src="images/smilies/wacko.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':wacko:');">
+<img src="images/smilies/sleep.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':sleep:');">
+<img src="images/smilies/handshake.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':handshake:');">
+<img src="images/smilies/huffy.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':angry2:');">
+<img src="images/smilies/call.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':call:');">
+<img src="images/smilies/shy.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':shy:');">
+<img src="images/smilies/time.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':time:');">
+<img src="images/smilies/titter.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':titter:');">
+<img src="images/smilies/ohmy.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':ohmy:');">
+<img src="images/smilies/kiss.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':kiss:');">
+<img src="images/smilies/doubt.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':doubt:');">
+<img src="images/smilies/em13.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':qoo+');">
+<img src="images/smilies/em06.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':q))+');">
+<img src="images/smilies/em10.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':q??+');">
+<img src="images/smilies/em03.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':q555+');">
+<img src="images/smilies/em05.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':qcool+');">
+<img src="images/smilies/em01.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':qgod+');">
+<img src="images/smilies/em07.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':qok+');">
+<img src="images/smilies/em02.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':qDD+');">
+<img src="images/smilies/em08.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':qP+');">
+<img src="images/smilies/kuso.1.05.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':^%');">
+<img src="images/smilies/biggrin.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':D');">
+<img src="images/smilies/61.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':()');">
+<img src="images/smilies/62.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':Th');">
+<img src="images/smilies/69.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':agree:');">
+<img src="images/smilies/kuso.1.09.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':!*');">
+<img src="images/smilies/cai.GIF" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':cai:');">
+<img src="images/smilies/baozi/emot-05.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot05:');">
+<img src="images/smilies/baozi/emot-06.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot06:');">
+<img src="images/smilies/baozi/emot-07.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot07:');">
+<img src="images/smilies/baozi/emot-08.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot08:');">
+<img src="images/smilies/baozi/emot-09.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot09:');">
+<img src="images/smilies/baozi/emot-10.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot10:');">
+<img src="images/smilies/baozi/emot-03.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot03:');">
+<img src="images/smilies/baozi/emot-02.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot02:');">
+<img src="images/smilies/baozi/emot-04.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot04:');">
+<img src="images/smilies/baozi/emot-01.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot01:');">
+<img src="images/smilies/baozi/emot-12.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot12:');">
+<img src="images/smilies/baozi/emot-11.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot11:');">
+<img src="images/smilies/baozi/emot-13.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot13:');">
+<img src="images/smilies/baozi/emot-14.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot14:');">
+<img src="images/smilies/baozi/emot-15.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot15:');">
+<img src="images/smilies/baozi/emot-16.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot16:');">
+<img src="images/smilies/baozi/emot-17.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot17:');">
+<img src="images/smilies/baozi/emot-18.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot18:');">
+<img src="images/smilies/baozi/emot-19.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot19:');">
+<img src="images/smilies/baozi/emot-20.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot20:');">
+<img src="images/smilies/baozi/emot-21.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot21:');">
+<img src="images/smilies/baozi/emot-22.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot22:');">
+<img src="images/smilies/baozi/emot-23.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot23:');">
+<img src="images/smilies/baozi/emot-24.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot24:');">
+<img src="images/smilies/baozi/emot-25.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot25:');">
+<img src="images/smilies/baozi/emot-26.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot26:');">
+<img src="images/smilies/baozi/emot-27.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot27:');">
+<img src="images/smilies/baozi/emot-28.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot28:');">
+<img src="images/smilies/baozi/emot-29.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot29:');">
+<img src="images/smilies/baozi/emot-30.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot30:');">
+<img src="images/smilies/baozi/emot-33.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot33:');">
+<img src="images/smilies/baozi/emot-34.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot34:');">
+<img src="images/smilies/baozi/emot-35.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot35:');">
+<img src="images/smilies/baozi/emot-36.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot36:');">
+<img src="images/smilies/baozi/emot-37.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot37:');">
+<img src="images/smilies/baozi/emot-38.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot38:');">
+<img src="images/smilies/baozi/emot-39.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot39:');">
+<img src="images/smilies/baozi/emot-40.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot40:');">
+<img src="images/smilies/baozi/emot-41.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot41:');">
+<img src="images/smilies/baozi/emot-42.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot42:');">
+<img src="images/smilies/baozi/emot-43.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot43:');">
+<img src="images/smilies/baozi/emot-44.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot44:');">
+<img src="images/smilies/baozi/emot-45.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot45:');">
+<img src="images/smilies/baozi/emot-46.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot46:');">
+<img src="images/smilies/baozi/emot-47.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot47:');">
+<img src="images/smilies/baozi/emot-48.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot48:');">
+<img src="images/smilies/baozi/emot-31.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot31:');">
+<img src="images/smilies/baozi/emot-32.gif" border="0" onmouseover="this.style.cursor='hand';" onclick="AddText
+		(':emot32:');">
+</div></table>
+</div>
+</td></tr></table></div><br></div></form>
+<div class="maintable">
+<div class="spaceborder" style="width: 98%">
+<table cellspacing="0" cellpadding="4" width="100%" align="center">
+<tr class="header"><td width="100%">
+<a name="online"></a><a href="viewthread.php?tid=188434&amp;page=1&amp;showoldetails=no#online"><img src="images/default/collapsed_no.gif" align="right" border="0" alt="" /></a>正在浏览此帖的会员 -
+ <span class="bold">1</span> 人在线 - <span class="bold">1</span> 位会员(<span class="bold">1</span> 隐身),
+<span class="bold">0</span> 位游客
+</td></tr>
+<tr><td>
+<table cellspacing="0" cellpadding="0" border="0" width="98%" align="center">
+<tr><td nowrap>
+</td></tr></table></td></tr>
+</table></div><br></div>
+<div class="maintable">
+<div class="spaceborder" style="width: 98%">
+<div class="subtable outertxt option">
+<div style="margin: 6px">
+<div class="right smalltxt">
+<span class="bold">管理选项:</span>
+<select name="action" id="action" onchange="if(this.options[this.selectedIndex].value != '') { if(this.options[this.selectedIndex].value != 'delpost') {
+window.location=('topicadmin.php?tid=188434&fid=76&action='+this.options[this.selectedIndex].value+'&sid=Fwfp38');
+} else { document.delpost.submit(); } }">
+<option value="" selected>管理选项</option>
+<option value="delpost">删除回帖</option>
+<option value="delete">删除主题</option>
+<option value="close">关闭主题</option>
+<option value="move">移动主题</option>
+<option value="copy">复制主题</option>
+<option value="highlight">高亮显示</option>
+<option value="digest">设置精华</option>
+<option value="stick">主题置顶</option>
+<option value="split">分割主题</option>
+<option value="merge">合并主题</option>
+<option value="bump">提升/下沉主题</option>
+<option value="repair">修复主题</option>
+</select>
+</div>
+<span class="smalltxt">
+</span>
+</div>
+</div>
+</div>
+<div class="popupmenu_popup" id="forumlist_menu" style="display: none">
+<table cellpadding="4" cellspacing="0" border="0">
+<tr><td class="popupmenu_option"><a href="index.php" class="nav">轩辕春秋文化论坛</a></td></tr>
+<tr><td class="popupmenu_option"><a href="index.php?gid=84">轩辕史话</a></td></tr><tr><td class="popupmenu_option"><a href="forum-111-1.html">&nbsp; &gt; 炎黄春秋</a></td></tr><tr><td class="popupmenu_option"><a href="forum-36-1.html">&nbsp; &gt; 我思我在</a></td></tr><tr><td class="popupmenu_option"><a href="forum-72-1.html">&nbsp; &nbsp; &nbsp; &gt; 法律探讨</a></td></tr><tr><td class="popupmenu_option"><a href="forum-4-1.html">&nbsp; &gt; 世界风云</a></td></tr><tr><td class="popupmenu_option"><a href="forum-5-1.html">&nbsp; &gt; 三国史话</a></td></tr><tr><td class="popupmenu_option"><a href="forum-14-1.html">&nbsp; &gt; 轩辕茶座</a></td></tr><tr><td class="popupmenu_option"><a href="index.php?gid=85">春秋文艺</a></td></tr><tr><td class="popupmenu_option"><a href="forum-6-1.html">&nbsp; &gt; 古典小说</a></td></tr><tr><td class="popupmenu_option"><a href="forum-7-1.html">&nbsp; &gt; 诗词歌赋</a></td></tr><tr><td class="popupmenu_option"><a href="forum-57-1.html">&nbsp; &gt; 现代文艺</a></td></tr><tr><td class="popupmenu_option"><a href="forum-60-1.html">&nbsp; &gt; 韦编三绝</a></td></tr><tr><td class="popupmenu_option"><a href="forum-30-1.html">&nbsp; &gt; 对联雅座</a></td></tr><tr><td class="popupmenu_option"><a href="forum-45-1.html">&nbsp; &nbsp; &nbsp; &gt; 滴翠亭</a></td></tr><tr><td class="popupmenu_option"><a href="forum-43-1.html">&nbsp; &nbsp; &nbsp; &gt; 藏经阁</a></td></tr><tr><td class="popupmenu_option"><a href="forum-103-1.html">&nbsp; &gt; 双七钟社</a></td></tr><tr><td class="popupmenu_option"><a href="forum-59-1.html">&nbsp; &gt; 笑书神侠</a></td></tr><tr><td class="popupmenu_option"><a href="forum-62-1.html">&nbsp; &gt; 辕门射虎</a></td></tr><tr><td class="popupmenu_option"><a href="forum-81-1.html">&nbsp; &nbsp; &nbsp; &gt; 虎帐点兵</a></td></tr><tr><td class="popupmenu_option"><a href="index.php?gid=87">游戏人生</a></td></tr><tr><td class="popupmenu_option"><a href="forum-108-1.html">&nbsp; &gt; 轩辕公会</a></td></tr><tr><td class="popupmenu_option"><a href="forum-110-1.html">&nbsp; &gt; 三国志12</a></td></tr><tr><td class="popupmenu_option"><a href="forum-92-1.html">&nbsp; &gt; 英雄史诗</a></td></tr><tr><td class="popupmenu_option"><a href="forum-10-1.html">&nbsp; &gt; 运筹帷幄</a></td></tr><tr><td class="popupmenu_option"><a href="forum-22-1.html">&nbsp; &nbsp; &nbsp; &gt; 人间五十年</a></td></tr><tr><td class="popupmenu_option"><a href="forum-11-1.html">&nbsp; &gt; 步步为营</a></td></tr><tr><td class="popupmenu_option"><a href="forum-13-1.html">&nbsp; &gt; 游行天下</a></td></tr><tr><td class="popupmenu_option"><a href="forum-47-1.html">&nbsp; &nbsp; &nbsp; &gt; 游戏贴图</a></td></tr><tr><td class="popupmenu_option"><a href="index.php?gid=90">轩辕工作室</a></td></tr><tr><td class="popupmenu_option"><a href="forum-114-1.html">&nbsp; &gt; 豪华曹操传</a></td></tr><tr><td class="popupmenu_option"><a href="forum-101-1.html">&nbsp; &gt; 兴唐传·瓦岗山异闻录</a></td></tr><tr><td class="popupmenu_option"><a href="forum-91-1.html">&nbsp; &gt; 精忠报国岳飞传</a></td></tr><tr><td class="popupmenu_option"><a href="forum-75-1.html">&nbsp; &nbsp; &nbsp; &gt; 《精忠报国岳飞传》制作组</a></td></tr><tr><td class="popupmenu_option"><a href="forum-97-1.html">&nbsp; &gt; 曹操传MOD作品交流</a></td></tr><tr><td class="popupmenu_option"><a href="forum-113-1.html">&nbsp; &nbsp; &nbsp; &gt; 封神英杰传</a></td></tr><tr><td class="popupmenu_option"><a href="forum-99-1.html">&nbsp; &nbsp; &nbsp; &gt; 杨家将</a></td></tr><tr><td class="popupmenu_option"><a href="forum-100-1.html">&nbsp; &nbsp; &nbsp; &gt; 吕布传</a></td></tr><tr><td class="popupmenu_option"><a href="forum-106-1.html">&nbsp; &nbsp; &nbsp; &gt; 三国无双战略版</a></td></tr><tr><td class="popupmenu_option"><a class="bold" href="forumdisplay.php?fid=76">&nbsp; &gt; 曹操传MOD制作交流</a></td></tr><tr><td class="popupmenu_option"><a href="forum-96-1.html">&nbsp; &gt; 金庸群侠传MOD交流</a></td></tr><tr><td class="popupmenu_option"><a href="forum-46-1.html">&nbsp; &gt; 风华录</a></td></tr><tr><td class="popupmenu_option"><a href="forum-48-1.html">&nbsp; &gt; 设计与修改</a></td></tr><tr><td class="popupmenu_option"><a href="index.php?gid=86">怡情岁月</a></td></tr><tr><td class="popupmenu_option"><a href="forum-65-1.html">&nbsp; &gt; 影音经典</a></td></tr><tr><td class="popupmenu_option"><a href="forum-73-1.html">&nbsp; &gt; 动漫先锋</a></td></tr><tr><td class="popupmenu_option"><a href="forum-68-1.html">&nbsp; &gt; 绘画摄影</a></td></tr><tr><td class="popupmenu_option"><a href="forum-95-1.html">&nbsp; &gt; 情感轩辕</a></td></tr><tr><td class="popupmenu_option"><a href="forum-71-1.html">&nbsp; &gt; 衣食住行</a></td></tr><tr><td class="popupmenu_option"><a href="forum-16-1.html">&nbsp; &gt; 体坛动力</a></td></tr><tr><td class="popupmenu_option"><a href="forum-104-1.html">&nbsp; &gt; 谈股论金</a></td></tr><tr><td class="popupmenu_option"><a href="forum-20-1.html">&nbsp; &gt; 水泊轩辕</a></td></tr><tr><td class="popupmenu_option"><a href="forum-69-1.html">&nbsp; &gt; 会员服务</a></td></tr><tr><td class="popupmenu_option"><a href="forum-70-1.html">&nbsp; &nbsp; &nbsp; &gt; 资源下载</a></td></tr><tr><td class="popupmenu_option"><a href="forum-26-1.html">&nbsp; &nbsp; &nbsp; &gt; 疑义相析</a></td></tr><tr><td class="popupmenu_option"><a href="index.php?gid=83">参政议政</a></td></tr><tr><td class="popupmenu_option"><a href="forum-38-1.html">&nbsp; &gt; 迎宾阁</a></td></tr><tr><td class="popupmenu_option"><a href="forum-63-1.html">&nbsp; &nbsp; &nbsp; &gt; 鸿胪寺</a></td></tr><tr><td class="popupmenu_option"><a href="forum-17-1.html">&nbsp; &gt; 登闻鼓</a></td></tr><tr><td class="popupmenu_option"><a href="forum-40-1.html">&nbsp; &nbsp; &nbsp; &gt; 监造府</a></td></tr><tr><td class="popupmenu_option"><a href="forum-27-1.html">&nbsp; &gt; 中书省</a></td></tr><tr><td class="popupmenu_option"><a href="forum-19-1.html">&nbsp; &gt; 斩监候</a></td></tr><tr><td class="popupmenu_option"><a href="forum-93-1.html">&nbsp; &nbsp; &nbsp; &gt; 旧帖寄存处</a></td></tr></table></div>
+<br>
+</div>
+
+<div class="maintable" style="color: #666; clear: both;">
+当前时区 GMT+8, 现在时间是 2014-8-30 10:28<br><a href="http://www.miibeian.gov.cn/" target="_blank">苏ICP备11088966号</a>
+<a href='http://www.xycq.net/' >轩辕春秋</a> 2003-2014 www.xycq.net
+<br><br></div>
+
+<div class="footerline"><div><a href="#top"><img border="0" src="images/default/footer_top.gif" alt="" /></a></div></div>
+<table cellspacing="0" cellpadding="0" border="0" width="100%" class="altbg1" style="padding: 5px 0px;">
+<tr><td width="80" style="padding-left: 30px">
+<a href="http://www.discuz.net" target="_blank"><img src="images/default/discuz_icon.gif" border="0" alt="" /></a>
+</td>
+<td style="font-size: 11px">
+Powered by <a href="http://www.discuz.net" target="_blank" style="color: blue"><b>Discuz!</b></a> <b style="color:#68d300">5.0.0</b>
+  2001-2006 <a href="http://www.comsenz.com" target="_blank">Comsenz Inc.</a>
+<br>Processed in 0.078001 second(s), 8 queries
+, Gzip enabled
+</td>
+<td valign="bottom" align="right" style="padding-right: 30px">
+<div class="right" style="font: 9px Arial; position: relative; top: -5px; padding-right: 7px; color: #FFFFFF"><a href="#top">TOP</a></div><br>
+<a href="member.php?action=clearcookies&amp;formhash=075c0761">清除 Cookies</a> - <a href="mailto:eastwing@dl.cn">联系我们</a> - <a href="http://www.xycq.net/" target="_blank">轩辕春秋</a>
+ - <a href="archiver/" target="_blank">Archiver</a>
+ - <a href="wap/" target="_blank">WAP</a>
+</td></tr></table>
+<a name="bottom"></a>
+<div class="mainborder"></div>
+</center>
+<div class="headermenu_popup" id="memcp_menu" style="display: none">
+<table cellpadding="4" cellspacing="0" border="0">
+<tr><td class="popupmenu_option"><a href="memcp.php">控制面板首页</a></td></tr><tr><td class="popupmenu_option"><a href="memcp.php?action=profile">编辑个人资料</a></td></tr><tr><td class="popupmenu_option"><a href="memcp.php?action=credits">积分交易</a></td></tr><tr><td class="popupmenu_option"><a href="memcp.php?action=usergroups">公众用户组</a></td></tr><tr><td class="popupmenu_option"><a href="memcp.php?action=buddylist">好友列表</a></td></tr>
+</table></div>
+<div class="headermenu_popup" id="stats_menu" style="display: none">
+<table cellpadding="4" cellspacing="0" border="0">
+<tr><td class="popupmenu_option"><a href="stats.php">基本概况</a></td></tr>
+<tr><td class="popupmenu_option"><a href="stats.php?type=forumsrank">论坛排行</a></td></tr><tr><td class="popupmenu_option"><a href="stats.php?type=threadsrank">主题排行</a></td></tr><tr><td class="popupmenu_option"><a href="stats.php?type=postsrank">发帖排行</a></td></tr><tr><td class="popupmenu_option"><a href="stats.php?type=creditsrank">积分排行</a></td></tr>
+<tr><td class="popupmenu_option"><a href="stats.php?type=team">管理团队</a></td></tr>
+<tr><td class="popupmenu_option"><a href="stats.php?type=modworks">管理统计</a></td></tr>
+</table></div>
+<div class="headermenu_popup" id="my_menu" style="display: none">
+<table cellpadding="4" cellspacing="0" border="0">
+<tr><td class="popupmenu_option"><a href="my.php?item=threads">我的话题</a></td></tr><tr><td class="popupmenu_option"><a href="my.php?item=favorites&amp;type=thread">我的收藏</a></td></tr><tr><td class="popupmenu_option"><a href="my.php?item=subscriptions">我的订阅</a></td></tr><tr><td class="popupmenu_option"><a href="member.php?action=grouppermission">我的权限</a></td></tr>
+<tr><td class="popupmenu_option"><a href="my.php?item=reward&amp;type=question">我的悬赏</a></td></tr><tr><td class="popupmenu_option"><a href="my.php?item=activities&amp;type=orig&amp;ended=no">我的活动</a></td></tr>
+<tr><td class="popupmenu_option"><a href="http://www.xycq.net/index.php?uid/170977" target="_blank">个人空间</a></td></tr>
+<tr><td class="popupmenu_option"><a href="blog.php?uid=170977">我的文集</a></td></tr>
+</table></div>
+</body></html>
+<script type="text/javascript" src="relatethread.php?tid=188434&amp;subjectenc=%D0%C2%D2%FD%C7%E6%2071%CC%D8%D0%A7%C7%EB%C7%F3%20%D6%B8%C1%EE%B5%C4%D0%DE%B8%C4&amp;verifykey=cb9ab21f55c2596c2eee0932e774eca3"></script>

@@ -282,9 +282,11 @@ public sealed partial class MainForm
                 break;
             case LegacyScriptEditorScope.Battlefield:
                 CaptureGridFirstDisplayedRow(result, "BattlefieldParameter", _battlefieldScriptParameterGrid);
+                CaptureGridFirstDisplayedRow(result, "BattlefieldSearch", _battlefieldScriptSearchResultGrid);
                 break;
             case LegacyScriptEditorScope.RScene:
                 CaptureGridFirstDisplayedRow(result, "RSceneCommand", _rSceneCommandGrid);
+                CaptureGridFirstDisplayedRow(result, "RSceneSearch", _rSceneScriptSearchResultGrid);
                 break;
         }
 
@@ -303,9 +305,11 @@ public sealed partial class MainForm
                 break;
             case LegacyScriptEditorScope.Battlefield:
                 RestoreGridFirstDisplayedRow(snapshot.FirstDisplayedRows, "BattlefieldParameter", _battlefieldScriptParameterGrid);
+                RestoreGridFirstDisplayedRow(snapshot.FirstDisplayedRows, "BattlefieldSearch", _battlefieldScriptSearchResultGrid);
                 break;
             case LegacyScriptEditorScope.RScene:
                 RestoreGridFirstDisplayedRow(snapshot.FirstDisplayedRows, "RSceneCommand", _rSceneCommandGrid);
+                RestoreGridFirstDisplayedRow(snapshot.FirstDisplayedRows, "RSceneSearch", _rSceneScriptSearchResultGrid);
                 break;
         }
     }

@@ -10,45 +10,12 @@
                                                          "-File",
                                                          "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\工具整合包\\MCP配置\\start-ccz-mcp.ps1",
                                                          "-GameRoot",
-                                                         "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\加强版6.5未加密版"
+                                                         "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\重生之氪金桓王传"
                                                      ],
                                             "env":  {
                                                         "CCZMODSTUDIO_TOOL_ROOT":  "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\工具整合包",
-                                                        "CCZMODSTUDIO_GAME_ROOT":  "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\加强版6.5未加密版"
+                                                        "CCZMODSTUDIO_GAME_ROOT":  "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\重生之氪金桓王传"
                                                     }
-                                        },
-                       "cczgame_debug":  {
-                                             "command":  "powershell.exe",
-                                             "args":  [
-                                                          "-NoLogo",
-                                                          "-NoProfile",
-                                                          "-ExecutionPolicy",
-                                                          "Bypass",
-                                                          "-File",
-                                                          "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\工具整合包\\MCP配置\\start-ccz-game-debug-mcp.ps1",
-                                                          "-GameRoot",
-                                                          "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\加强版6.5未加密版"
-                                                      ],
-                                             "env":  {
-                                                         "CCZMODSTUDIO_TOOL_ROOT":  "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\工具整合包",
-                                                         "X64DBG_MCP_HOST":  "127.0.0.1",
-                                                         "X64DBG_MCP_PORT":  "27042",
-                                                         "CCZGAME_DEBUG_GAME_ROOT":  "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\加强版6.5未加密版",
-                                                         "CCZMODSTUDIO_GAME_ROOT":  "F:\\从0开始的AI制作曹操传MOD\\曹操传加强版6.5（未加密）\\基底\\加强版6.5未加密版"
-                                                     }
-                                         },
-                       "x64dbg":  {
-                                      "command":  "cmd",
-                                      "args":  [
-                                                   "/c",
-                                                   "npx",
-                                                   "-y",
-                                                   "x64dbg-mcp-server"
-                                               ],
-                                      "env":  {
-                                                  "X64DBG_MCP_HOST":  "127.0.0.1",
-                                                  "X64DBG_MCP_PORT":  "27042"
-                                              }
-                                  }
+                                        }
                    }
 }

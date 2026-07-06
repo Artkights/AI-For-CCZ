@@ -130,22 +130,36 @@ internal partial class Program
         }
 
         var parser = new HexTableParser();
-        var tables = parser.Load(project.HexTableXmlPath);
+        var rawTables = parser.Load(project.HexTableXmlPath);
+        var tables = new Ccz66HexTableAugmentationService().AugmentForProject(project, rawTables);
         var actualPrefixes = tables
             .Where(table => HexTableNameResolver.Is6XTable(table))
             .Select(table => table.Version)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (actualPrefixes.Contains("6.6", StringComparer.OrdinalIgnoreCase))
+        if (!actualPrefixes.Contains("6.6", StringComparer.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Smoke expectation changed: current HexTable already contains 6.6 tables.");
+            throw new InvalidOperationException("6.6 HexTable augmentation did not expose native 6.6 tables.");
         }
 
         var table = HexTableNameResolver.ResolveForProject(project, tables, "6.6-0 人物");
         var validation = new HexTableReader().Validate(project, table);
-        if (!validation.Warnings.Any(warning => warning.Contains("CrossVersionFallback", StringComparison.OrdinalIgnoreCase)))
+        if (!validation.TableStatus.Equals(Ccz66RevisedLayout.Native66TableStatus, StringComparison.OrdinalIgnoreCase) ||
+            !validation.CanWrite ||
+            !table.IsGeneratedCompatibilityTable ||
+            !table.SourceTableName.StartsWith("6.5-", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("6.6 HexTable fallback warning was not emitted.");
+            throw new InvalidOperationException($"6.6 native generated table status mismatch: status={validation.TableStatus}, source={table.SourceTableName}.");
+        }
+
+        var fallbackTable = rawTables.FirstOrDefault(item => item.TableName.StartsWith("6.5-5 ", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("6.5 strategy table was not found for fallback validation.");
+        var fallbackValidation = new HexTableReader().Validate(project, fallbackTable);
+        if (!fallbackValidation.TableStatus.Equals(Ccz66RevisedLayout.CrossVersionFallbackTableStatus, StringComparison.OrdinalIgnoreCase) ||
+            fallbackValidation.CanWrite ||
+            !fallbackValidation.Warnings.Any(warning => warning.Contains("CrossVersionFallback", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("6.6 HexTable cross-version fallback warning was not emitted for a non-augmented table.");
         }
 
         var templates = new ScenarioCommandParameterTemplateService();
@@ -164,7 +178,7 @@ internal partial class Program
             $"gameRoot={project.GameRoot} " +
             $"exeSize={engine.ExeSize} " +
             "resources=Item.e5:512,Mtem.e5:176,DT.e5:60,Fb.e5:673,U_select.e5:32,Pmap.e5:477,Cmdicon.dll:29 " +
-            $"hexFallback=CrossVersionFallback actualPrefixes={string.Join(",", actualPrefixes)}");
+            $"hexNative={validation.TableStatus} hexFallback={fallbackValidation.TableStatus} actualPrefixes={string.Join(",", actualPrefixes)}");
     }
 
     private static CczProject Create66ItemIconWriteSmokeProject(CczProject defaultProject, string baselineRoot)

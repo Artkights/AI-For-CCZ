@@ -14,9 +14,8 @@ namespace CCZModStudio.GameDebugMcpServer;
 public sealed partial class GameDebugRuntime
 {
     private const string ExpectedSha256 = "84E3A1DC085AE6F9900D1E8C388A9CD6766379832DDF51BC7BDF780C6615B4A3";
+    internal const string ExpectedSha256Value = ExpectedSha256;
     private const uint ImageBase = 0x00400000;
-    private const uint UnitArrayAddress = 0x004A7B20;
-    private const int UnitStride = 0x30;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -330,20 +329,24 @@ public sealed partial class GameDebugRuntime
     public object GameReadBattleState(string? gameRoot, int maxUnits, bool includeRawRanges, string? outputDir)
     {
         var paths = ResolveGamePaths(gameRoot, requireExpectedHash: false);
-        var snapshot = ReadBattleStateSnapshot(Math.Clamp(maxUnits, 1, 512));
+        var process = RequireTargetProcess();
+        var profile = DetectRuntimeProfile(process, paths).RequireBattleLayout();
+        var clampedMaxUnits = Math.Clamp(maxUnits, 1, 512);
+        var snapshot = ReadBattleStateSnapshot(clampedMaxUnits, profile, process);
         var sessionDir = includeRawRanges ? EnsureSessionDirectory(paths.WorkspaceRoot, outputDir) : string.Empty;
         var rawExports = new List<object>();
         if (includeRawRanges)
         {
             var memoryDir = Path.Combine(sessionDir, "memory");
             Directory.CreateDirectory(memoryDir);
-            rawExports.Add(ExportMemoryRange(memoryDir, "unit_array", UnitArrayAddress, Math.Clamp(maxUnits, 1, 512) * UnitStride));
+            rawExports.Add(ExportMemoryRange(memoryDir, "unit_array", profile.UnitArrayAddress, clampedMaxUnits * profile.UnitStride));
             rawExports.Add(ExportMemoryRange(memoryDir, "battle_globals", 0x00490000, 0x22000));
             AppendJsonLine(Path.Combine(sessionDir, "events.jsonl"), new
             {
                 type = "BattleStateRead",
                 created_at = DateTimeOffset.Now.ToString("O"),
                 snapshot.ActiveUnitCount,
+                profile = profile.ToReport(),
                 rawExports
             });
         }
@@ -351,6 +354,7 @@ public sealed partial class GameDebugRuntime
         return new
         {
             snapshot,
+            profile = profile.ToReport(),
             runtime_snapshot = TryReadBattlefieldRuntimeSnapshot(),
             raw_exports = rawExports,
             session_dir = sessionDir
@@ -13083,16 +13087,60 @@ public sealed partial class GameDebugRuntime
     private BattleStateSnapshot ReadBattleStateSnapshot(int maxUnits)
     {
         var process = RequireTargetProcess();
-        var bytes = ReadProcessMemory(process.Id, UnitArrayAddress, maxUnits * UnitStride);
-        var units = DecodeUnits(bytes, maxUnits);
+        var profile = DetectRuntimeProfile(process).RequireBattleLayout();
+        return ReadBattleStateSnapshot(maxUnits, profile, process);
+    }
+
+    private BattleStateSnapshot ReadBattleStateSnapshot(int maxUnits, GameDebugRuntimeProfile profile)
+        => ReadBattleStateSnapshot(maxUnits, profile, RequireTargetProcess());
+
+    private BattleStateSnapshot ReadBattleStateSnapshot(int maxUnits, GameDebugRuntimeProfile profile, Process process)
+    {
+        profile = profile.RequireBattleLayout();
+        var bytes = ReadProcessMemory(process.Id, profile.UnitArrayAddress, maxUnits * profile.UnitStride);
+        var units = DecodeUnits(bytes, maxUnits, profile);
         return new BattleStateSnapshot
         {
             CreatedAt = DateTimeOffset.Now.ToString("O"),
             ProcessId = process.Id,
+            EngineVersion = profile.EngineVersion,
+            ProfileSource = profile.DetectionSource,
+            LayoutSource = profile.LayoutSource,
+            UnitArrayAddress = profile.UnitArrayAddress.ToString("X8", CultureInfo.InvariantCulture),
+            UnitStride = profile.UnitStride.ToString("X", CultureInfo.InvariantCulture),
             ActiveUnitCount = units.Count,
             Units = units,
             SideCounts = units.GroupBy(u => u.Side.ToString(CultureInfo.InvariantCulture)).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal)
         };
+    }
+
+    private GameDebugRuntimeProfile DetectRuntimeProfile(Process process, GamePaths? fallbackPaths = null)
+    {
+        try
+        {
+            var exePath = process.MainModule?.FileName;
+            if (!string.IsNullOrWhiteSpace(exePath) && File.Exists(exePath))
+            {
+                var toolRoot = fallbackPaths?.ToolRoot ?? ResolveToolRoot();
+                var workspaceRoot = fallbackPaths?.WorkspaceRoot ?? Directory.GetParent(toolRoot)?.FullName ?? Directory.GetCurrentDirectory();
+                var gameRoot = Path.GetDirectoryName(exePath) ?? fallbackPaths?.GameRoot ?? workspaceRoot;
+                var sha = ComputeSha256(exePath);
+                return GameDebugRuntimeProfile.Detect(new GamePaths(
+                    workspaceRoot,
+                    toolRoot,
+                    gameRoot,
+                    exePath,
+                    sha,
+                    string.Equals(sha, ExpectedSha256, StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+        catch
+        {
+            // Fall back to the resolved game root when the process module path is unavailable.
+        }
+
+        fallbackPaths ??= ResolveGamePaths(null, requireExpectedHash: false);
+        return GameDebugRuntimeProfile.Detect(fallbackPaths);
     }
 
     private object? SafeReadBattleState()
@@ -13107,18 +13155,18 @@ public sealed partial class GameDebugRuntime
         }
     }
 
-    private static List<BattleUnitRow> DecodeUnits(byte[] bytes, int maxUnits)
+    private static List<BattleUnitRow> DecodeUnits(byte[] bytes, int maxUnits, GameDebugRuntimeProfile profile)
     {
         var rows = new List<BattleUnitRow>();
-        var count = Math.Min(maxUnits, bytes.Length / UnitStride);
+        var count = Math.Min(maxUnits, bytes.Length / profile.UnitStride);
         for (var i = 0; i < count; i++)
         {
-            var o = i * UnitStride;
-            var hp = ReadUInt16(bytes, o + 0x10);
-            var mp = ReadUInt16(bytes, o + 0x14);
-            var x = bytes[o + 0x06];
-            var y = bytes[o + 0x07];
-            var side = bytes[o + 0x05];
+            var o = i * profile.UnitStride;
+            var hp = ReadUnsigned(bytes, o + profile.UnitCurrentHpOffset, profile.UnitCurrentHpByteWidth);
+            var mp = ReadUnsigned(bytes, o + profile.UnitCurrentMpOffset, profile.UnitCurrentMpByteWidth);
+            var x = bytes[o + profile.UnitXOffset];
+            var y = bytes[o + profile.UnitYOffset];
+            var side = bytes[o + profile.UnitSideOffset];
             var hasSignal = hp > 0 && hp < 999 && x < 80 && y < 80 && side <= 3;
             if (!hasSignal)
             {
@@ -13128,19 +13176,28 @@ public sealed partial class GameDebugRuntime
             rows.Add(new BattleUnitRow
             {
                 UnitIndex = i,
-                DataIdByte = bytes[o + 0x04],
+                DataIdByte = bytes[o + profile.UnitDataIdOffset],
                 Side = side,
                 X = x,
                 Y = y,
-                Action = bytes[o + 0x0D],
+                Action = bytes[o + profile.UnitActionOffset],
                 HP = hp,
                 MP = mp,
-                AttrsHex = string.Join(" ", bytes.Skip(o + 0x18).Take(6).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)))
+                AttrsHex = string.Join(" ", bytes.Skip(o + profile.UnitAttributesOffset).Take(profile.UnitAttributesLength).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)))
             });
         }
 
         return rows;
     }
+
+    private static int ReadUnsigned(byte[] bytes, int offset, int byteWidth)
+        => byteWidth switch
+        {
+            1 => bytes[offset],
+            2 => ReadUInt16(bytes, offset),
+            4 => unchecked((int)ReadUInt32(bytes, offset)),
+            _ => throw new InvalidOperationException($"Unsupported unsigned field width: {byteWidth}.")
+        };
 
     private static byte[] ReadProcessMemory(int processId, uint address, int size)
     {
@@ -13815,6 +13872,9 @@ public sealed partial class GameDebugRuntime
 
     private static int ReadUInt16(byte[] bytes, int offset)
         => offset >= 0 && offset + 1 < bytes.Length ? BitConverter.ToUInt16(bytes, offset) : 0;
+
+    private static uint ReadUInt32(byte[] bytes, int offset)
+        => offset >= 0 && offset + 3 < bytes.Length ? BitConverter.ToUInt32(bytes, offset) : 0;
 
     private static string Timestamp() => DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
 

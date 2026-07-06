@@ -14,6 +14,7 @@ public sealed class BatchSImageReplaceRequest
     public IReadOnlyList<BatchSImageUsage> AllowedSImageUsages { get; init; } = Array.Empty<BatchSImageUsage>();
     public bool IncludeOnlySelectedOrFiltered { get; init; } = true;
     public int FactionSlot { get; init; } = 1;
+    public IReadOnlyList<int> StageSlots { get; init; } = Array.Empty<int>();
     public string WriteMode { get; init; } = "direct";
 }
 
@@ -140,6 +141,9 @@ public sealed class BatchSImageReplaceItemPreview
     public int SImageId { get; init; }
     public int? JobId { get; init; }
     public int FactionSlot { get; init; }
+    public int StageSlot { get; init; }
+    public string StageName { get; init; } = string.Empty;
+    public int ImageNumber { get; init; }
     public string MaterialFolder { get; init; } = string.Empty;
     public IReadOnlyList<int> ImageNumbers { get; init; } = Array.Empty<int>();
     public string MappingDetail { get; init; } = string.Empty;

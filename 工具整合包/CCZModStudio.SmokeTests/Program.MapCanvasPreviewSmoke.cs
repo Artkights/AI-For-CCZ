@@ -280,7 +280,7 @@ internal partial class Program
         using var bitmap = new Bitmap(48 * 15, 48, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.Clear(Color.Transparent);
-        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder();
+        var order = MaterialAutoTileMetadataService.GetCanonicalMaskOrder(MaterialAutoTileModes.LinePath);
         using var pen = new Pen(Color.FromArgb(250, 250, 250), 5)
         {
             StartCap = System.Drawing.Drawing2D.LineCap.Square,

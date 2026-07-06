@@ -113,11 +113,7 @@ public sealed partial class MainForm
             BindScriptCommandRows(Array.Empty<ScenarioStructureRow>());
             BindScriptParameterRows(Array.Empty<ScenarioCommandParameterRow>());
             BindScriptTextRows(_currentScriptTextEntries);
-            _currentScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
-            _currentScriptSearchKeyword = session.SearchText;
-            _currentScriptSearchResultIndex = session.SearchResultIndex;
-            BindScriptSearchResultRows(_currentScriptSearchResults);
-            _scriptSearchBox.Text = session.SearchText;
+            RestoreLegacyScriptSearch(LegacyScriptEditorScope.Script, session.SearchText, session.SearchResultIndex);
             _scriptTextEditorBox.Clear();
             _saveScriptTextButton.Enabled = false;
             _saveScriptStructureButton.Enabled = _currentLegacyScriptDocument != null && session.StructureDirty;
@@ -238,9 +234,7 @@ public sealed partial class MainForm
         _battlefieldTitleBox.ReadOnly = !_currentBattlefieldDocument.CanWriteCampaignTitle;
         _battlefieldConditionsBox.Text = session.ConditionsText;
         _battlefieldConditionsBox.ReadOnly = _currentBattlefieldDocument.ConditionEntry == null;
-        _battlefieldScriptSearchBox.Text = session.SearchText;
-        _currentBattlefieldScriptSearchKeyword = session.SearchText;
-        _currentBattlefieldScriptSearchResultIndex = session.SearchResultIndex;
+        RestoreLegacyScriptSearch(LegacyScriptEditorScope.Battlefield, session.SearchText, session.SearchResultIndex);
         RenderBattlefieldMapPreview(_currentBattlefieldDocument);
         UpdateBattlefieldCapacityLabels();
         _saveBattlefieldTextsButton.Enabled = _currentBattlefieldDocument.CanWriteCampaignTitle || _currentBattlefieldDocument.ConditionEntry != null;
@@ -352,9 +346,7 @@ public sealed partial class MainForm
         {
             SelectRSceneBackgroundImageNumber(session.BackgroundImageNumber);
         }
-        _rSceneScriptSearchBox.Text = session.SearchText;
-        _currentRSceneScriptSearchKeyword = session.SearchText;
-        _currentRSceneScriptSearchResultIndex = session.SearchResultIndex;
+        RestoreLegacyScriptSearch(LegacyScriptEditorScope.RScene, session.SearchText, session.SearchResultIndex);
         _saveRSceneDraftButton.Enabled = true;
         _saveRSceneScriptStructureButton.Enabled = _currentRSceneLegacyScriptDocument != null && session.StructureDirty;
         _showRSceneVariablesButton.Enabled = _currentRSceneLegacyScriptDocument != null;

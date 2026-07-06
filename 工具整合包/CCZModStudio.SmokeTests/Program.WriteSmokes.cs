@@ -841,15 +841,19 @@ internal partial class Program
         var jobTerrainPowerTable = tables.Single(t => t.TableName == "6.5-3-1 地形发挥");
         var jobMoveCostTable = tables.Single(t => t.TableName == "6.5-3-2 移动消耗");
         var jobRestraintTable = tables.Single(t => t.TableName == "6.5-3-3 兵种相克");
+        var jobAttributeTable = tables.Single(t => t.TableName == "6.5-3-4 兵种属性");
+        AssertJobAttributeStaticLayout(testProject, jobRestraintTable, jobAttributeTable);
         var jobSeriesRead = reader.Read(testProject, jobSeriesTable, tables);
         var jobTerrainPowerRead = reader.Read(testProject, jobTerrainPowerTable, tables);
         var jobMoveCostRead = reader.Read(testProject, jobMoveCostTable, tables);
         var jobRestraintRead = reader.Read(testProject, jobRestraintTable, tables);
+        var jobAttributeRead = reader.Read(testProject, jobAttributeTable, tables);
         if (!jobSeriesRead.Validation.IsUsable || !jobTerrainPowerRead.Validation.IsUsable || !jobMoveCostRead.Validation.IsUsable ||
-            !jobRestraintRead.Validation.IsUsable)
+            !jobRestraintRead.Validation.IsUsable || !jobAttributeRead.Validation.IsUsable)
         {
             throw new InvalidOperationException("兵种系/地形/矩阵写入烟测读取失败。");
         }
+        AssertJobAttributeDefaultSamples(jobAttributeRead.Data);
     
         var seriesId = 0;
         var jobSeriesRow = FindSmokeRowById(jobSeriesRead.Data, seriesId);
@@ -933,6 +937,33 @@ internal partial class Program
         }
     
         Console.WriteLine($"JOB_MATRIX_WRITE_SMOKE_OK 相克[{seriesId},{restraintColumn}]={restraintOriginal}->{restraintActual} 详细兵种[{jobId},{equipmentColumn}]={equipmentOriginal}->{equipmentActual} byteOffset=0x{expectedEquipmentOffset:X} saves={matrixSaves.Length}");
+
+        var attributeFilePath = testProject.ResolveGameFile(jobAttributeTable.FileName);
+        var beforeAttributeBytes = File.ReadAllBytes(attributeFilePath);
+        var attributeRowId = 0;
+        var attributeColumnId = 1;
+        var attributeColumn = attributeColumnId.ToString(CultureInfo.InvariantCulture);
+        var attributeExpectedOffset = jobAttributeTable.DataPos + ((long)attributeRowId * jobAttributeTable.RowSize) + attributeColumnId;
+        var attributeRow = FindSmokeRowById(jobAttributeRead.Data, attributeRowId);
+        var attributeOriginal = Convert.ToInt32(attributeRow[attributeColumn], CultureInfo.InvariantCulture);
+        var attributeChanged = attributeOriginal == 2 ? 0 : 2;
+        attributeRow[attributeColumn] = attributeChanged;
+        var attributeSave = writer.Save(testProject, jobAttributeTable, jobAttributeRead.Data);
+        var jobAttributeVerify = reader.Read(testProject, jobAttributeTable, tables);
+        var afterAttributeBytes = File.ReadAllBytes(attributeFilePath);
+        var attributeChangedOffsets = FindChangedByteOffsets(beforeAttributeBytes, afterAttributeBytes);
+        var attributeActual = Convert.ToInt32(FindSmokeRowById(jobAttributeVerify.Data, attributeRowId)[attributeColumn], CultureInfo.InvariantCulture);
+        if (attributeActual != attributeChanged ||
+            !attributeChangedOffsets.SequenceEqual(new[] { attributeExpectedOffset }) ||
+            string.IsNullOrWhiteSpace(attributeSave.BackupPath) ||
+            !File.Exists(attributeSave.BackupPath) ||
+            string.IsNullOrWhiteSpace(attributeSave.ReportJsonPath) ||
+            !File.Exists(attributeSave.ReportJsonPath))
+        {
+            throw new InvalidOperationException($"兵种属性写入烟测复读失败：移动声音[步兵]={attributeActual}, offsets={string.Join(",", attributeChangedOffsets.Select(offset => offset.ToString("X", CultureInfo.InvariantCulture)))} expected={attributeExpectedOffset:X}");
+        }
+
+        Console.WriteLine($"JOB_ATTRIBUTE_MATRIX_WRITE_SMOKE_OK 移动声音[01:步兵] 0x{attributeExpectedOffset:X} {attributeOriginal}->{attributeActual} backup={Path.GetFileName(attributeSave.BackupPath)} report={Path.GetFileName(attributeSave.ReportJsonPath)}");
     
         var jobEffectDescriptionTable = tables.Single(t => t.TableName == "6.5-7-1 兵种特效说明");
         var jobEffectAssignmentTable = tables.Single(t => t.TableName == "6.5-7-2 兵种特效分配");
@@ -1787,6 +1818,106 @@ internal partial class Program
             command.CommandIndex == locator.CommandIndex &&
             (string.IsNullOrWhiteSpace(locator.OffsetHex) || CCZModStudio.Core.HexDisplayFormatter.EqualsText(CCZModStudio.Core.HexDisplayFormatter.Format(command.FileOffset, 6), locator.OffsetHex)) &&
             (string.IsNullOrWhiteSpace(locator.CommandIdHex) || string.Equals(command.CommandIdHex, locator.CommandIdHex, StringComparison.OrdinalIgnoreCase)));
+
+    static void AssertJobAttributeStaticLayout(CczProject project, HexTableDefinition restraintTable, HexTableDefinition attributeTable)
+    {
+        var userXk = ReadSmokeIniValue(project.ImageAssignerSystemIniPath, "UserXK");
+        if (!string.Equals(userXk, "A3280", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"System.ini UserXK 静态校验失败：actual={userXk}, expected=A3280");
+        }
+
+        if (!restraintTable.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
+            restraintTable.DataPos != 0xA3280 ||
+            restraintTable.RowCount != 40 ||
+            restraintTable.RowSize != 40)
+        {
+            throw new InvalidOperationException($"兵种相克表地址校验失败：{restraintTable.FileName}@0x{restraintTable.DataPos:X}, {restraintTable.RowCount}x{restraintTable.RowSize}");
+        }
+
+        if (!attributeTable.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
+            attributeTable.DataPos != 0xA38C0 ||
+            attributeTable.RowCount != 8 ||
+            attributeTable.RowSize != 40)
+        {
+            throw new InvalidOperationException($"兵种属性表地址校验失败：{attributeTable.FileName}@0x{attributeTable.DataPos:X}, {attributeTable.RowCount}x{attributeTable.RowSize}");
+        }
+
+        if (restraintTable.DataPos + (restraintTable.RowCount * restraintTable.RowSize) != attributeTable.DataPos ||
+            attributeTable.DataPos + (attributeTable.RowCount * attributeTable.RowSize) != 0xA3A00)
+        {
+            throw new InvalidOperationException("UserXK 块边界校验失败：0xA3280+1600 应为 0xA38C0，0xA38C0+320 应为 0xA3A00。");
+        }
+    }
+
+    static void AssertJobAttributeDefaultSamples(DataTable data)
+    {
+        AssertSmokeCell(data, rowId: 0, columnName: "0", expected: 0, "移动声音[君主]");
+        AssertSmokeCell(data, rowId: 0, columnName: "1", expected: 2, "移动声音[步兵]");
+        AssertSmokeCell(data, rowId: 0, columnName: "5", expected: 1, "移动声音[炮车]");
+        AssertSmokeCell(data, rowId: 0, columnName: "39", expected: 3, "移动声音[魔王]");
+
+        foreach (var column in new[] { "2", "4", "5", "29", "34" })
+        {
+            AssertSmokeCell(data, rowId: 3, columnName: column, expected: 1, $"远程兵种[{column}]");
+        }
+
+        foreach (var column in new[] { "8", "9", "10" })
+        {
+            AssertSmokeCell(data, rowId: 6, columnName: column, expected: 90, $"策略伤害[{column}]");
+        }
+
+        AssertSmokeCell(data, rowId: 6, columnName: "0", expected: 100, "策略伤害[君主]");
+        AssertSmokeCell(data, rowId: 6, columnName: "1", expected: 100, "策略伤害[步兵]");
+        AssertSmokeCell(data, rowId: 6, columnName: "17", expected: 110, "策略伤害[17]");
+        AssertSmokeCell(data, rowId: 6, columnName: "18", expected: 110, "策略伤害[18]");
+    }
+
+    static void AssertSmokeCell(DataTable data, int rowId, string columnName, int expected, string label)
+    {
+        var actual = Convert.ToInt32(FindSmokeRowById(data, rowId)[columnName], CultureInfo.InvariantCulture);
+        if (actual != expected)
+        {
+            throw new InvalidOperationException($"{label} 默认值校验失败：actual={actual}, expected={expected}");
+        }
+    }
+
+    static long[] FindChangedByteOffsets(byte[] before, byte[] after)
+    {
+        if (before.Length != after.Length)
+        {
+            throw new InvalidOperationException($"字节差异比较失败：长度变化 {before.Length}->{after.Length}");
+        }
+
+        return before
+            .Select((value, index) => (value, index))
+            .Where(pair => pair.value != after[pair.index])
+            .Select(pair => (long)pair.index)
+            .ToArray();
+    }
+
+    static string ReadSmokeIniValue(string? path, string key)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            throw new FileNotFoundException("写入烟测缺少 B形象指定器 System.ini。", path);
+        }
+
+        foreach (var rawLine in File.ReadLines(path, EncodingService.Gbk))
+        {
+            var line = rawLine.Split(';')[0].Trim();
+            if (line.Length == 0) continue;
+            var separator = line.IndexOf('=');
+            if (separator <= 0) continue;
+            var name = line[..separator].Trim();
+            if (name.Equals(key, StringComparison.OrdinalIgnoreCase))
+            {
+                return line[(separator + 1)..].Trim();
+            }
+        }
+
+        return string.Empty;
+    }
 
     static bool FindSmokeCommandList(
         LegacyScenarioDocument document,

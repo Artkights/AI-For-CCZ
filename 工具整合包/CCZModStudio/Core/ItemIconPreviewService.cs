@@ -11,6 +11,7 @@ public sealed class ItemIconPreviewService
     private readonly E5ImageReplaceService _e5ImageService = new();
     private readonly E5ImageRenderService _e5ImageRenderService = new();
     private readonly DllBitmapIconCodecService _dllCodec = new();
+    private readonly ItemIconMappingService _iconMapping = new();
 
     public void ClearCache() => _bitmapResourceCache.Clear();
 
@@ -232,9 +233,8 @@ public sealed class ItemIconPreviewService
         }
 
         var isItemE5 = Ccz66RevisedLayout.IsItemIconResource(sourcePath);
-        var imageNumber = isItemE5
-            ? Ccz66RevisedLayout.ResolveItemIconPreviewImageNumber(iconIndex)
-            : Ccz66RevisedLayout.ResolveStrategyIconImageNumber(iconIndex);
+        var mapping = _iconMapping.Resolve(project, iconIndex, isItemE5 ? "item" : "strategy");
+        var imageNumber = mapping.LargeImageNumber;
         if (imageNumber <= 0 || imageNumber > entries.Count)
         {
             var maxFieldValue = isItemE5
@@ -268,7 +268,8 @@ public sealed class ItemIconPreviewService
         {
             if (isItemE5)
             {
-                var (smallNumber, largeNumber) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(iconIndex);
+                var smallNumber = mapping.SmallImageNumber ?? 0;
+                var largeNumber = mapping.LargeImageNumber;
                 smallBitmap = DecodeE5IconBitmap(sourcePath, smallNumber, out var smallBytes);
                 largeBitmap = DecodeE5IconBitmap(sourcePath, largeNumber, out var largeBytes);
                 smallVariant = smallBitmap == null ? null : new IconResourceVariantInfo
@@ -287,7 +288,11 @@ public sealed class ItemIconPreviewService
                     BitCount = Image.GetPixelFormatSize(largeBitmap.PixelFormat),
                     SizeBytes = largeBytes
                 };
-                bitmap = largeBitmap == null ? null : _e5ImageRenderService.RenderToCanvas(largeBitmap, canvasSize, canvasSize);
+                bitmap = largeBitmap != null
+                    ? _e5ImageRenderService.RenderToCanvas(largeBitmap, canvasSize, canvasSize)
+                    : smallBitmap == null
+                        ? null
+                        : _e5ImageRenderService.RenderToCanvas(smallBitmap, canvasSize, canvasSize);
             }
             else
             {
@@ -319,11 +324,12 @@ public sealed class ItemIconPreviewService
 
         var warnings = new List<string>();
         var note = Path.GetFileName(sourcePath).Equals("Item.e5", StringComparison.OrdinalIgnoreCase)
-            ? "6.6 修正版道具图标资源；字段编号按 E5 1-based 图号减 1 预览，#1/#2 常作为空白小/大图标。"
-            : "6.6 修正版策略图标资源；字段编号按 E5 1-based 图号减 1 预览，策略四系图标通常间隔 6。";
+            ? "6.6 修正版道具图标资源；宝物表“图标”字段 N 映射为小图 #2N+1、大图 #2N+2；#1/#2 是字段 0 的空白小/大图标，#3/#4 是字段 1。"
+            : "6.6 修正版策略图标资源；策略图标字段 N 映射为 E5 图号 #N+1。";
         if (isItemE5)
         {
-            var (small, large) = Ccz66RevisedLayout.ResolveItemIconImageNumbers(iconIndex);
+            var small = mapping.SmallImageNumber ?? 0;
+            var large = mapping.LargeImageNumber;
             var smallKind = small > 0 && small <= entries.Count ? entries[small - 1].Kind : "missing";
             var largeKind = large > 0 && large <= entries.Count ? entries[large - 1].Kind : "missing";
             var smallText = smallVariant == null
@@ -346,14 +352,14 @@ public sealed class ItemIconPreviewService
                 warnings.Add($"尺寸异常，建议重新规范化导入: Item.e5 large #{large} is {largeText}; expected 32x32 BMP.");
             }
 
-            note = $"6.6 revised Item.e5 item icon: field={iconIndex}, small=#{small}, large=#{large}; current small={smallText}; current large={largeText}; treasure/item preview uses the large image by default.";
+            note = $"6.6 revised Item.e5 item icon: table field 图标={iconIndex}, small=#{small}, large=#{large}; current small={smallText}; current large={largeText}; treasure/item preview uses the large image by default.";
         }
         else
         {
-            note = "6.6 revised Mtem.e5 strategy icon: field value N maps to E5 image #(N+1); strategy families are usually spaced by 6.";
+            note = "6.6 revised Mtem.e5 strategy icon: table field value N maps to E5 image #(N+1); strategy families are usually spaced by 6.";
         }
 
-        var previewMessage = $"Source {Path.GetFileName(sourcePath)}; field={iconIndex}; E5 image #{imageNumber}; available={entries.Count}. {note}";
+        var previewMessage = $"Source {Path.GetFileName(sourcePath)}; table field={iconIndex}; preview E5 image #{imageNumber}; available={entries.Count}. {note}";
         if (previewMessage.Length > 0)
         {
             return new ItemIconPreviewResult(
@@ -362,7 +368,7 @@ public sealed class ItemIconPreviewService
                 entries.Count,
                 bitmap,
                 previewMessage,
-                NativeBitmap: largeBitmap == null ? null : new Bitmap(largeBitmap),
+                NativeBitmap: largeBitmap != null ? new Bitmap(largeBitmap) : smallBitmap == null ? null : new Bitmap(smallBitmap),
                 SmallBitmap: smallBitmap,
                 LargeBitmap: largeBitmap,
                 ResourceVariants: new[] { smallVariant, largeVariant }.Where(x => x != null).Cast<IconResourceVariantInfo>().ToArray(),

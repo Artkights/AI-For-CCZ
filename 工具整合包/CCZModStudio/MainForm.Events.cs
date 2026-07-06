@@ -56,6 +56,8 @@ public sealed partial class MainForm
         _roleWeaponCombo.SelectionChangeCommitted += (_, _) => ApplyRoleEquipmentDetailSelection("武器", _roleWeaponCombo);
         _roleArmorCombo.SelectionChangeCommitted += (_, _) => ApplyRoleEquipmentDetailSelection("防具", _roleArmorCombo);
         _roleAssistCombo.SelectionChangeCommitted += (_, _) => ApplyRoleEquipmentDetailSelection("辅助", _roleAssistCombo);
+        _roleCriticalQuoteModeCombo.SelectionChangeCommitted += (_, _) => ChangeRoleCriticalQuoteModeFromUi();
+        _roleCriticalQuoteAssignmentCombo.SelectionChangeCommitted += (_, _) => ChangeRoleCriticalQuoteAssignmentFromUi();
         _roleEditorSearchBox.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Enter) return;
@@ -209,10 +211,15 @@ public sealed partial class MainForm
         _jobTerrainGrid.CellEndEdit += (_, e) => RefreshJobTerrainRowStyle(e.RowIndex);
         _loadJobMatrixButton.Click += (_, _) => LoadJobMatrixEditor();
         _saveJobMatrixButton.Click += (_, _) => SaveJobMatrixEditor();
+        _openJobMatrixAttributeTableButton.Click += (_, _) => OpenCoreTable("6.5-3-4 兵种属性");
         _openJobMatrixRestraintTableButton.Click += (_, _) => OpenCoreTable("6.5-3-3 兵种相克");
         _jobRestraintGrid.SelectionChanged += (_, _) => ShowSelectedJobMatrixCell(_jobRestraintGrid, "兵种相克");
         _jobRestraintGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobRestraintGrid, e);
         _jobRestraintGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobRestraintGrid, e.RowIndex);
+        _jobAttributeGrid.SelectionChanged += (_, _) => ShowSelectedJobMatrixCell(_jobAttributeGrid, "兵种属性");
+        _jobAttributeGrid.CellParsing += (_, e) => ParseJobAttributeMatrixCell(e);
+        _jobAttributeGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobAttributeGrid, e);
+        _jobAttributeGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobAttributeGrid, e.RowIndex);
         _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
         _importJobStrategyIconButton.Click += (_, _) => ImportSelectedJobStrategyIcons();
@@ -283,7 +290,11 @@ public sealed partial class MainForm
         AttachNumberBaseHandlers(this);
         _tableList.SelectedIndexChanged += (_, _) => LoadSelectedTable();
         _dataGrid.CellValidating += (_, e) => ValidateEditedCell(e);
-        _dataGrid.CellEndEdit += (_, e) => RefreshDataGridRowStyle(e.RowIndex);
+        _dataGrid.CellEndEdit += (_, e) =>
+        {
+            RefreshCurrentTableDerivedCellsAfterCellEdit(e.RowIndex, e.ColumnIndex);
+            ShowSelectedDataCellAnnotation(e.RowIndex, e.ColumnIndex);
+        };
         _dataGrid.CellEnter += (_, e) => ShowSelectedDataCellAnnotation(e.RowIndex, e.ColumnIndex);
         _dataGrid.SelectionChanged += (_, _) =>
         {
@@ -328,6 +339,7 @@ public sealed partial class MainForm
             FillShopEditorSelectionWithCurrentValue);
         AttachGridEditShortcuts(_jobTerrainGrid, (_, _) => { }, null, afterCellsChanged: RefreshJobTerrainCellsAfterEdit);
         AttachGridEditShortcuts(_jobRestraintGrid, (_, _) => { }, null, afterCellsChanged: RefreshJobMatrixCellsAfterEdit);
+        AttachGridEditShortcuts(_jobAttributeGrid, (_, _) => { }, null, afterCellsChanged: RefreshJobMatrixCellsAfterEdit);
         AttachGridEditShortcuts(_jobStrategyEditorGrid, UpdateJobStrategyDerivedCells, null, afterCellsChanged: RefreshJobStrategyCellsAfterEdit);
         AttachGridEditShortcuts(_jobEffectEditorGrid, UpdateJobEffectDerivedCells, null, afterCellsChanged: RefreshJobEffectCellsAfterEdit);
         AttachGridEditShortcuts(_imageAssignmentGrid, (row, _) => UpdateImageAssignmentResourceStatus(row), null, afterCellsChanged: RefreshImageAssignmentCellsAfterEdit);
@@ -377,6 +389,8 @@ public sealed partial class MainForm
         _batchReplaceSImageSetButton.Click += (_, _) => BatchReplaceSImageSets();
         _importImageAssignmentFaceButton.Click += (_, _) => ImportSelectedImageAssignmentFace();
         _batchImportImageAssignmentFaceButton.Click += (_, _) => BatchImportSelectedImageAssignmentFaces();
+        _applyImageAssignmentFaceFrameButton.Click += (_, _) => ApplySelectedImageAssignmentFaceFrame();
+        _batchApplyImageAssignmentFaceFrameButton.Click += (_, _) => BatchApplySelectedImageAssignmentFaceFrames();
         _exportRImageBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind.R);
         _exportSImageBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind.S);
         _exportImageAssignmentFaceBmpButton.Click += (_, _) => ExportSelectedImageAssignmentBmp(ImageAssignmentResourceKind.Face);
@@ -463,6 +477,15 @@ public sealed partial class MainForm
         _editBattlefieldScriptParametersButton.Click += (_, _) => EditSelectedBattlefieldScriptParameters();
         _battlefieldScriptSearchButton.Click += (_, _) => ApplyBattlefieldScriptSearch();
         _battlefieldScriptClearSearchButton.Click += (_, _) => ClearBattlefieldScriptSearch();
+        _battlefieldScriptSearchBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyBattlefieldScriptSearch();
+            e.SuppressKeyPress = true;
+        };
+        _battlefieldScriptReplaceBox.TextChanged += (_, _) => UpdateLegacyScriptReplaceButton(LegacyScriptEditorScope.Battlefield);
+        _battlefieldScriptReplaceButton.Click += (_, _) => ReplaceLegacyScriptSearchMatches(LegacyScriptEditorScope.Battlefield);
+        _battlefieldScriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedLegacyScriptSearchResult(LegacyScriptEditorScope.Battlefield);
         _battlefieldUnitPaletteFilterBox.TextChanged += (_, _) => ApplyBattlefieldUnitPaletteFilter();
         _battlefieldUnitListBox.SelectedIndexChanged += (_, _) => ShowSelectedBattlefieldPaletteUnit();
         _battlefieldUnitListBox.MouseDown += (_, e) => BeginBattlefieldUnitDrag(e.Location);
@@ -535,6 +558,17 @@ public sealed partial class MainForm
         _saveRSceneScriptStructureButton.Click += async (_, _) => await SaveCurrentRSceneLegacyScriptStructureAsync();
         _showRSceneVariablesButton.Click += (_, _) => ShowScriptVariableUsageDialog(LegacyScriptEditorScope.RScene);
         _jumpRSceneScriptButton.Click += async (_, _) => await JumpRSceneScriptAsync();
+        _rSceneScriptSearchButton.Click += (_, _) => ApplyLegacyScriptSearch(LegacyScriptEditorScope.RScene);
+        _rSceneScriptClearSearchButton.Click += (_, _) => ClearLegacyScriptSearch(LegacyScriptEditorScope.RScene);
+        _rSceneScriptSearchBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyLegacyScriptSearch(LegacyScriptEditorScope.RScene);
+            e.SuppressKeyPress = true;
+        };
+        _rSceneScriptReplaceBox.TextChanged += (_, _) => UpdateLegacyScriptReplaceButton(LegacyScriptEditorScope.RScene);
+        _rSceneScriptReplaceButton.Click += (_, _) => ReplaceLegacyScriptSearchMatches(LegacyScriptEditorScope.RScene);
+        _rSceneScriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedLegacyScriptSearchResult(LegacyScriptEditorScope.RScene);
         _applyRSceneInlineDialogButton.Click += (_, _) => ApplyInlineRSceneScriptDialog();
         _resetRSceneInlineDialogButton.Click += (_, _) => LoadInlineRSceneScriptDialogForSelection();
         _rSceneScriptTree.AfterSelect += (_, _) => ShowSelectedRSceneScriptNode();
@@ -596,6 +630,14 @@ public sealed partial class MainForm
         _scriptScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedScriptScenarioAsync();
         _scriptSearchButton.Click += (_, _) => ApplyScriptSearch();
         _scriptClearSearchButton.Click += (_, _) => ClearScriptSearch();
+        _scriptSearchBox.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter) return;
+            ApplyScriptSearch();
+            e.SuppressKeyPress = true;
+        };
+        _scriptReplaceBox.TextChanged += (_, _) => UpdateLegacyScriptReplaceButton(LegacyScriptEditorScope.Script);
+        _scriptReplaceButton.Click += (_, _) => ReplaceLegacyScriptSearchMatches(LegacyScriptEditorScope.Script);
         _showScriptVariablesButton.Click += (_, _) => ShowScriptVariableUsageDialog(LegacyScriptEditorScope.Script);
         _locateScriptCommandButton.Click += (_, _) => LocateSelectedScriptCommandInTree();
         _copyScriptCommandButton.Click += (_, _) => CopySelectedScriptCommandSummary();
@@ -614,7 +656,7 @@ public sealed partial class MainForm
         _saveScriptStructureButton.Click += async (_, _) => await SaveCurrentLegacyScriptStructureAsync();
         _jumpScriptBattlefieldButton.Click += async (_, _) => await JumpScriptBattlefieldAsync();
         _scriptTree.AfterSelect += (_, _) => ShowSelectedScriptTreeNode();
-        _scriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedScriptSearchResult();
+        _scriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedLegacyScriptSearchResult(LegacyScriptEditorScope.Script);
         _scriptParameterGrid.SelectionChanged += (_, _) => ShowSelectedLegacyScriptParameter();
         _scriptParameterGrid.CellDoubleClick += (_, _) => EditSelectedLegacyScriptParameters();
         _scriptParameterValueBox.KeyDown += (_, e) =>

@@ -8201,33 +8201,7 @@ public sealed partial class MainForm
     private void BindScriptSearchResultRows(IReadOnlyList<ScenarioSearchResultRow> rows)
     {
         _scriptSearchResultGrid.DataSource = new BindingList<ScenarioSearchResultRow>(rows.ToList());
-        foreach (DataGridViewColumn column in _scriptSearchResultGrid.Columns)
-        {
-            column.HeaderText = column.DataPropertyName switch
-            {
-                nameof(ScenarioSearchResultRow.Index) => "序号",
-                nameof(ScenarioSearchResultRow.Kind) => "类型",
-                nameof(ScenarioSearchResultRow.Location) => "位置",
-                nameof(ScenarioSearchResultRow.Name) => "名称",
-                nameof(ScenarioSearchResultRow.Preview) => "预览",
-                nameof(ScenarioSearchResultRow.Annotation) => "中文注释",
-                nameof(ScenarioSearchResultRow.ActionHint) => "操作提示",
-                _ => column.HeaderText
-            };
-            if (column.DataPropertyName is nameof(ScenarioSearchResultRow.CommandRow)
-                or nameof(ScenarioSearchResultRow.TextEntry))
-            {
-                column.Visible = false;
-            }
-            column.SortMode = DataGridViewColumnSortMode.NotSortable;
-            if (column.DataPropertyName is nameof(ScenarioSearchResultRow.Location)
-                or nameof(ScenarioSearchResultRow.Preview)
-                or nameof(ScenarioSearchResultRow.Annotation)
-                or nameof(ScenarioSearchResultRow.ActionHint))
-            {
-                column.Width = 220;
-            }
-        }
+        ConfigureScriptSearchResultGrid(_scriptSearchResultGrid);
     }
 
     private string BuildScriptOverview(ScenarioStructureProbeResult structure, IReadOnlyList<ScenarioTextEntry> texts)
@@ -10335,65 +10309,10 @@ public sealed partial class MainForm
     }
 
     private void ApplyScriptSearch()
-    {
-        if (_currentScriptStructure == null) return;
-        var keyword = _scriptSearchBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(keyword))
-        {
-            ClearScriptSearch();
-            return;
-        }
-
-        _currentScriptSearchResults = _scenarioScriptSearchService.Search(keyword, _currentScriptStructure, _currentScriptTextEntries);
-
-        var commandRows = _currentScriptSearchResults
-            .Where(x => x.CommandRow != null)
-            .Select(x => x.CommandRow!)
-            .ToList();
-        var textRows = _currentScriptSearchResults
-            .Where(x => x.TextEntry != null)
-            .Select(x => x.TextEntry!)
-            .ToList();
-        SuppressScriptSelectionEvents(() =>
-        {
-            BindScriptSearchResultRows(_currentScriptSearchResults);
-        });
-        var preview = _currentScriptSearchResults.Count == 0
-            ? "未命中。"
-            : string.Join("\r\n", _currentScriptSearchResults.Take(20).Select(result =>
-                $"#{result.Index} {result.Kind} {result.Location} {result.Name} {result.Preview}"));
-        var prefix = $"剧本搜索：关键字“{keyword}”，命令 {commandRows.Count} 条，文本 {textRows.Count} 条。\r\n前 20 条：\r\n{preview}";
-        var firstResult = _currentScriptSearchResults.FirstOrDefault();
-        if (firstResult != null)
-        {
-            ShowScriptSearchResult(firstResult, prefix);
-        }
-        else
-        {
-            _scriptDetailBox.Text = prefix;
-        }
-        SetStatus($"剧本制作搜索：{commandRows.Count} 命令 / {textRows.Count} 文本");
-    }
+        => ApplyLegacyScriptSearch(LegacyScriptEditorScope.Script);
 
     private void ClearScriptSearch()
-    {
-        _scriptSearchBox.Clear();
-        _currentScriptSearchResults = Array.Empty<ScenarioSearchResultRow>();
-        SuppressScriptSelectionEvents(() =>
-        {
-            BindScriptSearchResultRows(_currentScriptSearchResults);
-        });
-
-        if (_currentScriptStructure != null && _scriptTree.SelectedNode != null)
-        {
-            ShowSelectedScriptTreeNode();
-        }
-        else if (_currentScriptStructure != null)
-        {
-            _scriptDetailBox.Text = BuildScriptOverview(_currentScriptStructure, _currentScriptTextEntries);
-        }
-        SetStatus("剧本制作搜索已清除");
-    }
+        => ClearLegacyScriptSearch(LegacyScriptEditorScope.Script);
 
     private bool SelectDefaultScriptTreeNode(bool ensureVisible = true)
     {

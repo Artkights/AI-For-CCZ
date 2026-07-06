@@ -24,6 +24,38 @@ public sealed partial class MainForm
         Assist
     }
 
+    private sealed class RoleCriticalQuoteComboItem
+    {
+        public int ID { get; init; }
+        public string 显示 { get; init; } = string.Empty;
+    }
+
+    private sealed class RoleCriticalAssignmentPreview
+    {
+        public bool HasChanges { get; init; }
+        public string Summary { get; init; } = string.Empty;
+    }
+
+    private sealed class RoleCriticalAssignmentSaveResult
+    {
+        public List<TableSaveResult> TableSaves { get; } = [];
+        public RoleCriticalSpecialSlotsSaveResult? SpecialSlotsSave { get; set; }
+    }
+
+    private sealed class RoleTextSaveResult
+    {
+        private readonly List<TableSaveResult> _tableSaves = [];
+        private readonly List<RoleCriticalSpecialSlotsSaveResult> _specialSlotSaves = [];
+
+        public int SaveCount => _tableSaves.Count + _specialSlotSaves.Count;
+        public int ChangedBytes => _tableSaves.Sum(x => x.ChangedBytes) + _specialSlotSaves.Sum(x => x.ChangedBytes);
+        public IReadOnlyList<string> BackupPaths => _tableSaves.Select(x => x.BackupPath).Concat(_specialSlotSaves.Select(x => x.BackupPath)).ToArray();
+
+        public void Add(TableSaveResult save) => _tableSaves.Add(save);
+        public void Add(RoleCriticalSpecialSlotsSaveResult save) => _specialSlotSaves.Add(save);
+        public void AddRange(IEnumerable<TableSaveResult> saves) => _tableSaves.AddRange(saves);
+    }
+
     private bool _updatingRoleEquipmentDetailControls;
 
     private void OpenRoleEditor()
@@ -343,6 +375,25 @@ public sealed partial class MainForm
         finally
         {
             _updatingRoleEquipmentDetailControls = false;
+        }
+    }
+
+    private void ClearRoleCriticalQuoteAssignmentControls()
+    {
+        _updatingRoleCriticalQuoteAssignmentControls = true;
+        try
+        {
+            _roleCriticalQuoteModeCombo.DataSource = null;
+            _roleCriticalQuoteAssignmentCombo.DataSource = null;
+            SetRoleCriticalQuoteAssignmentControlsEnabled(false);
+            _roleRetreatQuoteBox.Text = string.Empty;
+            _roleRetreatQuoteBox.Enabled = false;
+            _roleRetreatQuoteBox.ReadOnly = true;
+            _loadedRoleCriticalQuoteSelection = null;
+        }
+        finally
+        {
+            _updatingRoleCriticalQuoteAssignmentControls = false;
         }
     }
 
@@ -961,14 +1012,267 @@ public sealed partial class MainForm
         var bioRow = TryFindRowById(_roleBiographyRead.Data, roleId);
         var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuote(_project!, roleRow, _roleCriticalQuoteRead.Data);
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
+        var criticalSelection = criticalMapping.IsSpecialRoleQuote
+            ? new RoleCriticalQuoteSelection(RoleCriticalQuoteMode.Special, criticalMapping.QuoteIds.FirstOrDefault())
+            : new RoleCriticalQuoteSelection(RoleCriticalQuoteMode.Generic, ReadRoleCriticalGenericType(roleRow));
 
         _roleBiographyBox.Text = Convert.ToString(bioRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
-        ShowCriticalQuoteEditor(criticalMapping);
+        ShowRoleCriticalQuoteAssignmentControls(roleRow, criticalSelection);
+        ShowCriticalQuoteEditor(_roleQuoteMappingService.ResolveCriticalQuoteSelection(roleRow, _roleCriticalQuoteRead.Data, criticalSelection));
         _roleRetreatQuoteBox.Text = Convert.ToString(retreatMapping.QuoteRow?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+        ShowRetreatQuoteRule(retreatMapping);
         ShowRoleEquipmentDetails(roleRow);
 
         var canSaveAny = bioRow != null || criticalMapping.QuoteRows.Count > 0 || retreatMapping.QuoteRow != null;
         _saveRoleTextDetailButton.Enabled = canSaveAny;
+    }
+
+    private void ShowRoleCriticalQuoteAssignmentControls(DataRow roleRow, RoleCriticalQuoteSelection selection)
+    {
+        _updatingRoleCriticalQuoteAssignmentControls = true;
+        try
+        {
+            _loadedRoleCriticalQuoteSelection = selection;
+            _roleCriticalQuoteModeCombo.DataSource = new[]
+            {
+                new RoleCriticalQuoteComboItem { ID = (int)RoleCriticalQuoteMode.Special, 显示 = "特殊人物台词" },
+                new RoleCriticalQuoteComboItem { ID = (int)RoleCriticalQuoteMode.Generic, 显示 = "普通类型台词" }
+            };
+            _roleCriticalQuoteModeCombo.SelectedValue = (int)selection.Mode;
+            RefreshRoleCriticalQuoteAssignmentCombo(roleRow, selection);
+            SetRoleCriticalQuoteAssignmentControlsEnabled(true);
+        }
+        finally
+        {
+            _updatingRoleCriticalQuoteAssignmentControls = false;
+        }
+    }
+
+    private void RefreshRoleCriticalQuoteAssignmentCombo(DataRow roleRow, RoleCriticalQuoteSelection selection)
+    {
+        _roleCriticalQuoteAssignmentCombo.DataSource = selection.Mode == RoleCriticalQuoteMode.Special
+            ? BuildRoleCriticalSpecialSlotLookup()
+            : BuildRoleCriticalGenericTypeLookup();
+        _roleCriticalQuoteAssignmentCombo.SelectedValue = selection.Value;
+        if (_roleCriticalQuoteAssignmentCombo.SelectedIndex < 0 && _roleCriticalQuoteAssignmentCombo.Items.Count > 0)
+        {
+            _roleCriticalQuoteAssignmentCombo.SelectedIndex = 0;
+            selection = new RoleCriticalQuoteSelection(selection.Mode, Convert.ToInt32(_roleCriticalQuoteAssignmentCombo.SelectedValue, CultureInfo.InvariantCulture));
+        }
+
+    }
+
+    private List<RoleCriticalQuoteComboItem> BuildRoleCriticalSpecialSlotLookup()
+    {
+        var specialRoleIds = _project == null
+            ? Array.Empty<int>()
+            : _roleQuoteMappingService.ReadSpecialCriticalRoleIds(_project).ToArray();
+        var items = new List<RoleCriticalQuoteComboItem>(RoleQuoteMappingService.CriticalSpecialQuoteCount);
+        for (var i = 0; i < RoleQuoteMappingService.CriticalSpecialQuoteCount; i++)
+        {
+            var roleId = i < specialRoleIds.Length ? specialRoleIds[i] : RoleQuoteMappingService.CriticalSpecialEmptyRoleId;
+            var roleText = roleId == RoleQuoteMappingService.CriticalSpecialEmptyRoleId
+                ? "空槽"
+                : $"{roleId} {FindRoleNameForDisplay(roleId)}";
+            items.Add(new RoleCriticalQuoteComboItem
+            {
+                ID = i,
+                显示 = $"特殊 #{i}：{roleText}"
+            });
+        }
+
+        return items;
+    }
+
+    private List<RoleCriticalQuoteComboItem> BuildRoleCriticalGenericTypeLookup()
+    {
+        var items = new List<RoleCriticalQuoteComboItem>(RoleQuoteMappingService.CriticalGenericTypeCount);
+        for (var type = 0; type < RoleQuoteMappingService.CriticalGenericTypeCount; type++)
+        {
+            var firstId = RoleQuoteMappingService.FirstGenericCriticalQuoteId(type);
+            items.Add(new RoleCriticalQuoteComboItem
+            {
+                ID = type,
+                显示 = $"类型 {type}：#{firstId}-#{firstId + RoleQuoteMappingService.CriticalGenericGroupSize - 1} {BuildGenericCriticalQuoteSummary(firstId)}"
+            });
+        }
+
+        return items;
+    }
+
+    private string BuildGenericCriticalQuoteSummary(int firstId)
+    {
+        if (_roleCriticalQuoteRead == null) return string.Empty;
+        var snippets = new List<string>(RoleQuoteMappingService.CriticalGenericGroupSize);
+        for (var id = firstId; id < firstId + RoleQuoteMappingService.CriticalGenericGroupSize; id++)
+        {
+            var row = TryFindRowById(_roleCriticalQuoteRead.Data, id);
+            var text = Convert.ToString(row?["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            snippets.Add(text.Length > 8 ? text[..8] + "..." : text);
+        }
+
+        return snippets.Count == 0 ? "未填写" : string.Join(" / ", snippets);
+    }
+
+    private string FindRoleNameForDisplay(int roleId)
+    {
+        if (_currentRoleEditorData != null && TryFindRowById(_currentRoleEditorData, roleId) is { } row)
+        {
+            return Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? "未命名";
+        }
+
+        return "未读取";
+    }
+
+    private void SetRoleCriticalQuoteAssignmentControlsEnabled(bool enabled)
+    {
+        _roleCriticalQuoteModeCombo.Enabled = enabled;
+        _roleCriticalQuoteAssignmentCombo.Enabled = enabled;
+    }
+
+    private void ChangeRoleCriticalQuoteModeFromUi()
+    {
+        if (_updatingRoleCriticalQuoteAssignmentControls || _roleEditorGrid.CurrentRow == null) return;
+        if (TryGetDataRow(_roleEditorGrid.CurrentRow) is not { } roleRow) return;
+        if (_roleCriticalQuoteModeCombo.SelectedValue == null) return;
+
+        var mode = (RoleCriticalQuoteMode)Convert.ToInt32(_roleCriticalQuoteModeCombo.SelectedValue, CultureInfo.InvariantCulture);
+        var value = mode == RoleCriticalQuoteMode.Special
+            ? ResolveDefaultSpecialCriticalSlotForRole(roleRow)
+            : ReadRoleCriticalGenericType(roleRow);
+        var selection = new RoleCriticalQuoteSelection(mode, value);
+        _updatingRoleCriticalQuoteAssignmentControls = true;
+        try
+        {
+            RefreshRoleCriticalQuoteAssignmentCombo(roleRow, selection);
+            _roleCriticalQuoteAssignmentCombo.SelectedValue = value;
+        }
+        finally
+        {
+            _updatingRoleCriticalQuoteAssignmentControls = false;
+        }
+
+        RefreshCriticalQuoteEditorFromAssignment(roleRow);
+    }
+
+    private void ChangeRoleCriticalQuoteAssignmentFromUi()
+    {
+        if (_updatingRoleCriticalQuoteAssignmentControls || _roleEditorGrid.CurrentRow == null) return;
+        if (TryGetDataRow(_roleEditorGrid.CurrentRow) is not { } roleRow) return;
+        RefreshCriticalQuoteEditorFromAssignment(roleRow);
+    }
+
+    private void RefreshCriticalQuoteEditorFromAssignment(DataRow roleRow)
+    {
+        if (_roleCriticalQuoteRead == null) return;
+        var selection = GetCurrentRoleCriticalQuoteSelection();
+        var mapping = _roleQuoteMappingService.ResolveCriticalQuoteSelection(roleRow, _roleCriticalQuoteRead.Data, selection);
+        ShowCriticalQuoteEditor(mapping);
+        _saveRoleTextDetailButton.Enabled = true;
+    }
+
+    private RoleCriticalQuoteSelection GetCurrentRoleCriticalQuoteSelection()
+    {
+        var modeValue = _roleCriticalQuoteModeCombo.SelectedValue == null
+            ? (int)RoleCriticalQuoteMode.Generic
+            : Convert.ToInt32(_roleCriticalQuoteModeCombo.SelectedValue, CultureInfo.InvariantCulture);
+        var assignmentValue = _roleCriticalQuoteAssignmentCombo.SelectedValue == null
+            ? 0
+            : Convert.ToInt32(_roleCriticalQuoteAssignmentCombo.SelectedValue, CultureInfo.InvariantCulture);
+        return new RoleCriticalQuoteSelection((RoleCriticalQuoteMode)modeValue, assignmentValue);
+    }
+
+    private int ResolveDefaultSpecialCriticalSlotForRole(DataRow roleRow)
+    {
+        if (_project == null) return 0;
+        var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
+        return _roleQuoteMappingService.FindSpecialCriticalQuoteId(_project, roleId)
+            ?? FindFirstEmptySpecialCriticalSlot()
+            ?? 0;
+    }
+
+    private int? FindFirstEmptySpecialCriticalSlot()
+    {
+        if (_project == null) return null;
+        var ids = _roleQuoteMappingService.ReadSpecialCriticalRoleIds(_project);
+        for (var i = 0; i < ids.Count; i++)
+        {
+            if (ids[i] == RoleQuoteMappingService.CriticalSpecialEmptyRoleId) return i;
+        }
+
+        return null;
+    }
+
+    private static int ReadRoleCriticalGenericType(DataRow roleRow)
+    {
+        var value = Convert.ToInt32(roleRow["暴击台词"], CultureInfo.InvariantCulture);
+        return value >= 0 && value < RoleQuoteMappingService.CriticalGenericTypeCount ? value : 0;
+    }
+
+    private RoleCriticalAssignmentPreview BuildRoleCriticalAssignmentPreview(DataRow roleRow, RoleCriticalQuoteSelection selection)
+    {
+        var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
+        var currentSpecial = _project == null ? null : _roleQuoteMappingService.FindSpecialCriticalQuoteId(_project, roleId);
+        var currentGeneric = ReadRoleCriticalGenericType(roleRow);
+        if (selection.Mode == RoleCriticalQuoteMode.Special)
+        {
+            var specialRoleIds = _project == null
+                ? Array.Empty<int>()
+                : _roleQuoteMappingService.ReadSpecialCriticalRoleIds(_project).ToArray();
+            var targetOwner = selection.Value >= 0 && selection.Value < specialRoleIds.Length
+                ? specialRoleIds[selection.Value]
+                : RoleQuoteMappingService.CriticalSpecialEmptyRoleId;
+            var replacesOther = targetOwner != RoleQuoteMappingService.CriticalSpecialEmptyRoleId && targetOwner != roleId;
+            var summary = $"暴击分配：特殊人物台词槽 #{selection.Value}";
+            if (currentSpecial is { } oldSlot && oldSlot != selection.Value)
+            {
+                summary += $"；将从原特殊槽 #{oldSlot} 移至 #{selection.Value}";
+            }
+            else if (currentSpecial == null)
+            {
+                summary += "；将从普通类型切换为特殊人物台词";
+            }
+
+            if (replacesOther)
+            {
+                summary += $"；将替换 ID={targetOwner} {FindRoleNameForDisplay(targetOwner)}";
+            }
+
+            return new RoleCriticalAssignmentPreview
+            {
+                HasChanges = currentSpecial != selection.Value || replacesOther,
+                Summary = summary
+            };
+        }
+
+        var firstId = RoleQuoteMappingService.FirstGenericCriticalQuoteId(selection.Value);
+        var hasChanges = currentSpecial != null || currentGeneric != selection.Value;
+        var text = $"暴击分配：普通类型 {selection.Value}，实际行 #{firstId}..#{firstId + 2}";
+        if (currentSpecial is { } oldSpecial)
+        {
+            text += $"；将移除原特殊槽 #{oldSpecial}";
+        }
+        else if (currentGeneric != selection.Value)
+        {
+            text += $"；人物表字段从 {currentGeneric} 改为 {selection.Value}";
+        }
+
+        return new RoleCriticalAssignmentPreview { HasChanges = hasChanges, Summary = text };
+    }
+
+    private void ShowRetreatQuoteRule(RoleRetreatQuoteMapping mapping)
+    {
+        if (mapping.QuoteRow == null)
+        {
+            _roleRetreatQuoteBox.Text = string.Empty;
+            _roleRetreatQuoteBox.Enabled = false;
+            _roleRetreatQuoteBox.ReadOnly = true;
+            return;
+        }
+
+        _roleRetreatQuoteBox.Enabled = true;
+        _roleRetreatQuoteBox.ReadOnly = false;
     }
 
     private void ShowCriticalQuoteEditor(RoleCriticalQuoteMapping mapping)
@@ -1035,8 +1339,11 @@ public sealed partial class MainForm
         var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
         var roleName = Convert.ToString(roleRow["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
         var bioRow = FindRowById(_roleBiographyRead.Data, roleId);
-        var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuote(_project, roleRow, _roleCriticalQuoteRead.Data);
+        var criticalSelection = GetCurrentRoleCriticalQuoteSelection();
+        var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuoteSelection(roleRow, _roleCriticalQuoteRead.Data, criticalSelection);
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
+
+        ValidateRoleTextCapacities(criticalMapping, retreatMapping);
 
         bioRow["介绍"] = _roleBiographyBox.Text;
         ApplyCriticalQuoteEditorToRows(criticalMapping);
@@ -1046,7 +1353,9 @@ public sealed partial class MainForm
             retreatMapping.QuoteRow["介绍"] = _roleRetreatQuoteBox.Text;
         }
 
-        if (_roleBiographyRead.Data.GetChanges() == null &&
+        var assignmentPreview = BuildRoleCriticalAssignmentPreview(roleRow, criticalSelection);
+        if (!assignmentPreview.HasChanges &&
+            _roleBiographyRead.Data.GetChanges() == null &&
             _roleCriticalQuoteRead.Data.GetChanges() == null &&
             _roleRetreatQuoteRead.Data.GetChanges() == null)
         {
@@ -1057,12 +1366,13 @@ public sealed partial class MainForm
         var preview =
             $"角色：{roleId} {roleName}\r\n" +
             $"列传 GBK：{EncodingService.GetGbkByteCount(_roleBiographyBox.Text)}/200\r\n" +
+            assignmentPreview.Summary + "\r\n" +
             $"暴击台词：{string.Join(", ", criticalMapping.QuoteIds.Select(id => "#" + id.ToString(CultureInfo.InvariantCulture)))} {BuildCriticalQuoteByteHint(criticalMapping)}\r\n" +
             (retreatMapping.QuoteRow == null
-                ? "撤退台词：未找到实际会使用的撤退台词行，本次不写回撤退台词。"
+                ? "撤退台词：人物 ID 不在 0..48，原生撤退台词本次不写回；请用 S 战场事件处理。"
                 : $"撤退台词 #{retreatMapping.QuoteId} GBK：{EncodingService.GetGbkByteCount(_roleRetreatQuoteBox.Text)}/200");
         if (MessageBox.Show(this,
-                $"即将保存当前角色列传/台词到 Imsg.e5。\r\n\r\n{preview}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
+                $"即将保存当前角色列传/台词与暴击分配。\r\n\r\n{preview}\r\n\r\n可能写入 Data.e5、Imsg.e5、Ekd5.exe；保存前会自动备份，保存后会重新读取校验。是否继续？",
                 "确认保存角色文本",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -1073,14 +1383,14 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            var saves = SaveRoleTextDetailsCore();
+            var result = SaveRoleTextDetailsCore(roleRow, criticalSelection);
             ShowRoleTextDetails(roleRow);
-            var changedBytes = saves.Sum(x => x.ChangedBytes);
-            System.Diagnostics.Debug.WriteLine($"已保存角色文本：{roleId} {roleName}，保存表 {saves.Count} 个，变化字节 {changedBytes}");
-            foreach (var save in saves) System.Diagnostics.Debug.WriteLine("角色文本备份：" + save.BackupPath);
+            var changedBytes = result.ChangedBytes;
+            System.Diagnostics.Debug.WriteLine($"已保存角色文本：{roleId} {roleName}，保存项 {result.SaveCount} 个，变化字节 {changedBytes}");
+            foreach (var backup in result.BackupPaths) System.Diagnostics.Debug.WriteLine("角色文本备份：" + backup);
             SetStatus($"角色文本保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
-                $"保存完成并已重新读取校验。\r\n保存表数量：{saves.Count}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", saves.Select(x => x.BackupPath))}",
+                $"保存完成并已重新读取校验。\r\n保存项数量：{result.SaveCount}\r\n变化字节：{changedBytes}\r\n备份：{string.Join("; ", result.BackupPaths)}",
                 "保存完成",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -1150,13 +1460,118 @@ public sealed partial class MainForm
         }
     }
 
-    private IReadOnlyList<TableSaveResult> SaveRoleTextDetailsCore()
+    private void ValidateRoleTextCapacities(RoleCriticalQuoteMapping criticalMapping, RoleRetreatQuoteMapping retreatMapping)
     {
-        var saves = new List<TableSaveResult>();
-        if (_roleBiographyRead != null && SaveChangedTableAndVerify(_roleBiographyRead) is { } biographySave) saves.Add(biographySave);
-        if (_roleCriticalQuoteRead != null && SaveChangedTableAndVerify(_roleCriticalQuoteRead) is { } criticalSave) saves.Add(criticalSave);
-        if (_roleRetreatQuoteRead != null && SaveChangedTableAndVerify(_roleRetreatQuoteRead) is { } retreatSave) saves.Add(retreatSave);
-        return saves;
+        _ = EncodingService.EncodeFixedString(_roleBiographyBox.Text, 200);
+        for (var i = 0; i < criticalMapping.QuoteRows.Count && i < _roleCriticalQuoteBoxes.Length; i++)
+        {
+            _ = EncodingService.EncodeFixedString(_roleCriticalQuoteBoxes[i].Text, 200);
+        }
+
+        if (retreatMapping.QuoteRow != null)
+        {
+            _ = EncodingService.EncodeFixedString(_roleRetreatQuoteBox.Text, 200);
+        }
+    }
+
+    private RoleTextSaveResult SaveRoleTextDetailsCore(DataRow? roleRow = null, RoleCriticalQuoteSelection? criticalSelection = null)
+    {
+        var result = new RoleTextSaveResult();
+        if (_project != null && roleRow != null && criticalSelection is { } selection)
+        {
+            var assignmentResult = SaveRoleCriticalQuoteAssignment(roleRow, selection);
+            result.AddRange(assignmentResult.TableSaves);
+            if (assignmentResult.SpecialSlotsSave != null) result.Add(assignmentResult.SpecialSlotsSave);
+        }
+
+        if (_roleBiographyRead != null && SaveChangedTableAndVerify(_roleBiographyRead) is { } biographySave) result.Add(biographySave);
+        if (_roleCriticalQuoteRead != null && SaveChangedTableAndVerify(_roleCriticalQuoteRead) is { } criticalSave) result.Add(criticalSave);
+        if (_roleRetreatQuoteRead != null && SaveChangedTableAndVerify(_roleRetreatQuoteRead) is { } retreatSave) result.Add(retreatSave);
+        return result;
+    }
+
+    private RoleCriticalAssignmentSaveResult SaveRoleCriticalQuoteAssignment(DataRow roleRow, RoleCriticalQuoteSelection selection)
+    {
+        var result = new RoleCriticalAssignmentSaveResult();
+        if (_project == null) return result;
+
+        var roleId = Convert.ToInt32(roleRow["ID"], CultureInfo.InvariantCulture);
+        var specialRoleIds = _roleQuoteMappingService.ReadSpecialCriticalRoleIds(_project).ToList();
+        if (specialRoleIds.Count != RoleQuoteMappingService.CriticalSpecialQuoteCount)
+        {
+            throw new InvalidOperationException("无法读取完整的 21 槽特殊暴击人物表，已取消保存。");
+        }
+
+        for (var i = 0; i < specialRoleIds.Count; i++)
+        {
+            if (specialRoleIds[i] == roleId)
+            {
+                specialRoleIds[i] = RoleQuoteMappingService.CriticalSpecialEmptyRoleId;
+            }
+        }
+
+        if (selection.Mode == RoleCriticalQuoteMode.Special)
+        {
+            if (selection.Value < 0 || selection.Value >= RoleQuoteMappingService.CriticalSpecialQuoteCount)
+            {
+                throw new InvalidOperationException("特殊暴击槽超出 0..20。");
+            }
+
+            specialRoleIds[selection.Value] = roleId;
+        }
+
+        result.SpecialSlotsSave = _roleQuoteMappingService.SaveSpecialCriticalRoleIds(_project, specialRoleIds);
+
+        if (selection.Mode == RoleCriticalQuoteMode.Generic)
+        {
+            result.TableSaves.AddRange(SaveRoleCriticalGenericTypeField(roleId, selection.Value));
+            SetCurrentRoleEditorCriticalType(roleRow, selection.Value);
+        }
+
+        return result;
+    }
+
+    private IReadOnlyList<TableSaveResult> SaveRoleCriticalGenericTypeField(int roleId, int genericType)
+    {
+        if (_project == null) return Array.Empty<TableSaveResult>();
+        if (genericType < 0 || genericType >= RoleQuoteMappingService.CriticalGenericTypeCount)
+        {
+            throw new InvalidOperationException($"普通暴击台词类型必须在 0..{RoleQuoteMappingService.CriticalGenericTypeCount - 1}。");
+        }
+
+        var personTable = FindTable(_tables, "6.5-0 人物");
+        var personRead = _tableReader.Read(_project, personTable, _tables);
+        if (!personRead.Validation.IsUsable)
+        {
+            throw new InvalidOperationException("人物表不可读取，无法保存暴击台词普通类型字段。");
+        }
+
+        var personRow = FindRowById(personRead.Data, roleId);
+        var oldValue = Convert.ToInt32(personRow["暴击台词"], CultureInfo.InvariantCulture);
+        if (oldValue == genericType)
+        {
+            return Array.Empty<TableSaveResult>();
+        }
+
+        personRow["暴击台词"] = genericType;
+        return SaveChangedTableAndVerify(personRead) is { } save
+            ? new[] { save }
+            : Array.Empty<TableSaveResult>();
+    }
+
+    private void SetCurrentRoleEditorCriticalType(DataRow roleRow, int genericType)
+    {
+        if (!roleRow.Table.Columns.Contains("暴击台词")) return;
+        roleRow["暴击台词"] = genericType;
+        if (_roleEditorGrid.CurrentRow != null)
+        {
+            foreach (DataGridViewCell cell in _roleEditorGrid.CurrentRow.Cells)
+            {
+                if (!string.Equals(_roleEditorGrid.Columns[cell.ColumnIndex].DataPropertyName, "暴击台词", StringComparison.Ordinal)) continue;
+                cell.Value = genericType;
+                break;
+            }
+        }
     }
 
     private IReadOnlyList<TableSaveResult> SaveRoleEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables, DataTable roleData)
@@ -4534,6 +4949,20 @@ public sealed partial class MainForm
         => IsItemDescriptionReadUsable(_itemDescriptionLowRead) &&
            IsItemDescriptionReadUsable(_itemDescriptionHighRead);
 
+    private static readonly string[] ItemEditorDerivedColumnNames =
+    [
+        "物品大类",
+        "项目类型",
+        "类型样例",
+        "类型来源",
+        "类型说明",
+        "价格显示",
+        "装备特效名",
+        "实际效果号",
+        "实际效果说明",
+        "特效提示"
+    ];
+
     private DataTable BuildItemEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         _itemBaseLowRead = _tableReader.Read(project, FindTable(tables, "6.5-1 物品（0-103）"), tables);
@@ -4576,32 +5005,11 @@ public sealed partial class MainForm
         AddItemEditorRows(output, _itemBaseHighRead, _itemDescriptionHighRead, "104-255", boundary);
 
         output.AcceptChanges();
-        output.Columns["ID"]!.ReadOnly = true;
-        output.Columns["分段"]!.ReadOnly = true;
-        output.Columns["大类"]!.ReadOnly = true;
-        output.Columns["项目类型"]!.ReadOnly = true;
-        output.Columns["类型样例"]!.ReadOnly = true;
-        output.Columns["类型来源"]!.ReadOnly = true;
-        output.Columns["来源文件"]!.ReadOnly = true;
-        output.Columns[ItemDescriptionColumnName]!.ReadOnly = !CanWriteItemDescriptions;
         return output;
     }
 
     private IReadOnlyList<ItemEffectCatalogEntry> BuildDefaultItemEffectCatalogEntries(CczProject project, IReadOnlyList<HexTableDefinition> tables)
-    {
-        var entries = new List<ItemEffectCatalogEntry>();
-        foreach (var pair in BuildBaseItemEffectNameLookup(project, tables).OrderBy(pair => pair.Key))
-        {
-            entries.Add(new ItemEffectCatalogEntry
-            {
-                EffectId = pair.Key,
-                Name = pair.Value,
-                Description = string.Empty
-            });
-        }
-
-        return entries;
-    }
+        => _itemEffectNameReader.ReadBaseCatalogEntries(project, tables);
 
     private void AddItemEditorRows(DataTable output, TableReadResult itemRead, TableReadResult descriptionRead, string segment, ItemCategoryBoundary boundary)
     {
@@ -4631,6 +5039,9 @@ public sealed partial class MainForm
             var effectId = output.Columns.Contains("装备特效号")
                 ? Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture)
                 : 0;
+            var rawEffectMarker = row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
+                ? Convert.ToInt32(row[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture)
+                : effectId;
             var effectValue = output.Columns.Contains("装备特效号-效果值")
                 ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture)
                 : 0;
@@ -4640,16 +5051,16 @@ public sealed partial class MainForm
             var classification = ItemClassificationService.Classify(row, boundary);
             row["物品大类"] = classification.DisplayName;
             var majorCategory = classification.DisplayName;
-            var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
+            var effect = ResolveItemEffect(majorCategory, typeId, rawEffectMarker);
             RefreshItemEditorTypeProfileCells(row, typeId, majorCategory);
             row["价格显示"] = BuildItemPriceText(priceUnit);
-            row["装备特效名"] = BuildItemEffectNameDisplay(majorCategory, typeId, effectId);
-            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, effectId);
-            row["实际效果说明"] = ItemEffectInterpretationService.BuildEffectiveEffectDescription(majorCategory, typeId, effectId, effectiveEffectId, GetItemEffectName);
+            row["装备特效名"] = BuildItemEffectNameDisplay(effect);
+            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, rawEffectMarker);
+            row["实际效果说明"] = effect.Description;
             row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
                 majorCategory,
                 typeId,
-                effectId,
+                rawEffectMarker,
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
                 effectValue,
                 growth);
@@ -4688,6 +5099,24 @@ public sealed partial class MainForm
         return _itemEffectNames.TryGetValue(effectId, out var name)
             ? name
             : $"未命名或未确认：{HexDisplayFormatter.Format(effectId, 2)}";
+    }
+
+    private ItemEffectResolutionResult ResolveItemEffect(string majorCategory, int typeId, int effectId)
+    {
+        if (_project == null)
+        {
+            return new ItemEffectResolutionResult
+            {
+                RawEffectId = effectId,
+                EffectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId),
+                DisplayName = GetItemEffectName(effectId),
+                Description = GetItemEffectName(effectId),
+                Source = "UiFallback",
+                Confidence = "Unknown"
+            };
+        }
+
+        return _itemEffectResolutionService.Resolve(_project, _tables, majorCategory, typeId, effectId);
     }
 
     private void OpenItemEffectCatalogEditor()
@@ -4898,6 +5327,12 @@ public sealed partial class MainForm
             : GetItemEffectName(effectiveEffectId);
     }
 
+    private static string BuildItemEffectNameDisplay(ItemEffectResolutionResult effect)
+        => effect.RawEffectId is 0 or 255 ||
+           effect.EffectiveEffectId is 0 or 255
+            ? "无"
+            : effect.DisplayName;
+
     // Keep these wrappers temporarily so existing smoke tests and private-call sites can continue to resolve.
     private static int ResolveEffectiveItemEffectId(string majorCategory, int typeId, int effectId)
         => ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
@@ -5045,11 +5480,9 @@ public sealed partial class MainForm
         foreach (DataGridViewColumn column in _itemEditorGrid.Columns)
         {
             column.Visible = IsVisibleItemEditorColumn(column.DataPropertyName) && !IsHiddenItemEditorColumn(column.DataPropertyName);
-            column.ReadOnly = column.DataPropertyName is "ID" or "分段" or "大类" or "物品大类" or "项目类型" or "类型样例" or "类型来源" or "类型说明" or "价格显示" or "装备特效名" or "实际效果号" or "实际效果说明" or "特效提示" or "来源文件";
-            if (column.DataPropertyName == ItemDescriptionColumnName && !CanWriteItemDescriptions)
-            {
-                column.ReadOnly = true;
-            }
+            column.ReadOnly = IsItemEditorUserReadOnlyColumn(column.DataPropertyName);
+            column.DefaultCellStyle.BackColor = column.ReadOnly ? Color.FromArgb(245, 245, 245) : Color.Empty;
+            column.DefaultCellStyle.ForeColor = column.ReadOnly ? SystemColors.GrayText : SystemColors.ControlText;
             column.ToolTipText = BuildItemColumnAnnotation(column.DataPropertyName);
             column.HeaderText = BuildItemEditorColumnHeader(column.DataPropertyName);
             if (column.DataPropertyName == "ID") column.Width = 48;
@@ -5070,6 +5503,17 @@ public sealed partial class MainForm
         RefreshItemEditorRowStyles();
     }
 
+    private bool IsItemEditorUserReadOnlyColumn(string columnName)
+        => IsItemEditorAlwaysUserReadOnlyColumn(columnName) ||
+           columnName == ItemDescriptionColumnName && !CanWriteItemDescriptions;
+
+    private static bool IsItemEditorAlwaysUserReadOnlyColumn(string columnName)
+        => columnName is "ID" or "分段" or "大类" or "来源文件" ||
+           ItemEditorDerivedColumnNames.Contains(columnName, StringComparer.Ordinal);
+
+    private bool IsItemEditorUserEditableColumn(string columnName)
+        => !IsItemEditorUserReadOnlyColumn(columnName);
+
     private string BuildItemColumnAnnotation(string columnName)
     {
         if (columnName == "ID") return "物品/宝物编号；0-103 来源 Data.e5，104 以后来源 Star.e5。";
@@ -5087,7 +5531,12 @@ public sealed partial class MainForm
         if (columnName == "实际效果号") return "创作者视角的实际效果候选：武器/防具优先取装备特效号；辅助装备常见原始值 2、道具常见原始值 3 时，当前优先改看类型字段。";
         if (columnName == "实际效果说明") return "对原始字段的保守纠偏说明，用于避免把辅助装备/道具类别标记误读成真实装备特效。";
         if (columnName == "特效提示") return "把装备特效号、效果值和成长集中提示；辅助段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
-        if (columnName == "图标") return "物品图标编号；界面会按该编号从 Itemicon.dll 提取候选图标预览，最终映射仍建议实机确认。";
+        if (columnName == "图标")
+        {
+            return _project != null && Ccz66RevisedLayout.Is66(_project)
+                ? "物品表图标字段号；6.6 按字段 N 映射 E5\\Item.e5 小图 #2N+1、大图 #2N+2，默认预览大图。"
+                : "物品图标编号；界面会按该编号从 Itemicon.dll 提取候选图标预览，最终映射仍建议实机确认。";
+        }
         if (columnName == ItemDescriptionColumnName)
         {
             return CanWriteItemDescriptions
@@ -5127,7 +5576,9 @@ public sealed partial class MainForm
             $"项目类型来源：{string.Join("，", typeSourceGroups)}；人工校正文件：{notesPath}\r\n" +
             $"{descriptionStatus}\r\n" +
             "界面按旧版宝物编辑器顺序显示：ID、名称、图标、物品大类、类型码、初始能力、能力成长、价格、特效号、特效名、特效值、图鉴、介绍；隐藏分段/项目类型诊断/长解释列和重复价格列。\r\n" +
-            "右侧图标预览按“图标”字段从 Itemicon.dll 枚举候选图标，保存仍写回原始字段。\r\n" +
+            (Ccz66RevisedLayout.Is66(_project!)
+                ? "右侧图标预览按“图标”字段映射 E5\\Item.e5 小图 #2N+1 / 大图 #2N+2，保存仍写回原始字段。\r\n"
+                : "右侧图标预览按“图标”字段从 Itemicon.dll 枚举候选图标，保存仍写回原始字段。\r\n") +
             "保存前自动备份，保存后重新读取校验。";
     }
 
@@ -5198,13 +5649,15 @@ public sealed partial class MainForm
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
-        var readOnlySnapshot = CaptureItemEditorCsvReadOnlySnapshot(table);
         try
         {
-            SetItemEditorCsvDerivedColumnsReadOnly(table, readOnly: true);
-            var importResult = CsvService.ImportIntoWithChanges(table, dialog.FileName, allowPartialColumns: true, matchByIdWhenPresent: true);
+            var importResult = CsvService.ImportIntoWithChanges(
+                table,
+                dialog.FileName,
+                allowPartialColumns: true,
+                matchByIdWhenPresent: true,
+                IsItemEditorUserEditableColumn);
             var count = importResult.ImportedRows;
-            RestoreItemEditorCsvReadOnlySnapshot(table, readOnlySnapshot);
             var changedCells = importResult.ChangedCells
                 .Select(cell => new GridCellKey(cell.RowKey, cell.RowIndex, cell.ColumnName))
                 .ToList();
@@ -5213,54 +5666,20 @@ public sealed partial class MainForm
             ShowSelectedItemEditorCell();
             ResetItemEditorHistory();
             System.Diagnostics.Debug.WriteLine($"已导入宝物设定 CSV：{dialog.FileName}，更新行 {count}");
-            SetStatus($"宝物设定 CSV 导入完成：更新 {count} 行，请检查后保存。");
+            var skippedText = importResult.SkippedReadOnlyCells > 0
+                ? $"，跳过只读/匹配列单元格 {importResult.SkippedReadOnlyCells} 个"
+                : string.Empty;
+            SetStatus($"宝物设定 CSV 导入完成：更新 {count} 行{skippedText}，请检查后保存。");
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine("宝物设定 CSV 导入失败：" + ex);
             MessageBox.Show(this, ex.Message, "宝物设定 CSV 导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-        finally
-        {
-            RestoreItemEditorCsvReadOnlySnapshot(table, readOnlySnapshot);
-        }
     }
 
-    private static Dictionary<string, bool> CaptureItemEditorCsvReadOnlySnapshot(DataTable table)
-        => GetItemEditorDerivedColumnNames()
-            .Where(table.Columns.Contains)
-            .ToDictionary(columnName => columnName, columnName => table.Columns[columnName]!.ReadOnly, StringComparer.Ordinal);
-
-    private static void RestoreItemEditorCsvReadOnlySnapshot(DataTable table, IReadOnlyDictionary<string, bool> snapshot)
-    {
-        foreach (var pair in snapshot)
-        {
-            if (table.Columns.Contains(pair.Key)) table.Columns[pair.Key]!.ReadOnly = pair.Value;
-        }
-    }
-
-    private static void SetItemEditorCsvDerivedColumnsReadOnly(DataTable table, bool readOnly)
-    {
-        foreach (var columnName in GetItemEditorDerivedColumnNames())
-        {
-            if (table.Columns.Contains(columnName)) table.Columns[columnName]!.ReadOnly = readOnly;
-        }
-    }
-
-    private static string[] GetItemEditorDerivedColumnNames()
-        =>
-        [
-            "物品大类",
-            "项目类型",
-            "类型样例",
-            "类型来源",
-            "类型说明",
-            "价格显示",
-            "装备特效名",
-            "实际效果号",
-            "实际效果说明",
-            "特效提示"
-        ];
+    private static IReadOnlyList<string> GetItemEditorDerivedColumnNames()
+        => ItemEditorDerivedColumnNames;
 
     private void RefreshItemEditorAfterBulkEdit()
     {
@@ -5651,7 +6070,9 @@ public sealed partial class MainForm
         var column = _itemEditorGrid.Columns[columnIndex];
         if (column.ReadOnly || !column.Visible) return false;
         var cell = _itemEditorGrid.Rows[rowIndex].Cells[columnIndex];
-        return !cell.ReadOnly && TryGetDataRow(_itemEditorGrid.Rows[rowIndex]) != null;
+        return !cell.ReadOnly &&
+               !IsItemEditorUserReadOnlyColumn(column.DataPropertyName) &&
+               TryGetDataRow(_itemEditorGrid.Rows[rowIndex]) != null;
     }
 
     private (int Row, int Column)? GetItemEditorPasteStartCell()
@@ -5720,6 +6141,7 @@ public sealed partial class MainForm
         if (cell.ReadOnly) return false;
         columnName = column.DataPropertyName;
         if (string.IsNullOrEmpty(columnName) || _currentItemEditorData?.Columns.Contains(columnName) != true) return false;
+        if (IsItemEditorUserReadOnlyColumn(columnName)) return false;
         row = TryGetDataRow(_itemEditorGrid.Rows[rowIndex])!;
         return row != null;
     }
@@ -5858,6 +6280,7 @@ public sealed partial class MainForm
         if (IsDataRowChanged(dataRow))
         {
             _itemEditorGrid.Rows[rowIndex].DefaultCellStyle.BackColor = Color.LightCyan;
+            ApplyItemEditorReadOnlyCellStyles(_itemEditorGrid.Rows[rowIndex]);
             return;
         }
 
@@ -5873,6 +6296,18 @@ public sealed partial class MainForm
             "预留/空位" => Color.FromArgb(245, 245, 245),
             _ => Color.Empty
         };
+        ApplyItemEditorReadOnlyCellStyles(_itemEditorGrid.Rows[rowIndex]);
+    }
+
+    private void ApplyItemEditorReadOnlyCellStyles(DataGridViewRow row)
+    {
+        foreach (DataGridViewCell cell in row.Cells)
+        {
+            var isReadOnly = IsItemEditorUserReadOnlyColumn(cell.OwningColumn.DataPropertyName);
+            cell.ReadOnly = isReadOnly;
+            cell.Style.BackColor = isReadOnly ? Color.FromArgb(245, 245, 245) : Color.Empty;
+            cell.Style.ForeColor = isReadOnly ? SystemColors.GrayText : Color.Empty;
+        }
     }
 
     private void UpdateItemEditorDerivedCells(int rowIndex, int columnIndex)
@@ -5905,14 +6340,15 @@ public sealed partial class MainForm
             var majorCategory = Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
             var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
-            var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
-            row["装备特效名"] = BuildItemEffectNameDisplay(majorCategory, typeId, effectId);
-            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, effectId);
-            row["实际效果说明"] = ItemEffectInterpretationService.BuildEffectiveEffectDescription(majorCategory, typeId, effectId, effectiveEffectId, GetItemEffectName);
+            var rawEffectMarker = GetItemEditorRawEffectMarker(row, effectId);
+            var effect = ResolveItemEffect(majorCategory, typeId, rawEffectMarker);
+            row["装备特效名"] = BuildItemEffectNameDisplay(effect);
+            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, rawEffectMarker);
+            row["实际效果说明"] = effect.Description;
             row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
                 majorCategory,
                 typeId,
-                effectId,
+                rawEffectMarker,
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
                 Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture),
                 Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture));
@@ -5952,14 +6388,15 @@ public sealed partial class MainForm
             var majorCategory = Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
             var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
-            var effectiveEffectId = ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
-            row["装备特效名"] = BuildItemEffectNameDisplay(majorCategory, typeId, effectId);
-            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, effectId);
-            row["实际效果说明"] = ItemEffectInterpretationService.BuildEffectiveEffectDescription(majorCategory, typeId, effectId, effectiveEffectId, GetItemEffectName);
+            var rawEffectMarker = GetItemEditorRawEffectMarker(row, effectId);
+            var effect = ResolveItemEffect(majorCategory, typeId, rawEffectMarker);
+            row["装备特效名"] = BuildItemEffectNameDisplay(effect);
+            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, rawEffectMarker);
+            row["实际效果说明"] = effect.Description;
             row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
                 majorCategory,
                 typeId,
-                effectId,
+                rawEffectMarker,
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
                 Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture),
                 Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture));
@@ -5979,6 +6416,11 @@ public sealed partial class MainForm
                 IsFallback: true);
         row["物品大类"] = ItemClassificationService.Classify(row, boundary).DisplayName;
     }
+
+    private static int GetItemEditorRawEffectMarker(DataRow row, int fallbackEffectId)
+        => row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
+            ? Convert.ToInt32(row[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture)
+            : fallbackEffectId;
 
     private void ShowSelectedItemEditorCell()
     {
@@ -6639,6 +7081,7 @@ public sealed partial class MainForm
             var baseRead = id <= 103 ? _itemBaseLowRead : _itemBaseHighRead;
             var descriptionRead = id <= 103 ? _itemDescriptionLowRead : _itemDescriptionHighRead;
             var baseRow = FindRowById(baseRead.Data, id);
+            SynchronizeQinger66AccessoryEffectColumnsForSave(itemRow, baseRow);
 
             foreach (DataColumn column in baseRead.Data.Columns)
             {
@@ -6670,6 +7113,44 @@ public sealed partial class MainForm
         if (IsItemDescriptionReadUsable(_itemDescriptionLowRead) && SaveChangedTableAndVerify(_itemDescriptionLowRead!) is { } descriptionLowSave) saves.Add(descriptionLowSave);
         if (IsItemDescriptionReadUsable(_itemDescriptionHighRead) && SaveChangedTableAndVerify(_itemDescriptionHighRead!) is { } descriptionHighSave) saves.Add(descriptionHighSave);
         return saves;
+    }
+
+    private static void SynchronizeQinger66AccessoryEffectColumnsForSave(DataRow itemRow, DataRow baseRow)
+    {
+        if (!itemRow.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName) ||
+            !itemRow.Table.Columns.Contains("类型") ||
+            !itemRow.Table.Columns.Contains("装备特效号") ||
+            !baseRow.Table.Columns.Contains("类型"))
+        {
+            return;
+        }
+
+        var marker = Convert.ToInt32(itemRow[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture);
+        if (!Ccz66ItemLayoutService.IsAccessoryOrConsumableMarker(marker))
+        {
+            return;
+        }
+
+        var typeChanged = IsRoleColumnChanged(itemRow, "类型");
+        var effectChanged = IsRoleColumnChanged(itemRow, "装备特效号");
+        if (!typeChanged && !effectChanged)
+        {
+            return;
+        }
+
+        var typeId = Convert.ToInt32(itemRow["类型"], CultureInfo.InvariantCulture);
+        var effectId = Convert.ToInt32(itemRow["装备特效号"], CultureInfo.InvariantCulture);
+        if (typeChanged && effectChanged && typeId != effectId)
+        {
+            throw new InvalidOperationException(
+                $"6.6 辅助/道具行 ID={itemRow["ID"]} 的“类型”和“装备特效号”映射到同一物理字节 row+0x11；两者不能同时改成不同值。");
+        }
+
+        var synchronized = typeChanged ? typeId : effectId;
+        itemRow["类型"] = synchronized;
+        itemRow["装备特效号"] = synchronized;
+        baseRow["类型"] = synchronized;
+        baseRow["装备特效号"] = synchronized;
     }
 
     private void OpenShopEditor()
@@ -9902,21 +10383,24 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             _jobSeriesRead ??= _tableReader.Read(_project, FindTable(_tables, "6.5-3 兵种系"), _tables);
             _jobRestraintRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3-3 兵种相克"), _tables);
-            if (!_jobSeriesRead.Validation.IsUsable || !_jobRestraintRead.Validation.IsUsable)
+            _jobAttributeRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3-4 兵种属性"), _tables);
+            if (!_jobSeriesRead.Validation.IsUsable || !_jobRestraintRead.Validation.IsUsable || !_jobAttributeRead.Validation.IsUsable)
             {
-                throw new InvalidOperationException("兵种相克矩阵有不可读取项，请先查看数据表诊断。");
+                throw new InvalidOperationException("兵种相克/属性矩阵有不可读取项，请先查看数据表诊断。");
             }
 
             _jobRestraintGrid.DataSource = _jobRestraintRead.Data;
             ConfigureJobMatrixGrid(_jobRestraintGrid);
+            _jobAttributeGrid.DataSource = _jobAttributeRead.Data;
+            ConfigureJobMatrixGrid(_jobAttributeGrid);
             _saveJobMatrixButton.Enabled = true;
             _jobMatrixInfoBox.Text = BuildJobMatrixSummary();
-            SetStatus("兵种相克矩阵读取完成");
+            SetStatus("兵种相克/属性矩阵读取完成");
         }
         catch (Exception ex)
         {
             _jobMatrixInfoBox.Text = ex.ToString();
-            System.Diagnostics.Debug.WriteLine("读取兵种相克矩阵失败：" + ex);
+            System.Diagnostics.Debug.WriteLine("读取兵种相克/属性矩阵失败：" + ex);
             MessageBox.Show(this, ex.Message, "读取兵种矩阵失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
@@ -9927,33 +10411,99 @@ public sealed partial class MainForm
 
     private void ConfigureJobMatrixGrid(DataGridView grid)
     {
+        var isAttributeGrid = ReferenceEquals(grid, _jobAttributeGrid);
         grid.ReadOnly = false;
         foreach (DataGridViewColumn column in grid.Columns)
         {
             column.ReadOnly = column.DataPropertyName == "ID" || column.DataPropertyName == "名称";
-            column.HeaderText = BuildJobMatrixColumnHeader(column.DataPropertyName);
-            column.ToolTipText = BuildJobMatrixColumnAnnotation(column.DataPropertyName);
+            column.HeaderText = BuildJobMatrixColumnHeader(column.DataPropertyName, isAttributeGrid);
+            column.ToolTipText = BuildJobMatrixColumnAnnotation(column.DataPropertyName, isAttributeGrid);
+            if (isAttributeGrid && column.DataPropertyName == "ID") column.Width = 92;
             if (column.DataPropertyName == "名称") column.Width = 90;
             if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+        }
+
+        if (isAttributeGrid)
+        {
+            grid.RowHeadersVisible = true;
+            grid.RowHeadersWidth = 112;
+            grid.TopLeftHeaderCell.Value = "字段";
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.Cells["ID"].Value == null) continue;
+                var rowId = Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture);
+                row.HeaderCell.Value = BuildJobAttributeRowLabel(rowId);
+            }
+
+            ConfigureJobAttributeMoveSoundComboCells(grid);
         }
 
         RefreshJobMatrixRowStyles(grid);
     }
 
-    private string BuildJobMatrixColumnHeader(string columnName)
+    private static void ConfigureJobAttributeMoveSoundComboCells(DataGridView grid)
     {
-        if (columnName == "ID") return "ID";
+        if (grid.Rows.Count == 0) return;
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            if (row.Cells["ID"].Value == null ||
+                Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture) != 0)
+            {
+                continue;
+            }
+
+            var numericCellIndexes = row.Cells
+                .Cast<DataGridViewCell>()
+                .Where(cell => int.TryParse(cell.OwningColumn.DataPropertyName, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                .Select(cell => cell.ColumnIndex)
+                .ToArray();
+            foreach (var columnIndex in numericCellIndexes)
+            {
+                var cell = row.Cells[columnIndex];
+                var value = Convert.ToInt32(cell.Value, CultureInfo.InvariantCulture);
+                if (value is < 0 or > 3) continue;
+                row.Cells[columnIndex] = new DataGridViewComboBoxCell
+                {
+                    DataSource = JobAttributeMoveSoundOptions,
+                    ValueMember = nameof(JobAttributeMoveSoundOption.Value),
+                    DisplayMember = nameof(JobAttributeMoveSoundOption.Display),
+                    Value = value,
+                    FlatStyle = FlatStyle.Popup,
+                    ToolTipText = "移动声音：0=马蹄声，1=车轮声，2=脚步声，3=无声。保存仍写入 0..3。"
+                };
+            }
+        }
+    }
+
+    private static readonly IReadOnlyList<JobAttributeMoveSoundOption> JobAttributeMoveSoundOptions =
+    [
+        new(0, "0=马蹄声"),
+        new(1, "1=车轮声"),
+        new(2, "2=脚步声"),
+        new(3, "3=无声")
+    ];
+
+    private sealed record JobAttributeMoveSoundOption(int Value, string Display);
+
+    private string BuildJobMatrixColumnHeader(string columnName, bool isAttributeGrid = false)
+    {
+        if (columnName == "ID") return isAttributeGrid ? "属性序号" : "ID";
         if (columnName == "名称") return "攻击方\n兵种系";
         return TryGetJobSeriesName(columnName, out var name)
-            ? $"{columnName}\n{name}"
+            ? $"{int.Parse(columnName, CultureInfo.InvariantCulture):00}\n{name}"
             : columnName;
     }
 
-    private string BuildJobMatrixColumnAnnotation(string columnName)
+    private string BuildJobMatrixColumnAnnotation(string columnName, bool isAttributeGrid = false)
     {
-        if (columnName == "ID") return "兵种系编号。";
+        if (columnName == "ID") return isAttributeGrid ? "兵种属性行序号：0..7，对应形象指定器 Option1 控件数组顺序。" : "兵种系编号。";
         if (columnName == "名称") return "攻击方兵种系名称。";
         var target = TryGetJobSeriesName(columnName, out var name) ? $"{columnName}:{name}" : columnName;
+        if (isAttributeGrid)
+        {
+            return $"兵种属性矩阵：当前行属性作用于列 {target}。{BuildJobAttributeValueRuleForCurrentRow()}";
+        }
+
         return $"兵种相克矩阵：当前行兵种系攻击/作用于列 {target} 时的相克数值。具体倍率含义需结合实机确认。";
     }
 
@@ -9970,10 +10520,13 @@ public sealed partial class MainForm
     {
         var restraintRows = _jobRestraintRead?.Data.Rows.Count ?? 0;
         var restraintCols = _jobRestraintRead?.Data.Columns.Count - 2 ?? 0;
+        var attributeRows = _jobAttributeRead?.Data.Rows.Count ?? 0;
+        var attributeCols = Math.Max(0, (_jobAttributeRead?.Data.Columns.Count ?? 1) - 1);
         return
-            $"兵种相克矩阵已读取：相克 {restraintRows}x{restraintCols}。\r\n" +
-            "来源表：6.5-3-3 兵种相克；列名 0..39 已按 6.5-3 兵种系补充表头。\r\n" +
-            "保存会写回 Ekd5.exe，保存前自动备份，保存后重新读取校验。";
+            $"兵种矩阵已读取：相克 {restraintRows}x{restraintCols}，属性 {attributeRows}x{attributeCols}。\r\n" +
+            "相克来源：Ekd5.exe@0xA3280，offset = 0xA3280 + 攻方兵种系ID*40 + 守方兵种系ID。\r\n" +
+            "属性来源：Ekd5.exe@0xA38C0，offset = 0xA38C0 + 属性序号*40 + 兵种系ID；8 行按形象指定器 Option1 顺序命名。\r\n" +
+            "UserXK 尾部 0xA3A00..0xA3A27 只作为证据候选归档，不在本页开放写入。保存前自动备份，保存后重新读取校验。";
     }
 
     private void RefreshJobMatrixRowStyles(DataGridView grid)
@@ -9996,7 +10549,16 @@ public sealed partial class MainForm
     {
         RefreshChangedGridCells(_jobRestraintGrid, changedCells);
         RefreshChangedGridRowsOnly(_jobRestraintGrid, changedCells, rowIndex => RefreshJobMatrixRowStyle(_jobRestraintGrid, rowIndex));
-        ShowSelectedJobMatrixCell(_jobRestraintGrid, "鍏电鐩稿厠");
+        RefreshChangedGridCells(_jobAttributeGrid, changedCells);
+        RefreshChangedGridRowsOnly(_jobAttributeGrid, changedCells, rowIndex => RefreshJobMatrixRowStyle(_jobAttributeGrid, rowIndex));
+        if (_jobAttributeGrid.Focused || _jobAttributeGrid.ContainsFocus)
+        {
+            ShowSelectedJobMatrixCell(_jobAttributeGrid, "兵种属性");
+        }
+        else
+        {
+            ShowSelectedJobMatrixCell(_jobRestraintGrid, "兵种相克");
+        }
     }
 
     private void ShowSelectedJobMatrixCell(DataGridView grid, string matrixName)
@@ -10006,12 +10568,19 @@ public sealed partial class MainForm
         if (cell.RowIndex < 0 || cell.ColumnIndex < 0) return;
         var columnName = grid.Columns[cell.ColumnIndex].DataPropertyName;
         var row = grid.Rows[cell.RowIndex];
-        var rowName = row.Cells["名称"].Value;
+        var isAttributeGrid = ReferenceEquals(grid, _jobAttributeGrid);
+        var rowName = isAttributeGrid
+            ? BuildJobAttributeRowLabel(Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture))
+            : row.Cells["名称"].Value;
         var targetName = TryGetJobSeriesName(columnName, out var jobName) ? $"{columnName}:{jobName}" : columnName;
+        var offsetText = TryBuildJobMatrixCellOffsetText(grid, row, columnName, out var fileOffset)
+            ? $"文件偏移：{fileOffset}\r\n"
+            : string.Empty;
         _jobMatrixInfoBox.Text =
             $"{matrixName}：行={rowName}    列={targetName}\r\n" +
             $"当前值：{cell.Value}\r\n\r\n" +
-            BuildJobMatrixColumnAnnotation(columnName);
+            offsetText +
+            BuildJobMatrixColumnAnnotation(columnName, isAttributeGrid);
     }
 
     private void ValidateJobMatrixCell(DataGridView grid, DataGridViewCellValidatingEventArgs e)
@@ -10020,6 +10589,15 @@ public sealed partial class MainForm
         var column = grid.Columns[e.ColumnIndex];
         if (column.ReadOnly) return;
         var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (ReferenceEquals(grid, _jobAttributeGrid) &&
+            TryGetJobAttributeRowId(e.RowIndex, out var rowId) &&
+            rowId == 0 &&
+            TryParseMoveSoundDisplay(value, out _))
+        {
+            grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = string.Empty;
+            return;
+        }
+
         var error = TryParseInteger(value, 0, byte.MaxValue, column.DataPropertyName, _currentPageHexButton.Checked);
         grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = error ?? string.Empty;
         if (error == null) return;
@@ -10028,20 +10606,39 @@ public sealed partial class MainForm
         SetStatus(error);
     }
 
+    private void ParseJobAttributeMatrixCell(DataGridViewCellParsingEventArgs e)
+    {
+        if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+        if (!TryGetJobAttributeRowId(e.RowIndex, out var rowId) || rowId != 0) return;
+        var text = Convert.ToString(e.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        if (!TryParseMoveSoundDisplay(text, out var value)) return;
+        e.Value = value;
+        e.ParsingApplied = true;
+    }
+
+    private bool TryGetJobAttributeRowId(int rowIndex, out int rowId)
+    {
+        rowId = -1;
+        if (rowIndex < 0 || rowIndex >= _jobAttributeGrid.Rows.Count) return false;
+        var value = _jobAttributeGrid.Rows[rowIndex].Cells["ID"].Value;
+        return value != null && int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out rowId);
+    }
+
     private void SaveJobMatrixEditor()
     {
-        if (_project == null || _jobRestraintRead == null) return;
+        if (_project == null || _jobRestraintRead == null || _jobAttributeRead == null) return;
 
         _jobRestraintGrid.EndEdit();
-        if (_jobRestraintRead.Data.GetChanges() == null)
+        _jobAttributeGrid.EndEdit();
+        if (_jobRestraintRead.Data.GetChanges() == null && _jobAttributeRead.Data.GetChanges() == null)
         {
-            MessageBox.Show(this, "兵种相克矩阵没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "兵种相克/属性矩阵没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        var preview = BuildChangePreview(_jobRestraintRead.Data, maxItems: 30);
+        var preview = BuildJobMatrixChangePreview(maxItems: 40);
         if (MessageBox.Show(this,
-                $"即将保存兵种相克矩阵到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Ekd5.exe，保存后会重新读取校验。是否继续？",
+                $"即将保存兵种相克/属性矩阵到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Ekd5.exe，保存后会重新读取同一偏移校验。是否继续？",
                 "确认保存兵种矩阵",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -10053,11 +10650,15 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = new List<TableSaveResult>();
-            if (SaveChangedTableAndVerify(_jobRestraintRead) is { } matrixSave) saves.Add(matrixSave);
+            if (SaveChangedTableAndVerify(_jobRestraintRead) is { } restraintSave) saves.Add(restraintSave);
+            if (SaveChangedTableAndVerify(_jobAttributeRead) is { } attributeSave) saves.Add(attributeSave);
             RefreshJobMatrixRowStyles(_jobRestraintGrid);
-            ShowSelectedJobMatrixCell(_jobRestraintGrid, "鍏电鐩稿厠鐭╅樀");
+            RefreshJobMatrixRowStyles(_jobAttributeGrid);
+            ShowSelectedJobMatrixCell(
+                _jobAttributeGrid.Focused || _jobAttributeGrid.ContainsFocus ? _jobAttributeGrid : _jobRestraintGrid,
+                _jobAttributeGrid.Focused || _jobAttributeGrid.ContainsFocus ? "兵种属性" : "兵种相克");
             var changedBytes = saves.Sum(x => x.ChangedBytes);
-            System.Diagnostics.Debug.WriteLine($"已保存兵种相克矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
+            System.Diagnostics.Debug.WriteLine($"已保存兵种相克/属性矩阵：保存表 {saves.Count} 个，变化字节 {changedBytes}");
             foreach (var savedTable in saves) System.Diagnostics.Debug.WriteLine("兵种矩阵备份：" + savedTable.BackupPath);
             SetStatus($"兵种矩阵保存完成并已复读：变化 {changedBytes} 字节");
             MessageBox.Show(this,
@@ -10075,6 +10676,141 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.Default;
         }
+    }
+
+    private string BuildJobMatrixChangePreview(int maxItems)
+    {
+        var lines = new List<string>();
+        var total = 0;
+        AppendJobMatrixChangePreview(_jobRestraintRead, "兵种相克", maxItems, lines, ref total);
+        AppendJobMatrixChangePreview(_jobAttributeRead, "兵种属性", maxItems, lines, ref total);
+        if (total == 0) return "未发现单元格变更。";
+        if (total > lines.Count) lines.Add($"……另有 {total - lines.Count} 项变更未显示。");
+        return string.Join("\r\n", lines);
+    }
+
+    private void AppendJobMatrixChangePreview(
+        TableReadResult? read,
+        string matrixName,
+        int maxItems,
+        List<string> lines,
+        ref int total)
+    {
+        if (read == null) return;
+        foreach (DataRow row in read.Data.Rows)
+        {
+            if (row.RowState != DataRowState.Modified) continue;
+            var rowId = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
+            foreach (DataColumn column in read.Data.Columns)
+            {
+                if (!int.TryParse(column.ColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out var columnId)) continue;
+                var original = row[column, DataRowVersion.Original];
+                var current = row[column, DataRowVersion.Current];
+                var originalText = Convert.ToString(original, CultureInfo.InvariantCulture) ?? string.Empty;
+                var currentText = Convert.ToString(current, CultureInfo.InvariantCulture) ?? string.Empty;
+                if (originalText == currentText) continue;
+
+                total++;
+                if (lines.Count >= maxItems) continue;
+                var offset = HexDisplayFormatter.FormatOffset(read.Table.DataPos + ((long)rowId * read.Table.RowSize) + columnId);
+                var columnLabel = BuildJobSeriesColumnLabel(columnId);
+                var rowLabel = ReferenceEquals(read, _jobAttributeRead)
+                    ? BuildJobAttributeRowLabel(rowId)
+                    : BuildJobSeriesColumnLabel(rowId);
+                lines.Add($"{matrixName} {rowLabel}[{columnLabel}] 0x{offset} {originalText} -> {currentText}");
+            }
+        }
+    }
+
+    private bool TryBuildJobMatrixCellOffsetText(DataGridView grid, DataGridViewRow row, string columnName, out string offsetText)
+    {
+        offsetText = string.Empty;
+        var read = ReferenceEquals(grid, _jobAttributeGrid) ? _jobAttributeRead : _jobRestraintRead;
+        if (read == null) return false;
+        if (!int.TryParse(columnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out var columnId)) return false;
+        var rowId = Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture);
+        offsetText = "0x" + HexDisplayFormatter.FormatOffset(read.Table.DataPos + ((long)rowId * read.Table.RowSize) + columnId);
+        return true;
+    }
+
+    private string BuildJobSeriesColumnLabel(int id)
+        => _jobSeriesRead != null && id >= 0 && id < _jobSeriesRead.Data.Rows.Count
+            ? $"{id:00}:{Convert.ToString(_jobSeriesRead.Data.Rows[id]["名称"], CultureInfo.InvariantCulture) ?? string.Empty}"
+            : id.ToString("00", CultureInfo.InvariantCulture);
+
+    private static string BuildJobAttributeRowLabel(int rowId)
+        => rowId switch
+        {
+            0 => "移动声音",
+            1 => "移动速度",
+            2 => "攻击声音",
+            3 => "远程兵种",
+            4 => "攻击延迟",
+            5 => "兵种类型",
+            6 => "策略伤害",
+            7 => "参与围攻",
+            _ => $"属性{rowId}"
+        };
+
+    private static string BuildJobAttributeValueRule(int rowId)
+        => rowId switch
+        {
+            0 => "值口径：0=马蹄声，1=车轮声，2=脚步声，3=无声。",
+            1 => "值口径：原始单字节，默认常见 0/1。",
+            2 => "值口径：原始单字节，默认常见 0/1。",
+            3 => "值口径：0/1 标志，1 表示远程兵种。",
+            4 => "值口径：0/1 标志，1 表示攻击延迟。",
+            5 => "值口径：原始单字节，默认常见 0/1/2。",
+            6 => "值口径：百分比式单字节，默认常见 90/100/110/120/125/130。",
+            7 => "值口径：0/1 标志，当前 6.5 基底默认全 1。",
+            _ => "值口径：原始单字节。"
+        };
+
+    private static string FormatMoveSoundValue(int value)
+        => value switch
+        {
+            0 => "0=马蹄声",
+            1 => "1=车轮声",
+            2 => "2=脚步声",
+            3 => "3=无声",
+            _ => value.ToString(CultureInfo.InvariantCulture)
+        };
+
+    private static bool TryParseMoveSoundDisplay(string text, out int value)
+    {
+        text = text.Trim();
+        if (text.StartsWith("0=", StringComparison.Ordinal) || text.Equals("马蹄声", StringComparison.Ordinal))
+        {
+            value = 0;
+            return true;
+        }
+
+        if (text.StartsWith("1=", StringComparison.Ordinal) || text.Equals("车轮声", StringComparison.Ordinal))
+        {
+            value = 1;
+            return true;
+        }
+
+        if (text.StartsWith("2=", StringComparison.Ordinal) || text.Equals("脚步声", StringComparison.Ordinal))
+        {
+            value = 2;
+            return true;
+        }
+
+        if (text.StartsWith("3=", StringComparison.Ordinal) || text.Equals("无声", StringComparison.Ordinal))
+        {
+            value = 3;
+            return true;
+        }
+
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value) && value is >= 0 and <= 3;
+    }
+
+    private string BuildJobAttributeValueRuleForCurrentRow()
+    {
+        if (_jobAttributeGrid.CurrentCell == null || _jobAttributeGrid.CurrentCell.RowIndex < 0) return "值口径：原始单字节。";
+        var id = Convert.ToInt32(_jobAttributeGrid.Rows[_jobAttributeGrid.CurrentCell.RowIndex].Cells["ID"].Value, CultureInfo.InvariantCulture);
+        return BuildJobAttributeValueRule(id);
     }
 
     private void LoadJobEffectEditor()

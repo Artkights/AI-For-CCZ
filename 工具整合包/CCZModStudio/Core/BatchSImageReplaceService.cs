@@ -22,6 +22,7 @@ public sealed class BatchSImageReplaceService
     public BatchSImageReplacePreviewResult Preview(CczProject project, BatchSImageReplaceRequest request)
     {
         var materialRoot = ResolveMaterialRoot(request.MaterialRoot);
+        var requestedStages = NormalizeRequestedStageSlots(request.StageSlots);
         var allowedUsages = request.AllowedSImageUsages.Count > 0
             ? request.AllowedSImageUsages
                 .Select(usage => new BatchSImageUsage(usage.SImageId, usage.JobId, CharacterImageResourceService.NormalizeSPreviewFactionSlot(usage.FactionSlot)))
@@ -75,34 +76,6 @@ public sealed class BatchSImageReplaceService
                 continue;
             }
 
-            var movPath = ResolveMaterialFile(candidate.Folder, "mov.bmp");
-            var atkPath = ResolveMaterialFile(candidate.Folder, "atk.bmp");
-            var spcPath = ResolveMaterialFile(candidate.Folder, "spc.bmp");
-            if (movPath == null)
-            {
-                skipped.Add(Skip(candidate.Id.ToString(CultureInfo.InvariantCulture), candidate.Folder, BatchImageImportSkipReasons.MissingFile, "mov.bmp"));
-                continue;
-            }
-
-            if (atkPath == null)
-            {
-                skipped.Add(Skip(candidate.Id.ToString(CultureInfo.InvariantCulture), candidate.Folder, BatchImageImportSkipReasons.MissingFile, "atk.bmp"));
-                continue;
-            }
-
-            if (spcPath == null)
-            {
-                skipped.Add(Skip(candidate.Id.ToString(CultureInfo.InvariantCulture), candidate.Folder, BatchImageImportSkipReasons.MissingFile, "spc.bmp"));
-                continue;
-            }
-
-            var movEncode = _codec.EncodeFile(project, movPath, E5RawImageCodec.UnitMovSpec, strictHeight: true);
-            var atkEncode = _codec.EncodeFile(project, atkPath, E5RawImageCodec.UnitAtkSpec, strictHeight: true);
-            var spcEncode = _codec.EncodeFile(project, spcPath, E5RawImageCodec.UnitSpcSpec, strictHeight: true);
-            warnings.AddRange(movEncode.Warnings.Select(warning => $"S{candidate.Id} mov: {warning}"));
-            warnings.AddRange(atkEncode.Warnings.Select(warning => $"S{candidate.Id} atk: {warning}"));
-            warnings.AddRange(spcEncode.Warnings.Select(warning => $"S{candidate.Id} spc: {warning}"));
-
             foreach (var usage in usages)
             {
                 var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(usage.SImageId, usage.JobId, usage.FactionSlot);
@@ -112,25 +85,68 @@ public sealed class BatchSImageReplaceService
                     continue;
                 }
 
-                items.Add(new BatchSImageReplaceItemPreview
+                var stageTargets = CharacterImageResourceService.ResolveSImageStageTargets(
+                    mapping,
+                    requestedStages,
+                    defaultAllStages: true);
+                if (stageTargets.Count == 0)
                 {
-                    SImageId = usage.SImageId,
-                    JobId = usage.JobId,
-                    FactionSlot = usage.FactionSlot,
-                    MaterialFolder = candidate.Folder,
-                    ImageNumbers = mapping.ImageNumbers.ToArray(),
-                    MappingDetail = mapping.Detail,
-                    MovSourcePath = movPath,
-                    AtkSourcePath = atkPath,
-                    SpcSourcePath = spcPath,
-                    MovEncode = movEncode,
-                    AtkEncode = atkEncode,
-                    SpcEncode = spcEncode
-                });
+                    var detail = request.StageSlots.Count == 0
+                        ? "没有可写入的 S 形象转数"
+                        : $"所选转数 {string.Join("/", request.StageSlots)} 不适用于该 S 形象";
+                    skipped.Add(Skip(BuildUsageKey(usage), candidate.Folder, BatchImageImportSkipReasons.Unused, detail));
+                    continue;
+                }
 
-                movRequests.AddRange(BuildRequests(mapping.ImageNumbers, movEncode, usage, "mov"));
-                atkRequests.AddRange(BuildRequests(mapping.ImageNumbers, atkEncode, usage, "atk"));
-                spcRequests.AddRange(BuildRequests(mapping.ImageNumbers, spcEncode, usage, "spc"));
+                foreach (var stageTarget in stageTargets)
+                {
+                    var movPath = ResolveMaterialFile(candidate.Folder, stageTarget.StageSlot, "mov.bmp");
+                    var atkPath = ResolveMaterialFile(candidate.Folder, stageTarget.StageSlot, "atk.bmp");
+                    var spcPath = ResolveMaterialFile(candidate.Folder, stageTarget.StageSlot, "spc.bmp");
+                    var missing = new List<string>();
+                    if (movPath == null) missing.Add($"turn{stageTarget.StageSlot}/mov.bmp 或 mov.bmp");
+                    if (atkPath == null) missing.Add($"turn{stageTarget.StageSlot}/atk.bmp 或 atk.bmp");
+                    if (spcPath == null) missing.Add($"turn{stageTarget.StageSlot}/spc.bmp 或 spc.bmp");
+                    if (missing.Count > 0)
+                    {
+                        skipped.Add(Skip(
+                            BuildUsageKey(usage, stageTarget.StageSlot),
+                            candidate.Folder,
+                            BatchImageImportSkipReasons.MissingFile,
+                            string.Join(", ", missing)));
+                        continue;
+                    }
+
+                    var movEncode = _codec.EncodeFile(project, movPath!, E5RawImageCodec.UnitMovSpec, strictHeight: true);
+                    var atkEncode = _codec.EncodeFile(project, atkPath!, E5RawImageCodec.UnitAtkSpec, strictHeight: true);
+                    var spcEncode = _codec.EncodeFile(project, spcPath!, E5RawImageCodec.UnitSpcSpec, strictHeight: true);
+                    warnings.AddRange(movEncode.Warnings.Select(warning => $"S{candidate.Id} {stageTarget.DisplayName} mov: {warning}"));
+                    warnings.AddRange(atkEncode.Warnings.Select(warning => $"S{candidate.Id} {stageTarget.DisplayName} atk: {warning}"));
+                    warnings.AddRange(spcEncode.Warnings.Select(warning => $"S{candidate.Id} {stageTarget.DisplayName} spc: {warning}"));
+
+                    items.Add(new BatchSImageReplaceItemPreview
+                    {
+                        SImageId = usage.SImageId,
+                        JobId = usage.JobId,
+                        FactionSlot = usage.FactionSlot,
+                        StageSlot = stageTarget.StageSlot,
+                        StageName = stageTarget.DisplayName,
+                        ImageNumber = stageTarget.ImageNumber,
+                        MaterialFolder = candidate.Folder,
+                        ImageNumbers = new[] { stageTarget.ImageNumber },
+                        MappingDetail = mapping.Detail,
+                        MovSourcePath = movPath!,
+                        AtkSourcePath = atkPath!,
+                        SpcSourcePath = spcPath!,
+                        MovEncode = movEncode,
+                        AtkEncode = atkEncode,
+                        SpcEncode = spcEncode
+                    });
+
+                    movRequests.AddRange(BuildRequests(new[] { stageTarget.ImageNumber }, movEncode, usage, stageTarget.DisplayName, "mov"));
+                    atkRequests.AddRange(BuildRequests(new[] { stageTarget.ImageNumber }, atkEncode, usage, stageTarget.DisplayName, "atk"));
+                    spcRequests.AddRange(BuildRequests(new[] { stageTarget.ImageNumber }, spcEncode, usage, stageTarget.DisplayName, "spc"));
+                }
             }
         }
 
@@ -160,7 +176,7 @@ public sealed class BatchSImageReplaceService
         return new BatchSImageReplacePreviewResult
         {
             Request = request,
-            Items = items.OrderBy(item => item.SImageId).ThenBy(item => item.JobId ?? -1).ThenBy(item => item.FactionSlot).ToArray(),
+            Items = items.OrderBy(item => item.SImageId).ThenBy(item => item.JobId ?? -1).ThenBy(item => item.FactionSlot).ThenBy(item => item.StageSlot).ToArray(),
             SkippedItems = skipped.ToArray(),
             Warnings = warnings.Distinct(StringComparer.Ordinal).ToArray(),
             FilePreviews = filePreviews
@@ -181,7 +197,7 @@ public sealed class BatchSImageReplaceService
         }
 
         var writeResults = new Dictionary<string, E5ImageBatchReplaceResult>(StringComparer.OrdinalIgnoreCase);
-        foreach (var plan in BuildGroupedRequests(preview.Items))
+        foreach (var plan in BuildGroupedRequests(preview.Items).Where(plan => plan.Requests.Count > 0))
         {
             var targetPath = CharacterImageResourceService.ResolveGameFile(project, plan.FileName);
             writeResults[plan.FileName] = _replace.ReplaceBatch(project, targetPath, plan.Requests);
@@ -218,9 +234,9 @@ public sealed class BatchSImageReplaceService
         foreach (var item in items)
         {
             var usage = new BatchSImageUsage(item.SImageId, item.JobId, item.FactionSlot);
-            mov.AddRange(BuildRequests(item.ImageNumbers, item.MovEncode, usage, "mov"));
-            atk.AddRange(BuildRequests(item.ImageNumbers, item.AtkEncode, usage, "atk"));
-            spc.AddRange(BuildRequests(item.ImageNumbers, item.SpcEncode, usage, "spc"));
+            mov.AddRange(BuildRequests(item.ImageNumbers, item.MovEncode, usage, item.StageName, "mov"));
+            atk.AddRange(BuildRequests(item.ImageNumbers, item.AtkEncode, usage, item.StageName, "atk"));
+            spc.AddRange(BuildRequests(item.ImageNumbers, item.SpcEncode, usage, item.StageName, "spc"));
         }
 
         return new[]
@@ -248,6 +264,7 @@ public sealed class BatchSImageReplaceService
         IReadOnlyList<int> imageNumbers,
         E5TrueColorEncodeResult encode,
         BatchSImageUsage usage,
+        string stageName,
         string actionName)
         => imageNumbers.Select(imageNumber => new E5ImageBatchReplaceRequest
         {
@@ -255,7 +272,7 @@ public sealed class BatchSImageReplaceService
             SourceBytes = encode.ImageBytes,
             SourceBytesAreRaw = false,
             SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
-            OperationKind = $"batch S{usage.SImageId} {actionName}"
+            OperationKind = $"batch S{usage.SImageId} {stageName} {actionName}"
         }).ToArray();
 
     private static void AddDuplicateTargetSkips(
@@ -271,6 +288,13 @@ public sealed class BatchSImageReplaceService
 
     private static bool HasDuplicateTargets(IReadOnlyList<E5ImageBatchReplaceRequest> requests)
         => requests.GroupBy(request => request.ImageNumber).Any(group => group.Count() > 1);
+
+    private static IReadOnlyList<int> NormalizeRequestedStageSlots(IReadOnlyList<int> stageSlots)
+        => stageSlots
+            .Where(slot => slot is >= 1 and <= 3)
+            .Distinct()
+            .OrderBy(slot => slot)
+            .ToArray();
 
     private static string ResolveMaterialRoot(string materialRoot)
     {
@@ -297,6 +321,15 @@ public sealed class BatchSImageReplaceService
             : null;
     }
 
+    private static string? ResolveMaterialFile(string folder, int stageSlot, string fileName)
+    {
+        var stageFolder = Path.Combine(folder, $"turn{stageSlot.ToString(CultureInfo.InvariantCulture)}");
+        var staged = Directory.Exists(stageFolder)
+            ? ResolveMaterialFile(stageFolder, fileName)
+            : null;
+        return staged ?? ResolveMaterialFile(folder, fileName);
+    }
+
     private static string? ResolveMaterialFile(string folder, string fileName)
         => Directory.EnumerateFiles(folder)
             .FirstOrDefault(file => Path.GetFileName(file).Equals(fileName, StringComparison.OrdinalIgnoreCase));
@@ -305,6 +338,9 @@ public sealed class BatchSImageReplaceService
         => usage.JobId.HasValue
             ? $"S{usage.SImageId}/job{usage.JobId.Value}/faction{usage.FactionSlot}"
             : $"S{usage.SImageId}/faction{usage.FactionSlot}";
+
+    private static string BuildUsageKey(BatchSImageUsage usage, int stageSlot)
+        => $"{BuildUsageKey(usage)}/turn{stageSlot}";
 
     private static BatchImageImportSkippedItem Skip(string key, string sourcePath, string reason, string detail = "")
         => new()
@@ -344,6 +380,9 @@ public sealed class BatchSImageReplaceService
                 item.SImageId,
                 item.JobId,
                 item.FactionSlot,
+                item.StageSlot,
+                item.StageName,
+                item.ImageNumber,
                 item.MaterialFolder,
                 item.ImageNumbers,
                 item.MappingDetail,

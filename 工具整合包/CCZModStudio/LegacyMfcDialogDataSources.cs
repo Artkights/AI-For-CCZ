@@ -19,8 +19,6 @@ internal sealed class LegacyMfcDialogDataSources
     private const int DefaultSoundMapCount = 100;
     private const int DefaultSoundEffectCount = 55;
     private const int DefaultCdTrackCount = 999;
-    private const int Version65ExeSize = 1_196_032;
-    private const int Version66ExeSize = 1_130_496;
     private const int Version64SpecialSkillOffset = 0xD0D60;
     private const int Version65SpecialSkillOffset = 0x9E800;
     private const int VersionOtherSpecialSkillOffset = 0xD0FA0;
@@ -648,10 +646,11 @@ internal sealed class LegacyMfcDialogDataSources
         try
         {
             var info = new FileInfo(exePath);
-            var offset = info.Length switch
+            var version = CczEngineProfileService.InferVersionFromExeSize(info.Length);
+            var offset = version switch
             {
-                Version65ExeSize => Version65SpecialSkillOffset,
-                Version66ExeSize => VersionOtherSpecialSkillOffset,
+                "6.5" => Version65SpecialSkillOffset,
+                "6.6" => VersionOtherSpecialSkillOffset,
                 _ => Version64SpecialSkillOffset
             };
             if (info.Length < offset + 256 * 16) return;

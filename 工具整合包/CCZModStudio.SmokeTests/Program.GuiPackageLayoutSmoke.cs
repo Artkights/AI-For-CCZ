@@ -58,12 +58,23 @@ internal partial class Program
                      "CCZModStudio.exe",
                      Path.Combine("ConfigTable", "HexTable.xml"),
                      "LegacyResources",
+                     Path.Combine("Assets", "PortraitFrames"),
                      Path.Combine("Package", "self-check.json"),
                      Path.Combine("Templates", "剧本文本导入AI说明模板.md")
                  })
         {
             var path = Path.Combine(netRoot, relative);
             AssertTrue(File.Exists(path) || Directory.Exists(path), "GUI package net contains " + relative);
+        }
+
+        var portraitFrameRoot = Path.Combine(netRoot, "Assets", "PortraitFrames");
+        var portraitFramePngs = Directory.Exists(portraitFrameRoot)
+            ? Directory.GetFiles(portraitFrameRoot, "*.png", SearchOption.TopDirectoryOnly)
+            : Array.Empty<string>();
+        AssertTrue(portraitFramePngs.Length >= 21, "GUI package net contains bundled portrait frame PNGs");
+        foreach (var frameFileName in new[] { "heiy01.png", "魏.png", "蜀.png", "吴.png", "群.png", "魔.png" })
+        {
+            AssertTrue(File.Exists(Path.Combine(portraitFrameRoot, frameFileName)), "GUI package portrait frames contain " + frameFileName);
         }
 
         Console.WriteLine("GUI_PACKAGE_LAYOUT_SMOKE_OK root=" + publishRoot);

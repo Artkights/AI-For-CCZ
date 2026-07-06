@@ -237,8 +237,8 @@ public sealed class ImageResourceCatalogService
     {
         return imageNumber switch
         {
-            1 => "6.6 Item.e5 blank small icon; field 0 small slot",
-            2 => "6.6 Item.e5 blank large icon; field 0 large preview slot",
+            1 => "6.6 Item.e5 blank small icon; field value 0 small slot #1",
+            2 => "6.6 Item.e5 blank large icon; field value 0 large preview slot #2",
             > 2 when imageNumber % 2 == 1 => $"6.6 Item.e5 item icon field value {(imageNumber - 1) / 2}; small slot #{imageNumber}",
             > 2 => $"6.6 Item.e5 item icon field value {(imageNumber - 2) / 2}; large preview slot #{imageNumber}",
             _ => "6.6 Item.e5 invalid icon slot"
@@ -649,7 +649,8 @@ public sealed class ImageResourceCatalogService
         new("MtemE5", "Icon", "Mtem.e5", "Mtem.e5", ["6.6 strategy icon", "strategy icon"], "6.6 revised strategy icons; strategy families are independent and usually spaced by 6; table field value N maps to E5 image #(N+1).", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Mtem.e5")),
         new("DT", "Icon", "DT.e5", "DT.e5", ["6.6 dynamic image", "72-12", "72-32"], "6.6 revised dynamic image resource for 72-12/72-32.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "DT.e5")),
         new("Fb", "Icon", "Fb.e5", "Fb.e5", ["6.6 half-body", "7A"], "6.6 revised half-body dialogue resource for 7A.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Fb.e5")),
-        new("Pmap", "Icon", "Pmap.e5", "Pmap.e5", ["6.6 Pmap", "scene terrain"], "6.6 revised scene terrain image resource; distinct from Pmapobj.e5 R actor frames.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Pmap.e5"))
+        new("Pmap", "Icon", "Pmap.e5", "Pmap.e5", ["6.6 Pmap", "scene terrain"], "6.6 revised scene terrain image resource; distinct from Pmapobj.e5 R actor frames.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "Pmap.e5")),
+        new("USelect66", "Icon", "U_select.e5", "U_select.e5", ["6.6 U_select", "command icon", "terrain icon"], "6.6 revised command icon, terrain icon, selection-frame, and number image resource.", ImageResourceKind.E5Indexed, true, Path.Combine("E5", "U_select.e5"))
     ];
     private static readonly ImageResourceDefinition[] KnownResources =
     [

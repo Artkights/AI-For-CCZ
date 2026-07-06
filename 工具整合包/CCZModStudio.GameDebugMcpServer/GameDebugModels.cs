@@ -60,6 +60,15 @@ public sealed class BattleStateSnapshot
     [JsonPropertyName("source")]
     public string Source { get; init; } = "ReadProcessMemory";
 
+    [JsonPropertyName("engine_version")]
+    public string EngineVersion { get; init; } = "unknown";
+
+    [JsonPropertyName("profile_source")]
+    public string ProfileSource { get; init; } = string.Empty;
+
+    [JsonPropertyName("layout_source")]
+    public string LayoutSource { get; init; } = string.Empty;
+
     [JsonPropertyName("unit_array_address")]
     public string UnitArrayAddress { get; init; } = "004A7B20";
 

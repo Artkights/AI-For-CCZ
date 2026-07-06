@@ -36,9 +36,59 @@ public sealed class HexTableReader
         }
 
         var profile = new CczEngineProfileService().Detect(project);
-        if (Ccz66RevisedLayout.Is66(profile) && !table.Version.Equals("6.6", StringComparison.OrdinalIgnoreCase))
+        var tableStatus = Ccz66RevisedLayout.ExactOrCompatibleTableStatus;
+        var writeRisk = string.Empty;
+        var isNative66 = false;
+        var isCrossVersionFallback = false;
+        var isReadOnlyEvidenceOnly = false;
+        var semanticValidationStatus = string.Empty;
+        var hiddenTailPolicy = string.Empty;
+        var effectResolutionSource = string.Empty;
+        if (Ccz66RevisedLayout.Is66(profile) && table.Version.Equals("6.6", StringComparison.OrdinalIgnoreCase))
         {
-            warnings.Add($"CrossVersionFallback: requestedPrefix=6.6; actualTableVersion={table.Version}; tableFallback=true; writes are not blocked, but 6.6 offsets must be reviewed before saving.");
+            isNative66 = !table.IsEvidenceReadOnlyTable && !table.ReadOnly;
+            isReadOnlyEvidenceOnly = table.IsEvidenceReadOnlyTable || table.ReadOnly;
+            tableStatus = isReadOnlyEvidenceOnly
+                ? Ccz66RevisedLayout.ReadOnlyEvidenceOnlyTableStatus
+                : Ccz66RevisedLayout.Native66TableStatus;
+            writeRisk = isReadOnlyEvidenceOnly
+                ? "6.6 table is evidence-only/read-only; write is blocked until the layout is verified."
+                : "6.6 native table: target file, offset, row size, and capacity checks passed before read/write.";
+
+            if (table.IsGeneratedCompatibilityTable)
+            {
+                warnings.Add($"6.6NativeGenerated: sourceTable={table.SourceTableName}; evidence={table.EvidenceStatus}; status={tableStatus}.");
+            }
+
+            if (isReadOnlyEvidenceOnly)
+            {
+                warnings.Add("ReadOnlyEvidenceOnly: this 6.6 table is exposed for inspection/preview only and is blocked from save.");
+            }
+
+            if (Ccz66ItemNameEncodingService.IsItemBaseTable(table))
+            {
+                semanticValidationStatus = "Qinger66ItemSemanticAudit";
+                hiddenTailPolicy = Ccz66ItemNameEncodingService.HiddenTailPolicy;
+                effectResolutionSource = "ItemEffectResolutionService";
+                warnings.Add("Qinger66ItemSemanticAudit: fixed names are displayed up to the first NUL; hidden tail bytes are preserved on write.");
+            }
+
+            if (ItemEffectNameReader.IsItemEffectNameTable(table))
+            {
+                semanticValidationStatus = "Obsolete65NameBlockIn66ReadOnly";
+                effectResolutionSource = Ccz66ItemEffectNameService.SourceName;
+                if (!isReadOnlyEvidenceOnly)
+                {
+                    warnings.Add("Obsolete65NameBlockIn66: this generated 6.6 equipment-effect name table reuses old 6.5 offsets and is not used for 6.6 item effect display. Use the dedicated 0x9E800 name-slot service instead.");
+                }
+            }
+        }
+        else if (Ccz66RevisedLayout.Is66(profile))
+        {
+            tableStatus = Ccz66RevisedLayout.CrossVersionFallbackTableStatus;
+            writeRisk = "CrossVersionFallbackWrite: 6.6 project resolved to a non-6.6 table; offsets and row definitions are not native 6.6 evidence.";
+            isCrossVersionFallback = true;
+            warnings.Add($"CrossVersionFallback: requestedPrefix=6.6; actualTableVersion={table.Version}; tableFallback=true; write reports will be marked CrossVersionFallbackWrite and should be treated as risky.");
         }
 
         return new HexTableValidationResult
@@ -50,6 +100,14 @@ public sealed class HexTableReader
             ColumnsMatchBytes = columnsMatchBytes,
             FitsInFile = fits,
             PaddingBytes = Math.Max(0, padding),
+            TableStatus = tableStatus,
+            WriteRisk = writeRisk,
+            IsNative66 = isNative66,
+            IsCrossVersionFallback = isCrossVersionFallback,
+            IsReadOnlyEvidenceOnly = isReadOnlyEvidenceOnly,
+            SemanticValidationStatus = semanticValidationStatus,
+            HiddenTailPolicy = hiddenTailPolicy,
+            EffectResolutionSource = effectResolutionSource,
             Warnings = warnings
         };
     }
@@ -93,6 +151,10 @@ public sealed class HexTableReader
             row["ID"] = id;
 
             stream.Position = table.DataPos + ((long)rowIndex * table.RowSize);
+            var rowBytes = Ccz66ItemLayoutService.IsGenerated66ItemBaseTable(table)
+                ? reader.ReadBytes(table.RowSize)
+                : null;
+            var rowByteOffset = 0;
             foreach (var field in table.Fields)
             {
                 if (field.Kind == HexFieldKind.Derived)
@@ -101,8 +163,16 @@ public sealed class HexTableReader
                     continue;
                 }
 
-                var bytes = reader.ReadBytes(field.Size);
+                var bytes = rowBytes == null
+                    ? reader.ReadBytes(field.Size)
+                    : rowBytes.AsSpan(rowByteOffset, field.Size).ToArray();
+                rowByteOffset += field.Size;
                 row[field.ColumnName] = DecodeField(field, bytes);
+            }
+
+            if (rowBytes != null)
+            {
+                Ccz66ItemLayoutService.ApplyDerivedDisplayValues(project, table, row, rowBytes);
             }
 
             data.Rows.Add(row);

@@ -16,6 +16,10 @@ public sealed partial class CczMcpRuntime
     private const string JobDescriptionTableName = "6.5-4-1 兵种说明";
     private const string JobGrowthTableName = "6.5-4-2 兵种成长";
     private const string JobPierceTableName = "6.5-4-3 兵种穿透";
+    private const long JobRestraintOffset = 0xA3280;
+    private const long JobAttributeOffset = 0xA38C0;
+    private const long JobUserXkTailOffset = 0xA3A00;
+    private const long RuntimeVaDelta = 0x42E800;
 
     public object ReadJobSettings(string? gameRoot, List<int>? jobIds, List<int>? jobSeriesIds, bool includeMatrices, int limit)
     {
@@ -284,28 +288,58 @@ public sealed partial class CczMcpRuntime
             userXk = ReadIniValue(systemIni, "UserXK");
         }
 
-        var runtimeVa = attributeRead.Table.DataPos == 0xA38C0
-            ? "0x004D20C0"
+        var attributeRuntimeVa = attributeRead.Table.DataPos == JobAttributeOffset
+            ? FormatRuntimeVa(attributeRead.Table.DataPos)
             : string.Empty;
+        var restraintOffsetHex = string.IsNullOrWhiteSpace(userXk)
+            ? HexDisplayFormatter.FormatOffset(JobRestraintOffset)
+            : NormalizeHexWithoutPrefix(userXk);
+        var restraintOffset = TryParseHexOffset(userXk, out var parsedUserXk)
+            ? parsedUserXk
+            : JobRestraintOffset;
 
         return new
         {
-            Source = "B形象指定器 System.ini UserXK plus HexTable 6.5-3-4",
+            Source = "B形象指定器 System.ini UserXK=A3280 plus HexTable 6.5-3-3/6.5-3-4",
             ImageAssignerSystemIniPath = systemIni,
             UserXK = userXk,
-            UserXKFileOffsetHex = string.IsNullOrWhiteSpace(userXk) ? string.Empty : "0x" + userXk,
-            RestraintBlock = string.IsNullOrWhiteSpace(userXk)
-                ? null
-                : new { FileOffsetHex = "0x" + userXk, Rows = 40, Columns = 40, Bytes = 1600 },
+            UserXKFileOffsetHex = "0x" + restraintOffsetHex,
+            RestraintBlock = new
+            {
+                FileOffsetHex = "0x" + restraintOffsetHex,
+                RuntimeVirtualAddressHex = FormatRuntimeVa(restraintOffset),
+                Rows = 40,
+                Columns = 40,
+                Bytes = 1600,
+                Formula = "offset = 0xA3280 + attacker_job_series_id*40 + defender_job_series_id"
+            },
             AttributeBlock = new
             {
                 TableName = attributeRead.Table.TableName,
                 attributeRead.Table.FileName,
-                FileOffsetHex = HexDisplayFormatter.FormatOffset(attributeRead.Table.DataPos),
+                FileOffsetHex = "0x" + HexDisplayFormatter.FormatOffset(attributeRead.Table.DataPos),
                 Rows = attributeRead.Table.RowCount,
-                Columns = attributeRead.Table.RowSize,
-                RuntimeVirtualAddressHex = runtimeVa,
-                Notes = "row0 confirmed as broad job-series category: 0=cavalry, 2=infantry; row3/row4 are ranged/shooting candidates and still require dynamic battle verification."
+                Columns = 40,
+                Bytes = attributeRead.Table.RowCount * attributeRead.Table.RowSize,
+                RuntimeVirtualAddressHex = attributeRuntimeVa,
+                Formula = "offset = 0xA38C0 + attribute_row_id*40 + job_series_id",
+                Notes = "row0 official field is 移动声音. Old cavalry/infantry patches used that byte as a proxy and must not rename the field."
+            },
+            UserXkTail40 = new
+            {
+                FileOffsetHex = "0x" + HexDisplayFormatter.FormatOffset(JobUserXkTailOffset),
+                RuntimeVirtualAddressHex = FormatRuntimeVa(JobUserXkTailOffset),
+                Bytes = 40,
+                RangeHex = "0xA3A00..0xA3A27",
+                WriteEnabled = false,
+                Notes = "Falls inside the old figure-1 1960-byte UserXK block tail, but outside the 8 official B形象指定器 Option1 attributes. Read/report only until a single-field official diff proves ownership."
+            },
+            AttributeRows = BuildJobAttributeRowMetadata(),
+            Corrections = new[]
+            {
+                "6.5-3-4 row0 is 移动声音, not 兵种大类.",
+                "6.5-3-3 remains the 40x40 restraint matrix at 0xA3280.",
+                "6.5-3-4 remains the 8x40 official attribute matrix at 0xA38C0."
             }
         };
     }
@@ -453,10 +487,41 @@ public sealed partial class CczMcpRuntime
         if (updates == null) return;
         foreach (var update in updates)
         {
+            EnsureMatrixCoordinate(read, update, fieldName);
             var row = FindRowById(read.Data, update.RowId);
             var column = FindColumn(read.Data, update.ColumnId.ToString(CultureInfo.InvariantCulture));
             EnsureWritableMatrixValue(read, column, update.Value, fieldName);
-            AddCellChange(changes, read, row, update.RowId, column, update.Value, mutate);
+            var oldValue = row[column] is DBNull ? null : row[column];
+            if (mutate) row[column] = update.Value;
+            var fileOffset = read.Table.DataPos + ((long)update.RowId * read.Table.RowSize) + update.ColumnId;
+            changes.Add(new
+            {
+                Table = read.Table.TableName,
+                Field = fieldName,
+                RowId = update.RowId,
+                RowLabel = fieldName.Equals("attribute_matrix", StringComparison.OrdinalIgnoreCase)
+                    ? BuildAttributeRowLabel(update.RowId).Label
+                    : ReadName(row),
+                ColumnId = update.ColumnId,
+                Column = column.ColumnName,
+                OldValue = oldValue,
+                NewValue = update.Value,
+                FileOffsetHex = "0x" + HexDisplayFormatter.FormatOffset(fileOffset),
+                RuntimeVirtualAddressHex = FormatRuntimeVa(fileOffset)
+            });
+        }
+    }
+
+    private static void EnsureMatrixCoordinate(TableReadResult read, JobMatrixCellUpdate update, string fieldName)
+    {
+        if (update.RowId < read.Table.BeginId || update.RowId >= read.Table.BeginId + read.Table.RowCount)
+        {
+            throw new InvalidOperationException($"{fieldName} row_id must be {read.Table.BeginId}..{read.Table.BeginId + read.Table.RowCount - 1}.");
+        }
+
+        if (update.ColumnId < 0 || update.ColumnId >= read.Table.RowSize)
+        {
+            throw new InvalidOperationException($"{fieldName} column_id must be 0..{read.Table.RowSize - 1}.");
         }
     }
 
@@ -547,18 +612,42 @@ public sealed partial class CczMcpRuntime
     private static JobAttributeRowMeaning BuildAttributeRowLabel(int rowId)
         => rowId switch
         {
-            0 => new JobAttributeRowMeaning(rowId, "大类", "confirmed", "0=骑兵类，2=步兵类；1/3 暂按器械/特殊候选处理，需结合项目内容确认。"),
-            1 => new JobAttributeRowMeaning(rowId, "属性1", "unknown", "形象指定器 UserXK 属性矩阵行；语义待验证。"),
-            2 => new JobAttributeRowMeaning(rowId, "属性2", "unknown", "形象指定器 UserXK 属性矩阵行；语义待验证。"),
-            3 => new JobAttributeRowMeaning(rowId, "远程候选A", "candidate", "远程/射击相关候选行，仍需动态战斗验证。"),
-            4 => new JobAttributeRowMeaning(rowId, "远程候选B", "candidate", "远程/射击相关候选行，仍需动态战斗验证。"),
-            5 => new JobAttributeRowMeaning(rowId, "属性5", "unknown", "形象指定器 UserXK 属性矩阵行；语义待验证。"),
-            6 => new JobAttributeRowMeaning(rowId, "属性6", "unknown", "形象指定器 UserXK 属性矩阵行；语义待验证。"),
-            7 => new JobAttributeRowMeaning(rowId, "属性7", "unknown", "形象指定器 UserXK 属性矩阵行；语义待验证。"),
-            _ => new JobAttributeRowMeaning(rowId, $"属性{rowId}", "unknown", "超出当前 8 行属性矩阵定义。")
+            0 => new JobAttributeRowMeaning(rowId, "移动声音", "official", "0=马蹄声, 1=车轮声, 2=脚步声, 3=无声", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset), FormatRuntimeVa(JobAttributeOffset)),
+            1 => new JobAttributeRowMeaning(rowId, "移动速度", "official", "原始单字节，默认常见 0/1", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 40), FormatRuntimeVa(JobAttributeOffset + 40)),
+            2 => new JobAttributeRowMeaning(rowId, "攻击声音", "official", "原始单字节，默认常见 0/1", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 80), FormatRuntimeVa(JobAttributeOffset + 80)),
+            3 => new JobAttributeRowMeaning(rowId, "远程兵种", "official", "0/1 标志", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 120), FormatRuntimeVa(JobAttributeOffset + 120)),
+            4 => new JobAttributeRowMeaning(rowId, "攻击延迟", "official", "0/1 标志", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 160), FormatRuntimeVa(JobAttributeOffset + 160)),
+            5 => new JobAttributeRowMeaning(rowId, "兵种类型", "official", "原始单字节，默认常见 0/1/2", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 200), FormatRuntimeVa(JobAttributeOffset + 200)),
+            6 => new JobAttributeRowMeaning(rowId, "策略伤害", "official", "百分比式单字节，默认常见 90/100/110/120/125/130", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 240), FormatRuntimeVa(JobAttributeOffset + 240)),
+            7 => new JobAttributeRowMeaning(rowId, "参与围攻", "official", "0/1 标志，当前 6.5 基底默认全 1", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 280), FormatRuntimeVa(JobAttributeOffset + 280)),
+            _ => new JobAttributeRowMeaning(rowId, $"属性{rowId}", "out_of_range", "超出当前 8 行属性矩阵定义。", string.Empty, string.Empty)
         };
 
-    private sealed record JobAttributeRowMeaning(int RowId, string Label, string Confidence, string Meaning);
+    private static string FormatRuntimeVa(long fileOffset)
+        => "0x" + HexDisplayFormatter.Format(fileOffset + RuntimeVaDelta, 8);
+
+    private static string NormalizeHexWithoutPrefix(string value)
+    {
+        var text = value.Trim();
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) text = text[2..];
+        return text.ToUpperInvariant();
+    }
+
+    private static bool TryParseHexOffset(string? value, out long offset)
+    {
+        offset = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var text = NormalizeHexWithoutPrefix(value);
+        return long.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out offset);
+    }
+
+    private sealed record JobAttributeRowMeaning(
+        int RowId,
+        string Label,
+        string Confidence,
+        string ValueDisplayRule,
+        string FileOffsetBaseHex,
+        string RuntimeVaBaseHex);
 
     private sealed record JobSettingsBuild(
         CczEngineProfile Engine,

@@ -24,6 +24,7 @@ Required files under net:
 - Assets\About\doro.jpg
 - Assets\About\Doro.webp
 - Assets\Palettes\tsb
+- Assets\PortraitFrames\
 - Templates\剧本文本导入AI说明模板.md
 - Package\GUI-PACKAGE-MANIFEST.txt
 - Package\self-check.json

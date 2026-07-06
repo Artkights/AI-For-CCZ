@@ -140,9 +140,38 @@ internal partial class Program
         var mov = Directory.EnumerateFiles(output, "mov.bmp", SearchOption.AllDirectories).First();
         AssertBmpDimensions(mov, 48, 528);
         raw.EncodeFile(project, mov, E5RawImageCodec.UnitMovSpec, strictHeight: true);
-        if (result.Warnings.All(warning => !warning.Contains("S1 maps to Unit", StringComparison.Ordinal)))
+
+        var allStagesOutput = Path.Combine(smokeRoot, "batch_s_all_stages");
+        var allStages = service.Export(project, new BmpExportRequest
         {
-            throw new InvalidOperationException("S export should warn when a mapped S image has multiple Unit numbers.");
+            Kind = BmpExportKind.SImage,
+            OutputRoot = allStagesOutput,
+            SingleMode = false,
+            SImageStageSlots = new[] { 1, 2, 3 },
+            Targets = new[]
+            {
+                new BmpExportTarget { RowId = 1, DisplayName = "SSmokeA", FieldValue = 1 },
+                new BmpExportTarget { RowId = 250, DisplayName = "SSmokeB", FieldValue = 250 }
+            }
+        });
+        AssertExported(allStages, 12, "batch S all stages");
+        AssertBmpDimensions(Path.Combine(allStagesOutput, "S1", "turn1", "mov.bmp"), 48, 528);
+        AssertBmpDimensions(Path.Combine(allStagesOutput, "S1", "turn2", "atk.bmp"), 64, 768);
+        AssertBmpDimensions(Path.Combine(allStagesOutput, "S1", "turn3", "spc.bmp"), 48, 240);
+        AssertBmpDimensions(Path.Combine(allStagesOutput, "S250", "mov.bmp"), 48, 528);
+        if (allStages.Files.Where(file => file.FieldValue == 1).Select(file => file.ImageNumber).Distinct().OrderBy(x => x).SequenceEqual(new int?[] { 241, 242, 243 }) == false)
+        {
+            throw new InvalidOperationException("S=1 all-stage export should use Unit #241/#242/#243.");
+        }
+
+        if (allStages.Files.Where(file => file.FieldValue == 250).Select(file => file.ImageNumber).Distinct().SingleOrDefault() != 554)
+        {
+            throw new InvalidOperationException("S=250 all-stage export should only use Unit #554.");
+        }
+
+        if (allStages.Warnings.All(warning => !warning.Contains("S250", StringComparison.Ordinal) || !warning.Contains("忽略", StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("S=250 all-stage export should warn that second/third turns were ignored.");
         }
     }
 

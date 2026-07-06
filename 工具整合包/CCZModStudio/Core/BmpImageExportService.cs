@@ -152,19 +152,41 @@ public sealed class BmpImageExportService
             throw new InvalidOperationException(mapping.Detail);
         }
 
-        var imageNumber = mapping.ImageNumbers[0];
-        if (mapping.ImageNumbers.Count > 1)
+        var stageTargets = CharacterImageResourceService.ResolveSImageStageTargets(
+            mapping,
+            request.SImageStageSlots,
+            defaultAllStages: false);
+        if (stageTargets.Count == 0)
         {
-            warnings.Add(
-                $"S{target.FieldValue} maps to Unit #{string.Join("/#", mapping.ImageNumbers)}; exported #{imageNumber}.");
+            throw new InvalidOperationException($"S{target.FieldValue} 不包含所选转数：{string.Join("/", request.SImageStageSlots)}。");
         }
 
-        ExportRawEntry(project, request, target, folder, "mov", "mov.bmp", "Unit_mov.e5",
-            CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5"), imageNumber, E5RawImageCodec.UnitMovSpec, files, skipped);
-        ExportRawEntry(project, request, target, folder, "atk", "atk.bmp", "Unit_atk.e5",
-            CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), imageNumber, E5RawImageCodec.UnitAtkSpec, files, skipped);
-        ExportRawEntry(project, request, target, folder, "spc", "spc.bmp", "Unit_spc.e5",
-            CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), imageNumber, E5RawImageCodec.UnitSpcSpec, files, skipped);
+        var requested = request.SImageStageSlots.Where(slot => slot is >= 1 and <= 3).Distinct().OrderBy(slot => slot).ToArray();
+        if (requested.Length > stageTargets.Count)
+        {
+            var exported = stageTargets.Select(targetStage => targetStage.StageSlot).ToHashSet();
+            var ignored = requested.Where(stage => !exported.Contains(stage)).ToArray();
+            if (ignored.Length > 0)
+            {
+                warnings.Add($"S{target.FieldValue} 只有 {string.Join("/", CharacterImageResourceService.GetAvailableSImageStageSlots(target.FieldValue).Select(CharacterImageResourceService.BuildSImageStageText))}；已忽略 {string.Join("/", ignored.Select(CharacterImageResourceService.BuildSImageStageText))}。");
+            }
+        }
+
+        var useStageFolders = stageTargets.Count > 1 || stageTargets.Any(stage => stage.StageSlot != 1);
+        foreach (var stageTarget in stageTargets)
+        {
+            var stageFolder = useStageFolders
+                ? Path.Combine(folder, $"turn{stageTarget.StageSlot.ToString(CultureInfo.InvariantCulture)}")
+                : folder;
+            var rolePrefix = useStageFolders ? $"turn{stageTarget.StageSlot}-" : string.Empty;
+
+            ExportRawEntry(project, request, target, stageFolder, rolePrefix + "mov", "mov.bmp", "Unit_mov.e5",
+                CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5"), stageTarget.ImageNumber, E5RawImageCodec.UnitMovSpec, files, skipped);
+            ExportRawEntry(project, request, target, stageFolder, rolePrefix + "atk", "atk.bmp", "Unit_atk.e5",
+                CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), stageTarget.ImageNumber, E5RawImageCodec.UnitAtkSpec, files, skipped);
+            ExportRawEntry(project, request, target, stageFolder, rolePrefix + "spc", "spc.bmp", "Unit_spc.e5",
+                CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), stageTarget.ImageNumber, E5RawImageCodec.UnitSpcSpec, files, skipped);
+        }
     }
 
     private void ExportRImage(
@@ -373,8 +395,15 @@ public sealed class BmpImageExportService
             throw new FileNotFoundException($"{sourceFileName} was not found.", sourcePath);
         }
 
-        var rawBytes = _e5.ReadEntryBytes(sourcePath, imageNumber);
-        using var bitmap = _raw.DecodeRawBytes(project, rawBytes, $"{sourceFileName} #{imageNumber}", spec);
+        var bytes = _e5.ReadEntryBytes(sourcePath, imageNumber);
+        using var standard = _e5Render.TryDecodeStandardImage(bytes);
+        if (standard != null)
+        {
+            SaveBitmap(project, request, target, folder, role, fileName, sourcePath, imageNumber, null, standard, files, skipped);
+            return;
+        }
+
+        using var bitmap = _raw.DecodeRawBytes(project, bytes, $"{sourceFileName} #{imageNumber}", spec);
         SaveBitmap(project, request, target, folder, role, fileName, sourcePath, imageNumber, null, bitmap, files, skipped);
     }
 
@@ -503,6 +532,7 @@ public sealed class BmpExportRequest
     public bool SingleMode { get; init; }
     public bool OverwriteExisting { get; init; }
     public int FactionSlot { get; init; } = CharacterImageResourceService.DefaultSPreviewFactionSlot;
+    public IReadOnlyList<int> SImageStageSlots { get; init; } = Array.Empty<int>();
     public IReadOnlyList<BmpExportTarget> Targets { get; init; } = Array.Empty<BmpExportTarget>();
 }
 

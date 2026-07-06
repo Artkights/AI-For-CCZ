@@ -435,6 +435,154 @@ public sealed partial class MainForm
         ExecuteImageAssignmentFaceImport(request, singleMode: false);
     }
 
+    private void ApplySelectedImageAssignmentFaceFrame()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentImageAssignments == null || _imageAssignmentGrid.CurrentRow == null)
+        {
+            MessageBox.Show(this, "请先读取人物形象设定并选中一行。", "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        IReadOnlyList<PortraitFrameTargetRow> targetRows;
+        try
+        {
+            targetRows = BuildImageAssignmentFaceFrameTargetRows([_imageAssignmentGrid.CurrentRow]);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (targetRows.Count == 0)
+        {
+            MessageBox.Show(this, "当前行无法解析为人物形象设定数据行。", "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var framePath = SelectPortraitFramePath($"选择套用到头像 #{targetRows[0].FaceId} 的头像框");
+        if (string.IsNullOrWhiteSpace(framePath)) return;
+
+        var request = new PortraitFrameApplyRequest
+        {
+            FramePath = framePath,
+            TargetRows = targetRows,
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        ExecuteImageAssignmentFaceFrameApply(request, singleMode: true);
+    }
+
+    private void BatchApplySelectedImageAssignmentFaceFrames()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentImageAssignments == null)
+        {
+            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var selectedRows = GetSelectedImageAssignmentRowsForFaceImport();
+        if (selectedRows.Count == 0)
+        {
+            MessageBox.Show(this, "请先在人物形象设定表中选中要套用头像框的行。", "批量头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        IReadOnlyList<PortraitFrameTargetRow> targetRows;
+        try
+        {
+            targetRows = BuildImageAssignmentFaceFrameTargetRows(selectedRows);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "批量头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var framePath = SelectPortraitFramePath("选择套用到所选人物头像的头像框");
+        if (string.IsNullOrWhiteSpace(framePath)) return;
+
+        var request = new PortraitFrameApplyRequest
+        {
+            FramePath = framePath,
+            TargetRows = targetRows,
+            WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
+        };
+
+        ExecuteImageAssignmentFaceFrameApply(request, singleMode: false);
+    }
+
+    private void ExecuteImageAssignmentFaceFrameApply(PortraitFrameApplyRequest request, bool singleMode)
+    {
+        if (_project == null) return;
+
+        PortraitFrameApplyPreviewResult preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            preview = _portraitFrameApplyService.Preview(_project, request);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("人物形象头像框导入预览失败: " + ex);
+            MessageBox.Show(this, ex.Message, "头像框导入预览失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var previewText = BuildPortraitFrameApplyPreviewText(preview);
+        _imageAssignmentInfoBox.Text = previewText;
+        if (!preview.CanWrite)
+        {
+            MessageBox.Show(this, previewText, "头像框导入没有可写入条目", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(this,
+                previewText + "\r\n\r\n确认后会覆盖写回 Face.e5，并自动备份；不会修改人物表“头像编号”，也不会同步 Tou.dll 真彩头像。是否继续？",
+                singleMode ? "确认一键头像框" : "确认批量头像框",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var result = _portraitFrameApplyService.Replace(_project, request);
+            _imageResourceCatalogService.ClearCache();
+            ClearImageAssignmentCaches();
+            ShowSelectedImageAssignmentDetail();
+            _imageAssignmentInfoBox.Text = BuildPortraitFrameApplyResultText(result);
+            SetStatus($"{(singleMode ? "人物形象头像框导入" : "人物形象头像框批量导入")}完成：{result.TotalOperationCount} 条");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("人物形象头像框导入失败: " + ex);
+            MessageBox.Show(this, ex.Message, "头像框导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
     private void ExecuteImageAssignmentFaceImport(BatchRoleFaceImportRequest request, bool singleMode)
     {
         if (_project == null) return;
@@ -590,6 +738,48 @@ public sealed partial class MainForm
         return targets;
     }
 
+    private static IReadOnlyList<PortraitFrameTargetRow> BuildImageAssignmentFaceFrameTargetRows(IReadOnlyList<DataGridViewRow> selectedRows)
+    {
+        var targets = new List<PortraitFrameTargetRow>();
+        foreach (var row in selectedRows)
+        {
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为人物形象设定数据行。");
+            var roleId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
+            var displayName = TryGetRoleDisplayName(dataRow);
+            if (!dataRow.Table.Columns.Contains("头像编号") || !TryConvertToInt(dataRow["头像编号"], out var faceId))
+            {
+                throw new InvalidOperationException($"人物形象设定行 ID={roleId} 的头像编号不是有效整数。");
+            }
+
+            targets.Add(new PortraitFrameTargetRow(roleId, displayName, faceId));
+        }
+
+        return targets;
+    }
+
+    private string? SelectPortraitFramePath(string title)
+    {
+        if (_project == null) return null;
+
+        using var dialog = new OpenFileDialog
+        {
+            Title = title,
+            Filter = "头像框图片 (*.png;*.bmp;*.jpg;*.jpeg)|*.png;*.bmp;*.jpg;*.jpeg|所有文件 (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false,
+            InitialDirectory = PortraitFrameAssetDirectoryService.ResolveInitialDirectory(_project)
+        };
+
+        foreach (var directory in PortraitFrameAssetDirectoryService.GetKnownFrameDirectories(_project))
+        {
+            dialog.CustomPlaces.Add(directory);
+        }
+
+        return dialog.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(dialog.FileName)
+            ? dialog.FileName
+            : null;
+    }
+
     private static string TryGetRoleDisplayName(DataRow dataRow)
     {
         foreach (var columnName in new[] { "名称", "姓名", "人物名称", "角色名称" })
@@ -628,6 +818,40 @@ public sealed partial class MainForm
     {
         var builder = new StringBuilder();
         builder.AppendLine("角色头像批量导入完成");
+        builder.AppendLine($"目标：{result.TargetRelativePath}");
+        builder.AppendLine($"写入条目：{result.TotalOperationCount}");
+        builder.AppendLine($"汇总报告：{result.AggregateReportPath}");
+        if (result.E5Result != null)
+        {
+            builder.AppendLine($"备份：{result.E5Result.BackupPath}");
+            builder.AppendLine($"报告：{result.E5Result.ReportJsonPath}");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string BuildPortraitFrameApplyPreviewText(PortraitFrameApplyPreviewResult preview)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("头像框导入预览");
+        builder.AppendLine($"目标：{preview.TargetRelativePath}");
+        builder.AppendLine($"头像框：{Path.GetFileName(preview.Request.FramePath)}");
+        builder.AppendLine($"匹配成功：{preview.Items.Count}，Face.e5 写入条目：{preview.TotalOperationCount}");
+        builder.AppendLine($"跳过/问题：{preview.SkippedItems.Count}");
+        foreach (var item in preview.Items.Take(30))
+        {
+            var target = string.Join("/", item.TargetImageNumbers.Select(number => "#" + number.ToString(CultureInfo.InvariantCulture)));
+            builder.AppendLine($"- ID={item.RowId} {item.DisplayName} -> 头像#{item.FaceId} Face.e5 {target} <- {Path.GetFileName(item.FramePath)}");
+        }
+
+        AppendBatchSkippedAndWarnings(builder, preview.SkippedItems, preview.Warnings);
+        return builder.ToString();
+    }
+
+    private static string BuildPortraitFrameApplyResultText(PortraitFrameApplyResult result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("头像框导入完成");
         builder.AppendLine($"目标：{result.TargetRelativePath}");
         builder.AppendLine($"写入条目：{result.TotalOperationCount}");
         builder.AppendLine($"汇总报告：{result.AggregateReportPath}");
