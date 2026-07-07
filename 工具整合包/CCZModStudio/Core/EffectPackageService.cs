@@ -112,7 +112,7 @@ public sealed class EffectPackageService
                 throw new InvalidOperationException("Unsupported effect domain: " + package.Domain);
         }
 
-        preview.CanApply = true;
+        preview.CanApply = preview.CanApply && preview.Warnings.Count == 0;
         preview.Summary = $"{preview.Domain} effect {preview.EffectId} {preview.Mode}: {preview.Changes.Count} planned changes, warnings={preview.Warnings.Count}.";
         return preview;
     }
@@ -120,6 +120,10 @@ public sealed class EffectPackageService
     public EffectPackageApplyResult Apply(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode)
     {
         var preview = Preview(project, tables, package, mode);
+        if (!preview.CanApply)
+        {
+            throw new InvalidOperationException("EffectPackage preview failed; apply was cancelled: " + string.Join("; ", preview.Warnings.Take(10)));
+        }
 
         var normalizedDomain = preview.Domain;
         var normalizedMode = preview.Mode;
@@ -171,11 +175,22 @@ public sealed class EffectPackageService
         if (!NormalizeDomain(package.Domain).Equals("patch", StringComparison.Ordinal))
         {
             preview.Warnings.Add("Only domain=patch packages can be previewed as effect patches.");
+            preview.CanApply = false;
         }
 
         if (package.PatchSegments.Count == 0)
         {
             preview.Warnings.Add("Patch package has no patch segments.");
+        }
+
+        try
+        {
+            new CodeCaveRegistry().EnsureNoPatchSegmentOverlap(package.PatchSegments);
+        }
+        catch (Exception ex)
+        {
+            preview.Warnings.Add(ex.Message);
+            preview.CanApply = false;
         }
 
         foreach (var group in package.PatchSegments.GroupBy(segment => FirstNonEmpty(segment.TargetFile, "Ekd5.exe"), StringComparer.OrdinalIgnoreCase))
@@ -189,6 +204,7 @@ public sealed class EffectPackageService
             catch (Exception ex)
             {
                 preview.Warnings.Add($"Patch preview failed for {group.Key}: {ex.Message}");
+                preview.CanApply = false;
                 continue;
             }
 
@@ -199,12 +215,14 @@ public sealed class EffectPackageService
                 if (!row.CanApply)
                 {
                     preview.Warnings.Add($"Patch segment {group.Key} #{row.Index} cannot apply: {row.Status}");
+                    preview.CanApply = false;
                 }
 
                 if (!string.IsNullOrWhiteSpace(segment.ExpectedOldBytesHex) &&
                     !HexBytesEqual(segment.ExpectedOldBytesHex, row.OldBytesHex))
                 {
                     preview.Warnings.Add($"Patch segment {group.Key} #{row.Index} expected old bytes {NormalizeHexText(segment.ExpectedOldBytesHex)}, actual {NormalizeHexText(row.OldBytesHex)}.");
+                    preview.CanApply = false;
                 }
 
                 preview.Segments.Add(new EffectPackageChangePreview
@@ -223,7 +241,6 @@ public sealed class EffectPackageService
             }
         }
 
-        preview.CanApply = true;
         preview.Summary = $"Patch package preview: segments={package.PatchSegments.Count}, warnings={preview.Warnings.Count}.";
         return preview;
     }
@@ -231,6 +248,10 @@ public sealed class EffectPackageService
     public EffectPackageApplyResult ApplyPatch(CczProject project, EffectPackage package)
     {
         var preview = PreviewPatch(project, package);
+        if (!preview.CanApply)
+        {
+            throw new InvalidOperationException("Patch package preview failed; apply was cancelled: " + string.Join("; ", preview.Warnings.Take(10)));
+        }
 
         var aggregate = new EffectPackageApplyResult
         {
@@ -407,6 +428,83 @@ public sealed class EffectPackageService
             Schema = "EffectPackage",
             Domains = new[] { "item", "job", "personal", "patch" },
             Modes = new[] { "import", "replace", "delete" },
+            PatchSegmentFields = new[]
+            {
+                "targetFile",
+                "addressKind",
+                "address/addressHex",
+                "bytesHex",
+                "expectedOldBytesHex",
+                "codeCaveId",
+                "hookPoint",
+                "assemblySourceHash",
+                "allocatedRange",
+                "engineProfileSha256",
+                "comment"
+            },
+            AssemblyPatchDraft = new
+            {
+                RequiredFields = new[]
+                {
+                    "targetFile",
+                    "engineVersion",
+                    "hookPoint",
+                    "hookAddress/addressHex",
+                    "overwriteLength",
+                    "expectedOldBytesHex",
+                    "assemblySource",
+                    "requiredCodeCaveBytes"
+                },
+                RecommendedFields = new[]
+                {
+                    "prompt",
+                    "effectId",
+                    "returnAddress/returnAddressHex",
+                    "registerStrategy",
+                    "dependencies",
+                    "risks",
+                    "dynamicValidationPlan"
+                },
+                Placeholders = new[] { "{hook}", "{cave}", "{return}" },
+                SafetyRule = "Drafts never write files. preview_assembly_patch requires nasm.exe on PATH, then compiles, allocates, locks old bytes, and produces a patch-domain EffectPackage before apply_assembly_patch."
+            },
+            AssemblyPatchWorkflow = new[]
+            {
+                "scan_exe_code_caves(game_root?, target_file='Ekd5.exe', min_length=8, include_zero=false, include_mixed=false)",
+                "draft_assembly_patch(game_root?, prompt, engine_version?, effect_id?, hook_hint?)",
+                "preview_assembly_patch(game_root?, draft, allocator_policy='smallest-fit')",
+                "apply_assembly_patch(game_root?, compiled_package, write_mode='direct')"
+            },
+            SpecialSkillPatchWorkflow = new[]
+            {
+                "draft_special_skill_patch(game_root?, prompt, effect_id?, hook_hint?, personal_effect_id?, item_effect_id?, mode='damage-adjust')",
+                "preview_special_skill_patch(game_root?, draft, allocator_policy='smallest-fit')",
+                "apply_special_skill_patch(game_root?, compiled_package)",
+                "rebind_special_skill_params(game_root?, manifest_id_or_package_id, personal_effect_id?, item_effect_id?)"
+            },
+            InlineSpecialSkillPatch = new
+            {
+                LogicalPatchKind = "inline-special-skill",
+                LogicalModules = new[] { "HookJump", "StubAndBody", "PersonalEffectPatchPoint", "ItemEffectPatchPoint" },
+                MetadataKeys = new[]
+                {
+                    "LogicalPatchKind",
+                    "LogicalModulesJson",
+                    "ParameterPatchPointsJson",
+                    "ParameterEncodingPolicy",
+                    "PreviewExeSha256",
+                    "DynamicValidationPlan"
+                },
+                ParameterEncodingPolicy = "auto-wide",
+                SegmentRule = "Initial install emits non-overlapping physical patch segments. Personal/item parameter modules are metadata points inside the code-cave body; later rebinds emit parameter-only packages."
+            },
+            CodeCaveSafety = new
+            {
+                CandidateDiscovery = "Continuous NOP is preferred. Continuous 00 and mixed 90/00/CC are low-confidence and manual-validation candidates.",
+                AllocationLocks = new[] { "engine SHA/profile", "blocked ranges", "knowledge-base reserved ranges", "manifest existing allocations", "free subrange split", "ExpectedOldBytesHex", "patch segment overlap" },
+                BlockedRanges = new[] { "legacy-large-cave-E 0x00601A9A-0x00602500 blocked-unmapped for current 6.5 unencrypted base" },
+                ApplyRule = "apply_assembly_patch only accepts packages marked by a successful preview and re-previews before writing."
+            },
             DeleteSemantics = new
             {
                 Item = "Clear item references to effect_id=0/effect_value=0.",
@@ -692,6 +790,7 @@ public sealed class EffectPackageService
         var patchPreview = PreviewPatch(project, package);
         preview.Warnings.AddRange(patchPreview.Warnings);
         preview.Changes.AddRange(patchPreview.Segments);
+        preview.CanApply = patchPreview.CanApply;
     }
 
     private void ApplyItemPackage(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode, EffectManifest manifest, EffectPackageApplyResult result)

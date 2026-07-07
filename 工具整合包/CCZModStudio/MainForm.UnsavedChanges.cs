@@ -452,7 +452,11 @@ public sealed partial class MainForm
     {
         var items = CollectUnsavedItems();
         if (items.Count == 0) return true;
+        return await ConfirmUnsavedItemsBeforeCloseAsync(items);
+    }
 
+    private async Task<bool> ConfirmUnsavedItemsBeforeCloseAsync(IReadOnlyList<UnsavedEditorItem> items)
+    {
         var choice = ShowUnsavedChangesDialog(items);
         switch (choice)
         {
@@ -676,6 +680,7 @@ public sealed partial class MainForm
         var changedBytes = 0;
         if (SaveChangedTableAndVerify(_jobRestraintRead) is { } restraintSave) changedBytes += restraintSave.ChangedBytes;
         if (SaveChangedTableAndVerify(_jobAttributeRead) is { } attributeSave) changedBytes += attributeSave.ChangedBytes;
+        _currentJobAttributeEditorData?.AcceptChanges();
         RefreshJobMatrixCellsAfterEdit(restraintChangedCells.Concat(attributeChangedCells).ToList());
         SetStatus($"兵种相克/属性矩阵已保存：{changedBytes} 字节变化");
         return Task.CompletedTask;
@@ -684,6 +689,7 @@ public sealed partial class MainForm
     private Task SaveJobStrategyEditorSilentlyAsync()
     {
         if (_project == null || _currentJobStrategyData == null) return Task.CompletedTask;
+        if (!CommitJobStrategyDescriptionBoxEdit(showMessage: false, restoreSelectionOnFailure: true)) throw new InvalidOperationException("策略介绍右侧编辑区仍有无效改动，无法批量保存。");
         if (!CommitJobStrategyLearningEditorChanges(showMessage: false, restoreSelectionOnFailure: true)) throw new InvalidOperationException("策略学习等级右侧编辑区仍有无效改动，无法批量保存。");
         if (!CommitJobStrategyLearningDialogs()) throw new InvalidOperationException("策略学习等级仍有无效改动，无法批量保存。");
         if (!HasChanges(_currentJobStrategyData)) return Task.CompletedTask;

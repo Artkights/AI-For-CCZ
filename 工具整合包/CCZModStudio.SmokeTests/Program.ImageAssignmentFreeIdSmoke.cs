@@ -27,26 +27,30 @@ internal partial class Program
 
         var assignedFace = ImageAssignmentFreeIdService.CollectAssignedIds(table, ImageAssignmentResourceKind.Face);
         var freeFace = ImageAssignmentFreeIdService.BuildFreeCandidates([0, 1, 2, 3, 4], assignedFace, ImageAssignmentResourceKind.Face, 1);
-        AssertIntSequence([2, 4], freeFace.Select(x => x.Id), "free Face diff excludes zero and assigned ids");
+        AssertIntSequence([0, 2, 4], freeFace.Select(x => x.Id), "free Face diff includes zero and excludes assigned ids");
+        var allFace = ImageAssignmentFreeIdService.BuildAllCandidates([0, 1, 2, 3, 4], ImageAssignmentResourceKind.Face, 1);
+        AssertIntSequence([0, 1, 2, 3, 4], allFace.Select(x => x.Id), "all Face candidates include zero and keep assigned ids");
 
         var assignedR = ImageAssignmentFreeIdService.CollectAssignedIds(table, ImageAssignmentResourceKind.R);
         var freeR = ImageAssignmentFreeIdService.BuildFreeCandidates([0, 1, 2, 3, 4], assignedR, ImageAssignmentResourceKind.R, 1);
-        AssertIntSequence([2, 4], freeR.Select(x => x.Id), "free R diff excludes zero and assigned ids");
+        AssertIntSequence([0, 2, 4], freeR.Select(x => x.Id), "free R diff includes zero and excludes assigned ids");
+        var allR = ImageAssignmentFreeIdService.BuildAllCandidates([0, 1, 2, 3, 4], ImageAssignmentResourceKind.R, 1);
+        AssertIntSequence([0, 1, 2, 3, 4], allR.Select(x => x.Id), "all R candidates include zero and keep assigned ids");
 
         table.Rows[1]["R形象编号"] = 4;
         var assignedAfterCurrentEdit = ImageAssignmentFreeIdService.CollectAssignedIds(table, ImageAssignmentResourceKind.R);
         var freeAfterCurrentEdit = ImageAssignmentFreeIdService.BuildFreeCandidates([0, 1, 2, 3, 4], assignedAfterCurrentEdit, ImageAssignmentResourceKind.R, 1);
-        AssertIntSequence([2, 3], freeAfterCurrentEdit.Select(x => x.Id), "free R diff uses DataRowVersion.Current");
+        AssertIntSequence([0, 2, 3], freeAfterCurrentEdit.Select(x => x.Id), "free R diff uses DataRowVersion.Current");
 
         table.DefaultView.RowFilter = "ID = 0";
         var assignedWithFilter = ImageAssignmentFreeIdService.CollectAssignedIds(table, ImageAssignmentResourceKind.R);
         var freeWithFilter = ImageAssignmentFreeIdService.BuildFreeCandidates([0, 1, 2, 3, 4], assignedWithFilter, ImageAssignmentResourceKind.R, 1);
-        AssertIntSequence([2, 3], freeWithFilter.Select(x => x.Id), "free R diff ignores DataView filter");
+        AssertIntSequence([0, 2, 3], freeWithFilter.Select(x => x.Id), "free R diff ignores DataView filter");
 
         table.Rows[0]["头像编号"] = 4;
         var assignedFaceAfterCurrentEdit = ImageAssignmentFreeIdService.CollectAssignedIds(table, ImageAssignmentResourceKind.Face);
         var freeFaceAfterCurrentEdit = ImageAssignmentFreeIdService.BuildFreeCandidates([0, 1, 2, 3, 4], assignedFaceAfterCurrentEdit, ImageAssignmentResourceKind.Face, 1);
-        AssertIntSequence([1, 2], freeFaceAfterCurrentEdit.Select(x => x.Id), "free Face diff uses DataRowVersion.Current");
+        AssertIntSequence([0, 1, 2], freeFaceAfterCurrentEdit.Select(x => x.Id), "free Face diff uses DataRowVersion.Current");
     }
 
     private static void RunImageAssignmentFreeIdProjectSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -70,9 +74,24 @@ internal partial class Program
         var rResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.R, 1);
         var sResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.S, 1);
         var faceResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.Face, 1);
+        var allFaceResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.Face, 1, freeOnly: false);
+        var allRResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.R, 1, freeOnly: false);
         AssertCacheFlag(faceResult, expected: false, "first Face free-id query");
         AssertCacheFlag(rResult, expected: false, "first R free-id query");
         AssertCacheFlag(sResult, expected: false, "first S free-id query");
+        AssertCacheFlag(allFaceResult, expected: true, "all Face query should reuse first Face available-id scan");
+        AssertCacheFlag(allRResult, expected: true, "all R query should reuse first R available-id scan");
+        if (allFaceResult.FreeOnly || allRResult.FreeOnly)
+        {
+            throw new InvalidOperationException("全部头像/R 查询不应标记为 FreeOnly。");
+        }
+        if (allFaceResult.Items.Count != allFaceResult.CandidateResourceCount ||
+            allRResult.Items.Count != allRResult.CandidateResourceCount ||
+            !allFaceResult.Items.Select(x => x.Id).SequenceEqual(allFaceResult.Items.Select(x => x.Id).OrderBy(id => id)) ||
+            !allRResult.Items.Select(x => x.Id).SequenceEqual(allRResult.Items.Select(x => x.Id).OrderBy(id => id)))
+        {
+            throw new InvalidOperationException("全部头像/R 查询应返回全部可用编号并按 ID 升序排列。");
+        }
 
         var cachedFaceResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.Face, 1);
         var cachedRResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.R, 1);
@@ -98,11 +117,14 @@ internal partial class Program
         AssertNoAssignedOverlap(assignments, "头像编号", faceResult.FreeCandidates.Select(x => x.Id), "Face");
         AssertNoAssignedOverlap(assignments, "R形象编号", rResult.FreeCandidates.Select(x => x.Id), "R");
         AssertNoAssignedOverlap(assignments, "S形象编号", sResult.FreeCandidates.Select(x => x.Id), "S");
-        if (faceResult.FreeCandidates.Any(x => x.Id == 0) ||
-            rResult.FreeCandidates.Any(x => x.Id == 0) ||
-            sResult.FreeCandidates.Any(x => x.Id == 0))
+        if (!allFaceResult.Items.Any(x => x.Id == 0) ||
+            !allRResult.Items.Any(x => x.Id == 0))
         {
-            throw new InvalidOperationException("空闲头像/R/S 编号结果不应包含 0。");
+            throw new InvalidOperationException("全部头像/R 编号结果应包含 0。");
+        }
+        if (sResult.FreeCandidates.Any(x => x.Id == 0))
+        {
+            throw new InvalidOperationException("S 编号结果不应包含 0。");
         }
 
         foreach (var id in faceResult.FreeCandidates.Take(3).Select(x => x.Id))
@@ -117,10 +139,21 @@ internal partial class Program
         AssertCandidatePreviewClone(project, freeIdService, faceResult, ImageAssignmentResourceKind.Face, 1);
         AssertCandidatePreviewClone(project, freeIdService, rResult, ImageAssignmentResourceKind.R, 1);
         AssertCandidatePreviewClone(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1);
+        AssertStancePreviewClone(project, freeIdService, rResult, ImageAssignmentResourceKind.R, 1, ImageAssignmentPreviewStance.Front);
+        AssertStancePreviewClone(project, freeIdService, rResult, ImageAssignmentResourceKind.R, 1, ImageAssignmentPreviewStance.Back);
+        AssertStancePreviewClone(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Front);
+        AssertStancePreviewClone(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Side);
+        AssertStancePreviewClone(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Back);
+        AssertConcurrentPreviewCache(project, freeIdService, faceResult, ImageAssignmentResourceKind.Face, 1, ImageAssignmentPreviewStance.Front);
+        AssertConcurrentPreviewCache(project, freeIdService, rResult, ImageAssignmentResourceKind.R, 1, ImageAssignmentPreviewStance.Front);
+        AssertConcurrentPreviewCache(project, freeIdService, rResult, ImageAssignmentResourceKind.R, 1, ImageAssignmentPreviewStance.Back);
+        AssertConcurrentPreviewCache(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Front);
+        AssertConcurrentPreviewCache(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Side);
+        AssertConcurrentPreviewCache(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Back);
 
         foreach (var id in rResult.FreeCandidates.Take(3).Select(x => x.Id))
         {
-            using var preview = previewService.TryRenderCharacterResourceImage(project, "R", id);
+            using var preview = previewService.TryRenderRScenePhysicalStripFrame(project, id, 0, "下", out _);
             if (preview == null)
             {
                 throw new InvalidOperationException($"空闲 R{id} 未能生成预览。");
@@ -129,15 +162,15 @@ internal partial class Program
 
         foreach (var id in sResult.FreeCandidates.Take(3).Select(x => x.Id))
         {
-            using var preview = previewService.TryRenderCharacterResourceImage(project, "S", id, jobId: null, sFactionSlot: 1);
+            using var preview = previewService.TryRenderBattlefieldMoveIdleFrame(project, id, null, 1, "下", 0, out _);
             if (preview == null)
             {
                 throw new InvalidOperationException($"空闲 S{id} 未能生成预览。");
             }
         }
 
-        Console.WriteLine($"FREE_FACE={faceResult.FreeCandidates.Count} CANDIDATE_FACE={faceResult.CandidateResourceCount} ASSIGNED_FACE={faceResult.AssignedCount}");
-        Console.WriteLine($"FREE_R={rResult.FreeCandidates.Count} CANDIDATE_R={rResult.CandidateResourceCount} ASSIGNED_R={rResult.AssignedCount}");
+        Console.WriteLine($"FREE_FACE={faceResult.FreeCandidates.Count} ALL_FACE={allFaceResult.Items.Count} CANDIDATE_FACE={faceResult.CandidateResourceCount} ASSIGNED_FACE={faceResult.AssignedCount}");
+        Console.WriteLine($"FREE_R={rResult.FreeCandidates.Count} ALL_R={allRResult.Items.Count} CANDIDATE_R={rResult.CandidateResourceCount} ASSIGNED_R={rResult.AssignedCount}");
         Console.WriteLine($"FREE_S={sResult.FreeCandidates.Count} CANDIDATE_S={sResult.CandidateResourceCount} ASSIGNED_S={sResult.AssignedCount}");
     }
 
@@ -212,6 +245,77 @@ internal partial class Program
         if (second.Size != secondSize)
         {
             throw new InvalidOperationException($"空闲 {kind} 候选 {id} 预览缓存克隆在 Dispose 后不可用。");
+        }
+    }
+
+    private static void AssertStancePreviewClone(
+        CczProject project,
+        ImageAssignmentFreeIdService freeIdService,
+        ImageAssignmentFreeIdResult result,
+        ImageAssignmentResourceKind kind,
+        int sFactionSlot,
+        ImageAssignmentPreviewStance stance)
+    {
+        var id = result.FreeCandidates.FirstOrDefault()?.Id;
+        if (id == null) return;
+
+        using var first = freeIdService.RenderCandidatePreview(project, kind, id.Value, sFactionSlot, stance);
+        using var second = freeIdService.RenderCandidatePreview(project, kind, id.Value, sFactionSlot, stance);
+        if (first == null || second == null)
+        {
+            throw new InvalidOperationException($"空闲 {kind} 候选 {id} {ImageAssignmentFreeIdService.GetStanceDisplayText(stance)}未能生成缓存预览。");
+        }
+
+        if (ReferenceEquals(first, second))
+        {
+            throw new InvalidOperationException($"空闲 {kind} 候选 {id} {ImageAssignmentFreeIdService.GetStanceDisplayText(stance)}预览缓存不应返回同一个 Bitmap 实例。");
+        }
+
+        if (kind == ImageAssignmentResourceKind.S && first.Size != new Size(48, 48))
+        {
+            throw new InvalidOperationException($"S 查询预览应只显示 Unit_mov.e5 单个 48x48 待机帧，实际尺寸 {first.Width}x{first.Height}。");
+        }
+    }
+
+    private static void AssertConcurrentPreviewCache(
+        CczProject project,
+        ImageAssignmentFreeIdService freeIdService,
+        ImageAssignmentFreeIdResult result,
+        ImageAssignmentResourceKind kind,
+        int sFactionSlot,
+        ImageAssignmentPreviewStance stance)
+    {
+        var id = result.FreeCandidates.FirstOrDefault()?.Id;
+        if (id == null) return;
+
+        var previews = Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
+            freeIdService.RenderCandidatePreviewAsync(project, kind, id.Value, sFactionSlot, stance, CancellationToken.None)))
+            .ConfigureAwait(false)
+            .GetAwaiter()
+            .GetResult();
+
+        if (previews.Any(preview => preview == null))
+        {
+            throw new InvalidOperationException($"并发 {kind} 候选 {id} {ImageAssignmentFreeIdService.GetStanceDisplayText(stance)}预览不应返回空。");
+        }
+
+        using var first = previews[0]!.CreateBitmap();
+        using var second = previews[1]!.CreateBitmap();
+        if (ReferenceEquals(first, second))
+        {
+            throw new InvalidOperationException($"并发 {kind} 候选 {id} {ImageAssignmentFreeIdService.GetStanceDisplayText(stance)}预览不应共享 Bitmap 实例。");
+        }
+
+        var secondSize = second.Size;
+        first.Dispose();
+        if (second.Size != secondSize)
+        {
+            throw new InvalidOperationException($"并发 {kind} 候选 {id} {ImageAssignmentFreeIdService.GetStanceDisplayText(stance)}预览的独立 Bitmap 在另一个实例释放后不可用。");
+        }
+
+        if (kind == ImageAssignmentResourceKind.S && previews.Any(preview => preview!.Size != new Size(48, 48)))
+        {
+            throw new InvalidOperationException($"并发 S 查询预览应只缓存 Unit_mov.e5 单个 48x48 待机帧。");
         }
     }
 

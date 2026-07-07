@@ -54,13 +54,17 @@ var globalNumericEvidenceSmokeOnly = args.Contains("--global-numeric-evidence-sm
 var globalNumericDiscoverySmokeOnly = args.Contains("--global-numeric-discovery-smoke", StringComparer.OrdinalIgnoreCase);
 var globalNumericQuerySmokeOnly = args.Contains("--global-numeric-query-smoke", StringComparer.OrdinalIgnoreCase);
 var globalNumericWriteSmokeOnly = args.Contains("--global-numeric-write-smoke", StringComparer.OrdinalIgnoreCase);
+var abilityTierPatchSmokeOnly = args.Contains("--ability-tier-patch-smoke", StringComparer.OrdinalIgnoreCase);
 var uiLayoutSettingsSmokeOnly = args.Contains("--ui-layout-settings-smoke", StringComparer.OrdinalIgnoreCase);
 var uiLayoutApplySmokeOnly = args.Contains("--ui-layout-apply-smoke", StringComparer.OrdinalIgnoreCase);
+var unsavedCloseSmokeOnly = args.Contains("--unsaved-close-smoke", StringComparer.OrdinalIgnoreCase);
 var mainTabSwitchLayoutSmokeOnly = args.Contains("--main-tab-switch-layout-smoke", StringComparer.OrdinalIgnoreCase);
+var sImageExportDialogLayoutSmokeOnly = args.Contains("--s-image-export-dialog-layout-smoke", StringComparer.OrdinalIgnoreCase);
 var csvEncodingSmokeOnly = args.Contains("--csv-encoding-smoke", StringComparer.OrdinalIgnoreCase);
 var gridEditingSmokeOnly = args.Contains("--grid-editing-smoke", StringComparer.OrdinalIgnoreCase);
 var csvImportCellChangeSmokeOnly = args.Contains("--csv-cell-change-smoke", StringComparer.OrdinalIgnoreCase);
 var itemEditorReadOnlySmokeOnly = args.Contains("--item-readonly-smoke", StringComparer.OrdinalIgnoreCase);
+var itemEditorWriteSmokeOnly = args.Contains("--item-editor-write-smoke", StringComparer.OrdinalIgnoreCase);
 var tableDerivedDisplaySmokeOnly = args.Contains("--table-derived-smoke", StringComparer.OrdinalIgnoreCase);
 var mapPreviewSmokeOnly = args.Contains("--map-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var mapTerrainConsistencySmokeOnly = args.Contains("--map-terrain-consistency-smoke", StringComparer.OrdinalIgnoreCase);
@@ -87,6 +91,8 @@ var autoTileRegionSmokeOnly = args.Contains("--autotile-region-smoke", StringCom
 var battlefieldPreviewSmokeOnly = args.Contains("--battlefield-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var battlefieldUnitStatusWriteSmokeOnly = args.Contains("--battlefield-unit-status-write-smoke", StringComparer.OrdinalIgnoreCase);
 var effectPackageSmokeOnly = args.Contains("--effect-package-smoke", StringComparer.OrdinalIgnoreCase);
+var assemblyPatchSmokeOnly = args.Contains("--assembly-patch-smoke", StringComparer.OrdinalIgnoreCase);
+var effectInjectionDiscoverySmokeOnly = args.Contains("--effect-injection-discovery-smoke", StringComparer.OrdinalIgnoreCase);
 var modPackageSmokeOnly = args.Contains("--mod-package-smoke", StringComparer.OrdinalIgnoreCase);
 var standaloneScenarioSmokeOnly = args.Contains("--standalone-scenario-smoke", StringComparer.OrdinalIgnoreCase);
 var standaloneSemanticSmokeOnly = args.Contains("--standalone-semantic-smoke", StringComparer.OrdinalIgnoreCase);
@@ -198,6 +204,12 @@ if (globalNumericWriteSmokeOnly)
     return;
 }
 
+if (abilityTierPatchSmokeOnly)
+{
+    RunAbilityTierPatchSmoke();
+    return;
+}
+
 if (rsPixelCharacterDesignWorkflowSmokeOnly)
 {
     ProgramRsPixelCharacterDesignWorkflowSmoke.Run(args);
@@ -237,6 +249,12 @@ if (lubuColorfulExportOnly)
 if (portraitFrameDirectorySmokeOnly)
 {
     RunPortraitFrameDirectorySmoke();
+    return;
+}
+
+if (sImageExportDialogLayoutSmokeOnly)
+{
+    RunSImageExportDialogLayoutSmoke();
     return;
 }
 
@@ -493,6 +511,12 @@ if (uiLayoutApplySmokeOnly)
     return;
 }
 
+if (unsavedCloseSmokeOnly)
+{
+    RunUnsavedCloseSmoke();
+    return;
+}
+
 if (mainTabSwitchLayoutSmokeOnly)
 {
     RunMainTabSwitchLayoutSmoke();
@@ -520,6 +544,12 @@ if (csvImportCellChangeSmokeOnly)
 if (itemEditorReadOnlySmokeOnly)
 {
     RunItemEditorReadOnlySmoke(project, tables);
+    return;
+}
+
+if (itemEditorWriteSmokeOnly)
+{
+    RunItemEditorWriteSmoke(project, tables);
     return;
 }
 
@@ -682,6 +712,18 @@ if (battlefieldUnitStatusWriteSmokeOnly)
 if (effectPackageSmokeOnly)
 {
     RunEffectPackageSmoke(project, tables);
+    return;
+}
+
+if (assemblyPatchSmokeOnly)
+{
+    RunAssemblyPatchSmoke(project);
+    return;
+}
+
+if (effectInjectionDiscoverySmokeOnly)
+{
+    RunEffectInjectionDiscoverySmoke(project);
     return;
 }
 

@@ -15,6 +15,13 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.DetectProject(game_root);
 
     [McpServerTool]
+    [Description("Read the authoritative MCP capability manifest with tool count, groups, aliases, and safety notes.")]
+    public object read_mcp_capability_manifest(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ReadMcpCapabilityManifest(game_root);
+
+    [McpServerTool]
     [Description("List editable HexTable definitions loaded from the detected project.")]
     public object list_tables(
         [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
@@ -50,6 +57,81 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Default direct writes only native/exact tables. For a 6.6 CrossVersionFallback table, pass CrossVersionFallbackWrite to explicitly accept the non-native layout risk.")]
         string? write_mode = null)
         => runtime.WriteTableRows(game_root, table_name, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Read a HexTable schema with writable/derived column metadata, offsets, storage types, and write restrictions.")]
+    public object read_table_schema(
+        [Description("HexTable table name.")]
+        string table_name,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ReadTableSchema(game_root, table_name);
+
+    [McpServerTool]
+    [Description("Read derived/display columns for selected table rows. Read-only.")]
+    public object read_table_derived_display(
+        [Description("HexTable table name.")]
+        string table_name,
+        [Description("Optional row IDs to return.")]
+        List<int>? row_ids = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Maximum rows to return. Defaults to 50; capped at 500.")]
+        int limit = 50)
+        => runtime.ReadTableDerivedDisplay(game_root, table_name, row_ids, limit);
+
+    [McpServerTool]
+    [Description("Export a HexTable-backed table to CSV under CCZModStudio_Exports/TableCsv or an explicit output path. Read-only for game files.")]
+    public object export_table_csv(
+        [Description("HexTable table name.")]
+        string table_name,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional output path. Relative paths resolve under the workspace.")]
+        string? output_path = null,
+        [Description("Optional column names to export. ID is always included.")]
+        List<string>? columns = null,
+        [Description("Optional row IDs to export.")]
+        List<int>? row_ids = null,
+        [Description("Optional keyword filter.")]
+        string? keyword = null,
+        [Description("Include a second CSV annotation row for AI-readable column notes.")]
+        bool include_annotation_row = false,
+        [Description("Maximum rows to export. Defaults to 10000; capped at 50000.")]
+        int limit = 10000)
+        => runtime.ExportTableCsv(game_root, table_name, output_path, columns, row_ids, keyword, include_annotation_row, limit);
+
+    [McpServerTool]
+    [Description("Preview CSV import into a HexTable-backed table without writing game files. Only writable columns are applied.")]
+    public object preview_import_table_csv(
+        [Description("HexTable table name.")]
+        string table_name,
+        [Description("CSV path. Relative paths resolve from workspace, project root, then cwd.")]
+        string csv_path,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Allow CSV to contain a subset of table columns.")]
+        bool allow_partial_columns = true,
+        [Description("Match rows by ID column when present.")]
+        bool match_by_id_when_present = true)
+        => runtime.PreviewImportTableCsv(game_root, table_name, csv_path, allow_partial_columns, match_by_id_when_present);
+
+    [McpServerTool]
+    [Description("Apply CSV import into a HexTable-backed table. Creates backup, structured report, and reread validation.")]
+    public object apply_import_table_csv(
+        [Description("HexTable table name.")]
+        string table_name,
+        [Description("CSV path. Relative paths resolve from workspace, project root, then cwd.")]
+        string csv_path,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null,
+        [Description("Allow CSV to contain a subset of table columns.")]
+        bool allow_partial_columns = true,
+        [Description("Match rows by ID column when present.")]
+        bool match_by_id_when_present = true)
+        => runtime.ApplyImportTableCsv(game_root, table_name, csv_path, write_mode, allow_partial_columns, match_by_id_when_present);
 
     [McpServerTool]
     [Description("Read GBK scenario text candidates from an RS/R_*.eex or RS/S_*.eex file.")]
@@ -967,6 +1049,101 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceRoleFaceBatchImport(game_root, source_files, source_root, target_rows, match_mode, write_mode);
 
     [McpServerTool]
+    [Description("Read the integrated role editor view: person table, R/S assignments, job names, equipment choices, and resource status. Read-only.")]
+    public object read_role_editor(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional keyword across returned role rows.")]
+        string? keyword = null,
+        [Description("Maximum rows to return. Defaults to 100; capped at 1000.")]
+        int limit = 100)
+        => runtime.ReadRoleEditor(game_root, keyword, limit);
+
+    [McpServerTool]
+    [Description("Preview integrated role editor writes without modifying game files.")]
+    public object preview_write_roles(
+        [Description("Role row updates. Each update may include person-table values plus face_id/r_image_id/s_image_id.")]
+        List<RoleUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewWriteRoles(game_root, updates);
+
+    [McpServerTool]
+    [Description("Write integrated role editor updates to person/R/S tables. Creates backups, reports, and reread validation.")]
+    public object write_roles(
+        [Description("Role row updates. Each update may include person-table values plus face_id/r_image_id/s_image_id.")]
+        List<RoleUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.WriteRoles(game_root, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Read role biography, critical quote mapping, and retreat quote mapping. Read-only.")]
+    public object read_role_texts(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional role IDs to return.")]
+        List<int>? role_ids = null,
+        [Description("Maximum rows to return. Defaults to 100; capped at 1000.")]
+        int limit = 100)
+        => runtime.ReadRoleTexts(game_root, role_ids, limit);
+
+    [McpServerTool]
+    [Description("Preview role biography/critical/retreat text writes and critical quote assignment without modifying game files.")]
+    public object preview_write_role_texts(
+        [Description("Role text updates.")]
+        List<RoleTextUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewWriteRoleTexts(game_root, updates);
+
+    [McpServerTool]
+    [Description("Write role biography/critical/retreat text updates. Creates backups, reports, and reread validation.")]
+    public object write_role_texts(
+        [Description("Role text updates.")]
+        List<RoleTextUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.WriteRoleTexts(game_root, updates, write_mode);
+
+    [McpServerTool]
+    [Description("Find free face/R/S image assignment IDs by comparing assigned rows with existing image resources. Read-only.")]
+    public object find_free_image_assignment_ids(
+        [Description("Kind: face, r_actor, or s_unit.")]
+        string kind,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Minimum ID to return.")]
+        int start_id = 0,
+        [Description("Maximum IDs to return. Defaults to 50; capped at 500.")]
+        int limit = 50)
+        => runtime.FindFreeImageAssignmentIds(game_root, kind, start_id, limit);
+
+    [McpServerTool]
+    [Description("Preview safe image assignment updates without writing game files.")]
+    public object preview_image_assignment_update(
+        [Description("Image assignment updates keyed by role row_id.")]
+        List<ImageAssignmentUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewImageAssignmentUpdate(game_root, updates);
+
+    [McpServerTool]
+    [Description("Write safe image assignment updates to person/R/S fields. Creates backups, reports, and reread validation.")]
+    public object write_image_assignment_update(
+        [Description("Image assignment updates keyed by role row_id.")]
+        List<ImageAssignmentUpdate> updates,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.WriteImageAssignmentUpdate(game_root, updates, write_mode);
+
+    [McpServerTool]
     [Description("Preview batch default job S unit image replacement from a material root without writing. Subfolders use Job12 or Job_12 and contain mov.bmp/atk.bmp/spc.bmp.")]
     public object preview_job_s_image_raw_batch_replace(
         [Description("Material root containing Job{jobId} subfolders. Relative paths resolve from workspace, project root, then cwd.")]
@@ -982,6 +1159,21 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Replace batch default job S unit image assets from a material root. Creates backups and structured reports.")]
     public object replace_job_s_image_raw_batch_replace(
+        [Description("Material root containing Job{jobId} subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        string material_root,
+        [Description("Faction slots to write: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
+        List<int> faction_slots,
+        [Description("Optional detailed job ids to include. When omitted or empty, all valid Job folders are considered.")]
+        List<int>? allowed_job_ids = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.ReplaceJobSImageRawBatch(game_root, material_root, allowed_job_ids, faction_slots, write_mode);
+
+    [McpServerTool]
+    [Description("Compatibility alias for replace_job_s_image_raw_batch_replace. Replaces batch default job S unit image assets from a material root.")]
+    public object replace_job_s_image_raw_batch(
         [Description("Material root containing Job{jobId} subfolders. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
         [Description("Faction slots to write: 1=ally, 2=friendly, 3=enemy. Must contain at least one value.")]
@@ -1061,6 +1253,78 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Default direct writes the detected project.")]
         string? write_mode = null)
         => runtime.ClearDllIcon(game_root, target_relative_path, icon_index, write_mode);
+
+    [McpServerTool]
+    [Description("Read an editable image target and export the editable bitmap under CCZModStudio_Exports/EditableImages. Supports semantic item/strategy icons, Face/R/S assignments, or explicit E5/DLL/raw targets. Read-only.")]
+    public object read_editable_image_target(
+        [Description("Editable image target request. Supports semantic=item_icon/strategy_icon/face_assignment/r_actor/s_unit with row_id, or direct target_relative_path/image_number/icon_index.")]
+        EditableImageTargetRequest request,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ReadEditableImageTarget(game_root, request);
+
+    [McpServerTool]
+    [Description("Preview editable image writeback from a replacement image or pixel edits without modifying game files.")]
+    public object preview_editable_image_write(
+        [Description("Editable image target request.")]
+        EditableImageTargetRequest request,
+        [Description("Optional replacement image path. Relative paths resolve from workspace, project root, then cwd.")]
+        string? replacement_path = null,
+        [Description("Optional small pixel edits when replacement_path is omitted.")]
+        List<PixelEditUpdate>? pixel_edits = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewEditableImageWrite(game_root, request, replacement_path, pixel_edits);
+
+    [McpServerTool]
+    [Description("Write an editable image target from a replacement image or pixel edits. Creates backup, report, and reread validation.")]
+    public object write_editable_image(
+        [Description("Editable image target request.")]
+        EditableImageTargetRequest request,
+        [Description("Optional replacement image path. Relative paths resolve from workspace, project root, then cwd.")]
+        string? replacement_path = null,
+        [Description("Optional small pixel edits when replacement_path is omitted.")]
+        List<PixelEditUpdate>? pixel_edits = null,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.WriteEditableImage(game_root, request, replacement_path, pixel_edits, write_mode);
+
+    [McpServerTool]
+    [Description("List known portrait frame assets from bundled/workspace/project directories. Read-only.")]
+    public object list_portrait_frames(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional frame root directory.")]
+        string? root = null,
+        [Description("Maximum frames to return. Defaults to 200; capped at 2000.")]
+        int limit = 200)
+        => runtime.ListPortraitFrames(game_root, root, limit);
+
+    [McpServerTool]
+    [Description("Preview applying a portrait frame to Face.e5 targets without writing game files.")]
+    public object preview_apply_portrait_frame(
+        [Description("Portrait frame image path. Relative paths resolve from workspace, project root, then cwd.")]
+        string frame_path,
+        [Description("Face targets with row_id/display_name/face_id.")]
+        List<PortraitFrameTargetUpdate> targets,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.PreviewApplyPortraitFrame(game_root, frame_path, targets);
+
+    [McpServerTool]
+    [Description("Apply a portrait frame to Face.e5 targets. Creates backup, aggregate report, and reread validation.")]
+    public object apply_portrait_frame(
+        [Description("Portrait frame image path. Relative paths resolve from workspace, project root, then cwd.")]
+        string frame_path,
+        [Description("Face targets with row_id/display_name/face_id.")]
+        List<PortraitFrameTargetUpdate> targets,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null)
+        => runtime.ApplyPortraitFrame(game_root, frame_path, targets, write_mode);
 
     [McpServerTool]
     [Description("Replace a non-core project resource file. Core files must use dedicated tools.")]
@@ -1495,6 +1759,112 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.PreviewEffectPatch(game_root, package);
 
     [McpServerTool]
+    [Description("Scan executable PE sections for candidate code caves. Read-only; candidates still require patch preview checks.")]
+    public object scan_exe_code_caves(
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Target executable file under the game root. Defaults to Ekd5.exe.")]
+        string? target_file = "Ekd5.exe",
+        [Description("Minimum continuous fill length. Defaults to 8.")]
+        int min_length = 8,
+        [Description("Include continuous 00 fill candidates. Defaults false because zero fill is low-confidence.")]
+        bool include_zero = false,
+        [Description("Include mixed 90/00/CC fill candidates. Defaults false because mixed fill is manual-inspection only.")]
+        bool include_mixed = false)
+        => runtime.ScanExeCodeCaves(game_root, target_file, min_length, include_zero, include_mixed);
+
+    [McpServerTool]
+    [Description("Create a structured assembly patch draft from a natural-language request. Draft-only; does not compile or write.")]
+    public object draft_assembly_patch(
+        [Description("Natural-language patch request.")]
+        string prompt,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional engine version hint, such as 6.5.")]
+        string? engine_version = null,
+        [Description("Optional effect id for the generated package.")]
+        int? effect_id = null,
+        [Description("Optional hook hint label.")]
+        string? hook_hint = null)
+        => runtime.DraftAssemblyPatch(game_root, prompt, engine_version, effect_id, hook_hint);
+
+    [McpServerTool]
+    [Description("Compile an AssemblyPatchDraft, allocate a code cave, and preview the generated EffectPackage without writing.")]
+    public object preview_assembly_patch(
+        [Description("AssemblyPatchDraft JSON object.")]
+        AssemblyPatchDraft draft,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Allocator policy: smallest-fit or largest-fit.")]
+        string? allocator_policy = "smallest-fit")
+        => runtime.PreviewAssemblyPatch(game_root, draft, allocator_policy);
+
+    [McpServerTool]
+    [Description("Apply a compiled assembly patch package produced by preview_assembly_patch. Uses backups, reports, and manifests.")]
+    public object apply_assembly_patch(
+        [Description("EffectPackage returned by preview_assembly_patch.")]
+        EffectPackage compiled_package,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ApplyAssemblyPatch(game_root, compiled_package, write_mode);
+
+    [McpServerTool]
+    [Description("Create a draft inline special-skill patch with four logical modules: hook jump, stub/body, personal id point, item id point. Draft-only.")]
+    public object draft_special_skill_patch(
+        [Description("Natural-language special-skill request.")]
+        string prompt,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Optional effect id for the generated package.")]
+        int? effect_id = null,
+        [Description("Optional hook/template hint from the engine profile.")]
+        string? hook_hint = null,
+        [Description("Optional personal special-skill id, 0x00-0xFF.")]
+        int? personal_effect_id = null,
+        [Description("Optional item/equipment special-skill id, 0x00-0xFF.")]
+        int? item_effect_id = null,
+        [Description("Template mode. Defaults to damage-adjust.")]
+        string? mode = "damage-adjust")
+        => runtime.DraftSpecialSkillPatch(game_root, prompt, effect_id, hook_hint, personal_effect_id, item_effect_id, mode);
+
+    [McpServerTool]
+    [Description("Compile and preview an InlineSpecialSkillPatchDraft without writing files. Emits a patch-domain EffectPackage with non-overlapping physical segments.")]
+    public object preview_special_skill_patch(
+        [Description("InlineSpecialSkillPatchDraft JSON object returned by draft_special_skill_patch.")]
+        InlineSpecialSkillPatchDraft draft,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Allocator policy: smallest-fit or largest-fit.")]
+        string? allocator_policy = "smallest-fit")
+        => runtime.PreviewSpecialSkillPatch(game_root, draft, allocator_policy);
+
+    [McpServerTool]
+    [Description("Apply a compiled special-skill patch package produced by preview_special_skill_patch. Uses backups, reports, manifests, and re-preview locks.")]
+    public object apply_special_skill_patch(
+        [Description("EffectPackage returned by preview_special_skill_patch.")]
+        EffectPackage compiled_package,
+        [Description("Default direct writes the detected project.")]
+        string? write_mode = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.ApplySpecialSkillPatch(game_root, compiled_package, write_mode);
+
+    [McpServerTool]
+    [Description("Preview a parameter-only rebind for a previously applied inline special-skill package. Returns a patch package; apply it with apply_effect_patch.")]
+    public object rebind_special_skill_params(
+        [Description("Manifest id, package id, or manifest file stem from the original special-skill apply.")]
+        string manifest_id_or_package_id,
+        [Description("Optional new personal special-skill id, 0x00-0xFF.")]
+        int? personal_effect_id = null,
+        [Description("Optional new item/equipment special-skill id, 0x00-0xFF.")]
+        int? item_effect_id = null,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.RebindSpecialSkillParams(game_root, manifest_id_or_package_id, personal_effect_id, item_effect_id);
+
+    [McpServerTool]
     [Description("Apply patch segments in a patch-domain EffectPackage using PatchApplyService.")]
     public object apply_effect_patch(
         [Description("Patch-domain EffectPackage JSON object.")]
@@ -1592,6 +1962,26 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.BeautifyTerrainMapPreview(game_root, draft_id);
 
     [McpServerTool]
+    [Description("Preview extracting map material tiles from a map draft into a material library/export directory. Does not create files.")]
+    public object preview_extract_map_materials(MapMaterialExtractionMcpRequest request, string? game_root = null)
+        => runtime.PreviewExtractMapMaterials(game_root, request);
+
+    [McpServerTool]
+    [Description("Extract map material tiles from a map draft. Writes only material library/export image files; does not modify game resources.")]
+    public object extract_map_materials(MapMaterialExtractionMcpRequest request, string? game_root = null, string? write_mode = null)
+        => runtime.ExtractMapMaterials(game_root, request, write_mode);
+
+    [McpServerTool]
+    [Description("Preview terrain beautify filter output for a map draft and export preview PNG. Does not modify draft/game files.")]
+    public object preview_terrain_beautify_filter(string draft_id, string? filter = null, int strength = 0, string? game_root = null)
+        => runtime.PreviewTerrainBeautifyFilter(game_root, draft_id, filter, strength);
+
+    [McpServerTool]
+    [Description("Save terrain beautify settings to a map draft JSON only; game resources are not modified.")]
+    public object apply_terrain_beautify_to_draft(string draft_id, string? filter = null, int strength = 0, string? game_root = null, string? write_mode = null)
+        => runtime.ApplyTerrainBeautifyToDraft(game_root, draft_id, filter, strength, write_mode);
+
+    [McpServerTool]
     [Description("Read shop editor rows composed from campaign names and shop data. Read-only.")]
     public object read_shop_editor(string? game_root = null, string? keyword = null, int limit = 80)
         => runtime.ReadShopEditor(game_root, keyword, limit);
@@ -1645,6 +2035,21 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [Description("Query static candidates for global numeric definitions. Read-only; does not promote pending fields.")]
     public object query_global_numeric_definitions(string? game_root = null)
         => runtime.QueryGlobalNumericDefinitions(game_root);
+
+    [McpServerTool]
+    [Description("Scan ability-tier calculation/display patch points in Ekd5.exe. Read-only; writes require signature-matched preview.")]
+    public object query_ability_tier_patch_points(string? game_root = null)
+        => runtime.QueryAbilityTierPatchPoints(game_root);
+
+    [McpServerTool]
+    [Description("Preview an ability-tier profile patch. Supports 4-7 tier branch-merge previews; 8-10 tier profiles report relocation requirements.")]
+    public object preview_write_ability_tier_profile(AbilityTierProfileUpdate update, string? game_root = null)
+        => runtime.PreviewWriteAbilityTierProfile(game_root, update);
+
+    [McpServerTool]
+    [Description("Write a verified 4-7 tier ability profile to Ekd5.exe with backup, SHA256 report, and reread validation.")]
+    public object write_ability_tier_profile(AbilityTierProfileUpdate update, string? game_root = null, string? write_mode = null)
+        => runtime.WriteAbilityTierProfile(game_root, update, write_mode);
 
     [McpServerTool]
     [Description("Parse AI scenario text import markup into legacy command previews. Read-only.")]
@@ -1731,6 +2136,31 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ExportTableAnnotations(game_root, table_name);
 
     [McpServerTool]
+    [Description("Diagnose Qing'er 6.6 revised-layout project evidence, tables, resources, and warnings. Read-only.")]
+    public object diagnose_qinger66_project(string? game_root = null)
+        => runtime.DiagnoseQinger66Project(game_root);
+
+    [McpServerTool]
+    [Description("Audit Qing'er 6.6 item layout, hidden name tails, icon resources, and effect resolution. Read-only.")]
+    public object audit_qinger66_items(string? game_root = null, int limit = 200)
+        => runtime.AuditQinger66Items(game_root, limit);
+
+    [McpServerTool]
+    [Description("List legacy MFC/old-tool dialog or resource evidence files. Read-only; does not expose GUI state.")]
+    public object list_legacy_mfc_dialogs(string? game_root = null, int limit = 100)
+        => runtime.ListLegacyMfcDialogs(game_root, limit);
+
+    [McpServerTool]
+    [Description("Read one legacy MFC/old-tool dialog or resource evidence file. Read-only.")]
+    public object read_legacy_mfc_dialog(string relative_path, string? game_root = null, int max_chars = 12000)
+        => runtime.ReadLegacyMfcDialog(game_root, relative_path, max_chars);
+
+    [McpServerTool]
+    [Description("Read scenario reference checklist entries for one or more R/S scripts. Read-only.")]
+    public object read_scenario_reference_checklist(string? relative_path = null, string? game_root = null, int limit = 50)
+        => runtime.ReadScenarioReferenceChecklist(game_root, relative_path, limit);
+
+    [McpServerTool]
     [Description("List the project-side item effect catalog. Read-only.")]
     public object list_item_effect_catalog(string? game_root = null)
         => runtime.ListItemEffectCatalog(game_root);
@@ -1743,6 +2173,19 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Write one 6.6 Ekd5.exe item-effect name slot at 0x9E800 + slot_index * 16. Does not change effect-id bindings.")]
     public object write_item_effect_name_66_slot(
+        [Description("0-based 6.6 item-effect name slot index in Ekd5.exe.")]
+        int slot_index,
+        [Description("New GBK name. Must fit in one 16-byte slot including NUL terminator.")]
+        string name,
+        [Description("Optional game root.")]
+        string? game_root = null,
+        [Description("Default direct writes with backup/report/reread validation.")]
+        string? write_mode = null)
+        => runtime.WriteItemEffectName66Slot(game_root, slot_index, name, write_mode);
+
+    [McpServerTool]
+    [Description("Compatibility alias for write_item_effect_name_66_slot.")]
+    public object write_item_effect_name66_slot(
         [Description("0-based 6.6 item-effect name slot index in Ekd5.exe.")]
         int slot_index,
         [Description("New GBK name. Must fit in one 16-byte slot including NUL terminator.")]

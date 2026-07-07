@@ -15,6 +15,7 @@ internal partial class Program
         var service = new BmpImageExportService();
         var raw = new E5RawImageCodec();
 
+        RunCharacterImageLayoutSmoke(project);
         RunJobSExportSmoke(project, service, raw, smokeRoot);
         RunRExportSmoke(project, service, raw, smokeRoot);
         RunSExportSmoke(project, service, raw, smokeRoot);
@@ -29,6 +30,60 @@ internal partial class Program
         }
 
         Console.WriteLine($"BMP_EXPORT_SMOKE OK root={smokeRoot}");
+    }
+
+    private static void RunCharacterImageLayoutSmoke(CczProject project)
+    {
+        var layout = new CharacterImageLayoutService().Resolve(project);
+        var e5 = new E5ImageReplaceService();
+        var pmapPath = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        if (File.Exists(pmapPath))
+        {
+            var rEntries = e5.ReadIndex(pmapPath).Count;
+            var expectedRMax = rEntries >= 2 ? rEntries / 2 - 1 : 0;
+            if (layout.RMaxId != expectedRMax)
+            {
+                throw new InvalidOperationException($"R layout max mismatch: actual={layout.RMaxId}, expected={expectedRMax}, evidence={layout.Evidence}");
+            }
+        }
+
+        var unitPaths = new[] { "Unit_mov.e5", "Unit_atk.e5", "Unit_spc.e5" }
+            .Select(fileName => CharacterImageResourceService.ResolveGameFile(project, fileName))
+            .ToArray();
+        if (unitPaths.Any(path => !File.Exists(path)))
+        {
+            Console.WriteLine("BMP_EXPORT_SMOKE skip layout S max: Unit_*.e5 missing.");
+            return;
+        }
+
+        var unitEntryCount = unitPaths.Select(path => e5.ReadIndex(path).Count).Min();
+        var expectedSMax = Math.Max(0,
+            CharacterImageLayoutService.DefaultThreeStageSpecialCount +
+            unitEntryCount -
+            CharacterImageLayoutService.DefaultOneStageSpecialStart);
+        if (layout.SMaxId != expectedSMax)
+        {
+            throw new InvalidOperationException($"S layout max mismatch: actual={layout.SMaxId}, expected={expectedSMax}, evidence={layout.Evidence}");
+        }
+
+        if (layout.SMaxId > CharacterImageLayoutService.DefaultThreeStageSpecialCount)
+        {
+            var maxMapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, layout.SMaxId);
+            if (maxMapping.ImageNumbers.Count != 1 || maxMapping.ImageNumbers[0] != unitEntryCount)
+            {
+                throw new InvalidOperationException(
+                    $"S max mapping mismatch: S{layout.SMaxId} -> {string.Join("/", maxMapping.ImageNumbers)}, expected Unit #{unitEntryCount}.");
+            }
+
+            var overflowMapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, layout.SMaxId + 1);
+            if (overflowMapping.ImageNumbers.Count == 1 && overflowMapping.ImageNumbers[0] <= unitEntryCount)
+            {
+                throw new InvalidOperationException(
+                    $"S overflow mapping should exceed Unit entries: S{layout.SMaxId + 1} -> {overflowMapping.ImageNumbers[0]}, unit entries={unitEntryCount}.");
+            }
+        }
+
+        Console.WriteLine($"BMP_EXPORT_LAYOUT_SMOKE OK profile={layout.ProfileName} RMax={layout.RMaxId} SMax={layout.SMaxId}");
     }
 
     private static void RunJobSExportSmoke(CczProject project, BmpImageExportService service, E5RawImageCodec raw, string smokeRoot)
@@ -173,6 +228,42 @@ internal partial class Program
         {
             throw new InvalidOperationException("S=250 all-stage export should warn that second/third turns were ignored.");
         }
+
+        RunKnown65PlMaxSExportSmoke(project, service, smokeRoot);
+    }
+
+    private static void RunKnown65PlMaxSExportSmoke(CczProject project, BmpImageExportService service, string smokeRoot)
+    {
+        var layout = new CharacterImageLayoutService().Resolve(project);
+        if (!layout.ProfileName.Contains("6.5pl 神话三国志 2026 新春版", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var output = Path.Combine(smokeRoot, "known_65pl_max_s");
+        var result = service.Export(project, new BmpExportRequest
+        {
+            Kind = BmpExportKind.SImage,
+            OutputRoot = output,
+            SingleMode = true,
+            Targets = new[]
+            {
+                new BmpExportTarget { RowId = layout.SMaxId, DisplayName = "SMax", FieldValue = layout.SMaxId }
+            }
+        });
+
+        AssertExported(result, 3, $"known 6.5pl S{layout.SMaxId}");
+        if (result.Files.Any(file => file.ImageNumber != layout.UnitEntryCount || file.VisiblePixels <= 0))
+        {
+            throw new InvalidOperationException(
+                $"Known 6.5pl max S export should use visible Unit #{layout.UnitEntryCount}: " +
+                string.Join(", ", result.Files.Select(file => $"{file.Role}=#{file.ImageNumber} visible={file.VisiblePixels}")));
+        }
+
+        AssertBmpDimensions(Path.Combine(output, "mov.bmp"), 48, 528);
+        AssertBmpDimensions(Path.Combine(output, "atk.bmp"), 64, 768);
+        AssertBmpDimensions(Path.Combine(output, "spc.bmp"), 48, 240);
+        Console.WriteLine($"BMP_EXPORT_65PL_MAX_S_SMOKE OK S{layout.SMaxId}=Unit#{layout.UnitEntryCount}");
     }
 
     private static void RunFaceExportSmoke(CczProject project, BmpImageExportService service, string smokeRoot)

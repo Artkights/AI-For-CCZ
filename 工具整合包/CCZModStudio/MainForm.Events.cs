@@ -211,15 +211,29 @@ public sealed partial class MainForm
         _jobTerrainGrid.CellEndEdit += (_, e) => RefreshJobTerrainRowStyle(e.RowIndex);
         _loadJobMatrixButton.Click += (_, _) => LoadJobMatrixEditor();
         _saveJobMatrixButton.Click += (_, _) => SaveJobMatrixEditor();
+        _loadJobAttributeMatrixButton.Click += (_, _) => LoadJobMatrixEditor();
+        _saveJobAttributeMatrixButton.Click += (_, _) => SaveJobMatrixEditor();
         _openJobMatrixAttributeTableButton.Click += (_, _) => OpenCoreTable("6.5-3-4 兵种属性");
         _openJobMatrixRestraintTableButton.Click += (_, _) => OpenCoreTable("6.5-3-3 兵种相克");
+        _exportJobAttributeCsvButton.Click += (_, _) => ExportJobAttributeEditorCsv();
+        _importJobAttributeCsvButton.Click += (_, _) => ImportJobAttributeEditorCsv();
+        _pasteJobMatrixSelectionButton.Click += (_, _) => PasteActiveJobMatrixSelection();
+        _fillJobMatrixSelectionButton.Click += (_, _) => FillActiveJobMatrixSelectionWithCurrentValue();
+        _batchModifyJobMatrixButton.Click += (_, _) => ShowActiveJobMatrixBatchModifyDialog();
         _jobRestraintGrid.SelectionChanged += (_, _) => ShowSelectedJobMatrixCell(_jobRestraintGrid, "兵种相克");
         _jobRestraintGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobRestraintGrid, e);
         _jobRestraintGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobRestraintGrid, e.RowIndex);
         _jobAttributeGrid.SelectionChanged += (_, _) => ShowSelectedJobMatrixCell(_jobAttributeGrid, "兵种属性");
         _jobAttributeGrid.CellParsing += (_, e) => ParseJobAttributeMatrixCell(e);
         _jobAttributeGrid.CellValidating += (_, e) => ValidateJobMatrixCell(_jobAttributeGrid, e);
-        _jobAttributeGrid.CellEndEdit += (_, e) => RefreshJobMatrixRowStyle(_jobAttributeGrid, e.RowIndex);
+        _jobAttributeGrid.EditingControlShowing += (_, e) => ConfigureJobAttributeEditingControl(e.Control);
+        _jobAttributeGrid.DataError += (_, e) => HandleJobAttributeGridDataError(e);
+        _jobAttributeGrid.DataBindingComplete += (_, _) => ConfigureJobAttributeEditorGrid();
+        _jobAttributeGrid.CellEndEdit += (_, e) =>
+        {
+            RefreshJobAttributeCellAfterEdit(e.RowIndex, e.ColumnIndex);
+            RefreshJobMatrixRowStyle(_jobAttributeGrid, e.RowIndex);
+        };
         _loadJobStrategyEditorButton.Click += (_, _) => LoadJobStrategyEditor();
         _saveJobStrategyEditorButton.Click += (_, _) => SaveJobStrategyEditor();
         _importJobStrategyIconButton.Click += (_, _) => ImportSelectedJobStrategyIcons();
@@ -250,6 +264,7 @@ public sealed partial class MainForm
             RefreshJobStrategyRowStyle(e.RowIndex);
             ShowSelectedJobStrategyCell();
         };
+        _jobStrategyDescriptionBox.TextChanged += (_, _) => ApplyJobStrategyDescriptionBoxEdit(_jobStrategyDescriptionBox);
         _jobStrategyLearningEditorGrid.CellValidating += (_, e) => ValidateJobStrategyLearningEditorCell(e);
         _jobStrategyLearningEditorGrid.DataError += (_, e) =>
         {

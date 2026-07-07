@@ -1,7 +1,7 @@
 param(
     [string]$GameRoot = "",
     [int]$TimeoutMs = 10000,
-    [int]$MinimumToolCount = 124
+    [int]$MinimumToolCount = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,6 +114,7 @@ try {
     $resourceTemplatesList = '{"jsonrpc":"2.0","id":4,"method":"resources/templates/list","params":{}}'
     $promptsList = '{"jsonrpc":"2.0","id":5,"method":"prompts/list","params":{}}'
     $effectSchemaRead = '{"jsonrpc":"2.0","id":6,"method":"resources/read","params":{"uri":"ccz://effects/schema"}}'
+    $manifestRead = '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"read_mcp_capability_manifest","arguments":{}}}'
 
     $proc.StandardInput.WriteLine($initialize)
     $proc.StandardInput.Flush()
@@ -136,6 +137,9 @@ try {
     $proc.StandardInput.WriteLine($effectSchemaRead)
     $proc.StandardInput.Flush()
     $effectSchemaLine = Read-LineWithTimeout -Reader $proc.StandardOutput -Timeout $TimeoutMs -Label "resources/read ccz://effects/schema"
+    $proc.StandardInput.WriteLine($manifestRead)
+    $proc.StandardInput.Flush()
+    $manifestLine = Read-LineWithTimeout -Reader $proc.StandardOutput -Timeout $TimeoutMs -Label "tools/call read_mcp_capability_manifest"
 
     $init = $initLine | ConvertFrom-Json
     $tools = $toolsLine | ConvertFrom-Json
@@ -143,6 +147,7 @@ try {
     $resourceTemplates = $resourceTemplatesLine | ConvertFrom-Json
     $prompts = $promptsLine | ConvertFrom-Json
     $effectSchema = $effectSchemaLine | ConvertFrom-Json
+    $manifestResponse = $manifestLine | ConvertFrom-Json
     if ($init.error) {
         throw "MCP initialize failed: $($init.error.message)"
     }
@@ -162,17 +167,40 @@ try {
     if ($effectSchema.error) {
         throw "MCP resources/read ccz://effects/schema failed: $($effectSchema.error.message)"
     }
+    if ($manifestResponse.error) {
+        throw "MCP tools/call read_mcp_capability_manifest failed: $($manifestResponse.error.message)"
+    }
 
     $toolNames = @($tools.result.tools | ForEach-Object { $_.name })
-    if ($toolNames.Count -lt $MinimumToolCount) {
+    if ($MinimumToolCount -gt 0 -and $toolNames.Count -lt $MinimumToolCount) {
         throw "Expected at least $MinimumToolCount tools, got $($toolNames.Count)."
     }
 
+    $manifestText = ($manifestResponse.result.content | Where-Object { $_.type -eq "text" } | Select-Object -First 1).text
+    if ([string]::IsNullOrWhiteSpace($manifestText)) {
+        throw "Capability manifest did not return text content."
+    }
+    $manifest = $manifestText | ConvertFrom-Json
+    if ([int]$manifest.ToolCount -ne $toolNames.Count) {
+        throw "Capability manifest tool count mismatch: manifest=$($manifest.ToolCount), tools/list=$($toolNames.Count)."
+    }
+    $manifestTools = @($manifest.Tools)
+    $manifestMissingTools = @($toolNames | Where-Object { $manifestTools -notcontains $_ })
+    if ($manifestMissingTools.Count -gt 0) {
+        throw "Capability manifest is missing tools/list entries: $($manifestMissingTools -join ', ')"
+    }
+
     $requiredTools = @(
+        "read_mcp_capability_manifest",
         "detect_project",
         "list_tables",
         "read_table",
         "write_table_rows",
+        "read_table_schema",
+        "read_table_derived_display",
+        "export_table_csv",
+        "preview_import_table_csv",
+        "apply_import_table_csv",
         "list_scenario_files",
         "read_scenario_commands",
         "list_battlefield_unit_status_targets",
@@ -208,6 +236,7 @@ try {
         "replace_s_image_raw",
         "preview_job_s_image_raw_batch_replace",
         "replace_job_s_image_raw_batch_replace",
+        "replace_job_s_image_raw_batch",
         "preview_e5_role_raw_normalize",
         "normalize_e5_role_raw",
         "preview_item_icon_batch_import",
@@ -216,10 +245,25 @@ try {
         "replace_strategy_icon_batch_import",
         "preview_role_face_batch_import",
         "replace_role_face_batch_import",
+        "read_role_editor",
+        "preview_write_roles",
+        "write_roles",
+        "read_role_texts",
+        "preview_write_role_texts",
+        "write_role_texts",
+        "find_free_image_assignment_ids",
+        "preview_image_assignment_update",
+        "write_image_assignment_update",
         "preview_dll_icon_replace",
         "replace_dll_icon",
         "preview_clear_dll_icon",
         "clear_dll_icon",
+        "read_editable_image_target",
+        "preview_editable_image_write",
+        "write_editable_image",
+        "list_portrait_frames",
+        "preview_apply_portrait_frame",
+        "apply_portrait_frame",
         "list_effects",
         "read_effect",
         "export_effect_package",
@@ -260,6 +304,10 @@ try {
         "derive_material_terrain_cells",
         "generate_terrain_driven_map",
         "beautify_terrain_map_preview",
+        "preview_extract_map_materials",
+        "extract_map_materials",
+        "preview_terrain_beautify_filter",
+        "apply_terrain_beautify_to_draft",
         "read_shop_editor",
         "preview_write_shop_rows",
         "write_shop_rows",
@@ -280,8 +328,14 @@ try {
         "inspect_eex_entries",
         "compare_eex_archives",
         "export_table_annotations",
+        "diagnose_qinger66_project",
+        "audit_qinger66_items",
+        "list_legacy_mfc_dialogs",
+        "read_legacy_mfc_dialog",
+        "read_scenario_reference_checklist",
         "list_item_effect_catalog",
         "save_item_effect_catalog",
+        "write_item_effect_name66_slot",
         "read_equipment_type_profile",
         "read_job_settings",
         "preview_job_settings",
@@ -341,6 +395,7 @@ try {
     }
 
     Write-Host ("MCP_VALIDATE_OK server={0} protocol={1} tools={2}" -f $init.result.serverInfo.name, $init.result.protocolVersion, $toolNames.Count)
+    Write-Host ("MCP_MANIFEST_OK tools={0} groups={1} document={2}" -f $manifest.ToolCount, @($manifest.Groups.PSObject.Properties).Count, $manifest.DocumentVersion)
     Write-Host ("MCP_VALIDATE_SAMPLE " + (($toolNames | Select-Object -First 10) -join ","))
     Write-Host ("EFFECT_MCP_SMOKE_OK resources={0} templates={1} prompts={2}" -f $resourceUris.Count, $resourceTemplateUris.Count, $promptNames.Count)
 } finally {

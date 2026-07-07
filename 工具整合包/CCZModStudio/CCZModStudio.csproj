@@ -75,9 +75,11 @@
       <Root ParameterType="System.String" Required="true" />
       <RuntimeDirectory ParameterType="System.String" Required="true" />
       <ExcludedRoot ParameterType="System.String" Required="false" />
+      <RootCompanionFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
     </ParameterGroup>
     <Task>
       <Using Namespace="System" />
+      <Using Namespace="System.Collections.Generic" />
       <Using Namespace="System.IO" />
       <Using Namespace="System.Linq" />
       <Code Type="Fragment" Language="cs"><![CDATA[
@@ -90,9 +92,31 @@
                 : fullPath + Path.DirectorySeparatorChar;
         }
 
+        static string NormalizeRelativePath(string path)
+        {
+            return path
+                .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                .TrimStart(Path.DirectorySeparatorChar);
+        }
+
         var root = EnsureTrailingSlash(Root);
         var runtimeDirectory = EnsureTrailingSlash(RuntimeDirectory);
         var excludedRoot = string.IsNullOrWhiteSpace(ExcludedRoot) ? null : EnsureTrailingSlash(ExcludedRoot);
+        var rootCompanionRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in RootCompanionFiles ?? Array.Empty<Microsoft.Build.Framework.ITaskItem>())
+        {
+            var targetPath = item.GetMetadata("TargetPath");
+            if (string.IsNullOrWhiteSpace(targetPath))
+            {
+                targetPath = Path.GetFileName(item.ItemSpec);
+            }
+
+            if (!string.IsNullOrWhiteSpace(targetPath))
+            {
+                rootCompanionRelativePaths.Add(NormalizeRelativePath(targetPath));
+            }
+        }
 
         if (Directory.Exists(root))
         {
@@ -123,6 +147,11 @@
 
                 var relativePath = fullPath.Substring(root.Length);
                 if (string.IsNullOrWhiteSpace(relativePath))
+                {
+                    continue;
+                }
+
+                if (rootCompanionRelativePaths.Contains(NormalizeRelativePath(relativePath)))
                 {
                     continue;
                 }
@@ -368,10 +397,16 @@
     <MakeDir Directories="$(_CczBuildRuntimeDirectory)" />
 
     <MovePortableLayoutFilesUnder Root="$(_CczBuildLayoutRoot)"
-                                  RuntimeDirectory="$(_CczBuildRuntimeDirectory)" />
+                                  RuntimeDirectory="$(_CczBuildRuntimeDirectory)"
+                                  RootCompanionFiles="@(RootPackageCompanionFiles)" />
 
-    <Copy SourceFiles="@(RootPackageCompanionFiles)"
-          DestinationFiles="@(RootPackageCompanionFiles->'$(_CczBuildLayoutRoot)%(TargetPath)')"
+    <ItemGroup>
+      <_MissingBuildRootPackageCompanionFiles Include="@(RootPackageCompanionFiles)"
+                                              Condition="!Exists('$(_CczBuildLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_MissingBuildRootPackageCompanionFiles)"
+          DestinationFiles="@(_MissingBuildRootPackageCompanionFiles->'$(_CczBuildLayoutRoot)%(TargetPath)')"
           SkipUnchangedFiles="true" />
 
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczBuildLayoutRoot)"
@@ -405,10 +440,16 @@
     <MakeDir Directories="$(_CczPublishRuntimeDirectory)" />
 
     <MovePortableLayoutFilesUnder Root="$(_CczPublishLayoutRoot)"
-                                  RuntimeDirectory="$(_CczPublishRuntimeDirectory)" />
+                                  RuntimeDirectory="$(_CczPublishRuntimeDirectory)"
+                                  RootCompanionFiles="@(RootPackageCompanionFiles)" />
 
-    <Copy SourceFiles="@(RootPackageCompanionFiles)"
-          DestinationFiles="@(RootPackageCompanionFiles->'$(_CczPublishLayoutRoot)%(TargetPath)')"
+    <ItemGroup>
+      <_MissingPublishRootPackageCompanionFiles Include="@(RootPackageCompanionFiles)"
+                                                Condition="!Exists('$(_CczPublishLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_MissingPublishRootPackageCompanionFiles)"
+          DestinationFiles="@(_MissingPublishRootPackageCompanionFiles->'$(_CczPublishLayoutRoot)%(TargetPath)')"
           SkipUnchangedFiles="true" />
 
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPublishLayoutRoot)"
@@ -445,10 +486,16 @@
 
     <MovePortableLayoutFilesUnder Root="$(_CczPostPublishBuildLayoutRoot)"
                                   RuntimeDirectory="$(_CczPostPublishRuntimeDirectory)"
-                                  ExcludedRoot="$(_CczPostPublishDirectory)" />
+                                  ExcludedRoot="$(_CczPostPublishDirectory)"
+                                  RootCompanionFiles="@(RootPackageCompanionFiles)" />
 
-    <Copy SourceFiles="@(RootPackageCompanionFiles)"
-          DestinationFiles="@(RootPackageCompanionFiles->'$(_CczPostPublishBuildLayoutRoot)%(TargetPath)')"
+    <ItemGroup>
+      <_MissingPostPublishBuildRootPackageCompanionFiles Include="@(RootPackageCompanionFiles)"
+                                                         Condition="!Exists('$(_CczPostPublishBuildLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_MissingPostPublishBuildRootPackageCompanionFiles)"
+          DestinationFiles="@(_MissingPostPublishBuildRootPackageCompanionFiles->'$(_CczPostPublishBuildLayoutRoot)%(TargetPath)')"
           SkipUnchangedFiles="true" />
 
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPostPublishBuildLayoutRoot)"

@@ -777,7 +777,64 @@ public sealed partial class GameDebugRuntime
         var normalizedRoute = NormalizeR00Route(route);
         var sessionDir = EnsureSessionDirectory(paths.WorkspaceRoot, outputDir);
         var eventsPath = Path.Combine(sessionDir, "events.jsonl");
-        var script = ReadR00RouteScriptContext(paths.GameRoot);
+        R00RouteScriptContext script;
+        try
+        {
+            script = ReadR00RouteScriptContext(paths.GameRoot);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            var unavailableReport = new
+            {
+                created_at = DateTimeOffset.Now.ToString("O"),
+                status = "route-script-unavailable",
+                session_dir = sessionDir,
+                route = normalizedRoute,
+                target_process = ProcessSummary(FindTargetProcess()),
+                scenario = new
+                {
+                    relative_path = "RS/R_00.eex",
+                    path = Path.Combine(paths.GameRoot, "RS", "R_00.eex"),
+                    available = false
+                },
+                max_scan_bytes = Math.Clamp(maxScanBytes, 1024 * 1024, 256 * 1024 * 1024),
+                context_bytes = Math.Clamp(contextBytes, 4, 128),
+                max_hits_per_window = Math.Clamp(maxHitsPerWindow, 1, 32),
+                include_pointer_refs = includePointerRefs,
+                max_pointer_refs = Math.Clamp(maxPointerRefs, 1, 128),
+                scanned_bytes = 0,
+                readable_region_count = 0,
+                stopped_reason = "route-script-unavailable",
+                windows = Array.Empty<object>(),
+                window_hits = Array.Empty<object>(),
+                pointer_refs = Array.Empty<object>(),
+                warnings = new[] { ex.Message },
+                confidence = new
+                {
+                    level = "none",
+                    basis = "Could not build the R_00 route byte windows for this game root.",
+                    limitation = "This reports that the selected fixture does not match the hard-coded regular_start R_00 anchors; it is not runtime evidence."
+                },
+                safety = "Read-only route-script diagnosis only; no input, screenshots, debugger mutation, process-memory writes, or game-file writes."
+            };
+
+            var unavailablePath = Path.Combine(sessionDir, "rscene-script-window-scan.json");
+            var unavailableMarkdownPath = Path.Combine(sessionDir, "rscene-script-window-scan.md");
+            WriteJson(unavailablePath, unavailableReport);
+            WriteRSceneScriptWindowScanMarkdown(unavailableMarkdownPath, unavailableReport);
+            AppendJsonLine(eventsPath, new
+            {
+                type = "RSceneScriptWindowScan",
+                created_at = DateTimeOffset.Now.ToString("O"),
+                path = unavailablePath,
+                status = "route-script-unavailable",
+                window_count = 0,
+                hit_count = 0,
+                pointer_ref_count = 0,
+                scanned_bytes = 0
+            });
+            return unavailableReport;
+        }
         var windows = BuildR00ScriptWindows(script.Bytes, script.ActorClick, script.ModeChoice, script.ConfigChoice, contextBytes);
         var process = FindTargetProcess();
         var maxBytes = Math.Clamp(maxScanBytes, 1024 * 1024, 256 * 1024 * 1024);
@@ -4329,7 +4386,16 @@ public sealed partial class GameDebugRuntime
         var scenarioPath = Path.Combine(paths.GameRoot, "RS", "R_00.eex");
         if (!File.Exists(scenarioPath))
         {
-            throw new FileNotFoundException("RS/R_00.eex was not found under the verified game root.", scenarioPath);
+            var missing = new FileNotFoundException("RS/R_00.eex was not found under the verified game root.", scenarioPath);
+            return BuildUnavailableR00ActorRouteAnalysis(
+                sessionDir,
+                eventsPath,
+                normalizedRoute,
+                normalizedPersonId,
+                paths,
+                scenarioPath,
+                missing.Message,
+                ResolveR00StartupProbeEvidencePath(paths.WorkspaceRoot, evidencePath, includeLatestEvidence));
         }
 
         var bytes = File.ReadAllBytes(scenarioPath);
@@ -4339,14 +4405,34 @@ public sealed partial class GameDebugRuntime
             .Where(command => command.CommandId is 0x30 or 0x32 or 0x33 or 0x34)
             .Select(FormatR00ActorCommand)
             .ToList();
-        var modeChoice = ReadR00ChoiceBox(
-            bytes,
-            key: "mode_choice",
-            anchorText: "[C97\u5E38\u89C4\u6A21\u5F0F]\n[C3A\u81EA\u9009\u6A21\u5F0F]\n\u6A21\u5F0F\u8BF4\u660E");
-        var configChoice = ReadR00ChoiceBox(
-            bytes,
-            key: "regular_config_menu",
-            anchorText: "\u57F9\u517B\u6A21\u5F0F      \u3010[C28*.1000]\u3011\n\u96BE\u5EA6\u8BBE\u7F6E      \u3010[C28*.1001*/2%]\u3011\n\u547D\u4E2D\u7C7B\u578B      \u3010[C28*.1005]\u3011\n\u6740\u654C\u52A0\u6210      \u3010[C28*.1006\u52A0\u6210]\u3011\n[C25\u9009\u9879\u8BF4\u660E]\n[C3A\u5F00\u59CB\u6E38\u620F]");
+        R00ChoiceBox modeChoice;
+        R00ChoiceBox configChoice;
+        try
+        {
+            modeChoice = ReadR00ChoiceBox(
+                bytes,
+                key: "mode_choice",
+                anchorText: "[C97\u5E38\u89C4\u6A21\u5F0F]\n[C3A\u81EA\u9009\u6A21\u5F0F]\n\u6A21\u5F0F\u8BF4\u660E");
+            configChoice = ReadR00ChoiceBox(
+                bytes,
+                key: "regular_config_menu",
+                anchorText: "\u57F9\u517B\u6A21\u5F0F      \u3010[C28*.1000]\u3011\n\u96BE\u5EA6\u8BBE\u7F6E      \u3010[C28*.1001*/2%]\u3011\n\u547D\u4E2D\u7C7B\u578B      \u3010[C28*.1005]\u3011\n\u6740\u654C\u52A0\u6210      \u3010[C28*.1006\u52A0\u6210]\u3011\n[C25\u9009\u9879\u8BF4\u660E]\n[C3A\u5F00\u59CB\u6E38\u620F]");
+        }
+        catch (InvalidDataException ex)
+        {
+            return BuildUnavailableR00ActorRouteAnalysis(
+                sessionDir,
+                eventsPath,
+                normalizedRoute,
+                normalizedPersonId,
+                paths,
+                scenarioPath,
+                ex.Message,
+                ResolveR00StartupProbeEvidencePath(paths.WorkspaceRoot, evidencePath, includeLatestEvidence),
+                bytes,
+                actorCommands,
+                click);
+        }
         var modeCases = ReadR00CaseBranches(bytes, modeChoice.CommandOffset, Math.Min(configChoice.CommandOffset, bytes.Length));
         var configCases = ReadR00CaseBranches(bytes, configChoice.CommandOffset, FindR00RouteWindowEnd(bytes, configChoice.CommandOffset));
         var regularVariableWrites = ReadR00VariableWrites(bytes, FindCaseOffset(modeCases, 1), Math.Min(configChoice.CommandOffset, bytes.Length));
@@ -4467,6 +4553,140 @@ public sealed partial class GameDebugRuntime
             last_known_position = lastKnownPosition is null ? string.Empty : $"{lastKnownPosition.X},{lastKnownPosition.Y}",
             latest_evidence_path = latestEvidencePath ?? string.Empty,
             latest_probe_status = evidenceSummary is null ? string.Empty : ExtractStringFromObject(evidenceSummary, "status"),
+            safety = "No launch, input, screenshots, debugger mutation, process-memory writes, or game-file writes."
+        };
+    }
+
+    private static object BuildUnavailableR00ActorRouteAnalysis(
+        string sessionDir,
+        string eventsPath,
+        string normalizedRoute,
+        int normalizedPersonId,
+        GamePaths paths,
+        string scenarioPath,
+        string reason,
+        string? latestEvidencePath,
+        byte[]? bytes = null,
+        IReadOnlyList<R00ActorCommand>? actorCommands = null,
+        R00ActorCommand? click = null)
+    {
+        var scenarioExists = File.Exists(scenarioPath);
+        var evidenceSummary = ReadR00StartupProbeEvidenceSummary(latestEvidencePath);
+        var commands = actorCommands ?? [];
+        var placement = commands
+            .Where(command => command.CommandId is 0x30 or 0x32 or 0x33 or 0x34)
+            .Select(FormatR00ActorCommand)
+            .ToList();
+        var actorPath = commands
+            .Where(command => (command.CommandId is 0x30 or 0x32) && command.X.HasValue && command.Y.HasValue)
+            .Select(command => new
+            {
+                offset = FormatFileOffset(command.Offset),
+                command = $"{FormatHex(command.CommandId, 2)} {command.CommandName}",
+                x = command.X,
+                y = command.Y
+            })
+            .ToList();
+        var lastKnownPosition = commands
+            .Where(command => command.X.HasValue && command.Y.HasValue)
+            .OrderBy(command => command.Offset)
+            .LastOrDefault();
+
+        var report = new
+        {
+            created_at = DateTimeOffset.Now.ToString("O"),
+            status = "actor-route-unavailable",
+            session_dir = sessionDir,
+            route = normalizedRoute,
+            person_id = normalizedPersonId,
+            paths,
+            scenario = new
+            {
+                relative_path = "RS/R_00.eex",
+                path = scenarioPath,
+                exists = scenarioExists,
+                sha256 = scenarioExists ? ComputeSha256(scenarioPath) : string.Empty,
+                size = bytes?.Length ?? (scenarioExists ? new FileInfo(scenarioPath).Length : 0)
+            },
+            actor_route = new
+            {
+                command_count = commands.Count,
+                placement,
+                path = actorPath,
+                last_known_position = lastKnownPosition is null
+                    ? null
+                    : new
+                    {
+                        offset = FormatFileOffset(lastKnownPosition.Offset),
+                        x = lastKnownPosition.X,
+                        y = lastKnownPosition.Y,
+                        command = $"{FormatHex(lastKnownPosition.CommandId, 2)} {lastKnownPosition.CommandName}"
+                    },
+                click_test = click is null ? null : FormatR00ActorCommand(click)
+            },
+            choice_route = new
+            {
+                prerequisite = click is null
+                    ? "actor-click command was not found or choice boxes could not be parsed"
+                    : $"2D actor-click test for person {normalizedPersonId} at {FormatFileOffset(click.Offset)}",
+                first_choice = (object?)null,
+                first_choice_cases = Array.Empty<object>(),
+                first_choice_regular_writes = Array.Empty<object>(),
+                second_choice = (object?)null,
+                second_choice_cases = Array.Empty<object>(),
+                start_game_case = string.Empty,
+                start_game_nearby_variable_writes = Array.Empty<object>(),
+                candidate_sequence_after_actor_click = string.Empty
+            },
+            latest_no_input_probe = evidenceSummary,
+            unavailable_reason = reason,
+            interpretation = new
+            {
+                current_positive_evidence = commands.Count == 0
+                    ? []
+                    : new[]
+                    {
+                        $"Parsed {commands.Count} actor command(s) for person {normalizedPersonId} before the route became unavailable."
+                    },
+                current_negative_evidence = new[]
+                {
+                    reason
+                },
+                next_probe = "Restore static R_00 parsing inputs before using this actor route as an autonomous battle-entry prerequisite.",
+                promotion_rule = "Do not mark autonomous battle entry complete until a live run reaches battle_loaded and game_battle_state_match(profile=\"yingchuan_cao_zhangliang\") passes."
+            },
+            safety = "Read-only R_00 actor route analysis only; no launch, input, screenshots, debugger mutation, process-memory writes, or game-file writes."
+        };
+
+        var reportPath = Path.Combine(sessionDir, "r00-actor-route-analysis.json");
+        var markdownPath = Path.Combine(sessionDir, "r00-actor-route-analysis.md");
+        WriteJson(reportPath, report);
+        WriteR00ActorRouteMarkdown(markdownPath, report);
+        AppendJsonLine(eventsPath, new
+        {
+            type = "R00ActorRouteAnalysis",
+            created_at = DateTimeOffset.Now.ToString("O"),
+            path = reportPath,
+            status = "actor-route-unavailable",
+            person_id = normalizedPersonId,
+            actor_command_count = commands.Count,
+            latest_evidence_path = latestEvidencePath,
+            reason
+        });
+
+        return new
+        {
+            session_dir = sessionDir,
+            report_path = reportPath,
+            markdown_path = markdownPath,
+            status = "actor-route-unavailable",
+            person_id = normalizedPersonId,
+            actor_command_count = commands.Count,
+            click_offset = click is null ? string.Empty : FormatFileOffset(click.Offset),
+            last_known_position = lastKnownPosition is null ? string.Empty : $"{lastKnownPosition.X},{lastKnownPosition.Y}",
+            latest_evidence_path = latestEvidencePath ?? string.Empty,
+            latest_probe_status = evidenceSummary is null ? string.Empty : ExtractStringFromObject(evidenceSummary, "status"),
+            reason,
             safety = "No launch, input, screenshots, debugger mutation, process-memory writes, or game-file writes."
         };
     }
@@ -4646,8 +4866,20 @@ public sealed partial class GameDebugRuntime
             textSection.RawPointer,
             textSection.RawSize,
             textSection.Bytes);
-        var script = ReadR00RouteScriptContext(paths.GameRoot);
-        var windows = BuildR00ScriptWindows(script.Bytes, script.ActorClick, script.ModeChoice, script.ConfigChoice, contextBytes);
+        R00RouteScriptContext? script = null;
+        var routeAnchorWarnings = new List<string>();
+        try
+        {
+            script = ReadR00RouteScriptContext(paths.GameRoot);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            routeAnchorWarnings.Add(ex.Message);
+        }
+
+        var windows = script is null
+            ? new List<RSceneScriptWindow>()
+            : BuildR00ScriptWindows(script.Bytes, script.ActorClick, script.ModeChoice, script.ConfigChoice, contextBytes);
         var staticAnchors = FindAsciiAnchorsInSections(sections, anchorList)
             .OrderBy(hit => hit.FileOffset)
             .ToList();
@@ -4789,6 +5021,20 @@ public sealed partial class GameDebugRuntime
             : staticAnchors.Count > 0
                 ? "anchors-found-no-text-refs"
                 : "anchors-not-found";
+        object routeAnchors = script is null
+            ? new
+            {
+                available = false,
+                warnings = routeAnchorWarnings
+            }
+            : new
+            {
+                available = true,
+                warnings = routeAnchorWarnings,
+                actor_click = FormatR00ActorClickTest(script.ActorClick),
+                mode_choice = FormatR00ChoiceBox(script.ModeChoice),
+                regular_config_menu = FormatR00ChoiceBox(script.ConfigChoice)
+            };
         var report = new
         {
             created_at = DateTimeOffset.Now.ToString("O"),
@@ -4812,12 +5058,7 @@ public sealed partial class GameDebugRuntime
                 }
             },
             target_process = ProcessSummary(process),
-            route_anchors = new
-            {
-                actor_click = FormatR00ActorClickTest(script.ActorClick),
-                mode_choice = FormatR00ChoiceBox(script.ModeChoice),
-                regular_config_menu = FormatR00ChoiceBox(script.ConfigChoice)
-            },
+            route_anchors = routeAnchors,
             scan = new
             {
                 static_anchor_count = staticAnchors.Count,
@@ -4848,6 +5089,7 @@ public sealed partial class GameDebugRuntime
             import_functions = importFunctions.Select(FormatImportFunction).ToList(),
             import_call_candidates = importCallCandidates.Select(FormatImportCallCandidate).ToList(),
             script_windows = windows.Select(FormatScriptWindow).ToList(),
+            warnings = routeAnchorWarnings,
             runtime_text_anchor_scan = runtimeTextAnchorScan,
             runtime_script_window_scan = runtimeScriptWindowScan,
             probe_plan_path = probePlanPath,
@@ -4862,6 +5104,7 @@ public sealed partial class GameDebugRuntime
                     : importCallCandidates.Count > 0
                         ? "The scan found static call-through-IAT candidates for file/buffer APIs that can participate in script loading."
                         : "No code references to the requested R/S EEX anchors or selected import APIs were found in the executable section.",
+                route_anchor_warnings = routeAnchorWarnings,
                 promotion_rule = "A candidate is not a verified loader/interpreter function until a live x32dbg hit occurs during title-to-R_00 transition and the evidence shows RS/R_00.eex script residency or interpreter pointer movement."
             },
             safety = "Offline EXE scan plus optional read-only process-memory scan only; no launch, input, screenshots, debugger mutation, process-memory writes, or game-file writes."

@@ -34,9 +34,32 @@ public sealed class CharacterImageResourceService
     public CharacterImageResourceStatus BuildRStatus(CczProject project, int rImageId)
     {
         var path = ResolveGameFile(project, "Pmapobj.e5");
+        var exists = File.Exists(path);
+        if (rImageId < 0)
+        {
+            return new CharacterImageResourceStatus(
+                "R",
+                rImageId,
+                "编号无效",
+                "Pmapobj.e5",
+                path,
+                $"R 形象编号不能小于 0：{rImageId}。");
+        }
+
+        var layout = new CharacterImageLayoutService().Resolve(project);
+        if (exists && layout.REntryCount > 0 && rImageId > layout.RMaxId)
+        {
+            return new CharacterImageResourceStatus(
+                "R",
+                rImageId,
+                "索引越界",
+                $"Pmapobj.e5 上限 R{layout.RMaxId}",
+                path,
+                $"R 形象 {rImageId} 超出当前项目可用范围；{layout.Evidence}。");
+        }
+
         var front = checked(rImageId * 2 + 1);
         var back = checked(rImageId * 2 + 2);
-        var exists = File.Exists(path);
         if (rImageId == 0)
         {
             return new CharacterImageResourceStatus(
@@ -61,6 +84,18 @@ public sealed class CharacterImageResourceService
         var unitFiles = ResolveUnitFiles(project);
         var existingFiles = unitFiles.Where(File.Exists).ToList();
         var status = existingFiles.Count == unitFiles.Length ? "已定位" : existingFiles.Count > 0 ? "部分定位" : "未定位";
+        if (sImageId < 0)
+        {
+            return new CharacterImageResourceStatus(
+                "S",
+                sImageId,
+                "编号无效",
+                "Unit_*",
+                string.Join(";", unitFiles),
+                $"S 形象编号不能小于 0：{sImageId}。");
+        }
+
+        var layout = new CharacterImageLayoutService().Resolve(project);
         if (sImageId == 0)
         {
             return new CharacterImageResourceStatus(
@@ -71,7 +106,31 @@ public sealed class CharacterImageResourceService
                 string.Join(";", unitFiles),
                 "S=0 表示使用普通兵种形象，不是错误；预览时按人物职业和预览阵营计算 Unit 图号。");
         }
-        var mapping = ResolveSUnitImageMapping(sImageId);
+
+        if (layout.UnitEntryCount > 0 && sImageId > layout.SMaxId)
+        {
+            return new CharacterImageResourceStatus(
+                "S",
+                sImageId,
+                "索引越界",
+                $"Unit_* 上限 S{layout.SMaxId}",
+                string.Join(";", unitFiles),
+                $"S 形象 {sImageId} 超出当前项目可用范围；{layout.Evidence}。");
+        }
+
+        var mapping = ResolveSUnitImageMapping(project, sImageId);
+        if (layout.UnitEntryCount > 0 &&
+            mapping.ImageNumbers.Any(number => number <= 0 || number > layout.UnitEntryCount))
+        {
+            return new CharacterImageResourceStatus(
+                "S",
+                sImageId,
+                "索引越界",
+                mapping.ShortText,
+                string.Join(";", unitFiles),
+                $"{mapping.Detail} 但当前项目 Unit_* 共同条目数为 {layout.UnitEntryCount}；{layout.Evidence}。");
+        }
+
         return new CharacterImageResourceStatus(
             "S",
             sImageId,
@@ -104,9 +163,17 @@ public sealed class CharacterImageResourceService
         status.StartsWith("部分定位", StringComparison.Ordinal);
 
     public static string BuildSMappingShortText(int sImageId) => ResolveSUnitImageMapping(sImageId).ShortText;
+    public static string BuildSMappingShortText(CczProject project, int sImageId)
+        => new CharacterImageLayoutService().ResolveSUnitImageMapping(project, sImageId).ShortText;
 
     public static IReadOnlyList<int> GetAvailableSImageStageSlots(int sImageId)
-        => sImageId is >= 1 and <= 32 ? new[] { 1, 2, 3 } : new[] { 1 };
+        => CharacterImageLayoutService.GetAvailableSImageStageSlots(CharacterImageLayoutService.Default, sImageId);
+
+    public static IReadOnlyList<int> GetAvailableSImageStageSlots(CczProject project, int sImageId)
+    {
+        var layout = new CharacterImageLayoutService().Resolve(project);
+        return CharacterImageLayoutService.GetAvailableSImageStageSlots(layout, sImageId);
+    }
 
     public static string BuildSImageStageText(int stageSlot)
         => stageSlot switch
@@ -122,18 +189,21 @@ public sealed class CharacterImageResourceService
         IReadOnlyList<int> selectedStages,
         bool defaultAllStages)
     {
-        var available = GetAvailableSImageStageSlots(sImageId);
-        if (selectedStages.Count == 0)
-        {
-            return defaultAllStages ? available.ToArray() : new[] { available[0] };
-        }
+        return CharacterImageLayoutService.NormalizeSImageStageSlots(
+            CharacterImageLayoutService.Default,
+            sImageId,
+            selectedStages,
+            defaultAllStages);
+    }
 
-        var normalized = selectedStages
-            .Distinct()
-            .OrderBy(slot => slot)
-            .Where(available.Contains)
-            .ToArray();
-        return normalized;
+    public static IReadOnlyList<int> NormalizeSImageStageSlots(
+        CczProject project,
+        int sImageId,
+        IReadOnlyList<int> selectedStages,
+        bool defaultAllStages)
+    {
+        var layout = new CharacterImageLayoutService().Resolve(project);
+        return CharacterImageLayoutService.NormalizeSImageStageSlots(layout, sImageId, selectedStages, defaultAllStages);
     }
 
     public static IReadOnlyList<SImageStageTarget> ResolveSImageStageTargets(
@@ -141,97 +211,34 @@ public sealed class CharacterImageResourceService
         IReadOnlyList<int> selectedStages,
         bool defaultAllStages)
     {
-        var stages = NormalizeSImageStageSlots(mapping.SImageId, selectedStages, defaultAllStages);
-        var targets = new List<SImageStageTarget>();
-        foreach (var stage in stages)
-        {
-            var index = stage - 1;
-            if (index < 0 || index >= mapping.ImageNumbers.Count)
-            {
-                continue;
-            }
+        return CharacterImageLayoutService.ResolveSImageStageTargets(
+            CharacterImageLayoutService.Default,
+            mapping,
+            selectedStages,
+            defaultAllStages);
+    }
 
-            targets.Add(new SImageStageTarget(
-                stage,
-                mapping.ImageNumbers[index],
-                BuildSImageStageText(stage)));
-        }
-
-        return targets.ToArray();
+    public static IReadOnlyList<SImageStageTarget> ResolveSImageStageTargets(
+        CczProject project,
+        SUnitImageMapping mapping,
+        IReadOnlyList<int> selectedStages,
+        bool defaultAllStages)
+    {
+        var layout = new CharacterImageLayoutService().Resolve(project);
+        return CharacterImageLayoutService.ResolveSImageStageTargets(layout, mapping, selectedStages, defaultAllStages);
     }
 
     public static int NormalizeSPreviewFactionSlot(int factionSlot) =>
-        factionSlot is >= 1 and <= 3 ? factionSlot : DefaultSPreviewFactionSlot;
+        CharacterImageLayoutService.NormalizeSPreviewFactionSlot(factionSlot);
 
     public static string BuildSPreviewFactionText(int factionSlot) =>
-        NormalizeSPreviewFactionSlot(factionSlot) switch
-        {
-            1 => "我军",
-            2 => "友军",
-            3 => "敌军",
-            _ => "我军"
-        };
+        CharacterImageLayoutService.BuildSPreviewFactionText(NormalizeSPreviewFactionSlot(factionSlot));
+
+    public static SUnitImageMapping ResolveSUnitImageMapping(CczProject project, int sImageId, int? jobId = null, int factionSlot = DefaultSPreviewFactionSlot)
+        => new CharacterImageLayoutService().ResolveSUnitImageMapping(project, sImageId, jobId, factionSlot);
 
     public static SUnitImageMapping ResolveSUnitImageMapping(int sImageId, int? jobId = null, int factionSlot = DefaultSPreviewFactionSlot)
-    {
-        if (sImageId < 0)
-        {
-            return new SUnitImageMapping(
-                sImageId,
-                jobId,
-                NormalizeSPreviewFactionSlot(factionSlot),
-                Array.Empty<int>(),
-                $"S{sImageId} 无效",
-                $"S 形象 {sImageId} 小于 0，无法映射 Unit 图号。");
-        }
-
-        if (sImageId == 0)
-        {
-            var slot = NormalizeSPreviewFactionSlot(factionSlot);
-            if (!jobId.HasValue || jobId.Value < 0)
-            {
-                return new SUnitImageMapping(
-                    sImageId,
-                    jobId,
-                    slot,
-                    Array.Empty<int>(),
-                    "S0 默认兵种",
-                    "S=0 表示使用默认兵种形象；需要人物表“职业”和预览阵营才能计算 Unit 图号。");
-            }
-
-            var imageNumber = checked(jobId.Value * 3 + slot);
-            var faction = BuildSPreviewFactionText(slot);
-            return new SUnitImageMapping(
-                sImageId,
-                jobId,
-                slot,
-                new[] { imageNumber },
-                $"S0 职业{jobId.Value}{faction}图{imageNumber}",
-                $"S=0 默认兵种形象：Unit 图号 = 职业({jobId.Value}) * 3 + 阵营槽({slot}, {faction}) = {imageNumber}。");
-        }
-
-        if (sImageId <= 32)
-        {
-            var first = checked(240 + (sImageId - 1) * 3 + 1);
-            var numbers = new[] { first, first + 1, first + 2 };
-            return new SUnitImageMapping(
-                sImageId,
-                jobId,
-                NormalizeSPreviewFactionSlot(factionSlot),
-                numbers,
-                $"S{sImageId} 特殊图{first}-{first + 2}",
-                $"S 形象 {sImageId} 属于三转特殊形象：对应 Unit 图 {first}/{first + 1}/{first + 2}。");
-        }
-
-        var oneStageImageNumber = checked(336 + (sImageId - 32));
-        return new SUnitImageMapping(
-            sImageId,
-            jobId,
-            NormalizeSPreviewFactionSlot(factionSlot),
-            new[] { oneStageImageNumber },
-            $"S{sImageId} 特殊图{oneStageImageNumber}",
-            $"S 形象 {sImageId} 属于一转特殊形象：对应 Unit 图 {oneStageImageNumber}。");
-    }
+        => CharacterImageLayoutService.ResolveSUnitImageMapping(CharacterImageLayoutService.Default, sImageId, jobId, factionSlot);
 
     public static string? ResolveFaceFile(CczProject project)
     {

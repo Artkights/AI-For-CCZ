@@ -63,6 +63,11 @@ public static class ItemEffectInterpretationService
             return $"道具段常见值 3；当前按“类别标记候选”处理，创作时优先核对类型字段={typeId}。效果值={effectValue}，成长={growth}。";
         }
 
+        if (ConsumableItemEffectCatalogService.IsConsumableCategory(majorCategory))
+        {
+            return $"{effectName}；道具特效值={effectValue}，来源为物品行“初始能力”字节，成长={growth}。写后需实机验证。";
+        }
+
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{effectName}；效果值={effectValue}，成长={growth}。效果值含义随特效变化，写后需实机验证。");

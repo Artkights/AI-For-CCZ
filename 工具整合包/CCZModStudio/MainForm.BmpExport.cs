@@ -115,12 +115,45 @@ public sealed partial class MainForm
             ImageAssignmentResourceKind.S => "导出S形象BMP",
             _ => "导出R形象BMP"
         };
-        var stageSlots = kind == ImageAssignmentResourceKind.S
-            ? SelectSImageStageSlots("选择导出 S 形象转数", "选择要导出的人物 S 形象转。三转 S 会按选择导出；单转 S 只支持第一转。")
-            : Array.Empty<int>();
-        if (kind == ImageAssignmentResourceKind.S && stageSlots.Count == 0) return;
+        if (kind == ImageAssignmentResourceKind.S)
+        {
+            ExecuteImageAssignmentSImageBmpExport(targets, title);
+            return;
+        }
 
-        ExecuteBmpExport(exportKind, targets, GetImageAssignmentSPreviewFactionSlot(), stageSlots, _imageAssignmentInfoBox, title);
+        ExecuteBmpExport(exportKind, targets, GetImageAssignmentSPreviewFactionSlot(), Array.Empty<int>(), _imageAssignmentInfoBox, title);
+    }
+
+    private void ExecuteImageAssignmentSImageBmpExport(IReadOnlyList<BmpExportTarget> targets, string title)
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this, "请先选择要导出的有效行。", title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var factionSlot = GetImageAssignmentSPreviewFactionSlot();
+        using var dialog = new SImageExportDialog(_project, targets, factionSlot);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var request = new BmpExportRequest
+        {
+            Kind = BmpExportKind.SImage,
+            OutputRoot = dialog.OutputFolder,
+            SingleMode = targets.Count == 1,
+            OverwriteExisting = dialog.OverwriteExisting,
+            FactionSlot = factionSlot,
+            SImageStageSlots = dialog.StageSlots,
+            Targets = targets
+        };
+
+        ExecuteBmpExportRequest(request, _imageAssignmentInfoBox, title);
     }
 
     private void ExecuteBmpExport(
@@ -175,6 +208,17 @@ public sealed partial class MainForm
             SImageStageSlots = sImageStageSlots,
             Targets = targets
         };
+
+        ExecuteBmpExportRequest(request, infoBox, title);
+    }
+
+    private void ExecuteBmpExportRequest(BmpExportRequest request, TextBox infoBox, string title)
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
 
         try
         {
@@ -283,7 +327,10 @@ public sealed partial class MainForm
                 : file.ResourceId.HasValue
                     ? $"RT_BITMAP {file.ResourceId.Value}"
                     : "";
-            builder.AppendLine($"- {file.Role} {file.Width}x{file.Height} {sourceId} -> {file.OutputPath}");
+            var pixelText = file.VisiblePixels > 0
+                ? $" visible={file.VisiblePixels:N0}"
+                : string.Empty;
+            builder.AppendLine($"- {file.Role} {file.Width}x{file.Height} {sourceId}{pixelText} -> {file.OutputPath}");
         }
 
         if (result.Files.Count > 20)

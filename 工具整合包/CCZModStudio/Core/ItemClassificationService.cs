@@ -62,7 +62,9 @@ public sealed class ItemClassificationService
         var name = ReadString(row, "名称");
         var typeId = ReadInt(row, "类型");
         var effectId = ReadInt(row, "装备特效号");
-        var kindEffectId = row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
+        var kindEffectId = row.Table.Columns.Contains("原始装备特效号")
+            ? ReadInt(row, "原始装备特效号")
+            : row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
             ? ReadInt(row, Ccz66ItemLayoutService.RawEffectMarkerColumnName)
             : effectId;
         var catalog = ReadInt(row, "宝物图鉴");
@@ -122,9 +124,15 @@ public sealed class ItemClassificationService
         => effectId is 0 or 102 or 255;
 
     private static int ReadInt(DataRow row, string columnName)
-        => row.Table.Columns.Contains(columnName)
-            ? Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture)
-            : 0;
+    {
+        if (!row.Table.Columns.Contains(columnName)) return 0;
+        var value = row[columnName];
+        if (value == null || value == DBNull.Value) return 0;
+        var text = Convert.ToString(value, CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(text)
+            ? 0
+            : Convert.ToInt32(value, CultureInfo.InvariantCulture);
+    }
 
     private static string ReadString(DataRow row, string columnName)
         => row.Table.Columns.Contains(columnName)

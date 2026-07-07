@@ -242,11 +242,29 @@ public sealed partial class MainForm
         ClearJobDescriptionBox("读取兵种后，在此编辑当前兵种介绍。");
 
         _currentJobStrategyData = null;
+        _currentJobAttributeEditorData = null;
+        _jobSeriesRead = null;
+        _jobRestraintRead = null;
+        _jobAttributeRead = null;
+        _jobRestraintGrid.DataSource = null;
+        _jobAttributeGrid.DataSource = null;
+        _saveJobMatrixButton.Enabled = false;
+        _saveJobAttributeMatrixButton.Enabled = false;
+        _exportJobAttributeCsvButton.Enabled = false;
+        _importJobAttributeCsvButton.Enabled = false;
+        _pasteJobMatrixSelectionButton.Enabled = false;
+        _fillJobMatrixSelectionButton.Enabled = false;
+        _batchModifyJobMatrixButton.Enabled = false;
+        _jobStrategyDescriptionRead = null;
+        _jobStrategyDescriptionEditorBoundRow = null;
+        _jobStrategyDescriptionBoxHasValidationError = false;
+        _jobStrategyDescriptionBoxValidationError = string.Empty;
         _jobStrategyEditorGrid.DataSource = null;
         _saveJobStrategyEditorButton.Enabled = false;
         _importJobStrategyIconButton.Enabled = false;
         _editJobStrategyIconButton.Enabled = false;
         _exportJobStrategyIconBmpButton.Enabled = false;
+        ClearJobStrategyDescriptionBoxes("读取兵种策略后，在此编辑当前策略介绍。");
         ClearJobStrategyPreview("读取兵种策略后显示预览。");
 
         _currentItemEditorData = null;

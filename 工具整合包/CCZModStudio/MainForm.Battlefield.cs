@@ -5688,7 +5688,9 @@ public sealed partial class MainForm
         var levelMode = NormalizeBattlefieldLevelMode(_battlefieldLevelModeCombo.SelectedItem?.ToString() ?? "初级");
         var preview = CloneBattlefieldSImageFrame(item.SImageId, item.JobId, factionSlot, direction, levelMode, _battlefieldUnitAnimationPhase);
         SetPictureBoxImage(_battlefieldUnitPreviewBox, preview);
-        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(item.SImageId, item.JobId, factionSlot);
+        var mapping = _project == null
+            ? CharacterImageResourceService.ResolveSUnitImageMapping(item.SImageId, item.JobId, factionSlot)
+            : CharacterImageResourceService.ResolveSUnitImageMapping(_project, item.SImageId, item.JobId, factionSlot);
         _battlefieldUnitPreviewInfoBox.Text =
             $"{item.DisplayText}\r\n" +
             $"{item.DetailText}\r\n" +

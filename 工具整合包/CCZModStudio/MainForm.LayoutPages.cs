@@ -1191,35 +1191,76 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobMatrixButton.Enabled = false;
         _openJobMatrixRestraintTableButton.Text = "通用兵种相克表";
         ConfigureToolbarButton(_openJobMatrixRestraintTableButton, 128);
-        _openJobMatrixAttributeTableButton.Text = "通用兵种属性表";
-        ConfigureToolbarButton(_openJobMatrixAttributeTableButton, 128);
         matrixToolbar.Controls.AddRange(new Control[]
         {
             _loadJobMatrixButton,
             _saveJobMatrixButton,
-            _openJobMatrixRestraintTableButton,
-            _openJobMatrixAttributeTableButton
+            _openJobMatrixRestraintTableButton
         });
         matrixLayout.Controls.Add(matrixToolbar, 0, 0);
 
-        var matrixTabs = new TabControl { Dock = DockStyle.Fill };
-        var restraintPage = new TabPage("兵种相克");
         _jobRestraintGrid.Dock = DockStyle.Fill;
         _jobRestraintGrid.AllowUserToAddRows = false;
         _jobRestraintGrid.AllowUserToDeleteRows = false;
         _jobRestraintGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobRestraintGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        restraintPage.Controls.Add(CreateSearchableGridPanel(_jobRestraintGrid, "兵种/数值"));
-        matrixTabs.TabPages.Add(restraintPage);
+        matrixLayout.Controls.Add(CreateSearchableGridPanel(_jobRestraintGrid, "兵种/数值"), 0, 1);
+        tabs.TabPages.Add(matrixPage);
 
         var attributePage = new TabPage("兵种属性");
+        var attributeLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        attributeLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        attributeLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        attributePage.Controls.Add(attributeLayout);
+
+        var attributeToolbar = CreateToolbarRow();
+        _loadJobAttributeMatrixButton.Text = "读取矩阵";
+        ConfigureToolbarButton(_loadJobAttributeMatrixButton, 88);
+        _saveJobAttributeMatrixButton.Text = "保存矩阵";
+        ConfigureToolbarButton(_saveJobAttributeMatrixButton, 88);
+        _saveJobAttributeMatrixButton.Enabled = false;
+        _openJobMatrixAttributeTableButton.Text = "通用兵种属性表";
+        ConfigureToolbarButton(_openJobMatrixAttributeTableButton, 128);
+        _exportJobAttributeCsvButton.Text = "导出属性CSV";
+        ConfigureToolbarButton(_exportJobAttributeCsvButton, 108);
+        _exportJobAttributeCsvButton.Enabled = false;
+        _importJobAttributeCsvButton.Text = "导入属性CSV";
+        ConfigureToolbarButton(_importJobAttributeCsvButton, 108);
+        _importJobAttributeCsvButton.Enabled = false;
+        _pasteJobMatrixSelectionButton.Text = "粘贴";
+        ConfigureToolbarButton(_pasteJobMatrixSelectionButton, 64);
+        _pasteJobMatrixSelectionButton.Enabled = false;
+        _fillJobMatrixSelectionButton.Text = "填充所选";
+        ConfigureToolbarButton(_fillJobMatrixSelectionButton, 88);
+        _fillJobMatrixSelectionButton.Enabled = false;
+        _batchModifyJobMatrixButton.Text = "批量编辑";
+        ConfigureToolbarButton(_batchModifyJobMatrixButton, 88);
+        _batchModifyJobMatrixButton.Enabled = false;
+        attributeToolbar.Controls.AddRange(new Control[]
+        {
+            _loadJobAttributeMatrixButton,
+            _saveJobAttributeMatrixButton,
+            _openJobMatrixAttributeTableButton,
+            _exportJobAttributeCsvButton,
+            _importJobAttributeCsvButton,
+            _pasteJobMatrixSelectionButton,
+            _fillJobMatrixSelectionButton,
+            _batchModifyJobMatrixButton
+        });
+        attributeLayout.Controls.Add(attributeToolbar, 0, 0);
+
         _jobAttributeGrid.Dock = DockStyle.Fill;
         _jobAttributeGrid.AllowUserToAddRows = false;
         _jobAttributeGrid.AllowUserToDeleteRows = false;
         _jobAttributeGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
         _jobAttributeGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-        attributePage.Controls.Add(CreateSearchableGridPanel(_jobAttributeGrid, "字段/兵种/数值"));
-        matrixTabs.TabPages.Add(attributePage);
+        attributeLayout.Controls.Add(CreateSearchableGridPanel(_jobAttributeGrid, "字段/兵种/数值"), 0, 1);
 
         _jobMatrixInfoBox.Dock = DockStyle.Fill;
         _jobMatrixInfoBox.Multiline = true;
@@ -1227,8 +1268,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobMatrixInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobMatrixInfoBox.WordWrap = true;
         _jobMatrixInfoBox.Text = "相克/属性矩阵：读取后可编辑 40x40 兵种相克矩阵和 8x40 兵种属性矩阵；保存前自动备份，保存后复读校验。";
-        matrixLayout.Controls.Add(matrixTabs, 0, 1);
-        tabs.TabPages.Add(matrixPage);
+        tabs.TabPages.Add(attributePage);
 
         var strategyPage = new TabPage("兵种策略");
         var strategyLayout = new TableLayoutPanel
@@ -1308,11 +1348,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         var strategyImagePreviewLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 2,
+            RowCount = 3,
             ColumnCount = 1
         };
-        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
-        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
+        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 70));
+        strategyImagePreviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
         strategyPreviewContentPanel.Controls.Add(strategyImagePreviewLayout);
 
         _jobStrategyPreviewBox.Dock = DockStyle.Fill;
@@ -1325,8 +1366,15 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobStrategyPreviewInfoBox.ReadOnly = true;
         _jobStrategyPreviewInfoBox.ScrollBars = ScrollBars.Vertical;
         _jobStrategyPreviewInfoBox.WordWrap = true;
-        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，单击“名称”可在右侧编辑 80 个兵种的学习等级；选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应资源预览；其它字段显示兵种学习情况。";
+        _jobStrategyPreviewInfoBox.Text = "读取兵种策略后，单击“名称”可在右侧编辑 80 个兵种的学习等级；选择“施法范围”“穿透范围”“策略图标”“小动画”“大动画”会显示对应资源预览；其它字段显示兵种学习情况和可编辑策略介绍。";
         strategyImagePreviewLayout.Controls.Add(_jobStrategyPreviewInfoBox, 0, 1);
+
+        _jobStrategyDescriptionBox.Dock = DockStyle.Fill;
+        _jobStrategyDescriptionBox.Multiline = true;
+        _jobStrategyDescriptionBox.ReadOnly = false;
+        _jobStrategyDescriptionBox.ScrollBars = ScrollBars.Vertical;
+        _jobStrategyDescriptionBox.WordWrap = true;
+        strategyImagePreviewLayout.Controls.Add(_jobStrategyDescriptionBox, 0, 2);
 
         _jobStrategyLearningEditorPanel.Dock = DockStyle.Fill;
         _jobStrategyLearningEditorPanel.Visible = false;
@@ -1336,10 +1384,11 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3
+            RowCount = 4
         };
         strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         strategyLearningEditorRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         _jobStrategyLearningEditorPanel.Controls.Add(strategyLearningEditorRoot);
 
@@ -1357,13 +1406,22 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _jobStrategyLearningEditorGrid.MultiSelect = false;
         strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorGrid, 0, 1);
 
+        _jobStrategyLearningDescriptionBox.Dock = DockStyle.Fill;
+        _jobStrategyLearningDescriptionBox.Multiline = true;
+        _jobStrategyLearningDescriptionBox.ReadOnly = false;
+        _jobStrategyLearningDescriptionBox.ScrollBars = ScrollBars.Vertical;
+        _jobStrategyLearningDescriptionBox.WordWrap = true;
+        _jobStrategyLearningDescriptionBox.Margin = new Padding(0, 8, 0, 0);
+        _jobStrategyLearningDescriptionBox.Visible = false;
+        strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningDescriptionBox, 0, 2);
+
         _jobStrategyLearningEditorStatusLabel.Dock = DockStyle.Fill;
         _jobStrategyLearningEditorStatusLabel.AutoSize = true;
         _jobStrategyLearningEditorStatusLabel.Padding = new Padding(0, 6, 0, 0);
-        strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorStatusLabel, 0, 2);
+        strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorStatusLabel, 0, 3);
         strategyPreviewContentPanel.Controls.Add(_jobStrategyLearningEditorPanel);
 
-        SetJobStrategyPreviewImageVisible(false);
+        SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningAndDescription);
         AddCollapsibleSplitPanel(strategyBody, 2, "策略预览", strategyPreviewPanel, "BuildJobEditorPage.StrategyGridPreview.Preview");
 
         _jobStrategyEditorInfoBox.Dock = DockStyle.Fill;

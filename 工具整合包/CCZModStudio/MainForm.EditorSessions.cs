@@ -12,13 +12,26 @@ public sealed partial class MainForm
 
     private void BeginCloseAfterUnsavedCheck()
     {
+        var items = CollectUnsavedItems();
+        if (items.Count > 0)
+        {
+            BeginCloseAfterUnsavedCheck(items);
+            return;
+        }
+
+        _unsavedCloseConfirmed = true;
+        Close();
+    }
+
+    private void BeginCloseAfterUnsavedCheck(IReadOnlyList<UnsavedEditorItem> items)
+    {
         if (_unsavedClosePromptRunning) return;
         _unsavedClosePromptRunning = true;
         BeginInvoke(async () =>
         {
             try
             {
-                if (await ConfirmUnsavedChangesBeforeCloseAsync())
+                if (await ConfirmUnsavedItemsBeforeCloseAsync(items))
                 {
                     _unsavedCloseConfirmed = true;
                     Close();

@@ -506,6 +506,12 @@ public sealed partial class CczMcpRuntime
                 Column = column.ColumnName,
                 OldValue = oldValue,
                 NewValue = update.Value,
+                OldDisplayValue = fieldName.Equals("attribute_matrix", StringComparison.OrdinalIgnoreCase) && oldValue != null
+                    ? FormatJobAttributeDisplayValue(update.RowId, Convert.ToInt32(oldValue, CultureInfo.InvariantCulture))
+                    : oldValue,
+                NewDisplayValue = fieldName.Equals("attribute_matrix", StringComparison.OrdinalIgnoreCase)
+                    ? FormatJobAttributeDisplayValue(update.RowId, update.Value)
+                    : (object)update.Value,
                 FileOffsetHex = "0x" + HexDisplayFormatter.FormatOffset(fileOffset),
                 RuntimeVirtualAddressHex = FormatRuntimeVa(fileOffset)
             });
@@ -610,17 +616,50 @@ public sealed partial class CczMcpRuntime
     }
 
     private static JobAttributeRowMeaning BuildAttributeRowLabel(int rowId)
-        => rowId switch
+    {
+        var definition = GetJobAttributeDefinition(rowId);
+        var offset = rowId is >= 0 and <= 7 ? JobAttributeOffset + (rowId * 40L) : 0;
+        return new JobAttributeRowMeaning(
+            rowId,
+            definition.Label,
+            definition.Confidence,
+            definition.ValueDisplayRule,
+            rowId is >= 0 and <= 7 ? "0x" + HexDisplayFormatter.FormatOffset(offset) : string.Empty,
+            rowId is >= 0 and <= 7 ? FormatRuntimeVa(offset) : string.Empty,
+            definition.EditorKind,
+            definition.EditorKind == "numeric" ? byte.MinValue : null,
+            definition.EditorKind == "numeric" ? byte.MaxValue : null,
+            definition.EditorKind == "combo" ? definition.ValueChoices : Array.Empty<JobAttributeValueChoice>());
+    }
+
+    private static string FormatJobAttributeDisplayValue(int rowId, int value)
+    {
+        var definition = GetJobAttributeDefinition(rowId);
+        if (definition.EditorKind == "numeric")
         {
-            0 => new JobAttributeRowMeaning(rowId, "移动声音", "official", "0=马蹄声, 1=车轮声, 2=脚步声, 3=无声", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset), FormatRuntimeVa(JobAttributeOffset)),
-            1 => new JobAttributeRowMeaning(rowId, "移动速度", "official", "原始单字节，默认常见 0/1", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 40), FormatRuntimeVa(JobAttributeOffset + 40)),
-            2 => new JobAttributeRowMeaning(rowId, "攻击声音", "official", "原始单字节，默认常见 0/1", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 80), FormatRuntimeVa(JobAttributeOffset + 80)),
-            3 => new JobAttributeRowMeaning(rowId, "远程兵种", "official", "0/1 标志", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 120), FormatRuntimeVa(JobAttributeOffset + 120)),
-            4 => new JobAttributeRowMeaning(rowId, "攻击延迟", "official", "0/1 标志", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 160), FormatRuntimeVa(JobAttributeOffset + 160)),
-            5 => new JobAttributeRowMeaning(rowId, "兵种类型", "official", "原始单字节，默认常见 0/1/2", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 200), FormatRuntimeVa(JobAttributeOffset + 200)),
-            6 => new JobAttributeRowMeaning(rowId, "策略伤害", "official", "百分比式单字节，默认常见 90/100/110/120/125/130", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 240), FormatRuntimeVa(JobAttributeOffset + 240)),
-            7 => new JobAttributeRowMeaning(rowId, "参与围攻", "official", "0/1 标志，当前 6.5 基底默认全 1", "0x" + HexDisplayFormatter.FormatOffset(JobAttributeOffset + 280), FormatRuntimeVa(JobAttributeOffset + 280)),
-            _ => new JobAttributeRowMeaning(rowId, $"属性{rowId}", "out_of_range", "超出当前 8 行属性矩阵定义。", string.Empty, string.Empty)
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var choice = definition.ValueChoices.FirstOrDefault(candidate => candidate.Value == value);
+        return choice?.Display ?? $"自定义：{value.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static JobAttributeDefinition GetJobAttributeDefinition(int rowId)
+        => JobAttributeDefinitions.TryGetValue(rowId, out var definition)
+            ? definition
+            : new JobAttributeDefinition(rowId, $"属性{rowId}", "out_of_range", "超出当前 8 行属性矩阵定义。", "numeric", []);
+
+    private static readonly IReadOnlyDictionary<int, JobAttributeDefinition> JobAttributeDefinitions =
+        new Dictionary<int, JobAttributeDefinition>
+        {
+            [0] = new(0, "移动声音", "official", "马蹄声：0，车轮声：1，脚步声：2，无声：3", "combo", [new(0, "马蹄声"), new(1, "车轮声"), new(2, "脚步声"), new(3, "无声")]),
+            [1] = new(1, "移动速度", "neutral_label", "速度档位0：0，速度档位1：1；中性档位名，具体语义待进一步验证", "combo", [new(0, "速度档位0"), new(1, "速度档位1")]),
+            [2] = new(2, "攻击声音", "neutral_label", "攻击音效0：0，攻击音效1：1；中性档位名，具体语义待进一步验证", "combo", [new(0, "攻击音效0"), new(1, "攻击音效1")]),
+            [3] = new(3, "远程兵种", "official", "否：0，是：1", "combo", [new(0, "否"), new(1, "是")]),
+            [4] = new(4, "攻击延迟", "official", "无延迟：0，有延迟：1", "combo", [new(0, "无延迟"), new(1, "有延迟")]),
+            [5] = new(5, "兵种类型", "neutral_label", "类型0：0，类型1：1，类型2：2；中性类型名，具体语义待进一步验证", "combo", [new(0, "类型0"), new(1, "类型1"), new(2, "类型2")]),
+            [6] = new(6, "策略伤害", "official", "百分比式单字节，常见值 90/100/110/120/125/130；GUI 使用数值输入", "numeric", []),
+            [7] = new(7, "参与围攻", "official", "不参与：0，参与：1；当前 6.5 基底默认全 1", "combo", [new(0, "不参与"), new(1, "参与")])
         };
 
     private static string FormatRuntimeVa(long fileOffset)
@@ -647,7 +686,18 @@ public sealed partial class CczMcpRuntime
         string Confidence,
         string ValueDisplayRule,
         string FileOffsetBaseHex,
-        string RuntimeVaBaseHex);
+        string RuntimeVaBaseHex,
+        string EditorKind,
+        int? MinValue,
+        int? MaxValue,
+        IReadOnlyList<JobAttributeValueChoice> ValueChoices);
+
+    private sealed record JobAttributeDefinition(int RowId, string Label, string Confidence, string ValueDisplayRule, string EditorKind, IReadOnlyList<JobAttributeValueChoice> ValueChoices);
+
+    private sealed record JobAttributeValueChoice(int Value, string Label)
+    {
+        public string Display => $"{Label}：{Value}";
+    }
 
     private sealed record JobSettingsBuild(
         CczEngineProfile Engine,

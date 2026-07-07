@@ -20,6 +20,8 @@ public sealed class E5RawImageCodec
         UnitSpcSpec
     ];
 
+    private readonly E5RawPaletteService _paletteService = new();
+
     public E5RawImageSpec ResolveSpec(string fileName)
     {
         var name = Path.GetFileName(fileName);
@@ -89,7 +91,7 @@ public sealed class E5RawImageCodec
             throw new InvalidOperationException($"RAW image is too short for {spec.FileName}: {sourceLabel}");
         }
 
-        var palette = LoadRawPalette(project);
+        var palette = LoadRequiredRawPalette(project);
         var bitmap = new Bitmap(spec.Width, height, PixelFormat.Format32bppArgb);
         for (var y = 0; y < height; y++)
         {
@@ -137,7 +139,8 @@ public sealed class E5RawImageCodec
     private E5RawEncodeResult EncodeBitmapCore(CczProject project, Bitmap bitmap, string sourceLabel, E5RawImageSpec spec, bool strictHeight)
     {
         ValidateDimensions(bitmap, spec, strictHeight);
-        var palette = LoadRawPalette(project);
+        var paletteInfo = _paletteService.Load(project);
+        var palette = EnsureRequiredPalette(paletteInfo);
         var exactLookup = BuildExactLookup(palette);
         var raw = new byte[checked(bitmap.Width * bitmap.Height)];
         var transparent = 0;
@@ -186,7 +189,7 @@ public sealed class E5RawImageCodec
             TransparentPixels = transparent,
             ExactPalettePixels = exact,
             NearestPalettePixels = nearest,
-            PalettePath = ResolvePalettePath(project),
+            PalettePath = paletteInfo.Path,
             Warnings = warnings
         };
     }
@@ -238,41 +241,6 @@ public sealed class E5RawImageCodec
         }
     }
 
-    private static IReadOnlyList<Color> LoadRawPalette(CczProject project)
-    {
-        var path = ResolvePalettePath(project);
-        if (!File.Exists(path))
-        {
-            throw new FileNotFoundException("找不到 tsb 调色板，无法编码 RAW。", path);
-        }
-
-        var bytes = File.ReadAllBytes(path);
-        if (bytes.Length < 256 * 4)
-        {
-            throw new InvalidOperationException($"tsb 调色板长度不足：{path}");
-        }
-
-        var colors = new Color[256];
-        for (var i = 0; i < colors.Length; i++)
-        {
-            var offset = i * 4;
-            colors[i] = Color.FromArgb(255, bytes[offset + 2], bytes[offset + 1], bytes[offset]);
-        }
-
-        return colors;
-    }
-
-    private static string ResolvePalettePath(CczProject project)
-    {
-        var candidates = new[]
-        {
-            PortableInstallPaths.PaletteTsbPath,
-            Path.Combine(project.GameRoot, "tsb")
-        };
-
-        return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
-    }
-
     private static Dictionary<int, byte> BuildExactLookup(IReadOnlyList<Color> palette)
     {
         var lookup = new Dictionary<int, byte>();
@@ -310,4 +278,13 @@ public sealed class E5RawImageCodec
 
     private static bool IsMagentaKey(Color color)
         => color.R >= 248 && color.G <= 8 && color.B >= 248;
+
+    private IReadOnlyList<Color> LoadRequiredRawPalette(CczProject project)
+        => EnsureRequiredPalette(_paletteService.Load(project));
+
+    private static IReadOnlyList<Color> EnsureRequiredPalette(E5RawPalette palette)
+    {
+        if (palette.Colors.Count >= 256) return palette.Colors;
+        throw new FileNotFoundException("找不到可用 RAW 调色板：项目 E5\\Spalet.e5、项目 tsb、工具内置 tsb 均不可用。");
+    }
 }

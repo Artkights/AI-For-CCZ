@@ -24,6 +24,19 @@ internal partial class Program
                     throw new InvalidOperationException("Main tab switch smoke needs the primary feature tabs.");
                 }
 
+                var tabNames = tabs.TabPages.Cast<TabPage>().Select(page => page.Text).ToList();
+                var itemTabIndex = tabNames.IndexOf("\u5b9d\u7269\u8bbe\u5b9a");
+                var effectInjectionTabIndex = tabNames.IndexOf("\u7279\u6548\u6ce8\u5165");
+                if (effectInjectionTabIndex < 0)
+                {
+                    throw new InvalidOperationException("Main tabs do not include the effect injection tab.");
+                }
+
+                if (itemTabIndex >= 0 && effectInjectionTabIndex != itemTabIndex + 1)
+                {
+                    throw new InvalidOperationException($"Effect injection tab should be immediately after item settings. item={itemTabIndex} effectInjection={effectInjectionTabIndex}");
+                }
+
                 var initialRequests = GetPrivateStaticIntForMainTabSwitchLayoutSmoke("CompactToolbarLayoutRequestCount");
                 var initialFlushes = GetPrivateStaticIntForMainTabSwitchLayoutSmoke("CompactToolbarLayoutFlushCount");
 

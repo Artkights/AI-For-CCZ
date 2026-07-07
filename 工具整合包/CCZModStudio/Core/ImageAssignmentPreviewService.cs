@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -22,9 +23,11 @@ public sealed class ImageAssignmentPreviewService
     private const int E5ImageIndexEntrySize = 12;
     private const int LsHeaderLength = 16;
     private const int LsDictionaryLength = 256;
-    private readonly Dictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, RawPalette> _rawPaletteCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, IReadOnlyList<int>> _availableImageIdCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, RawPalette> _rawPaletteCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, IReadOnlyList<int>> _availableImageIdCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly CharacterImageLayoutService _layoutService = new();
+    private readonly E5RawPaletteService _paletteService = new();
 
     public void ClearCache()
     {
@@ -294,7 +297,7 @@ public sealed class ImageAssignmentPreviewService
         out string detail)
     {
         detail = string.Empty;
-        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId, factionSlot);
+        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, sImageId, jobId, factionSlot);
         if (mapping.ImageNumbers.Count == 0)
         {
             detail = mapping.Detail;
@@ -368,7 +371,7 @@ public sealed class ImageAssignmentPreviewService
 
     private Bitmap? TryRenderSImage(CczProject project, int sImageId, int? jobId, int sFactionSlot, out string caption)
     {
-        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId, sFactionSlot);
+        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, sImageId, jobId, sFactionSlot);
         caption = mapping.Detail;
         if (mapping.ImageNumbers.Count == 0) return null;
 
@@ -540,8 +543,9 @@ public sealed class ImageAssignmentPreviewService
         if (_e5ImageIndexCache.TryGetValue(key, out var cached)) return cached;
         if (!File.Exists(path))
         {
-            _e5ImageIndexCache[key] = Array.Empty<E5ImageEntry>();
-            return _e5ImageIndexCache[key];
+            var empty = Array.Empty<E5ImageEntry>();
+            _e5ImageIndexCache[key] = empty;
+            return empty;
         }
 
         var data = File.ReadAllBytes(path);
@@ -687,7 +691,8 @@ public sealed class ImageAssignmentPreviewService
         if (entryCounts.Length == 0 || entryCounts.Any(count => count <= 0)) return Array.Empty<int>();
 
         var maxSharedUnitImageNumber = entryCounts.Min();
-        var maxSImageId = Math.Max(0, maxSharedUnitImageNumber - 336 + 32);
+        var layout = _layoutService.Resolve(project);
+        var maxSImageId = layout.UnitEntryCount > 0 ? layout.SMaxId : 0;
         var result = new List<int>();
         for (var sImageId = includeZero ? 0 : 1; sImageId <= maxSImageId; sImageId++)
         {
@@ -696,7 +701,7 @@ public sealed class ImageAssignmentPreviewService
                 continue;
             }
 
-            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(sImageId, jobId: null, CharacterImageResourceService.DefaultSPreviewFactionSlot);
+            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, sImageId, jobId: null, CharacterImageResourceService.DefaultSPreviewFactionSlot);
             if (mapping.ImageNumbers.Count == 0 ||
                 mapping.ImageNumbers.Any(number => number <= 0 || number > maxSharedUnitImageNumber))
             {
@@ -966,106 +971,9 @@ public sealed class ImageAssignmentPreviewService
 
     private RawPalette LoadRawPalette(CczProject project)
     {
-        var spaletPath = ResolveLocalSpaletPath(project);
-        if (spaletPath != null)
-        {
-            var key = "spalet:" + Path.GetFullPath(spaletPath);
-            if (_rawPaletteCache.TryGetValue(key, out var cached)) return cached;
-
-            var colors = TryLoadSpaletPalette(spaletPath);
-            if (colors.Count >= 256)
-            {
-                var palette = new RawPalette(colors, "RAW+Spalet.e5", spaletPath);
-                _rawPaletteCache[key] = palette;
-                return palette;
-            }
-        }
-
-        var cleanPath = ResolveCleanPalettePath(project);
-        if (cleanPath != null)
-        {
-            var key = "clean:" + Path.GetFullPath(cleanPath);
-            if (_rawPaletteCache.TryGetValue(key, out var cached)) return cached;
-
-            var colors = LoadCleanPalette(cleanPath);
-            if (colors.Count >= 256)
-            {
-                var palette = new RawPalette(colors, "RAW+clean palette", cleanPath);
-                _rawPaletteCache[key] = palette;
-                return palette;
-            }
-        }
-
-        return new RawPalette(Array.Empty<Color>(), "RAW grayscale", string.Empty);
-    }
-
-    private IReadOnlyList<Color> TryLoadSpaletPalette(string path)
-    {
-        foreach (var entry in GetE5ImageIndex(path))
-        {
-            if (entry.DecodedLength < 256 * 3) continue;
-
-            var bytes = TryReadEntryBytes(path, entry, out _);
-            if (bytes == null || bytes.Length < 256 * 3) continue;
-
-            var colors = new Color[256];
-            for (var i = 0; i < colors.Length; i++)
-            {
-                var offset = i * 3;
-                var b = bytes[offset];
-                var r = bytes[offset + 1];
-                var g = bytes[offset + 2];
-                colors[i] = Color.FromArgb(255, r, g, b);
-            }
-
-            return colors;
-        }
-
-        return Array.Empty<Color>();
-    }
-
-    private static IReadOnlyList<Color> LoadCleanPalette(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        if (bytes.Length < 256 * 4)
-        {
-            return Array.Empty<Color>();
-        }
-
-        var colors = new Color[256];
-        for (var i = 0; i < colors.Length; i++)
-        {
-            var offset = i * 4;
-            var b = bytes[offset];
-            var g = bytes[offset + 1];
-            var r = bytes[offset + 2];
-            colors[i] = Color.FromArgb(255, r, g, b);
-        }
-
-        return colors;
-    }
-
-    private static string? ResolveLocalSpaletPath(CczProject project)
-    {
-        var candidates = new[]
-        {
-            Path.Combine(project.GameRoot, "Spalet.e5"),
-            Path.Combine(project.GameRoot, "E5", "Spalet.e5"),
-            Path.Combine(Directory.GetParent(project.GameRoot)?.FullName ?? project.WorkspaceRoot, "E5", "Spalet.e5")
-        };
-
-        return candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= E5ImageIndexOffset + E5ImageIndexEntrySize);
-    }
-
-    private static string? ResolveCleanPalettePath(CczProject project)
-    {
-        var candidates = new[]
-        {
-            PortableInstallPaths.PaletteTsbPath,
-            Path.Combine(project.GameRoot, "tsb")
-        };
-
-        return candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4);
+        var paletteInfo = _paletteService.Load(project);
+        var key = $"{paletteInfo.Mode}:{paletteInfo.Path}";
+        return _rawPaletteCache.GetOrAdd(key, _ => new RawPalette(paletteInfo.Colors, paletteInfo.Mode, paletteInfo.Path));
     }
 
     private static Bitmap CropRepresentativeFrame(Bitmap strip, int frameHeight)

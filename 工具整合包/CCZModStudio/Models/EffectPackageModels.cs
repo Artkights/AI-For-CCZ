@@ -46,6 +46,9 @@ public sealed class EffectPatchSegment
     public string ExpectedOldBytesHex { get; set; } = string.Empty;
     public string CodeCaveId { get; set; } = string.Empty;
     public string HookPoint { get; set; } = string.Empty;
+    public string AssemblySourceHash { get; set; } = string.Empty;
+    public string AllocatedRange { get; set; } = string.Empty;
+    public string EngineProfileSha256 { get; set; } = string.Empty;
     public string Comment { get; set; } = string.Empty;
 }
 

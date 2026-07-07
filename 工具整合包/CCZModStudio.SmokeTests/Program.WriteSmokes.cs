@@ -940,30 +940,41 @@ internal partial class Program
 
         var attributeFilePath = testProject.ResolveGameFile(jobAttributeTable.FileName);
         var beforeAttributeBytes = File.ReadAllBytes(attributeFilePath);
-        var attributeRowId = 0;
-        var attributeColumnId = 1;
-        var attributeColumn = attributeColumnId.ToString(CultureInfo.InvariantCulture);
-        var attributeExpectedOffset = jobAttributeTable.DataPos + ((long)attributeRowId * jobAttributeTable.RowSize) + attributeColumnId;
-        var attributeRow = FindSmokeRowById(jobAttributeRead.Data, attributeRowId);
-        var attributeOriginal = Convert.ToInt32(attributeRow[attributeColumn], CultureInfo.InvariantCulture);
-        var attributeChanged = attributeOriginal == 2 ? 0 : 2;
-        attributeRow[attributeColumn] = attributeChanged;
+        var moveSoundRowId = 0;
+        var moveSoundColumnId = 1;
+        var moveSoundColumn = moveSoundColumnId.ToString(CultureInfo.InvariantCulture);
+        var moveSoundExpectedOffset = jobAttributeTable.DataPos + ((long)moveSoundRowId * jobAttributeTable.RowSize) + moveSoundColumnId;
+        var moveSoundRow = FindSmokeRowById(jobAttributeRead.Data, moveSoundRowId);
+        var moveSoundOriginal = Convert.ToInt32(moveSoundRow[moveSoundColumn], CultureInfo.InvariantCulture);
+        var moveSoundChanged = moveSoundOriginal == 2 ? 0 : 2;
+        moveSoundRow[moveSoundColumn] = moveSoundChanged;
+        var strategyDamageRowId = 6;
+        var strategyDamageColumnId = 0;
+        var strategyDamageColumn = strategyDamageColumnId.ToString(CultureInfo.InvariantCulture);
+        var strategyDamageExpectedOffset = jobAttributeTable.DataPos + ((long)strategyDamageRowId * jobAttributeTable.RowSize) + strategyDamageColumnId;
+        var strategyDamageRow = FindSmokeRowById(jobAttributeRead.Data, strategyDamageRowId);
+        var strategyDamageOriginal = Convert.ToInt32(strategyDamageRow[strategyDamageColumn], CultureInfo.InvariantCulture);
+        var strategyDamageChanged = strategyDamageOriginal == 100 ? 110 : 100;
+        strategyDamageRow[strategyDamageColumn] = strategyDamageChanged;
         var attributeSave = writer.Save(testProject, jobAttributeTable, jobAttributeRead.Data);
         var jobAttributeVerify = reader.Read(testProject, jobAttributeTable, tables);
         var afterAttributeBytes = File.ReadAllBytes(attributeFilePath);
         var attributeChangedOffsets = FindChangedByteOffsets(beforeAttributeBytes, afterAttributeBytes);
-        var attributeActual = Convert.ToInt32(FindSmokeRowById(jobAttributeVerify.Data, attributeRowId)[attributeColumn], CultureInfo.InvariantCulture);
-        if (attributeActual != attributeChanged ||
-            !attributeChangedOffsets.SequenceEqual(new[] { attributeExpectedOffset }) ||
+        var moveSoundActual = Convert.ToInt32(FindSmokeRowById(jobAttributeVerify.Data, moveSoundRowId)[moveSoundColumn], CultureInfo.InvariantCulture);
+        var strategyDamageActual = Convert.ToInt32(FindSmokeRowById(jobAttributeVerify.Data, strategyDamageRowId)[strategyDamageColumn], CultureInfo.InvariantCulture);
+        var expectedAttributeOffsets = new[] { moveSoundExpectedOffset, strategyDamageExpectedOffset }.OrderBy(static offset => offset).ToArray();
+        if (moveSoundActual != moveSoundChanged ||
+            strategyDamageActual != strategyDamageChanged ||
+            !attributeChangedOffsets.OrderBy(static offset => offset).SequenceEqual(expectedAttributeOffsets) ||
             string.IsNullOrWhiteSpace(attributeSave.BackupPath) ||
             !File.Exists(attributeSave.BackupPath) ||
             string.IsNullOrWhiteSpace(attributeSave.ReportJsonPath) ||
             !File.Exists(attributeSave.ReportJsonPath))
         {
-            throw new InvalidOperationException($"兵种属性写入烟测复读失败：移动声音[步兵]={attributeActual}, offsets={string.Join(",", attributeChangedOffsets.Select(offset => offset.ToString("X", CultureInfo.InvariantCulture)))} expected={attributeExpectedOffset:X}");
+            throw new InvalidOperationException($"兵种属性写入烟测复读失败：移动声音[步兵]={moveSoundActual}, 策略伤害[君主]={strategyDamageActual}, offsets={string.Join(",", attributeChangedOffsets.Select(offset => offset.ToString("X", CultureInfo.InvariantCulture)))} expected={string.Join(",", expectedAttributeOffsets.Select(offset => offset.ToString("X", CultureInfo.InvariantCulture)))}");
         }
 
-        Console.WriteLine($"JOB_ATTRIBUTE_MATRIX_WRITE_SMOKE_OK 移动声音[01:步兵] 0x{attributeExpectedOffset:X} {attributeOriginal}->{attributeActual} backup={Path.GetFileName(attributeSave.BackupPath)} report={Path.GetFileName(attributeSave.ReportJsonPath)}");
+        Console.WriteLine($"JOB_ATTRIBUTE_MATRIX_WRITE_SMOKE_OK 移动声音[01:步兵] 0x{moveSoundExpectedOffset:X} {moveSoundOriginal}->{moveSoundActual}; 策略伤害[00:君主] 0x{strategyDamageExpectedOffset:X} {strategyDamageOriginal}->{strategyDamageActual} backup={Path.GetFileName(attributeSave.BackupPath)} report={Path.GetFileName(attributeSave.ReportJsonPath)}");
     
         var jobEffectDescriptionTable = tables.Single(t => t.TableName == "6.5-7-1 兵种特效说明");
         var jobEffectAssignmentTable = tables.Single(t => t.TableName == "6.5-7-2 兵种特效分配");
@@ -1018,18 +1029,21 @@ internal partial class Program
         var reader = new HexTableReader();
         var writer = new HexTableWriter();
         var strategyTable = tables.Single(t => t.TableName == "6.5-5 策略");
+        var strategyDescriptionTable = tables.Single(t => t.TableName == "6.5-5-1 策略说明");
         var strategyLearnTable = tables.Single(t => t.TableName == "6.5-5-7 学会策略");
         var strategyBattleAiTable = tables.Single(t => t.TableName == "6.5-5-8 战场AI策略限制");
         var strategyRead = reader.Read(testProject, strategyTable, tables);
+        var strategyDescriptionRead = reader.Read(testProject, strategyDescriptionTable, tables);
         var strategyLearnRead = reader.Read(testProject, strategyLearnTable, tables);
         var strategyBattleAiRead = reader.Read(testProject, strategyBattleAiTable, tables);
-        if (!strategyRead.Validation.IsUsable || !strategyLearnRead.Validation.IsUsable || !strategyBattleAiRead.Validation.IsUsable)
+        if (!strategyRead.Validation.IsUsable || !strategyDescriptionRead.Validation.IsUsable || !strategyLearnRead.Validation.IsUsable || !strategyBattleAiRead.Validation.IsUsable)
         {
-            throw new InvalidOperationException("兵种策略写入烟测读取策略主表或 EKD5 附表失败。");
+            throw new InvalidOperationException("兵种策略写入烟测读取策略主表、策略说明或 EKD5 附表失败。");
         }
     
         var strategyId = 0;
         var strategyRow = FindSmokeRowById(strategyRead.Data, strategyId);
+        var strategyDescriptionRow = FindSmokeRowById(strategyDescriptionRead.Data, strategyId);
         var strategyLearnRow = FindSmokeRowById(strategyLearnRead.Data, strategyId);
         var strategyBattleAiRow = FindSmokeRowById(strategyBattleAiRead.Data, strategyId);
         var jobLevelColumn = strategyRead.Data.Columns.Contains("0")
@@ -1037,34 +1051,43 @@ internal partial class Program
             : strategyRead.Data.Columns.Cast<DataColumn>().First(c => int.TryParse(c.ColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)).ColumnName;
         var strategyLevelOriginal = Convert.ToInt32(strategyRow[jobLevelColumn], CultureInfo.InvariantCulture);
         var strategyLevelChanged = strategyLevelOriginal == 1 ? 2 : 1;
+        var strategyDescriptionOriginal = Convert.ToString(strategyDescriptionRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
+        var strategyDescriptionChanged = strategyDescriptionOriginal == "写入烟测策略介绍"
+            ? "写入烟测策略介绍2"
+            : "写入烟测策略介绍";
         var strategyLearnOriginal = Convert.ToInt32(strategyLearnRow["内容"], CultureInfo.InvariantCulture);
         var strategyLearnChanged = strategyLearnOriginal == 1 ? 2 : 1;
         var strategyBattleAiOriginal = Convert.ToInt32(strategyBattleAiRow["内容"], CultureInfo.InvariantCulture);
         var strategyBattleAiChanged = strategyBattleAiOriginal == 1 ? 2 : 1;
         strategyRow[jobLevelColumn] = strategyLevelChanged;
+        strategyDescriptionRow["介绍"] = strategyDescriptionChanged;
         strategyLearnRow["内容"] = strategyLearnChanged;
         strategyBattleAiRow["内容"] = strategyBattleAiChanged;
         var strategySaves = new[]
         {
             writer.Save(testProject, strategyTable, strategyRead.Data),
+            writer.Save(testProject, strategyDescriptionTable, strategyDescriptionRead.Data),
             writer.Save(testProject, strategyLearnTable, strategyLearnRead.Data),
             writer.Save(testProject, strategyBattleAiTable, strategyBattleAiRead.Data)
         };
         var strategyVerify = reader.Read(testProject, strategyTable, tables);
+        var strategyDescriptionVerify = reader.Read(testProject, strategyDescriptionTable, tables);
         var strategyLearnVerify = reader.Read(testProject, strategyLearnTable, tables);
         var strategyBattleAiVerify = reader.Read(testProject, strategyBattleAiTable, tables);
         var strategyLevelActual = Convert.ToInt32(FindSmokeRowById(strategyVerify.Data, strategyId)[jobLevelColumn], CultureInfo.InvariantCulture);
+        var strategyDescriptionActual = Convert.ToString(FindSmokeRowById(strategyDescriptionVerify.Data, strategyId)["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
         var strategyLearnActual = Convert.ToInt32(FindSmokeRowById(strategyLearnVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
         var strategyBattleAiActual = Convert.ToInt32(FindSmokeRowById(strategyBattleAiVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
         if (strategyLevelActual != strategyLevelChanged ||
+            strategyDescriptionActual != strategyDescriptionChanged ||
             strategyLearnActual != strategyLearnChanged ||
             strategyBattleAiActual != strategyBattleAiChanged ||
             strategySaves.Any(x => string.IsNullOrWhiteSpace(x.BackupPath) || !File.Exists(x.BackupPath)))
         {
-            throw new InvalidOperationException($"兵种策略写入烟测复读失败：level={strategyLevelActual}, learn={strategyLearnActual}, battleAi={strategyBattleAiActual}");
+            throw new InvalidOperationException($"兵种策略写入烟测复读失败：level={strategyLevelActual}, desc={strategyDescriptionActual}, learn={strategyLearnActual}, battleAi={strategyBattleAiActual}");
         }
     
-        Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_OK id={strategyId} 学会等级[{jobLevelColumn}]={strategyLevelOriginal}->{strategyLevelActual} 效果索引={strategyLearnOriginal}->{strategyLearnActual} AI战场={strategyBattleAiOriginal}->{strategyBattleAiActual} saves={strategySaves.Length}");
+        Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_OK id={strategyId} 学会等级[{jobLevelColumn}]={strategyLevelOriginal}->{strategyLevelActual} 策略介绍='{strategyDescriptionOriginal}'->'{strategyDescriptionActual}' 效果索引={strategyLearnOriginal}->{strategyLearnActual} AI战场={strategyBattleAiOriginal}->{strategyBattleAiActual} saves={strategySaves.Length}");
     }
     
     static void RunBattlefieldTextWriteSmokeLayered(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)

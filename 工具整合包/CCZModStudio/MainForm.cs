@@ -277,6 +277,12 @@ public sealed partial class MainForm : Form
     private readonly ShopEditorService _shopEditorService = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
     private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
+    private readonly InjectedEffectDiscoveryService _injectedEffectDiscoveryService = new();
+    private readonly ExeCodeCaveScanner _exeCodeCaveScanner = new();
+    private readonly CodeCaveRegistry _codeCaveRegistry = new();
+    private readonly AssemblyPatchCompiler _assemblyPatchCompiler = new();
+    private readonly SpecialSkillInjectionService _specialSkillInjectionService = new();
+    private EffectPackage? _currentEffectInjectionPreviewPackage;
 
     private CczProject? _project;
     private IReadOnlyList<HexTableDefinition> _tables = Array.Empty<HexTableDefinition>();
@@ -461,14 +467,22 @@ public sealed partial class MainForm : Form
     private TableReadResult? _jobMoveCostRead;
     private TableReadResult? _jobRestraintRead;
     private TableReadResult? _jobAttributeRead;
+    private DataTable? _currentJobAttributeEditorData;
+    private bool _configuringJobAttributeGrid;
     private DataTable? _currentJobStrategyData;
     private TableReadResult? _jobStrategyRead;
+    private TableReadResult? _jobStrategyDescriptionRead;
     private readonly Dictionary<string, TableReadResult> _jobStrategyCompanionReads = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<int, string> _jobStrategyJobNames = new Dictionary<int, string>();
     private readonly Dictionary<int, JobStrategyLearningDialog> _jobStrategyLearningDialogs = new();
     private DataRow? _jobStrategyLearningEditorBoundRow;
     private bool _bindingJobStrategyLearningEditor;
     private readonly DataTable _jobStrategyLearningEditorData = new("兵种策略学习等级");
+    private DataRow? _jobStrategyDescriptionEditorBoundRow;
+    private bool _bindingJobStrategyDescriptionBox;
+    private bool _jobStrategyDescriptionBoxHasValidationError;
+    private string _jobStrategyDescriptionBoxValidationError = string.Empty;
+    private bool _restoringJobStrategyDescriptionSelection;
     private int _jobStrategyConfiguredMagicCount;
     private string _jobStrategyConfiguredMagicSource = string.Empty;
     private DataTable? _currentJobEffectData;
@@ -692,7 +706,14 @@ public sealed partial class MainForm : Form
     private readonly Button _loadJobMatrixButton = new();
     private readonly Button _saveJobMatrixButton = new();
     private readonly Button _openJobMatrixRestraintTableButton = new();
+    private readonly Button _loadJobAttributeMatrixButton = new();
+    private readonly Button _saveJobAttributeMatrixButton = new();
     private readonly Button _openJobMatrixAttributeTableButton = new();
+    private readonly Button _exportJobAttributeCsvButton = new();
+    private readonly Button _importJobAttributeCsvButton = new();
+    private readonly Button _pasteJobMatrixSelectionButton = new();
+    private readonly Button _fillJobMatrixSelectionButton = new();
+    private readonly Button _batchModifyJobMatrixButton = new();
     private readonly DataGridView _jobRestraintGrid = new();
     private readonly DataGridView _jobAttributeGrid = new();
     private readonly TextBox _jobMatrixInfoBox = new();
@@ -709,9 +730,11 @@ public sealed partial class MainForm : Form
     private readonly TextBox _jobStrategyEditorInfoBox = new();
     private readonly PictureBox _jobStrategyPreviewBox = new();
     private readonly TextBox _jobStrategyPreviewInfoBox = new();
+    private readonly TextBox _jobStrategyDescriptionBox = new();
     private readonly Panel _jobStrategyLearningEditorPanel = new();
     private readonly DataGridView _jobStrategyLearningEditorGrid = new();
     private readonly Label _jobStrategyLearningEditorTitleLabel = new();
+    private readonly TextBox _jobStrategyLearningDescriptionBox = new();
     private readonly Label _jobStrategyLearningEditorStatusLabel = new();
     private readonly Button _loadJobEffectEditorButton = new();
     private readonly Button _saveJobEffectEditorButton = new();
@@ -1603,6 +1626,7 @@ public sealed partial class MainForm : Form
         _mainTabs.TabPages.Add(BuildRoleEditorPage());
         _mainTabs.TabPages.Add(BuildJobEditorPage());
         _mainTabs.TabPages.Add(BuildItemEditorPage());
+        _mainTabs.TabPages.Add(BuildEffectInjectionPage());
 
         if (ShowGenericTableEditorPage)
         {
@@ -1858,14 +1882,14 @@ public sealed partial class MainForm : Form
         _saveImageAssignmentsButton.Text = "保存形象";
         ConfigureToolbarButton(_saveImageAssignmentsButton, 72);
         _saveImageAssignmentsButton.Enabled = false;
-        _queryFreeFaceIdsButton.Text = "查询空闲头像";
-        ConfigureToolbarButton(_queryFreeFaceIdsButton, 118);
+        _queryFreeFaceIdsButton.Text = "查询头像";
+        ConfigureToolbarButton(_queryFreeFaceIdsButton, 88);
         _queryFreeFaceIdsButton.Enabled = false;
-        _queryFreeRImageIdsButton.Text = "查询空闲R形象编号";
-        ConfigureToolbarButton(_queryFreeRImageIdsButton, 150);
+        _queryFreeRImageIdsButton.Text = "查询R形象";
+        ConfigureToolbarButton(_queryFreeRImageIdsButton, 96);
         _queryFreeRImageIdsButton.Enabled = false;
-        _queryFreeSImageIdsButton.Text = "查询空闲S形象编号";
-        ConfigureToolbarButton(_queryFreeSImageIdsButton, 150);
+        _queryFreeSImageIdsButton.Text = "查询S形象";
+        ConfigureToolbarButton(_queryFreeSImageIdsButton, 96);
         _queryFreeSImageIdsButton.Enabled = false;
         _openRsDirectoryButton.Text = "打开RS目录";
         ConfigureToolbarButton(_openRsDirectoryButton, 104);

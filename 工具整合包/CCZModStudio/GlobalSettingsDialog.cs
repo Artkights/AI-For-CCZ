@@ -8,6 +8,14 @@ namespace CCZModStudio;
 
 public sealed class GlobalSettingsDialog : Form
 {
+    private const string NumericKeyColumn = "Key";
+    private const string NumericNameColumn = "名称";
+    private const string NumericCanEditColumn = "可写";
+    private const string NumericCurrentValueColumn = "当前值";
+    private const string NumericNewValueColumn = "新值";
+    private const string NumericMinValueColumn = "MinValue";
+    private const string NumericMaxValueColumn = "MaxValue";
+
     private readonly CczProject _project;
     private readonly IReadOnlyList<HexTableDefinition> _tables;
     private readonly GlobalSettingsService _service = new();
@@ -401,12 +409,13 @@ public sealed class GlobalSettingsDialog : Form
         if (_numericGrid.DataSource is not DataTable table) return updates;
         foreach (DataRow row in table.Rows)
         {
-            var canEdit = row.Field<bool>("CanEdit");
+            var canEdit = row.Field<bool>(NumericCanEditColumn);
             if (!canEdit) continue;
 
-            var key = Convert.ToString(row["Key"], CultureInfo.InvariantCulture) ?? string.Empty;
-            var current = Convert.ToString(row["CurrentValue"], CultureInfo.InvariantCulture) ?? string.Empty;
-            var valueText = Convert.ToString(row["NewValue"], CultureInfo.InvariantCulture) ?? string.Empty;
+            var key = Convert.ToString(row[NumericKeyColumn], CultureInfo.InvariantCulture) ?? string.Empty;
+            var name = Convert.ToString(row[NumericNameColumn], CultureInfo.InvariantCulture) ?? key;
+            var current = Convert.ToString(row[NumericCurrentValueColumn], CultureInfo.InvariantCulture) ?? string.Empty;
+            var valueText = Convert.ToString(row[NumericNewValueColumn], CultureInfo.InvariantCulture) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(valueText) || string.Equals(valueText, current, StringComparison.Ordinal))
             {
                 continue;
@@ -414,7 +423,7 @@ public sealed class GlobalSettingsDialog : Form
 
             if (!int.TryParse(valueText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
             {
-                throw new InvalidOperationException($"全局参数 {key} 的新值不是整数：{valueText}");
+                throw new InvalidOperationException($"全局参数“{name}”的新值不是整数：{valueText}");
             }
 
             updates[key] = value;
@@ -434,24 +443,55 @@ public sealed class GlobalSettingsDialog : Form
         _saveNumericButton.Enabled = _document.NumericSettings.Any(setting => setting.CanEdit);
         if (_numericGrid.Columns.Count == 0) return;
 
-        foreach (DataGridViewColumn column in _numericGrid.Columns)
+        foreach (var column in _numericGrid.Columns.Cast<DataGridViewColumn>().ToList())
         {
-            column.ReadOnly = column.DataPropertyName != "NewValue";
-            if (column.DataPropertyName == "Detail") column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
-            if (column.DataPropertyName is "Key" or "CanEdit" or "ByteLength") column.MinimumWidth = 72;
-            if (column.DataPropertyName == "NewValue") column.HeaderText = "新值";
+            column.Visible = column.DataPropertyName is NumericNameColumn
+                or NumericCanEditColumn
+                or NumericCurrentValueColumn
+                or NumericNewValueColumn;
+            column.ReadOnly = column.DataPropertyName != NumericNewValueColumn;
+
+            if (column.DataPropertyName == NumericNameColumn)
+            {
+                column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+                column.FillWeight = 180;
+                SetColumnMinimumWidth(column, 180);
+            }
+            else if (column.DataPropertyName == NumericCanEditColumn)
+            {
+                column.AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells;
+                SetColumnMinimumWidth(column, 64);
+            }
+            else if (column.DataPropertyName is NumericCurrentValueColumn or NumericNewValueColumn)
+            {
+                column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+                column.FillWeight = 80;
+                SetColumnMinimumWidth(column, 96);
+            }
         }
 
         foreach (DataGridViewRow row in _numericGrid.Rows)
         {
-            var canEdit = row.Cells["CanEdit"].Value is bool editable && editable;
+            var canEdit = row.Cells[NumericCanEditColumn].Value is bool editable && editable;
             row.ReadOnly = !canEdit;
             row.DefaultCellStyle.ForeColor = canEdit ? SystemColors.ControlText : SystemColors.GrayText;
             row.DefaultCellStyle.BackColor = canEdit ? SystemColors.Window : SystemColors.Control;
-            if (_numericGrid.Columns.Contains("NewValue"))
+            if (_numericGrid.Columns.Contains(NumericNewValueColumn))
             {
-                row.Cells["NewValue"].ReadOnly = !canEdit;
+                row.Cells[NumericNewValueColumn].ReadOnly = !canEdit;
             }
+        }
+    }
+
+    private static void SetColumnMinimumWidth(DataGridViewColumn column, int width)
+    {
+        try
+        {
+            column.MinimumWidth = width;
+        }
+        catch (NullReferenceException)
+        {
+            // WinForms can throw while auto-generated columns are being initialized in headless smoke tests.
         }
     }
 
@@ -459,10 +499,10 @@ public sealed class GlobalSettingsDialog : Form
     {
         if (sender is not DataGridView grid || e.RowIndex < 0 || e.ColumnIndex < 0) return;
         var column = grid.Columns[e.ColumnIndex];
-        if (column.DataPropertyName != "NewValue") return;
+        if (column.DataPropertyName != NumericNewValueColumn) return;
 
         var row = grid.Rows[e.RowIndex];
-        var canEdit = row.Cells["CanEdit"].Value is bool editable && editable;
+        var canEdit = row.Cells[NumericCanEditColumn].Value is bool editable && editable;
         if (!canEdit) return;
 
         var valueText = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
@@ -475,8 +515,8 @@ public sealed class GlobalSettingsDialog : Form
             return;
         }
 
-        var min = Convert.ToInt32(row.Cells["MinValue"].Value, CultureInfo.InvariantCulture);
-        var max = Convert.ToInt32(row.Cells["MaxValue"].Value, CultureInfo.InvariantCulture);
+        var min = Convert.ToInt32(row.Cells[NumericMinValueColumn].Value, CultureInfo.InvariantCulture);
+        var max = Convert.ToInt32(row.Cells[NumericMaxValueColumn].Value, CultureInfo.InvariantCulture);
         if (min != max && (value < min || value > max))
         {
             e.Cancel = true;
@@ -537,59 +577,26 @@ public sealed class GlobalSettingsDialog : Form
     private static DataTable ToNumericGrid(IReadOnlyList<GlobalNumericSetting> settings)
     {
         var table = new DataTable("全局参数");
-        table.Columns.Add("Key", typeof(string));
-        table.Columns.Add("CanEdit", typeof(bool));
-        table.Columns.Add("项目", typeof(string));
-        table.Columns.Add("CurrentValue", typeof(string));
-        table.Columns.Add("NewValue", typeof(string));
-        table.Columns.Add("默认/截图值", typeof(string));
-        table.Columns.Add("目标文件", typeof(string));
-        table.Columns.Add("偏移", typeof(string));
-        table.Columns.Add("运行时VA", typeof(string));
-        table.Columns.Add("ByteLength", typeof(int));
-        table.Columns.Add("ValueKind", typeof(string));
-        table.Columns.Add("MinValue", typeof(int));
-        table.Columns.Add("MaxValue", typeof(int));
-        table.Columns.Add("状态", typeof(string));
-        table.Columns.Add("Oracle覆盖", typeof(string));
-        table.Columns.Add("Detail", typeof(string));
+        table.Columns.Add(NumericNameColumn, typeof(string));
+        table.Columns.Add(NumericCanEditColumn, typeof(bool));
+        table.Columns.Add(NumericCurrentValueColumn, typeof(string));
+        table.Columns.Add(NumericNewValueColumn, typeof(string));
+        table.Columns.Add(NumericKeyColumn, typeof(string));
+        table.Columns.Add(NumericMinValueColumn, typeof(int));
+        table.Columns.Add(NumericMaxValueColumn, typeof(int));
         foreach (var setting in settings)
         {
             table.Rows.Add(
-                setting.Key,
-                setting.CanEdit,
                 setting.DisplayName,
+                setting.CanEdit,
                 setting.CurrentValueText,
                 string.Empty,
-                setting.SuggestedDefaultText,
-                setting.TargetFileName,
-                FormatNumericTargets(setting),
-                setting.RuntimeAddress == 0 ? string.Empty : "0x" + setting.RuntimeAddress.ToString("X", CultureInfo.InvariantCulture),
-                setting.ByteLength,
-                setting.ValueKind.ToString(),
+                setting.Key,
                 setting.MinValue,
-                setting.MaxValue,
-                setting.Status,
-                setting.OracleCoverage,
-                setting.Detail);
+                setting.MaxValue);
         }
 
         return table;
-    }
-
-    private static string FormatNumericTargets(GlobalNumericSetting setting)
-    {
-        if (setting.WriteTargets.Count == 0)
-        {
-            return setting.Offset == 0 ? string.Empty : HexDisplayFormatter.FormatOffset(setting.Offset);
-        }
-
-        var offsets = setting.WriteTargets
-            .Select(target => HexDisplayFormatter.FormatOffset(target.FileOffset))
-            .ToArray();
-        return offsets.Length == 1
-            ? offsets[0]
-            : $"{offsets[0]} 等 {offsets.Length} 处";
     }
 
     private static DataTable ToCmfCandidateGrid(IReadOnlyList<CmfFeatureCandidate> candidates)

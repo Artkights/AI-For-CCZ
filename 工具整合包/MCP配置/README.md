@@ -1,6 +1,8 @@
-# CCZModStudio MCP 配置
+﻿# CCZModStudio MCP 配置
 
 本目录保存 CCZModStudio 本地 stdio MCP Server 的客户端接入配置、模板和生成脚本。
+
+文档按 UTF-8 保存。Windows PowerShell 5.1 读取无 BOM Markdown 时可能显示乱码；请使用 `Get-Content -Encoding utf8`，或使用当前脚本生成/验证输出作为准确信息来源。
 
 ## 文件说明
 
@@ -186,20 +188,32 @@ Claude Desktop 可使用同形态 JSON：
 
 ## 可用工具分组
 
+- 权威能力清单：`read_mcp_capability_manifest`。当客户端 UI 截断 `tools/list` 时，以该 manifest 的 `ToolCount`、`Groups`、`Aliases` 和 `Tools` 为准；当前 authoring MCP 校验口径为 206 个工具，且 manifest 数量必须与 `tools/list` 完全一致。
 - 项目识别：`detect_project`
-- 数据表：`list_tables`、`read_table`、`write_table_rows`
+- 数据表/CSV/schema：`list_tables`、`read_table`、`write_table_rows`、`read_table_schema`、`read_table_derived_display`、`export_table_csv`、`preview_import_table_csv`、`apply_import_table_csv`
+- 角色编辑组合视图：`read_role_editor`、`preview_write_roles`、`write_roles`、`read_role_texts`、`preview_write_role_texts`、`write_role_texts`
+- 形象分配：`find_free_image_assignment_ids`、`preview_image_assignment_update`、`write_image_assignment_update`
 - R/S 剧本：`list_scenario_files`、`read_scenario_commands`、`search_scenario_scripts`、`read_scenario_texts`、`write_scenario_texts`
 - 指令模板与知识库：`list_scenario_command_templates`、`read_scenario_command_template`、`list_knowledge_entries`、`search_knowledge_entries`、`read_knowledge_entry`
 - 整包制作：`analyze_mod_request`、`compile_mod_package`、`analyze_standalone_scenario_request`、`compile_standalone_scenario_package`、`preview_mod_package`、`apply_mod_package`、`auto_make_mod`、`auto_validate_mod`、`validate_mod_package`、`export_mod_report`
 - R/S 结构写回：`compile_scenario_patch`、`preview_scenario_patch`、`apply_scenario_patch`、`apply_scenario_patch_aggressive`、`parse_scenario_text_import`、`apply_scenario_text_import`、`read_scenario_text_import_template`、`read_rscene_draft`、`save_rscene_draft`、`publish_rscene_draft_to_scenario`
 - 地图和资源：`list_hexzmap_blocks`、`read_hexzmap_block`、`write_hexzmap_block`、`preview_map_image`、`replace_map_image`、`preview_resource_replace`、`replace_resource`
-- 地图工作台：`list_map_drafts`、`read_map_draft`、`save_map_draft`、`preview_map_canvas`、`export_map_canvas_jpeg`、`publish_map_canvas_to_map_image`、`publish_map_workbench_bundle`
+- 地图工作台：`list_map_drafts`、`read_map_draft`、`save_map_draft`、`preview_map_canvas`、`export_map_canvas_jpeg`、`publish_map_canvas_to_map_image`、`publish_map_workbench_bundle`、`preview_extract_map_materials`、`extract_map_materials`、`preview_terrain_beautify_filter`、`apply_terrain_beautify_to_draft`
 - 图片资源目录/预览/BMP 导出：`list_image_resources`、`list_image_resource_entries`、`export_image_resource_preview`、`export_bmp_assets`
+- 可编辑图片与头像框：`read_editable_image_target`、`preview_editable_image_write`、`write_editable_image`、`list_portrait_frames`、`preview_apply_portrait_frame`、`apply_portrait_frame`
 - AI 绘图素材：`list_ccz_image_asset_presets`、`build_ccz_image_prompt`、`prepare_ccz_generated_image`、`draw_ccz_image_asset`、`draw_and_replace_ccz_image_asset`
 - E5 图片条目：`list_e5_image_entries`、`preview_e5_image_replace`、`replace_e5_image_entry`、`preview_e5_image_batch_replace`、`replace_e5_image_batch`
-- R/S/头像/图标批量素材：`preview_r_image_raw_batch_replace`、`replace_r_image_raw_batch`、`preview_s_image_raw_batch_replace`、`replace_s_image_raw_batch`、`preview_job_s_image_raw_batch_replace`、`replace_job_s_image_raw_batch_replace`、`preview_role_face_batch_import`、`replace_role_face_batch_import`、`preview_item_icon_batch_import`、`replace_item_icon_batch_import`、`preview_strategy_icon_batch_import`、`replace_strategy_icon_batch_import`
+- R/S/头像/图标批量素材：`preview_r_image_raw_batch_replace`、`replace_r_image_raw_batch`、`preview_s_image_raw_batch_replace`、`replace_s_image_raw_batch`、`preview_job_s_image_raw_batch_replace`、`replace_job_s_image_raw_batch_replace`、`replace_job_s_image_raw_batch`、`preview_role_face_batch_import`、`replace_role_face_batch_import`、`preview_item_icon_batch_import`、`replace_item_icon_batch_import`、`preview_strategy_icon_batch_import`、`replace_strategy_icon_batch_import`
 - DLL 图标：`preview_dll_icon_replace`、`replace_dll_icon`、`preview_clear_dll_icon`、`clear_dll_icon`
+- 青儿/旧工具只读诊断：`diagnose_qinger66_project`、`audit_qinger66_items`、`list_legacy_mfc_dialogs`、`read_legacy_mfc_dialog`、`read_scenario_reference_checklist`
 - x32dbg/x64dbg 动态调试（独立 MCP）：断点、寄存器、内存、反汇编、搜索、trace 和调试命令；不替代 CCZModStudio 的写入护栏。
+
+兼容别名：
+
+- `replace_job_s_image_raw_batch` -> `replace_job_s_image_raw_batch_replace`
+- `write_item_effect_name66_slot` -> `write_item_effect_name_66_slot`
+
+`promote_test_copy_mod`、`create_test_copy`、`diff_test_copy`、`create_release_copy` 仍属于已移除/禁用入口，验证脚本会拒绝它们重新暴露。
 
 ## 验证
 
@@ -214,6 +228,16 @@ dotnet build ".\工具整合包\CCZModStudio.McpServer\CCZModStudio.McpServer.cs
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置\validate-mcp-config.ps1"
 ```
+
+该脚本会验证 `tools/list`、`read_mcp_capability_manifest`、resources、resource templates 和 prompts。默认不再依赖固定工具数阈值，而是要求 manifest 数量与 `tools/list` 一致，并检查必备工具清单和 forbidden tools；如需临时保留下限保护，可传入 `-MinimumToolCount <n>`。
+
+新增 authoring 工具的协议级只读/预览 smoke：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置\smoke-authoring-mcp-tools.ps1"
+```
+
+该 smoke 会调用 manifest、table schema/CSV、角色组合读取、角色文本读取、形象分配预览、可编辑图片读取/预览、头像框目录、地图预览、青儿诊断和旧工具只读参考。默认不执行写回；可选素材缺失时只跳过对应预览段。
 
 应输出：
 

@@ -734,6 +734,18 @@ public sealed partial class MainForm
 
         try
         {
+            if (TryConvertJobAttributeGridTextValue(grid, columnIndex, text, out var jobAttributeValue, out var jobAttributeError))
+            {
+                return TryBuildGridCellEditFromValue(grid, rowIndex, columnIndex, jobAttributeValue, out edit, out error);
+            }
+
+            if (!string.IsNullOrWhiteSpace(jobAttributeError))
+            {
+                error = jobAttributeError;
+                cell.ErrorText = error;
+                return false;
+            }
+
             var targetType = ResolveGridCellTargetType(grid, rowIndex, columnIndex);
             var converted = ConvertGridTextValue(text, targetType);
             return TryBuildGridCellEditFromValue(grid, rowIndex, columnIndex, converted, out edit, out error);

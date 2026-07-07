@@ -1091,14 +1091,16 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            var result = _imageAssignmentFreeIdService.Build(_project, _currentImageAssignments, kind, GetImageAssignmentSPreviewFactionSlot());
-            using var dialog = new FreeImageAssignmentDialog(_project, _imageAssignmentFreeIdService, result, GetImageAssignmentSPreviewFactionSlot());
+            var result = new ImageAssignmentFreeIdResult(kind, true, 0, 0, Array.Empty<FreeImageAssignmentCandidate>(), Array.Empty<string>(), false);
+            using var dialog = new FreeImageAssignmentDialog(_project, _currentImageAssignments, _imageAssignmentFreeIdService, result, GetImageAssignmentSPreviewFactionSlot());
             Cursor = Cursors.Default;
             dialog.ShowDialog(this);
-            var cacheText = result.AvailableIdsFromCache ? "缓存命中" : "已建立缓存";
+            var finalResult = dialog.CurrentResult;
+            var cacheText = finalResult.AvailableIdsFromCache ? "缓存命中" : "已建立缓存";
+            var modeText = finalResult.FreeOnly ? "空闲" : "全部";
             SetStatus(kind == ImageAssignmentResourceKind.Face
-                ? $"空闲头像编号：{result.FreeCandidates.Count} 个（{cacheText}）"
-                : $"空闲{GetImageAssignmentResourceKindText(kind)}编号：{result.FreeCandidates.Count} 个（{cacheText}）");
+                ? $"{modeText}头像编号：{finalResult.Items.Count} 个（{cacheText}）"
+                : $"{modeText}{GetImageAssignmentResourceKindText(kind)}编号：{finalResult.Items.Count} 个（{cacheText}）");
         }
         catch (Exception ex)
         {
@@ -1137,7 +1139,7 @@ public sealed partial class MainForm
         TryGetImageResourceId(row, "R", out var rId);
         TryGetImageResourceId(row, "S", out var sId);
         var sFactionSlot = GetImageAssignmentSPreviewFactionSlot();
-        var sMapping = CharacterImageResourceService.ResolveSUnitImageMapping(sId, jobId, sFactionSlot);
+        var sMapping = CharacterImageResourceService.ResolveSUnitImageMapping(_project, sId, jobId, sFactionSlot);
         var rPath = ImageAssignmentService.GetImageResourcePath(_project, "R", rId);
         var sPath = ImageAssignmentService.GetImageResourcePath(_project, "S", sId);
         var rStatus = Convert.ToString(row["R\u8d44\u6e90\u72b6\u6001"], CultureInfo.InvariantCulture) ?? string.Empty;
@@ -1520,7 +1522,7 @@ public sealed partial class MainForm
             ? Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture)
             : (int?)null;
 
-        using var dialog = new SImageReplaceDialog(sImageId, jobId, GetImageAssignmentSPreviewFactionSlot(), TryGetRoleDisplayName(row));
+        using var dialog = new SImageReplaceDialog(_project, sImageId, jobId, GetImageAssignmentSPreviewFactionSlot(), TryGetRoleDisplayName(row));
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         var request = new SImageReplaceRequest
@@ -1995,7 +1997,7 @@ public sealed partial class MainForm
 
         var jobId = row.Table.Columns.Contains("职业") ? Convert.ToInt32(row["职业"], CultureInfo.InvariantCulture) : (int?)null;
         var sFactionSlot = GetImageAssignmentSPreviewFactionSlot();
-        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(id, jobId, sFactionSlot);
+        var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(_project, id, jobId, sFactionSlot);
         var unitFiles = new[]
         {
             ("移动", "Unit_mov.e5"),

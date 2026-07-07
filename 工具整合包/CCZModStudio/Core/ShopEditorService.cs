@@ -418,11 +418,11 @@ public sealed class ShopEditorService
                 var typeId = row.Table.Columns.Contains("类型") ? Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture) : 0;
                 var price = row.Table.Columns.Contains("价格（/100）") ? Convert.ToInt32(row["价格（/100）"], CultureInfo.InvariantCulture) : 0;
                 var effectId = row.Table.Columns.Contains("装备特效号") ? Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture) : 0;
-                var effectValue = row.Table.Columns.Contains("装备特效号-效果值") ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture) : 0;
                 var growth = row.Table.Columns.Contains("升级能力成长") ? Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture) : 0;
                 var catalog = row.Table.Columns.Contains("宝物图鉴") ? Convert.ToInt32(row["宝物图鉴"], CultureInfo.InvariantCulture) : 0;
                 var classification = ItemClassificationService.Classify(row, boundary);
                 var category = classification.DisplayName;
+                var effectValue = ResolveItemEffectValue(row, category);
                 var typeText = ItemTypeCatalogService.BuildDescription(typeId, category, catalog);
                 var effect = _itemEffectResolutionService.Resolve(project, tables, category, typeId, effectId);
                 var effectName = effect.DisplayName;
@@ -499,6 +499,18 @@ public sealed class ShopEditorService
     {
         var warnings = effect.Warnings.Count == 0 ? string.Empty : "; warnings=" + string.Join(" | ", effect.Warnings);
         return $"{effect.DisplayName}; source={effect.Source}; confidence={effect.Confidence}; value={effectValue}; growth={growth}{warnings}";
+    }
+
+    private static int ResolveItemEffectValue(DataRow row, string category)
+    {
+        if (ConsumableItemEffectCatalogService.IsConsumableCategory(category) && row.Table.Columns.Contains("初始能力"))
+        {
+            return Convert.ToInt32(row["初始能力"], CultureInfo.InvariantCulture);
+        }
+
+        return row.Table.Columns.Contains("装备特效号-效果值")
+            ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture)
+            : 0;
     }
     private static IReadOnlyDictionary<int, string> BuildIdNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables, string tableName)
     {

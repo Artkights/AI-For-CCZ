@@ -301,6 +301,7 @@ public sealed partial class MainForm
             "角色设定",
             "兵种设定",
             "宝物设定",
+            "特效注入",
             "图片设定",
             "地图编辑",
             "剧本编辑",
@@ -1523,6 +1524,19 @@ public sealed partial class MainForm
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (!_unsavedCloseConfirmed)
+        {
+            var unsavedItems = CollectUnsavedItems();
+            if (unsavedItems.Count > 0)
+            {
+                e.Cancel = true;
+                BeginCloseAfterUnsavedCheck(unsavedItems);
+                return;
+            }
+
+            _unsavedCloseConfirmed = true;
+        }
+
         ApplicationErrorService.ErrorReported -= OnApplicationErrorReported;
         _errorStatusClearTimer.Stop();
         _errorStatusClearTimer.Dispose();

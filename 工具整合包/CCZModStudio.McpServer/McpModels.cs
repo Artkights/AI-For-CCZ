@@ -222,6 +222,18 @@ public sealed class GlobalSettingsUpdate
     public Dictionary<int, string> DetailedJobNames { get; init; } = new();
 }
 
+public sealed class AbilityTierProfileUpdate
+{
+    [JsonPropertyName("tier_count")]
+    public int TierCount { get; init; }
+
+    [JsonPropertyName("display_mode")]
+    public string DisplayMode { get; init; } = "Letter";
+
+    [JsonPropertyName("labels")]
+    public List<string> Labels { get; init; } = [];
+}
+
 public sealed class JobSettingsUpdate
 {
     [JsonPropertyName("job_series_names")]
@@ -367,4 +379,154 @@ public sealed class BattlefieldDeploymentUpdate
 
     [JsonPropertyName("placement_note")]
     public string PlacementNote { get; init; } = string.Empty;
+}
+
+public sealed class RoleUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("values")]
+    public Dictionary<string, JsonElement> Values { get; init; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("face_id")]
+    public int? FaceId { get; init; }
+
+    [JsonPropertyName("r_image_id")]
+    public int? RImageId { get; init; }
+
+    [JsonPropertyName("s_image_id")]
+    public int? SImageId { get; init; }
+}
+
+public sealed class RoleTextUpdate
+{
+    [JsonPropertyName("role_id")]
+    public int RoleId { get; init; }
+
+    [JsonPropertyName("biography")]
+    public string? Biography { get; init; }
+
+    [JsonPropertyName("critical_quote_mode")]
+    public string? CriticalQuoteMode { get; init; }
+
+    [JsonPropertyName("critical_quote_value")]
+    public int? CriticalQuoteValue { get; init; }
+
+    [JsonPropertyName("critical_quotes")]
+    public List<string>? CriticalQuotes { get; init; }
+
+    [JsonPropertyName("retreat_quote")]
+    public string? RetreatQuote { get; init; }
+}
+
+public sealed class ImageAssignmentUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("face_id")]
+    public int? FaceId { get; init; }
+
+    [JsonPropertyName("r_image_id")]
+    public int? RImageId { get; init; }
+
+    [JsonPropertyName("s_image_id")]
+    public int? SImageId { get; init; }
+}
+
+public sealed class EditableImageTargetRequest
+{
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = "e5_standard";
+
+    [JsonPropertyName("target_relative_path")]
+    public string? TargetRelativePath { get; init; }
+
+    [JsonPropertyName("image_number")]
+    public int? ImageNumber { get; init; }
+
+    [JsonPropertyName("icon_index")]
+    public int? IconIndex { get; init; }
+
+    [JsonPropertyName("display_name")]
+    public string? DisplayName { get; init; }
+
+    [JsonPropertyName("resource_format")]
+    public string? ResourceFormat { get; init; }
+
+    [JsonPropertyName("frame_width")]
+    public int? FrameWidth { get; init; }
+
+    [JsonPropertyName("frame_height")]
+    public int? FrameHeight { get; init; }
+
+    [JsonPropertyName("is_item_icon_pair")]
+    public bool? IsItemIconPair { get; init; }
+
+    [JsonPropertyName("small_image_number")]
+    public int? SmallImageNumber { get; init; }
+
+    [JsonPropertyName("large_image_number")]
+    public int? LargeImageNumber { get; init; }
+
+    [JsonPropertyName("semantic")]
+    public string? Semantic { get; init; }
+
+    [JsonPropertyName("row_id")]
+    public int? RowId { get; init; }
+}
+
+public sealed class PixelEditUpdate
+{
+    [JsonPropertyName("x")]
+    public int X { get; init; }
+
+    [JsonPropertyName("y")]
+    public int Y { get; init; }
+
+    [JsonPropertyName("argb")]
+    public string Argb { get; init; } = string.Empty;
+}
+
+public sealed class PortraitFrameTargetUpdate
+{
+    [JsonPropertyName("row_id")]
+    public int RowId { get; init; }
+
+    [JsonPropertyName("display_name")]
+    public string DisplayName { get; init; } = string.Empty;
+
+    [JsonPropertyName("face_id")]
+    public int FaceId { get; init; }
+}
+
+public sealed class MapMaterialExtractionMcpRequest
+{
+    [JsonPropertyName("draft_id")]
+    public string DraftId { get; init; } = string.Empty;
+
+    [JsonPropertyName("material_root")]
+    public string? MaterialRoot { get; init; }
+
+    [JsonPropertyName("target_type")]
+    public string TargetType { get; init; } = "terrain";
+
+    [JsonPropertyName("terrain_id")]
+    public int? TerrainId { get; init; }
+
+    [JsonPropertyName("x")]
+    public int X { get; init; }
+
+    [JsonPropertyName("y")]
+    public int Y { get; init; }
+
+    [JsonPropertyName("width")]
+    public int Width { get; init; } = 1;
+
+    [JsonPropertyName("height")]
+    public int Height { get; init; } = 1;
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = "current_composite";
 }

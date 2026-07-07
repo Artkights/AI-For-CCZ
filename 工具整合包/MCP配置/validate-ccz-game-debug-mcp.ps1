@@ -790,10 +790,10 @@ try {
     if ([string]::IsNullOrWhiteSpace($rsceneScriptWindowText.status)) {
         throw "game_rscene_script_window_scan did not return a status."
     }
-    if ($rsceneScriptWindowText.status -notin @("not-running", "script-windows-found", "script-windows-not-found")) {
+    if ($rsceneScriptWindowText.status -notin @("not-running", "script-windows-found", "script-windows-not-found", "route-script-unavailable")) {
         throw "game_rscene_script_window_scan returned unexpected status: $($rsceneScriptWindowText.status)"
     }
-    if (@($rsceneScriptWindowText.windows).Count -lt 3) {
+    if ($rsceneScriptWindowText.status -ne "route-script-unavailable" -and @($rsceneScriptWindowText.windows).Count -lt 3) {
         throw "game_rscene_script_window_scan did not build the expected R_00 route windows."
     }
     if (-not (Test-Path -LiteralPath (Join-Path $rsceneScriptWindowText.session_dir "rscene-script-window-scan.json") -PathType Leaf)) {

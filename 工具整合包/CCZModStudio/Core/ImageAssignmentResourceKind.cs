@@ -6,3 +6,10 @@ internal enum ImageAssignmentResourceKind
     R,
     S
 }
+
+internal enum ImageAssignmentPreviewStance
+{
+    Front,
+    Side,
+    Back
+}

@@ -24,6 +24,13 @@ public sealed partial class MainForm
         Assist
     }
 
+    private enum JobStrategyPreviewLayoutMode
+    {
+        ImageOnly,
+        LearningAndDescription,
+        LearningEditorOnly
+    }
+
     private sealed class RoleCriticalQuoteComboItem
     {
         public int ID { get; init; }
@@ -4958,10 +4965,13 @@ public sealed partial class MainForm
         "类型说明",
         "价格显示",
         "装备特效名",
+        "特效值",
         "实际效果号",
         "实际效果说明",
         "特效提示"
     ];
+    private const string ItemEditorRawEffectColumnName = "原始装备特效号";
+    private const string ItemEditorVisibleEffectValueColumnName = "特效值";
 
     private DataTable BuildItemEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
@@ -4986,7 +4996,13 @@ public sealed partial class MainForm
         foreach (DataColumn column in _itemBaseLowRead.Data.Columns)
         {
             if (column.ColumnName == "ID") continue;
-            output.Columns.Add(column.ColumnName, column.DataType);
+            output.Columns.Add(
+                column.ColumnName,
+                column.ColumnName == "装备特效号" ? typeof(int) : column.DataType);
+        }
+        if (!output.Columns.Contains(ItemEditorRawEffectColumnName))
+        {
+            output.Columns.Add(ItemEditorRawEffectColumnName, typeof(int));
         }
         output.Columns.Add("项目类型", typeof(string));
         output.Columns.Add("类型样例", typeof(string));
@@ -4994,6 +5010,7 @@ public sealed partial class MainForm
         output.Columns.Add("类型说明", typeof(string));
         output.Columns.Add("价格显示", typeof(string));
         output.Columns.Add("装备特效名", typeof(string));
+        output.Columns.Add(ItemEditorVisibleEffectValueColumnName, typeof(int));
         output.Columns.Add("实际效果号", typeof(string));
         output.Columns.Add("实际效果说明", typeof(string));
         output.Columns.Add("特效提示", typeof(string));
@@ -5042,25 +5059,26 @@ public sealed partial class MainForm
             var rawEffectMarker = row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
                 ? Convert.ToInt32(row[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture)
                 : effectId;
-            var effectValue = output.Columns.Contains("装备特效号-效果值")
-                ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture)
-                : 0;
+            row[ItemEditorRawEffectColumnName] = rawEffectMarker;
             var growth = output.Columns.Contains("升级能力成长")
                 ? Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture)
                 : 0;
             var classification = ItemClassificationService.Classify(row, boundary);
             row["物品大类"] = classification.DisplayName;
             var majorCategory = classification.DisplayName;
-            var effect = ResolveItemEffect(majorCategory, typeId, rawEffectMarker);
+            ApplyVisibleItemEffectCells(row, majorCategory, typeId, rawEffectMarker);
+            var effect = ResolveVisibleItemEffect(row, majorCategory, typeId, rawEffectMarker);
+            var effectValue = GetVisibleItemEffectValue(row, majorCategory);
+            row[ItemEditorVisibleEffectValueColumnName] = effectValue;
             RefreshItemEditorTypeProfileCells(row, typeId, majorCategory);
             row["价格显示"] = BuildItemPriceText(priceUnit);
             row["装备特效名"] = BuildItemEffectNameDisplay(effect);
-            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, rawEffectMarker);
+            row["实际效果号"] = $"装备特效号={GetVisibleItemEffectId(row, typeId, rawEffectMarker)}";
             row["实际效果说明"] = effect.Description;
             row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
                 majorCategory,
                 typeId,
-                rawEffectMarker,
+                GetVisibleItemEffectId(row, typeId, rawEffectMarker),
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
                 effectValue,
                 growth);
@@ -5333,6 +5351,159 @@ public sealed partial class MainForm
             ? "无"
             : effect.DisplayName;
 
+    private ItemEffectResolutionResult ResolveVisibleItemEffect(DataRow row, string majorCategory, int typeId, int rawEffectMarker)
+    {
+        var visibleEffectId = ReadNullableInt(row, "装备特效号") ?? rawEffectMarker;
+        return ResolveItemEffect(majorCategory, typeId, visibleEffectId);
+    }
+
+    private void ApplyVisibleItemEffectCells(DataRow row, string majorCategory, int typeId, int rawEffectMarker)
+    {
+        if (!row.Table.Columns.Contains("装备特效号")) return;
+
+        if (UsesTypeAsVisibleItemEffect(rawEffectMarker, majorCategory))
+        {
+            row["装备特效号"] = typeId;
+        }
+    }
+
+    private static int GetVisibleItemEffectId(DataRow row, int typeId, int rawEffectMarker)
+    {
+        if (IsItemEditorTypeBackedVisibleEffectMarker(row))
+        {
+            return ReadNullableInt(row, "装备特效号") ?? typeId;
+        }
+
+        return ReadNullableInt(row, "装备特效号") ?? rawEffectMarker;
+    }
+
+    private static int GetVisibleItemEffectValue(DataRow row, string majorCategory)
+    {
+        if (IsConsumableMajorCategory(majorCategory) && row.Table.Columns.Contains("初始能力"))
+        {
+            return Convert.ToInt32(row["初始能力"], CultureInfo.InvariantCulture);
+        }
+
+        return row.Table.Columns.Contains("装备特效号-效果值")
+            ? Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture)
+            : 0;
+    }
+
+    private static void SetVisibleItemEffectValue(DataRow row, string majorCategory, int value)
+    {
+        if (IsConsumableMajorCategory(majorCategory))
+        {
+            if (row.Table.Columns.Contains("初始能力")) row["初始能力"] = value;
+            if (row.Table.Columns.Contains(ItemEditorVisibleEffectValueColumnName)) row[ItemEditorVisibleEffectValueColumnName] = value;
+            return;
+        }
+
+        if (row.Table.Columns.Contains("装备特效号-效果值")) row["装备特效号-效果值"] = value;
+        if (row.Table.Columns.Contains(ItemEditorVisibleEffectValueColumnName)) row[ItemEditorVisibleEffectValueColumnName] = value;
+    }
+
+    private int GetAndSynchronizeVisibleItemEffectIdForRefresh(
+        DataRow row,
+        string majorCategory,
+        int typeId,
+        int rawEffectMarker,
+        string? editedColumnName)
+    {
+        if (!UsesTypeAsVisibleItemEffect(rawEffectMarker, majorCategory))
+        {
+            return ReadNullableInt(row, "装备特效号") ?? rawEffectMarker;
+        }
+
+        var visibleEffectId = ReadNullableInt(row, "装备特效号");
+        if (string.Equals(editedColumnName, "装备特效号", StringComparison.Ordinal) && visibleEffectId.HasValue)
+        {
+            if (row.Table.Columns.Contains("类型")) row["类型"] = visibleEffectId.Value;
+            return visibleEffectId.Value;
+        }
+
+        if (string.Equals(editedColumnName, "类型", StringComparison.Ordinal))
+        {
+            row["装备特效号"] = typeId;
+            return typeId;
+        }
+
+        if (!row.HasVersion(DataRowVersion.Original))
+        {
+            row["装备特效号"] = typeId;
+            return typeId;
+        }
+
+        var typeChanged = IsRoleColumnChanged(row, "类型");
+        var effectChanged = IsRoleColumnChanged(row, "装备特效号");
+        if (effectChanged && visibleEffectId.HasValue && (!typeChanged || visibleEffectId.Value == typeId))
+        {
+            row["类型"] = visibleEffectId.Value;
+            return visibleEffectId.Value;
+        }
+
+        if (typeChanged && (!effectChanged || !visibleEffectId.HasValue || visibleEffectId.Value == typeId))
+        {
+            row["装备特效号"] = typeId;
+            return typeId;
+        }
+
+        if (visibleEffectId.HasValue)
+        {
+            return visibleEffectId.Value;
+        }
+
+        row["装备特效号"] = typeId;
+        return typeId;
+    }
+
+    private static bool IsItemEditorAccessoryMarker(DataRow row)
+    {
+        var majorCategory = row.Table.Columns.Contains("物品大类")
+            ? Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+            : string.Empty;
+        return IsAccessoryMarker(GetItemEditorRawEffectMarker(row, fallbackEffectId: 0), majorCategory);
+    }
+
+    private static bool IsItemEditorConsumableMarker(DataRow row)
+    {
+        var majorCategory = row.Table.Columns.Contains("物品大类")
+            ? Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+            : string.Empty;
+        return IsConsumableMarker(GetItemEditorRawEffectMarker(row, fallbackEffectId: 0), majorCategory);
+    }
+
+    private static bool IsItemEditorTypeBackedVisibleEffectMarker(DataRow row)
+    {
+        var majorCategory = row.Table.Columns.Contains("物品大类")
+            ? Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+            : string.Empty;
+        return UsesTypeAsVisibleItemEffect(GetItemEditorRawEffectMarker(row, fallbackEffectId: 0), majorCategory);
+    }
+
+    private static bool IsAccessoryMarker(int rawEffectMarker, string majorCategory)
+        => rawEffectMarker == 2 && string.Equals(majorCategory, "辅助装备", StringComparison.Ordinal);
+
+    private static bool IsConsumableMarker(int rawEffectMarker, string majorCategory)
+        => rawEffectMarker == 3 && string.Equals(majorCategory, "道具/消耗品", StringComparison.Ordinal);
+
+    private static bool IsConsumableMajorCategory(string majorCategory)
+        => ConsumableItemEffectCatalogService.IsConsumableCategory(majorCategory);
+
+    private static bool UsesTypeAsVisibleItemEffect(int rawEffectMarker, string majorCategory)
+        => IsAccessoryMarker(rawEffectMarker, majorCategory) ||
+           IsConsumableMarker(rawEffectMarker, majorCategory);
+
+    private static int? ReadNullableInt(DataRow row, string columnName)
+    {
+        if (!row.Table.Columns.Contains(columnName)) return null;
+        var value = row[columnName];
+        if (value == null || value == DBNull.Value) return null;
+        var text = Convert.ToString(value, CultureInfo.InvariantCulture);
+        return string.IsNullOrWhiteSpace(text)
+            ? null
+            : Convert.ToInt32(value, CultureInfo.InvariantCulture);
+    }
+
     // Keep these wrappers temporarily so existing smoke tests and private-call sites can continue to resolve.
     private static int ResolveEffectiveItemEffectId(string majorCategory, int typeId, int effectId)
         => ItemEffectInterpretationService.ResolveEffectiveEffectId(majorCategory, typeId, effectId);
@@ -5351,9 +5522,11 @@ public sealed partial class MainForm
             or "大类"
             or "类型说明"
             or "价格显示"
+            or "装备特效号-效果值"
             or "实际效果号"
             or "实际效果说明"
             or "特效提示"
+            or ItemEditorRawEffectColumnName
             or "来源文件";
 
     private static bool IsVisibleItemEditorColumn(string columnName)
@@ -5367,7 +5540,7 @@ public sealed partial class MainForm
             or "价格（/100）"
             or "装备特效号"
             or "装备特效名"
-            or "装备特效号-效果值"
+            or ItemEditorVisibleEffectValueColumnName
             or "宝物图鉴"
             or "介绍";
 
@@ -5382,6 +5555,7 @@ public sealed partial class MainForm
             "装备特效号" => "特效号",
             "装备特效名" => "特效名",
             "装备特效号-效果值" => "特效值",
+            ItemEditorVisibleEffectValueColumnName => "特效值",
             "宝物图鉴" => "图鉴",
             _ => columnName
         };
@@ -5400,7 +5574,7 @@ public sealed partial class MainForm
             "价格（/100）",
             "装备特效号",
             "装备特效名",
-            "装备特效号-效果值",
+            ItemEditorVisibleEffectValueColumnName,
             "宝物图鉴",
             "介绍"
         };
@@ -5509,6 +5683,8 @@ public sealed partial class MainForm
 
     private static bool IsItemEditorAlwaysUserReadOnlyColumn(string columnName)
         => columnName is "ID" or "分段" or "大类" or "来源文件" ||
+           columnName == ItemEditorRawEffectColumnName ||
+           columnName != ItemEditorVisibleEffectValueColumnName &&
            ItemEditorDerivedColumnNames.Contains(columnName, StringComparer.Ordinal);
 
     private bool IsItemEditorUserEditableColumn(string columnName)
@@ -5527,10 +5703,12 @@ public sealed partial class MainForm
         if (columnName == "宝物图鉴") return "物品 25 字节行最后一字节；按旧资料作为宝物图鉴/宝物标记处理，不作为辅助装备可装备部队列表。";
         if (columnName == "类型说明") return "隐藏筛选列：保留项目化类型短名，兼容旧筛选/烟测入口。";
         if (columnName == "价格显示") return "隐藏重复列；界面只保留原始可编辑的“价格（/100）”。";
-        if (columnName == "装备特效名") return "根据装备特效号读取中文特效名称；普通/无特效显示“无”。";
-        if (columnName == "实际效果号") return "创作者视角的实际效果候选：武器/防具优先取装备特效号；辅助装备常见原始值 2、道具常见原始值 3 时，当前优先改看类型字段。";
+        if (columnName == "装备特效号") return "武器/防具显示原始装备特效号；辅助装备和道具/消耗品显示与特效名一致的真实特效号，底层写回类型字段并保留原始 2/3 类别标记。";
+        if (columnName == "装备特效名") return "根据可见特效号读取中文特效名称；辅助装备和道具/消耗品都与真实特效号绑定刷新。";
+        if (columnName == "实际效果号") return "隐藏诊断列：武器/防具取装备特效号；辅助装备和道具/消耗品在原始 2/3 类别标记下取类型字段作为真实特效号。";
         if (columnName == "实际效果说明") return "对原始字段的保守纠偏说明，用于避免把辅助装备/道具类别标记误读成真实装备特效。";
-        if (columnName == "特效提示") return "把装备特效号、效果值和成长集中提示；辅助段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
+        if (columnName == ItemEditorVisibleEffectValueColumnName) return "可见特效值：武器/防具/辅助装备写回“装备特效号-效果值”；道具/消耗品对齐 B形象指定器，写回“初始能力”字节。";
+        if (columnName == "特效提示") return "把特效号、可见特效值和成长集中提示；辅助/道具段会明确提示 2/3 可能只是类别标记，具体参数仍需对照旧工具和实机。";
         if (columnName == "图标")
         {
             return _project != null && Ccz66RevisedLayout.Is66(_project)
@@ -5627,7 +5805,7 @@ public sealed partial class MainForm
                 "价格（/100）",
                 "装备特效号",
                 "装备特效名",
-                "装备特效号-效果值",
+                ItemEditorVisibleEffectValueColumnName,
                 "宝物图鉴",
                 "介绍"
             }
@@ -5876,6 +6054,7 @@ public sealed partial class MainForm
         {
             _itemEditorGrid.CurrentCell = _itemEditorGrid.Rows[lastCell.Row].Cells[lastCell.Column];
             RefreshItemEditorCellsAfterEdits(edits);
+            RefreshItemEditorRowStyles();
         }
 
         SetStatus($"宝物设定粘贴完成：更新 {edits.Count} 个单元格。");
@@ -5920,7 +6099,11 @@ public sealed partial class MainForm
         }
 
         PushItemEditorHistory(edits);
-        if (edits.Count > 0) RefreshItemEditorCellsAfterEdits(edits);
+        if (edits.Count > 0)
+        {
+            RefreshItemEditorCellsAfterEdits(edits);
+            RefreshItemEditorRowStyles();
+        }
         SetStatus(edits.Count > 0
             ? $"宝物设定批量填列完成：更新 {edits.Count} 个单元格。"
             : string.IsNullOrWhiteSpace(lastError) ? "宝物设定批量填列没有产生改动。" : lastError);
@@ -6330,7 +6513,7 @@ public sealed partial class MainForm
                 Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty);
         }
 
-        if ((columnName is "类型" or "装备特效号" or "装备特效号-效果值" or "升级能力成长" or "名称") &&
+        if ((columnName is "类型" or "装备特效号" or "装备特效号-效果值" or "初始能力" or ItemEditorVisibleEffectValueColumnName or "升级能力成长" or "名称") &&
             row.Table.Columns.Contains("实际效果号") &&
             row.Table.Columns.Contains("实际效果说明") &&
             row.Table.Columns.Contains("装备特效名") &&
@@ -6339,18 +6522,34 @@ public sealed partial class MainForm
             RefreshItemEditorClassificationCells(row);
             var majorCategory = Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
-            var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
+            var effectId = ReadNullableInt(row, "装备特效号") ?? 0;
             var rawEffectMarker = GetItemEditorRawEffectMarker(row, effectId);
-            var effect = ResolveItemEffect(majorCategory, typeId, rawEffectMarker);
+            var visibleEffectId = GetAndSynchronizeVisibleItemEffectIdForRefresh(row, majorCategory, typeId, rawEffectMarker, columnName);
+            if (string.Equals(columnName, ItemEditorVisibleEffectValueColumnName, StringComparison.Ordinal))
+            {
+                SetVisibleItemEffectValue(
+                    row,
+                    majorCategory,
+                    Convert.ToInt32(row[ItemEditorVisibleEffectValueColumnName], CultureInfo.InvariantCulture));
+            }
+
+            var visibleEffectValue = GetVisibleItemEffectValue(row, majorCategory);
+            if (row.Table.Columns.Contains(ItemEditorVisibleEffectValueColumnName))
+            {
+                row[ItemEditorVisibleEffectValueColumnName] = visibleEffectValue;
+            }
+
+            var effect = ResolveItemEffect(majorCategory, typeId, visibleEffectId);
             row["装备特效名"] = BuildItemEffectNameDisplay(effect);
-            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, rawEffectMarker);
+
+            row["实际效果号"] = $"装备特效号={visibleEffectId}";
             row["实际效果说明"] = effect.Description;
             row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
                 majorCategory,
                 typeId,
-                rawEffectMarker,
+                visibleEffectId,
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
-                Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture),
+                visibleEffectValue,
                 Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture));
         }
     }
@@ -6387,18 +6586,26 @@ public sealed partial class MainForm
             RefreshItemEditorClassificationCells(row);
             var majorCategory = Convert.ToString(row["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty;
             var typeId = Convert.ToInt32(row["类型"], CultureInfo.InvariantCulture);
-            var effectId = Convert.ToInt32(row["装备特效号"], CultureInfo.InvariantCulture);
+            var effectId = ReadNullableInt(row, "装备特效号") ?? 0;
             var rawEffectMarker = GetItemEditorRawEffectMarker(row, effectId);
-            var effect = ResolveItemEffect(majorCategory, typeId, rawEffectMarker);
+            var visibleEffectId = GetAndSynchronizeVisibleItemEffectIdForRefresh(row, majorCategory, typeId, rawEffectMarker, editedColumnName: null);
+            var visibleEffectValue = GetVisibleItemEffectValue(row, majorCategory);
+            if (row.Table.Columns.Contains(ItemEditorVisibleEffectValueColumnName))
+            {
+                row[ItemEditorVisibleEffectValueColumnName] = visibleEffectValue;
+            }
+
+            var effect = ResolveItemEffect(majorCategory, typeId, visibleEffectId);
             row["装备特效名"] = BuildItemEffectNameDisplay(effect);
-            row["实际效果号"] = ItemEffectInterpretationService.BuildEffectiveEffectIdText(majorCategory, typeId, rawEffectMarker);
+
+            row["实际效果号"] = $"装备特效号={visibleEffectId}";
             row["实际效果说明"] = effect.Description;
             row["特效提示"] = ItemEffectInterpretationService.BuildEffectHint(
                 majorCategory,
                 typeId,
-                rawEffectMarker,
+                visibleEffectId,
                 Convert.ToString(row["装备特效名"], CultureInfo.InvariantCulture) ?? string.Empty,
-                Convert.ToInt32(row["装备特效号-效果值"], CultureInfo.InvariantCulture),
+                visibleEffectValue,
                 Convert.ToInt32(row["升级能力成长"], CultureInfo.InvariantCulture));
         }
     }
@@ -6418,7 +6625,9 @@ public sealed partial class MainForm
     }
 
     private static int GetItemEditorRawEffectMarker(DataRow row, int fallbackEffectId)
-        => row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
+        => row.Table.Columns.Contains(ItemEditorRawEffectColumnName)
+            ? Convert.ToInt32(row[ItemEditorRawEffectColumnName], CultureInfo.InvariantCulture)
+            : row.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName)
             ? Convert.ToInt32(row[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture)
             : fallbackEffectId;
 
@@ -6431,9 +6640,8 @@ public sealed partial class MainForm
         var id = row.Cells["ID"].Value;
         var name = row.Cells["名称"].Value;
         var value = cell.FormattedValue;
-        var effectText = row.Cells["装备特效号"].Value is { } effectValue
-            ? $"    特效：{effectValue} / {row.Cells["装备特效名"].Value}"
-            : string.Empty;
+        var dataRow = TryGetDataRow(row);
+        var effectText = BuildSelectedItemEffectText(dataRow, row);
         var typeText = _itemEditorGrid.Columns.Contains("类型")
             ? row.Cells["类型"].FormattedValue
             : string.Empty;
@@ -6454,6 +6662,36 @@ public sealed partial class MainForm
             $"字段：{BuildItemEditorColumnHeader(columnName)}    当前值：{value}{extra}\r\n\r\n" +
             BuildItemColumnAnnotation(columnName);
         UpdateItemIconPreview(row);
+    }
+
+    private static string BuildSelectedItemEffectText(DataRow? dataRow, DataGridViewRow row)
+    {
+        var grid = row.DataGridView;
+        if (dataRow == null ||
+            grid == null ||
+            !grid.Columns.Contains("装备特效号") ||
+            !grid.Columns.Contains("装备特效名") ||
+            row.Cells["装备特效号"].Value is not { } effectValue ||
+            effectValue == DBNull.Value ||
+            string.IsNullOrWhiteSpace(Convert.ToString(effectValue, CultureInfo.InvariantCulture)))
+        {
+            return string.Empty;
+        }
+
+        var effectId = Convert.ToInt32(effectValue, CultureInfo.InvariantCulture);
+        var majorCategory = dataRow.Table.Columns.Contains("物品大类")
+            ? Convert.ToString(dataRow["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+            : string.Empty;
+        var effectValueText = dataRow.Table.Columns.Contains(ItemEditorVisibleEffectValueColumnName)
+            ? Convert.ToString(dataRow[ItemEditorVisibleEffectValueColumnName], CultureInfo.InvariantCulture)
+            : string.Empty;
+        var idText = IsConsumableMajorCategory(majorCategory)
+            ? $"{effectId} ({HexDisplayFormatter.Format(effectId, 2)})"
+            : effectId.ToString(CultureInfo.InvariantCulture);
+        var valueSuffix = string.IsNullOrWhiteSpace(effectValueText)
+            ? string.Empty
+            : $"    特效值：{effectValueText}";
+        return $"    特效：{idText} / {row.Cells["装备特效名"].Value}{valueSuffix}";
     }
 
     private void UpdateItemIconPreview(DataGridViewRow row)
@@ -7081,12 +7319,15 @@ public sealed partial class MainForm
             var baseRead = id <= 103 ? _itemBaseLowRead : _itemBaseHighRead;
             var descriptionRead = id <= 103 ? _itemDescriptionLowRead : _itemDescriptionHighRead;
             var baseRow = FindRowById(baseRead.Data, id);
+            SynchronizeItemEditorVisibleEffectColumnsForSave(itemRow, baseRow);
+            SynchronizeItemEditorVisibleEffectValueForSave(itemRow, baseRow);
             SynchronizeQinger66AccessoryEffectColumnsForSave(itemRow, baseRow);
 
             foreach (DataColumn column in baseRead.Data.Columns)
             {
                 if (column.ColumnName == "ID") continue;
                 if (!itemData.Columns.Contains(column.ColumnName) || !IsRoleColumnChanged(itemRow, column.ColumnName)) continue;
+                if (ShouldSkipItemEditorBaseColumnSave(itemRow, column.ColumnName)) continue;
                 baseRow[column.ColumnName] = itemRow[column.ColumnName, DataRowVersion.Current];
             }
 
@@ -7115,18 +7356,16 @@ public sealed partial class MainForm
         return saves;
     }
 
-    private static void SynchronizeQinger66AccessoryEffectColumnsForSave(DataRow itemRow, DataRow baseRow)
+    private static void SynchronizeItemEditorVisibleEffectColumnsForSave(DataRow itemRow, DataRow baseRow)
     {
-        if (!itemRow.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName) ||
-            !itemRow.Table.Columns.Contains("类型") ||
+        if (!itemRow.Table.Columns.Contains("类型") ||
             !itemRow.Table.Columns.Contains("装备特效号") ||
             !baseRow.Table.Columns.Contains("类型"))
         {
             return;
         }
 
-        var marker = Convert.ToInt32(itemRow[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture);
-        if (!Ccz66ItemLayoutService.IsAccessoryOrConsumableMarker(marker))
+        if (!IsItemEditorTypeBackedVisibleEffectMarker(itemRow))
         {
             return;
         }
@@ -7139,7 +7378,75 @@ public sealed partial class MainForm
         }
 
         var typeId = Convert.ToInt32(itemRow["类型"], CultureInfo.InvariantCulture);
-        var effectId = Convert.ToInt32(itemRow["装备特效号"], CultureInfo.InvariantCulture);
+        var effectId = ReadNullableInt(itemRow, "装备特效号") ?? typeId;
+        if (typeChanged && effectChanged && typeId != effectId)
+        {
+            throw new InvalidOperationException(
+                $"辅助/道具行 ID={itemRow["ID"]} 的“类型码”和“特效号”映射到同一物理字节；两者不能同时改成不同值。");
+        }
+
+        var synchronized = typeChanged ? typeId : effectId;
+        itemRow["类型"] = synchronized;
+        itemRow["装备特效号"] = synchronized;
+        baseRow["类型"] = synchronized;
+    }
+
+    private static void SynchronizeItemEditorVisibleEffectValueForSave(DataRow itemRow, DataRow baseRow)
+    {
+        if (!itemRow.Table.Columns.Contains(ItemEditorVisibleEffectValueColumnName))
+        {
+            return;
+        }
+
+        if (!IsRoleColumnChanged(itemRow, ItemEditorVisibleEffectValueColumnName))
+        {
+            return;
+        }
+
+        var majorCategory = itemRow.Table.Columns.Contains("物品大类")
+            ? Convert.ToString(itemRow["物品大类"], CultureInfo.InvariantCulture) ?? string.Empty
+            : string.Empty;
+        var value = Convert.ToInt32(itemRow[ItemEditorVisibleEffectValueColumnName], CultureInfo.InvariantCulture);
+        if (IsConsumableMajorCategory(majorCategory))
+        {
+            if (itemRow.Table.Columns.Contains("初始能力")) itemRow["初始能力"] = value;
+            if (baseRow.Table.Columns.Contains("初始能力")) baseRow["初始能力"] = value;
+            return;
+        }
+
+        if (itemRow.Table.Columns.Contains("装备特效号-效果值")) itemRow["装备特效号-效果值"] = value;
+        if (baseRow.Table.Columns.Contains("装备特效号-效果值")) baseRow["装备特效号-效果值"] = value;
+    }
+
+    private static bool ShouldSkipItemEditorBaseColumnSave(DataRow itemRow, string columnName)
+        => columnName == "装备特效号" &&
+           (IsItemEditorAccessoryMarker(itemRow) || IsItemEditorConsumableMarker(itemRow));
+
+    private static void SynchronizeQinger66AccessoryEffectColumnsForSave(DataRow itemRow, DataRow baseRow)
+    {
+        if (!itemRow.Table.Columns.Contains(Ccz66ItemLayoutService.RawEffectMarkerColumnName) ||
+            !itemRow.Table.Columns.Contains("类型") ||
+            !itemRow.Table.Columns.Contains("装备特效号") ||
+            !baseRow.Table.Columns.Contains("类型"))
+        {
+            return;
+        }
+
+        var marker = Convert.ToInt32(itemRow[Ccz66ItemLayoutService.RawEffectMarkerColumnName], CultureInfo.InvariantCulture);
+        if (marker is not (2 or 3))
+        {
+            return;
+        }
+
+        var typeChanged = IsRoleColumnChanged(itemRow, "类型");
+        var effectChanged = IsRoleColumnChanged(itemRow, "装备特效号");
+        if (!typeChanged && !effectChanged)
+        {
+            return;
+        }
+
+        var typeId = Convert.ToInt32(itemRow["类型"], CultureInfo.InvariantCulture);
+        var effectId = ReadNullableInt(itemRow, "装备特效号") ?? typeId;
         if (typeChanged && effectChanged && typeId != effectId)
         {
             throw new InvalidOperationException(
@@ -8676,6 +8983,7 @@ public sealed partial class MainForm
     private DataTable BuildJobStrategyEditorData(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
         _jobStrategyRead = _tableReader.Read(project, FindTable(tables, "6.5-5 策略"), tables);
+        _jobStrategyDescriptionRead = _tableReader.Read(project, FindTable(tables, "6.5-5-1 策略说明"), tables);
         _jobStrategyCompanionReads.Clear();
         foreach (var companion in JobStrategyCompanionColumns)
         {
@@ -8684,9 +8992,9 @@ public sealed partial class MainForm
 
         _jobStrategyJobNames = BuildIdNameLookup(project, tables, "6.5-4 详细兵种");
         (_jobStrategyConfiguredMagicCount, _jobStrategyConfiguredMagicSource) = ResolveStrategyMagicCount(project);
-        if (!_jobStrategyRead.Validation.IsUsable || _jobStrategyCompanionReads.Values.Any(read => !read.Validation.IsUsable))
+        if (!_jobStrategyRead.Validation.IsUsable || !_jobStrategyDescriptionRead.Validation.IsUsable || _jobStrategyCompanionReads.Values.Any(read => !read.Validation.IsUsable))
         {
-            throw new InvalidOperationException("策略主表或 EKD5 策略附表有不可读取项，请先查看数据表诊断。");
+            throw new InvalidOperationException("策略主表、策略说明或 EKD5 策略附表有不可读取项，请先查看数据表诊断。");
         }
 
         var output = new DataTable("兵种策略");
@@ -8707,6 +9015,7 @@ public sealed partial class MainForm
         }
 
         output.Columns.Add("可学摘要", typeof(string));
+        output.Columns.Add("策略介绍", typeof(string));
 
         for (var i = 0; i < _jobStrategyRead.Data.Rows.Count; i++)
         {
@@ -8732,6 +9041,10 @@ public sealed partial class MainForm
             }
 
             row["可学摘要"] = BuildJobStrategyLearningSummary(row);
+            var descriptionRow = TryFindRowById(_jobStrategyDescriptionRead.Data, id);
+            row["策略介绍"] = descriptionRow == null
+                ? string.Empty
+                : Convert.ToString(descriptionRow["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
             output.Rows.Add(row);
         }
 
@@ -8772,11 +9085,11 @@ public sealed partial class MainForm
         ConfigureJobStrategyComboColumn("施展对象", JobStrategyTargetNames, "施展对象");
         foreach (DataGridViewColumn column in _jobStrategyEditorGrid.Columns)
         {
-            column.ReadOnly = column.DataPropertyName is "ID" or "可学摘要";
+            column.ReadOnly = column.DataPropertyName is "ID" or "可学摘要" or "策略介绍";
             column.ToolTipText = BuildJobStrategyColumnAnnotation(column.DataPropertyName);
             column.HeaderText = BuildJobStrategyColumnHeader(column.DataPropertyName);
             if (column.DataPropertyName == "名称") column.Width = 110;
-            if (column.DataPropertyName == "可学摘要")
+            if (column.DataPropertyName is "可学摘要" or "策略介绍")
             {
                 column.Visible = false;
                 column.Width = 300;
@@ -8847,6 +9160,7 @@ public sealed partial class MainForm
         return columnName switch
         {
             "可学摘要" => "可学摘要\n只读",
+            "策略介绍" => "策略介绍\n200B",
             "AI策略（战场）" => "AI策略（战场）",
             "AI策略（练武）" => "AI策略（练武）",
             _ => columnName
@@ -8858,6 +9172,7 @@ public sealed partial class MainForm
         if (columnName == "ID") return "策略编号。策略主表、说明表和 EKD5 策略附表按这个编号逐行对齐。";
         if (columnName == "名称") return "策略名称，写入 6.5-5 策略 / Data.e5；固定 11 字节 GBK 容量。单击该列会在右侧编辑该策略对 80 个兵种的学习等级，切换到其他单元格时同步可学摘要。";
         if (columnName == "可学摘要") return "只读摘要：列出当前策略中学会等级不为 0 的详细兵种。0 表示该兵种不能学习。";
+        if (columnName == "策略介绍") return "策略说明文本，写入 6.5-5-1 策略说明 / Imsg.e5；固定 200 字节 GBK 容量。列表中隐藏，当前在右侧策略预览页框中编辑。";
         if (columnName == "策略类型") return "策略实际效果类型，写入 6.5-5 策略 / Data.e5。下拉项按 6.5 样本策略名反推为中文候选，保存仍写入原始编号。注意它不是右侧“学会策略/效果索引”的七类复选。";
         if (columnName == "施展对象") return "策略可施展对象，写入 6.5-5 策略 / Data.e5。旧形象指定器可见候选包括敌方、我方/气合类、全屏气合类；修改后需实机验证目标选择。";
         if (columnName == "施法范围") return "策略施法目标选择范围，写入 6.5-5 策略 / Data.e5；选择该字段会按字段值+1 从 E5\\Hitarea.e5 预览范围图。";
@@ -9029,7 +9344,7 @@ public sealed partial class MainForm
 
         if (ReferenceEquals(_jobStrategyLearningEditorBoundRow, row) && _jobStrategyLearningEditorPanel.Visible)
         {
-            _jobStrategyLearningEditorPanel.BringToFront();
+            SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningEditorOnly);
             UpdateJobStrategyLearningEditorStatus();
             return;
         }
@@ -9075,18 +9390,13 @@ public sealed partial class MainForm
         _jobStrategyLearningEditorTitleLabel.Text = $"策略学习等级：ID={id} {name}";
         ClearJobStrategyAnimationPreview();
         SetPictureBoxImage(_jobStrategyPreviewBox, null);
-        _jobStrategyPreviewBox.Visible = false;
-        _jobStrategyPreviewInfoBox.Visible = false;
-        _jobStrategyLearningEditorPanel.Visible = true;
-        _jobStrategyLearningEditorPanel.BringToFront();
+        SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningEditorOnly);
         UpdateJobStrategyLearningEditorStatus();
     }
 
     private void HideJobStrategyLearningEditor()
     {
         _jobStrategyLearningEditorPanel.Visible = false;
-        _jobStrategyPreviewBox.Visible = true;
-        _jobStrategyPreviewInfoBox.Visible = true;
     }
 
     private int CountPendingJobStrategyLearningEditorChanges()
@@ -9198,10 +9508,7 @@ public sealed partial class MainForm
             cell.ErrorText = error ?? string.Empty;
             if (error == null) continue;
 
-            _jobStrategyLearningEditorPanel.Visible = true;
-            _jobStrategyLearningEditorPanel.BringToFront();
-            _jobStrategyPreviewBox.Visible = false;
-            _jobStrategyPreviewInfoBox.Visible = false;
+            SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningEditorOnly);
             _jobStrategyLearningEditorGrid.CurrentCell = cell;
             _jobStrategyLearningEditorStatusLabel.Text = error;
             SetStatus(error);
@@ -9240,6 +9547,8 @@ public sealed partial class MainForm
 
     private void HandleJobStrategySelectionChanged()
     {
+        if (_restoringJobStrategyDescriptionSelection) return;
+        if (!CommitJobStrategyDescriptionBoxEdit(showMessage: true, restoreSelectionOnFailure: true)) return;
         if (!IsCurrentJobStrategyNameCellBoundToLearningEditor() &&
             !CommitJobStrategyLearningEditorChanges(showMessage: true, restoreSelectionOnFailure: true))
         {
@@ -9368,8 +9677,8 @@ public sealed partial class MainForm
         var learningColumns = data.Columns.Cast<DataColumn>().Count(column => TryGetJobStrategyLearningSourceColumn(column.ColumnName, out _));
         return
             $"兵种策略已读取：策略 {data.Rows.Count} 行，已命名 {named}，兵种学会等级列 {learningColumns} 个。\r\n" +
-            "来源表：6.5-5 策略（基础属性 + 80 个兵种学会等级）、6.5-5-2 至 6.5-5-9 策略附表。\r\n" +
-            "保存会写回 Data.e5 与 Ekd5.exe，保存前自动备份，保存后重新读取校验。";
+            "来源表：6.5-5 策略（基础属性 + 80 个兵种学会等级）、6.5-5-1 策略说明、6.5-5-2 至 6.5-5-9 策略附表。\r\n" +
+            "保存会写回 Data.e5、Imsg.e5 与 Ekd5.exe，保存前自动备份，保存后重新读取校验。";
     }
 
     private void ApplyJobStrategyFilter()
@@ -9423,12 +9732,194 @@ public sealed partial class MainForm
         ShowSelectedJobStrategyCell();
     }
 
+    private bool BindJobStrategyDescriptionBoxes(DataRow row)
+    {
+        if (!row.Table.Columns.Contains("策略介绍"))
+        {
+            ClearJobStrategyDescriptionBoxes("读取兵种策略后，在此编辑当前策略介绍。");
+            return true;
+        }
+
+        if (!ReferenceEquals(row, _jobStrategyDescriptionEditorBoundRow))
+        {
+            if (!CommitJobStrategyDescriptionBoxEdit(showMessage: true, restoreSelectionOnFailure: true)) return false;
+            _jobStrategyDescriptionEditorBoundRow = row;
+        }
+
+        if (_jobStrategyDescriptionBoxHasValidationError) return true;
+
+        var text = GetJobStrategyDescription(row);
+        _bindingJobStrategyDescriptionBox = true;
+        try
+        {
+            _jobStrategyDescriptionBoxHasValidationError = false;
+            _jobStrategyDescriptionBoxValidationError = string.Empty;
+            SetJobStrategyDescriptionBoxErrorState(false);
+            if (!string.Equals(_jobStrategyDescriptionBox.Text, text, StringComparison.Ordinal))
+            {
+                _jobStrategyDescriptionBox.Text = text;
+            }
+
+            if (!string.Equals(_jobStrategyLearningDescriptionBox.Text, text, StringComparison.Ordinal))
+            {
+                _jobStrategyLearningDescriptionBox.Text = text;
+            }
+        }
+        finally
+        {
+            _bindingJobStrategyDescriptionBox = false;
+        }
+
+        return true;
+    }
+
+    private void ClearJobStrategyDescriptionBoxes(string text)
+    {
+        _bindingJobStrategyDescriptionBox = true;
+        try
+        {
+            _jobStrategyDescriptionEditorBoundRow = null;
+            _jobStrategyDescriptionBoxHasValidationError = false;
+            _jobStrategyDescriptionBoxValidationError = string.Empty;
+            SetJobStrategyDescriptionBoxErrorState(false);
+            _jobStrategyDescriptionBox.Text = text;
+            _jobStrategyLearningDescriptionBox.Text = text;
+        }
+        finally
+        {
+            _bindingJobStrategyDescriptionBox = false;
+        }
+    }
+
+    private void ApplyJobStrategyDescriptionBoxEdit(TextBox sourceBox)
+    {
+        if (_bindingJobStrategyDescriptionBox) return;
+        if (_currentJobStrategyData == null ||
+            _jobStrategyDescriptionEditorBoundRow == null ||
+            _jobStrategyDescriptionEditorBoundRow.RowState == DataRowState.Detached ||
+            !_jobStrategyDescriptionEditorBoundRow.Table.Columns.Contains("策略介绍"))
+        {
+            return;
+        }
+
+        var text = sourceBox.Text;
+        var bytes = EncodingService.GetGbkByteCount(text);
+        if (bytes > 200)
+        {
+            _jobStrategyDescriptionBoxHasValidationError = true;
+            _jobStrategyDescriptionBoxValidationError = $"策略介绍超长：GBK {bytes} 字节，容量 200 字节。";
+            SetJobStrategyDescriptionBoxErrorState(true);
+            SetStatus(_jobStrategyDescriptionBoxValidationError);
+            return;
+        }
+
+        _jobStrategyDescriptionBoxHasValidationError = false;
+        _jobStrategyDescriptionBoxValidationError = string.Empty;
+        SetJobStrategyDescriptionBoxErrorState(false);
+
+        var oldValue = GetJobStrategyDescription(_jobStrategyDescriptionEditorBoundRow);
+        if (!string.Equals(oldValue, text, StringComparison.Ordinal))
+        {
+            _jobStrategyDescriptionEditorBoundRow["策略介绍"] = text;
+            var rowIndex = FindJobStrategyGridRowIndex(_jobStrategyDescriptionEditorBoundRow);
+            if (rowIndex >= 0)
+            {
+                RefreshJobStrategyRowStyle(rowIndex);
+                _jobStrategyEditorGrid.InvalidateRow(rowIndex);
+            }
+        }
+
+        _bindingJobStrategyDescriptionBox = true;
+        try
+        {
+            var targetBox = ReferenceEquals(sourceBox, _jobStrategyDescriptionBox)
+                ? _jobStrategyLearningDescriptionBox
+                : _jobStrategyDescriptionBox;
+            if (!string.Equals(targetBox.Text, text, StringComparison.Ordinal))
+            {
+                targetBox.Text = text;
+            }
+        }
+        finally
+        {
+            _bindingJobStrategyDescriptionBox = false;
+        }
+
+        SetStatus($"策略介绍 GBK：{bytes}/200");
+    }
+
+    private bool CommitJobStrategyDescriptionBoxEdit(bool showMessage = false, bool restoreSelectionOnFailure = false)
+    {
+        if (_bindingJobStrategyDescriptionBox) return true;
+        if (_jobStrategyDescriptionBoxHasValidationError)
+        {
+            SetStatus(_jobStrategyDescriptionBoxValidationError);
+            if (showMessage)
+            {
+                MessageBox.Show(this, _jobStrategyDescriptionBoxValidationError, "策略介绍无法保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            if (restoreSelectionOnFailure) RestoreJobStrategyDescriptionSelection();
+            return false;
+        }
+
+        if (_jobStrategyDescriptionEditorBoundRow == null ||
+            _jobStrategyDescriptionEditorBoundRow.RowState == DataRowState.Detached ||
+            !_jobStrategyDescriptionEditorBoundRow.Table.Columns.Contains("策略介绍"))
+        {
+            _jobStrategyDescriptionEditorBoundRow = null;
+            return true;
+        }
+
+        ApplyJobStrategyDescriptionBoxEdit(_jobStrategyDescriptionBox);
+        if (_jobStrategyDescriptionBoxHasValidationError)
+        {
+            if (showMessage)
+            {
+                MessageBox.Show(this, _jobStrategyDescriptionBoxValidationError, "策略介绍无法保存", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            if (restoreSelectionOnFailure) RestoreJobStrategyDescriptionSelection();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void RestoreJobStrategyDescriptionSelection()
+    {
+        if (_jobStrategyDescriptionEditorBoundRow == null || _jobStrategyDescriptionEditorBoundRow.RowState == DataRowState.Detached) return;
+        var rowIndex = FindJobStrategyGridRowIndex(_jobStrategyDescriptionEditorBoundRow);
+        if (rowIndex < 0) return;
+        _restoringJobStrategyDescriptionSelection = true;
+        try
+        {
+            var column = _jobStrategyEditorGrid.CurrentCell?.ColumnIndex >= 0
+                ? _jobStrategyEditorGrid.Columns[_jobStrategyEditorGrid.CurrentCell.ColumnIndex]
+                : _jobStrategyEditorGrid.Columns["名称"];
+            _jobStrategyEditorGrid.CurrentCell = _jobStrategyEditorGrid.Rows[rowIndex].Cells[column?.Index ?? 0];
+        }
+        finally
+        {
+            _restoringJobStrategyDescriptionSelection = false;
+        }
+    }
+
+    private void SetJobStrategyDescriptionBoxErrorState(bool hasError)
+    {
+        var color = hasError ? Color.MistyRose : SystemColors.Window;
+        _jobStrategyDescriptionBox.BackColor = color;
+        _jobStrategyLearningDescriptionBox.BackColor = color;
+    }
+
     private void ShowSelectedJobStrategyCell()
     {
         if (_currentJobStrategyData == null || _jobStrategyEditorGrid.CurrentCell == null) return;
         var cell = _jobStrategyEditorGrid.CurrentCell;
         var columnName = _jobStrategyEditorGrid.Columns[cell.ColumnIndex].DataPropertyName;
         var row = _jobStrategyEditorGrid.Rows[cell.RowIndex];
+        var dataRow = TryGetDataRow(row);
+        if (dataRow == null || !BindJobStrategyDescriptionBoxes(dataRow)) return;
         var id = row.Cells["ID"].Value;
         var name = row.Cells["名称"].Value;
         var value = cell.Value;
@@ -9437,13 +9928,15 @@ public sealed partial class MainForm
             ? $"\r\nGBK 字节：{EncodingService.GetGbkByteCount(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty)}/11"
             : string.Empty;
         var summary = Convert.ToString(row.Cells["可学摘要"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var descriptionBytes = EncodingService.GetGbkByteCount(GetJobStrategyDescription(dataRow));
         var magicInfo = _jobStrategyConfiguredMagicCount > 0
             ? $"\r\n形象指定器 SMagic={_jobStrategyConfiguredMagicCount}；来源：{_jobStrategyConfiguredMagicSource}"
             : string.Empty;
         _jobStrategyEditorInfoBox.Text =
             $"策略：ID={id}    名称={name}\r\n" +
             $"字段：{columnName}    当前值：{formattedValue}{extra}\r\n" +
-            $"可学摘要：{summary}{magicInfo}\r\n\r\n" +
+            $"可学摘要：{summary}{magicInfo}\r\n" +
+            $"策略介绍 GBK：{descriptionBytes}/200\r\n\r\n" +
             BuildJobStrategyColumnAnnotation(columnName);
         UpdateJobStrategyPreview(row, columnName);
     }
@@ -9486,7 +9979,10 @@ public sealed partial class MainForm
         var rawValue = row.Cells[columnName].Value;
         if (!TryConvertToInt(rawValue, out var fieldValue))
         {
-            ClearJobStrategyPreview($"{columnName} 字段不是整数：{Convert.ToString(rawValue, CultureInfo.InvariantCulture)}");
+            ClearJobStrategyAnimationPreview();
+            SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.ImageOnly);
+            SetPictureBoxImage(_jobStrategyPreviewBox, null);
+            _jobStrategyPreviewInfoBox.Text = $"{columnName} 字段不是整数：{Convert.ToString(rawValue, CultureInfo.InvariantCulture)}";
             return;
         }
 
@@ -9497,7 +9993,7 @@ public sealed partial class MainForm
                 HideJobStrategyLearningEditor();
                 ClearJobStrategyAnimationPreview();
                 var result = _attackAreaPreviewService.BuildPreview(_project, "攻击范围", fieldValue);
-                SetJobStrategyPreviewImageVisible(true);
+                SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.ImageOnly);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -9511,7 +10007,7 @@ public sealed partial class MainForm
                 HideJobStrategyLearningEditor();
                 ClearJobStrategyAnimationPreview();
                 var result = _attackAreaPreviewService.BuildPreview(_project, "穿透范围", fieldValue);
-                SetJobStrategyPreviewImageVisible(true);
+                SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.ImageOnly);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -9525,7 +10021,7 @@ public sealed partial class MainForm
                 HideJobStrategyLearningEditor();
                 ClearJobStrategyAnimationPreview();
                 var result = _itemIconPreviewService.BuildPreview(_project, fieldValue, Ccz66RevisedLayout.ResolveStrategyIconResourceFile(_project), "策略图标");
-                SetJobStrategyPreviewImageVisible(true);
+                SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.ImageOnly);
                 SetPictureBoxImage(_jobStrategyPreviewBox, result.Bitmap);
                 _jobStrategyPreviewInfoBox.Text =
                     $"策略 ID={id}  名称={name}\r\n" +
@@ -9542,7 +10038,7 @@ public sealed partial class MainForm
                     ? StrategyAnimationPreviewKind.BigMcall
                     : StrategyAnimationPreviewKind.SmallMeff;
                 var result = _strategyAnimationPreviewService.BuildAnimatedPreview(_project, previewKind, fieldValue);
-                SetJobStrategyPreviewImageVisible(true);
+                SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.ImageOnly);
                 SetJobStrategyAnimatedPreview(result);
                 var resourceCountLabel = previewKind == StrategyAnimationPreviewKind.BigMcall
                     ? "Mcall条目数"
@@ -9562,29 +10058,56 @@ public sealed partial class MainForm
     {
         HideJobStrategyLearningEditor();
         ClearJobStrategyAnimationPreview();
-        SetJobStrategyPreviewImageVisible(false);
+        SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningAndDescription);
         SetPictureBoxImage(_jobStrategyPreviewBox, null);
         _jobStrategyPreviewInfoBox.Text = message;
     }
 
-    private void SetJobStrategyPreviewImageVisible(bool visible)
+    private void SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode mode)
     {
-        _jobStrategyPreviewBox.Visible = visible;
+        _jobStrategyLearningEditorPanel.Visible = mode == JobStrategyPreviewLayoutMode.LearningEditorOnly;
+        _jobStrategyPreviewBox.Visible = mode == JobStrategyPreviewLayoutMode.ImageOnly;
+        _jobStrategyPreviewInfoBox.Visible = mode == JobStrategyPreviewLayoutMode.LearningAndDescription;
+        _jobStrategyDescriptionBox.Visible = mode == JobStrategyPreviewLayoutMode.LearningAndDescription;
+        _jobStrategyLearningDescriptionBox.Visible = false;
+
+        if (mode == JobStrategyPreviewLayoutMode.LearningEditorOnly)
+        {
+            _jobStrategyLearningEditorPanel.BringToFront();
+        }
+
         if (_jobStrategyPreviewBox.Parent is not TableLayoutPanel panel) return;
         if (panel.RowStyles.Count >= 3)
         {
-            panel.RowStyles[1].SizeType = visible ? SizeType.Percent : SizeType.Absolute;
-            panel.RowStyles[1].Height = visible ? 58 : 0;
-            panel.RowStyles[2].SizeType = SizeType.Percent;
-            panel.RowStyles[2].Height = visible ? 42 : 100;
+            switch (mode)
+            {
+                case JobStrategyPreviewLayoutMode.ImageOnly:
+                    panel.RowStyles[0].SizeType = SizeType.Percent;
+                    panel.RowStyles[0].Height = 100;
+                    panel.RowStyles[1].SizeType = SizeType.Absolute;
+                    panel.RowStyles[1].Height = 0;
+                    panel.RowStyles[2].SizeType = SizeType.Absolute;
+                    panel.RowStyles[2].Height = 0;
+                    break;
+                case JobStrategyPreviewLayoutMode.LearningAndDescription:
+                case JobStrategyPreviewLayoutMode.LearningEditorOnly:
+                    panel.RowStyles[0].SizeType = SizeType.Absolute;
+                    panel.RowStyles[0].Height = 0;
+                    panel.RowStyles[1].SizeType = SizeType.Percent;
+                    panel.RowStyles[1].Height = 70;
+                    panel.RowStyles[2].SizeType = SizeType.Percent;
+                    panel.RowStyles[2].Height = 30;
+                    break;
+            }
+
             return;
         }
 
         if (panel.RowStyles.Count < 2) return;
-        panel.RowStyles[0].SizeType = visible ? SizeType.Percent : SizeType.Absolute;
-        panel.RowStyles[0].Height = visible ? 58 : 0;
-        panel.RowStyles[1].SizeType = SizeType.Percent;
-        panel.RowStyles[1].Height = visible ? 42 : 100;
+        panel.RowStyles[0].SizeType = mode == JobStrategyPreviewLayoutMode.ImageOnly ? SizeType.Percent : SizeType.Absolute;
+        panel.RowStyles[0].Height = mode == JobStrategyPreviewLayoutMode.ImageOnly ? 100 : 0;
+        panel.RowStyles[1].SizeType = mode == JobStrategyPreviewLayoutMode.ImageOnly ? SizeType.Absolute : SizeType.Percent;
+        panel.RowStyles[1].Height = mode == JobStrategyPreviewLayoutMode.ImageOnly ? 0 : 100;
     }
 
     private static bool IsJobStrategyResourcePreviewColumn(string columnName)
@@ -9594,7 +10117,7 @@ public sealed partial class MainForm
     {
         HideJobStrategyLearningEditor();
         ClearJobStrategyAnimationPreview();
-        SetJobStrategyPreviewImageVisible(false);
+        SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningAndDescription);
         SetPictureBoxImage(_jobStrategyPreviewBox, null);
         var dataRow = TryGetDataRow(row);
         var summary = dataRow == null
@@ -9608,6 +10131,12 @@ public sealed partial class MainForm
             $"策略 ID={id}  名称={name}\r\n" +
             "兵种学习情况：\r\n" +
             body;
+    }
+
+    private static string GetJobStrategyDescription(DataRow? row)
+    {
+        if (row == null || !row.Table.Columns.Contains("策略介绍")) return string.Empty;
+        return Convert.ToString(row["策略介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
     }
 
     private void SetJobStrategyAnimatedPreview(StrategyAnimationAnimatedPreviewResult result)
@@ -9732,9 +10261,10 @@ public sealed partial class MainForm
 
     private void SaveJobStrategyEditor()
     {
-        if (_project == null || _currentJobStrategyData == null || _jobStrategyRead == null) return;
+        if (_project == null || _currentJobStrategyData == null || _jobStrategyRead == null || _jobStrategyDescriptionRead == null) return;
 
         _jobStrategyEditorGrid.EndEdit();
+        if (!CommitJobStrategyDescriptionBoxEdit(showMessage: true, restoreSelectionOnFailure: true)) return;
         if (!CommitJobStrategyLearningEditorChanges(showMessage: true, restoreSelectionOnFailure: true)) return;
         if (!CommitJobStrategyLearningDialogs()) return;
         if (_currentJobStrategyData.GetChanges() == null)
@@ -9745,7 +10275,7 @@ public sealed partial class MainForm
 
         var preview = BuildChangePreview(_currentJobStrategyData, maxItems: 80);
         if (MessageBox.Show(this,
-                $"即将保存兵种策略到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Data.e5/Ekd5.exe，保存后会重新读取校验。是否继续？",
+                $"即将保存兵种策略到当前 MOD 项目。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份 Data.e5/Imsg.e5/Ekd5.exe，保存后会重新读取校验。是否继续？",
                 "确认保存兵种策略",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -10301,16 +10831,22 @@ public sealed partial class MainForm
 
     private IReadOnlyList<TableSaveResult> SaveJobStrategyEditorData(CczProject project, DataTable strategyData)
     {
-        if (_jobStrategyRead == null) return Array.Empty<TableSaveResult>();
+        if (_jobStrategyRead == null || _jobStrategyDescriptionRead == null) return Array.Empty<TableSaveResult>();
         foreach (DataRow editorRow in strategyData.Rows)
         {
             if (editorRow.RowState != DataRowState.Modified) continue;
             var id = Convert.ToInt32(editorRow["ID"], CultureInfo.InvariantCulture);
             var strategyRow = FindRowById(_jobStrategyRead.Data, id);
+            var descriptionRow = FindRowById(_jobStrategyDescriptionRead.Data, id);
 
             foreach (var columnName in JobStrategyPrimaryColumns)
             {
                 if (IsRoleColumnChanged(editorRow, columnName)) strategyRow[columnName] = editorRow[columnName, DataRowVersion.Current];
+            }
+
+            if (IsRoleColumnChanged(editorRow, "策略介绍"))
+            {
+                descriptionRow["介绍"] = editorRow["策略介绍", DataRowVersion.Current];
             }
 
             foreach (DataColumn column in strategyData.Columns)
@@ -10331,6 +10867,7 @@ public sealed partial class MainForm
 
         var saves = new List<TableSaveResult>();
         if (SaveChangedTableAndVerify(_jobStrategyRead) is { } strategySave) saves.Add(strategySave);
+        if (SaveChangedTableAndVerify(_jobStrategyDescriptionRead) is { } descriptionSave) saves.Add(descriptionSave);
         foreach (var companion in JobStrategyCompanionColumns)
         {
             var read = _jobStrategyCompanionReads[companion.ColumnName];
@@ -10381,7 +10918,7 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            _jobSeriesRead ??= _tableReader.Read(_project, FindTable(_tables, "6.5-3 兵种系"), _tables);
+            _jobSeriesRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3 兵种系"), _tables);
             _jobRestraintRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3-3 兵种相克"), _tables);
             _jobAttributeRead = _tableReader.Read(_project, FindTable(_tables, "6.5-3-4 兵种属性"), _tables);
             if (!_jobSeriesRead.Validation.IsUsable || !_jobRestraintRead.Validation.IsUsable || !_jobAttributeRead.Validation.IsUsable)
@@ -10391,9 +10928,12 @@ public sealed partial class MainForm
 
             _jobRestraintGrid.DataSource = _jobRestraintRead.Data;
             ConfigureJobMatrixGrid(_jobRestraintGrid);
-            _jobAttributeGrid.DataSource = _jobAttributeRead.Data;
-            ConfigureJobMatrixGrid(_jobAttributeGrid);
+            _currentJobAttributeEditorData = BuildJobAttributeEditorData();
+            _jobAttributeGrid.DataSource = _currentJobAttributeEditorData;
+            ConfigureJobAttributeEditorGrid();
             _saveJobMatrixButton.Enabled = true;
+            _saveJobAttributeMatrixButton.Enabled = true;
+            SetJobMatrixBulkButtonsEnabled(true);
             _jobMatrixInfoBox.Text = BuildJobMatrixSummary();
             SetStatus("兵种相克/属性矩阵读取完成");
         }
@@ -10411,79 +10951,418 @@ public sealed partial class MainForm
 
     private void ConfigureJobMatrixGrid(DataGridView grid)
     {
-        var isAttributeGrid = ReferenceEquals(grid, _jobAttributeGrid);
         grid.ReadOnly = false;
         foreach (DataGridViewColumn column in grid.Columns)
         {
             column.ReadOnly = column.DataPropertyName == "ID" || column.DataPropertyName == "名称";
-            column.HeaderText = BuildJobMatrixColumnHeader(column.DataPropertyName, isAttributeGrid);
-            column.ToolTipText = BuildJobMatrixColumnAnnotation(column.DataPropertyName, isAttributeGrid);
-            if (isAttributeGrid && column.DataPropertyName == "ID") column.Width = 92;
+            column.HeaderText = BuildJobMatrixColumnHeader(column.DataPropertyName);
+            column.ToolTipText = BuildJobMatrixColumnAnnotation(column.DataPropertyName);
             if (column.DataPropertyName == "名称") column.Width = 90;
             if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
-        }
-
-        if (isAttributeGrid)
-        {
-            grid.RowHeadersVisible = true;
-            grid.RowHeadersWidth = 112;
-            grid.TopLeftHeaderCell.Value = "字段";
-            foreach (DataGridViewRow row in grid.Rows)
-            {
-                if (row.Cells["ID"].Value == null) continue;
-                var rowId = Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture);
-                row.HeaderCell.Value = BuildJobAttributeRowLabel(rowId);
-            }
-
-            ConfigureJobAttributeMoveSoundComboCells(grid);
         }
 
         RefreshJobMatrixRowStyles(grid);
     }
 
-    private static void ConfigureJobAttributeMoveSoundComboCells(DataGridView grid)
+    private void SetJobMatrixBulkButtonsEnabled(bool enabled)
     {
-        if (grid.Rows.Count == 0) return;
-        foreach (DataGridViewRow row in grid.Rows)
+        _exportJobAttributeCsvButton.Enabled = enabled;
+        _importJobAttributeCsvButton.Enabled = enabled;
+        _pasteJobMatrixSelectionButton.Enabled = enabled;
+        _fillJobMatrixSelectionButton.Enabled = enabled;
+        _batchModifyJobMatrixButton.Enabled = enabled;
+    }
+
+    private DataGridView GetActiveJobMatrixGrid()
+        => _jobAttributeGrid;
+
+    private void PasteActiveJobMatrixSelection()
+    {
+        var grid = GetActiveJobMatrixGrid();
+        PasteGridSelection(grid, (_, _) => { }, null, RefreshJobMatrixCellsAfterEdit);
+    }
+
+    private void FillActiveJobMatrixSelectionWithCurrentValue()
+    {
+        var grid = GetActiveJobMatrixGrid();
+        FillSelectedGridColumnWithCurrentValue(grid, (_, _) => { }, null, RefreshJobMatrixCellsAfterEdit);
+    }
+
+    private void ShowActiveJobMatrixBatchModifyDialog()
+    {
+        var grid = GetActiveJobMatrixGrid();
+        ShowGridBatchModifyDialog(grid, (_, _) => { }, null, RefreshJobMatrixCellsAfterEdit);
+    }
+
+    private DataTable BuildJobAttributeEditorData()
+    {
+        if (_jobSeriesRead == null || _jobAttributeRead == null)
         {
-            if (row.Cells["ID"].Value == null ||
-                Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture) != 0)
+            throw new InvalidOperationException("兵种属性转置表需要先读取兵种系与兵种属性矩阵。");
+        }
+
+        var output = new DataTable("兵种属性");
+        output.Columns.Add("ID", typeof(int));
+        output.Columns.Add("兵种", typeof(string));
+        foreach (var definition in JobAttributeDefinitions.Values.OrderBy(static definition => definition.RowId))
+        {
+            output.Columns.Add(definition.Name, typeof(int));
+        }
+
+        var seriesCount = Math.Min(40, _jobSeriesRead.Data.Rows.Count);
+        for (var seriesId = 0; seriesId < seriesCount; seriesId++)
+        {
+            var outputRow = output.NewRow();
+            outputRow["ID"] = seriesId;
+            outputRow["兵种"] = BuildJobSeriesName(seriesId);
+            foreach (var definition in JobAttributeDefinitions.Values.OrderBy(static definition => definition.RowId))
             {
-                continue;
+                outputRow[definition.Name] = ReadJobAttributeRawValue(definition.RowId, seriesId);
             }
 
-            var numericCellIndexes = row.Cells
-                .Cast<DataGridViewCell>()
-                .Where(cell => int.TryParse(cell.OwningColumn.DataPropertyName, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
-                .Select(cell => cell.ColumnIndex)
-                .ToArray();
-            foreach (var columnIndex in numericCellIndexes)
+            output.Rows.Add(outputRow);
+        }
+
+        output.AcceptChanges();
+        return output;
+    }
+
+    private void ConfigureJobAttributeEditorGrid()
+    {
+        if (_configuringJobAttributeGrid) return;
+        var grid = _jobAttributeGrid;
+        try
+        {
+            _configuringJobAttributeGrid = true;
+            grid.ReadOnly = false;
+            grid.RowHeadersVisible = true;
+            grid.RowHeadersWidth = 112;
+            grid.TopLeftHeaderCell.Value = "兵种";
+            foreach (DataGridViewColumn column in grid.Columns)
             {
-                var cell = row.Cells[columnIndex];
-                var value = Convert.ToInt32(cell.Value, CultureInfo.InvariantCulture);
-                if (value is < 0 or > 3) continue;
-                row.Cells[columnIndex] = new DataGridViewComboBoxCell
+                column.SortMode = DataGridViewColumnSortMode.NotSortable;
+                column.ReadOnly = column.DataPropertyName is "ID" or "兵种";
+                column.HeaderText = column.DataPropertyName;
+                column.ToolTipText = BuildJobAttributeColumnAnnotation(column.DataPropertyName);
+                if (column.DataPropertyName == "ID")
                 {
-                    DataSource = JobAttributeMoveSoundOptions,
-                    ValueMember = nameof(JobAttributeMoveSoundOption.Value),
-                    DisplayMember = nameof(JobAttributeMoveSoundOption.Display),
-                    Value = value,
-                    FlatStyle = FlatStyle.Popup,
-                    ToolTipText = "移动声音：0=马蹄声，1=车轮声，2=脚步声，3=无声。保存仍写入 0..3。"
-                };
+                    column.Visible = false;
+                    column.HeaderText = "ID";
+                    column.Width = 52;
+                    column.Frozen = true;
+                }
+                else if (column.DataPropertyName == "兵种")
+                {
+                    column.Visible = false;
+                    column.Width = 92;
+                    column.Frozen = true;
+                }
+                else
+                {
+                    column.Visible = true;
+                    column.Frozen = false;
+                }
+
+                if (column.ReadOnly) column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
             }
+
+            var attributeColumnIndexes = grid.Columns
+                .Cast<DataGridViewColumn>()
+                .Where(column => GetJobAttributeDefinitionByName(column.DataPropertyName) != null)
+                .Select(column => column.Index)
+                .ToArray();
+
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                if (row.IsNewRow || row.Cells["ID"].Value == null) continue;
+                var seriesId = Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture);
+                row.HeaderCell.Value = BuildJobSeriesColumnLabel(seriesId);
+
+                foreach (var columnIndex in attributeColumnIndexes)
+                {
+                    var cell = row.Cells[columnIndex];
+                    var definition = GetJobAttributeDefinitionByName(cell.OwningColumn.DataPropertyName);
+                    if (definition == null) continue;
+                    var value = Convert.ToInt32(cell.Value, CultureInfo.InvariantCulture);
+                    if (definition.EditorKind == JobAttributeEditorKind.Numeric)
+                    {
+                        if (cell is DataGridViewComboBoxCell)
+                        {
+                            row.Cells[columnIndex] = new DataGridViewTextBoxCell { Value = value, ToolTipText = definition.ValueRule };
+                        }
+                        else
+                        {
+                            cell.ToolTipText = definition.ValueRule;
+                        }
+
+                        continue;
+                    }
+
+                    var choices = BuildJobAttributeChoicesWithCustomValue(definition, value);
+                    row.Cells[columnIndex] = new DataGridViewComboBoxCell
+                    {
+                        DataSource = choices,
+                        ValueMember = nameof(JobAttributeValueChoice.Value),
+                        DisplayMember = nameof(JobAttributeValueChoice.DisplayText),
+                        Value = value,
+                        FlatStyle = FlatStyle.Popup,
+                        ToolTipText = definition.ValueRule
+                    };
+                }
+            }
+        }
+        finally
+        {
+            _configuringJobAttributeGrid = false;
         }
     }
 
-    private static readonly IReadOnlyList<JobAttributeMoveSoundOption> JobAttributeMoveSoundOptions =
-    [
-        new(0, "0=马蹄声"),
-        new(1, "1=车轮声"),
-        new(2, "2=脚步声"),
-        new(3, "3=无声")
-    ];
+    private static IReadOnlyList<JobAttributeValueChoice> BuildJobAttributeChoicesWithCustomValue(JobAttributeDefinition definition, int value)
+        => definition.Choices.Any(choice => choice.Value == value)
+            ? definition.Choices
+            : definition.Choices.Concat([new JobAttributeValueChoice(value, "自定义")]).ToArray();
 
-    private sealed record JobAttributeMoveSoundOption(int Value, string Display);
+    private int ReadJobAttributeRawValue(int attributeRowId, int jobSeriesId)
+    {
+        if (_jobAttributeRead == null) return 0;
+        var row = FindRowById(_jobAttributeRead.Data, attributeRowId);
+        var columnName = jobSeriesId.ToString(CultureInfo.InvariantCulture);
+        return _jobAttributeRead.Data.Columns.Contains(columnName)
+            ? Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture)
+            : 0;
+    }
+
+    private void WriteJobAttributeRawValue(int attributeRowId, int jobSeriesId, int value)
+    {
+        if (_jobAttributeRead == null) return;
+        var row = FindRowById(_jobAttributeRead.Data, attributeRowId);
+        var columnName = jobSeriesId.ToString(CultureInfo.InvariantCulture);
+        if (!_jobAttributeRead.Data.Columns.Contains(columnName)) return;
+        row[columnName] = value;
+    }
+
+    private static JobAttributeDefinition? GetJobAttributeDefinitionByName(string? columnName)
+        => string.IsNullOrWhiteSpace(columnName)
+            ? null
+            : JobAttributeDefinitions.Values.FirstOrDefault(definition => definition.Name.Equals(columnName, StringComparison.Ordinal));
+
+    private static string BuildJobAttributeColumnAnnotation(string columnName)
+    {
+        var definition = GetJobAttributeDefinitionByName(columnName);
+        if (definition == null)
+        {
+            return columnName switch
+            {
+                "ID" => "兵种系编号，来自 6.5-3 兵种系。",
+                "兵种" => "兵种系名称，来自 6.5-3 兵种系。",
+                _ => string.Empty
+            };
+        }
+
+        return $"兵种属性：{definition.Name}。{definition.ValueRule}";
+    }
+
+    private void ExportJobAttributeEditorCsv()
+    {
+        if (_currentJobAttributeEditorData == null) return;
+        using var dialog = new SaveFileDialog
+        {
+            Title = "导出兵种属性 CSV",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = "兵种属性.csv"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var records = BuildJobAttributeCsvExportRecords();
+            CsvService.WriteRecords(dialog.FileName, records);
+            System.Diagnostics.Debug.WriteLine("兵种属性 CSV exported: " + dialog.FileName);
+            SetStatus("兵种属性 CSV 导出完成。");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("兵种属性 CSV 导出失败：" + ex);
+            MessageBox.Show(this, ex.Message, "兵种属性 CSV 导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private IReadOnlyList<IReadOnlyList<string>> BuildJobAttributeCsvExportRecords()
+    {
+        if (_currentJobAttributeEditorData == null) return Array.Empty<IReadOnlyList<string>>();
+        var columns = BuildJobAttributeCsvColumnNames();
+        var records = new List<IReadOnlyList<string>> { columns };
+        foreach (DataRow row in _currentJobAttributeEditorData.Rows)
+        {
+            var values = new List<string>(columns.Count);
+            foreach (var columnName in columns)
+            {
+                if (TryGetJobAttributeColumnId(columnName, out var attributeRowId))
+                {
+                    var value = Convert.ToInt32(row[columnName], CultureInfo.InvariantCulture);
+                    values.Add(FormatJobAttributeValue(attributeRowId, value));
+                    continue;
+                }
+
+                values.Add(Convert.ToString(row[columnName], CultureInfo.InvariantCulture) ?? string.Empty);
+            }
+
+            records.Add(values);
+        }
+
+        return records;
+    }
+
+    private void ImportJobAttributeEditorCsv()
+    {
+        if (_currentJobAttributeEditorData == null || _jobAttributeRead == null) return;
+        using var dialog = new OpenFileDialog
+        {
+            Title = "导入兵种属性 CSV",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var records = CsvService.ReadRecords(dialog.FileName);
+            var changedCells = ApplyJobAttributeCsvImport(records);
+            RefreshJobMatrixCellsAfterEdit(changedCells);
+            System.Diagnostics.Debug.WriteLine($"兵种属性 CSV imported: {dialog.FileName}; changed cells {changedCells.Count}");
+            SetStatus($"兵种属性 CSV 导入完成：更新 {changedCells.Count} 个单元格。");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("兵种属性 CSV 导入失败：" + ex);
+            MessageBox.Show(this, ex.Message, "兵种属性 CSV 导入失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private IReadOnlyList<GridCellKey> ApplyJobAttributeCsvImport(IReadOnlyList<IReadOnlyList<string>> records)
+    {
+        if (_currentJobAttributeEditorData == null) return Array.Empty<GridCellKey>();
+        if (records.Count == 0) throw new InvalidOperationException("CSV 文件为空。");
+        var headers = records[0].Select(static header => header.Trim()).ToList();
+        if (headers.Count == 0) throw new InvalidOperationException("CSV 表头为空。");
+
+        var seenHeaders = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < headers.Count; i++)
+        {
+            var header = headers[i];
+            if (!seenHeaders.Add(header))
+            {
+                throw new InvalidOperationException($"CSV 存在重复列：{header}。");
+            }
+
+            if (header is "ID" or "兵种") continue;
+            if (!TryGetJobAttributeColumnId(header, out _))
+            {
+                throw new InvalidOperationException($"CSV 第 {i + 1} 列不是兵种属性字段：{header}。");
+            }
+        }
+
+        var idIndex = headers.FindIndex(static header => string.Equals(header, "ID", StringComparison.Ordinal));
+        if (idIndex < 0) throw new InvalidOperationException("兵种属性 CSV 必须包含 ID 列，用于匹配兵种行。");
+        var changedCells = new List<GridCellKey>();
+        var seenIds = new HashSet<int>();
+        for (var r = 1; r < records.Count; r++)
+        {
+            var record = records[r];
+            if (record.All(string.IsNullOrWhiteSpace)) continue;
+            if (record.Count != headers.Count)
+            {
+                throw new InvalidOperationException($"CSV 第 {r + 1} 行列数 {record.Count} 与表头列数 {headers.Count} 不一致。");
+            }
+
+            if (!int.TryParse(record[idIndex].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var seriesId))
+            {
+                throw new InvalidOperationException($"CSV 第 {r + 1} 行 ID 不是有效数字：{record[idIndex]}。");
+            }
+
+            if (!seenIds.Add(seriesId))
+            {
+                throw new InvalidOperationException($"CSV 第 {r + 1} 行 ID={seriesId} 重复。");
+            }
+
+            var targetRow = TryFindRowById(_currentJobAttributeEditorData, seriesId)
+                            ?? throw new InvalidOperationException($"CSV 第 {r + 1} 行 ID={seriesId} 在当前兵种属性表中不存在。");
+            var rowIndex = _currentJobAttributeEditorData.Rows.IndexOf(targetRow);
+            for (var c = 0; c < headers.Count; c++)
+            {
+                var columnName = headers[c];
+                if (columnName is "ID" or "兵种") continue;
+                if (!TryGetJobAttributeColumnId(columnName, out var attributeRowId)) continue;
+
+                var text = record[c];
+                if (!TryParseJobAttributeImportValue(attributeRowId, text, out var value, out var error))
+                {
+                    throw new InvalidOperationException($"CSV 第 {r + 1} 行列 {columnName} 的值无效：{text}。{error}");
+                }
+
+                var current = Convert.ToInt32(targetRow[columnName], CultureInfo.InvariantCulture);
+                if (current == value) continue;
+                targetRow[columnName] = value;
+                changedCells.Add(new GridCellKey(seriesId.ToString(CultureInfo.InvariantCulture), rowIndex, columnName));
+            }
+        }
+
+        return changedCells;
+    }
+
+    private static IReadOnlyList<string> BuildJobAttributeCsvColumnNames()
+        => ["ID", "兵种", .. JobAttributeDefinitions.Values
+            .OrderBy(static definition => definition.RowId)
+            .Select(static definition => definition.Name)];
+
+    private static bool TryParseJobAttributeImportValue(int attributeRowId, string text, out int value, out string error)
+    {
+        error = string.Empty;
+        var definition = GetJobAttributeDefinition(attributeRowId);
+        if (definition.EditorKind == JobAttributeEditorKind.Combo)
+        {
+            if (TryParseJobAttributeDisplay(attributeRowId, text, out value)) return true;
+            error = "下拉字段支持 中文名称：数字、中文名称、0..255、0xNN 或 自定义：N。";
+            return false;
+        }
+
+        if (TryParseIntegerInput(text.Trim(), out var parsed) &&
+            TryConvertParsedIntegerToSigned(parsed, byte.MinValue, byte.MaxValue, out var parsedValue) &&
+            parsedValue is >= byte.MinValue and <= byte.MaxValue)
+        {
+            value = (int)parsedValue;
+            return true;
+        }
+
+        value = 0;
+        error = "策略伤害必须是 0..255 的单字节数值。";
+        return false;
+    }
+
+    private bool TryConvertJobAttributeGridTextValue(
+        DataGridView grid,
+        int columnIndex,
+        string text,
+        out object value,
+        out string error)
+    {
+        value = 0;
+        error = string.Empty;
+        if (!ReferenceEquals(grid, _jobAttributeGrid) ||
+            columnIndex < 0 ||
+            columnIndex >= _jobAttributeGrid.Columns.Count ||
+            !TryGetJobAttributeColumnId(_jobAttributeGrid.Columns[columnIndex].DataPropertyName, out var attributeRowId))
+        {
+            return false;
+        }
+
+        if (TryParseJobAttributeImportValue(attributeRowId, text, out var parsed, out error))
+        {
+            value = parsed;
+            return true;
+        }
+
+        return false;
+    }
 
     private string BuildJobMatrixColumnHeader(string columnName, bool isAttributeGrid = false)
     {
@@ -10521,11 +11400,15 @@ public sealed partial class MainForm
         var restraintRows = _jobRestraintRead?.Data.Rows.Count ?? 0;
         var restraintCols = _jobRestraintRead?.Data.Columns.Count - 2 ?? 0;
         var attributeRows = _jobAttributeRead?.Data.Rows.Count ?? 0;
-        var attributeCols = Math.Max(0, (_jobAttributeRead?.Data.Columns.Count ?? 1) - 1);
+        var attributeCols = _jobAttributeRead == null
+            ? 0
+            : _jobAttributeRead.Data.Columns
+                .Cast<DataColumn>()
+                .Count(column => int.TryParse(column.ColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out _));
         return
-            $"兵种矩阵已读取：相克 {restraintRows}x{restraintCols}，属性 {attributeRows}x{attributeCols}。\r\n" +
+            $"兵种矩阵已读取：相克 {restraintRows}x{restraintCols}，属性底层 {attributeRows}x{attributeCols}，GUI 转置显示为 {attributeCols}x{attributeRows}。\r\n" +
             "相克来源：Ekd5.exe@0xA3280，offset = 0xA3280 + 攻方兵种系ID*40 + 守方兵种系ID。\r\n" +
-            "属性来源：Ekd5.exe@0xA38C0，offset = 0xA38C0 + 属性序号*40 + 兵种系ID；8 行按形象指定器 Option1 顺序命名。\r\n" +
+            "属性来源：Ekd5.exe@0xA38C0，offset = 0xA38C0 + 属性序号*40 + 兵种系ID；GUI 每行是兵种系、每列是属性，除策略伤害列使用数值输入外，其余属性列使用中文下拉。\r\n" +
             "UserXK 尾部 0xA3A00..0xA3A27 只作为证据候选归档，不在本页开放写入。保存前自动备份，保存后重新读取校验。";
     }
 
@@ -10549,8 +11432,11 @@ public sealed partial class MainForm
     {
         RefreshChangedGridCells(_jobRestraintGrid, changedCells);
         RefreshChangedGridRowsOnly(_jobRestraintGrid, changedCells, rowIndex => RefreshJobMatrixRowStyle(_jobRestraintGrid, rowIndex));
-        RefreshChangedGridCells(_jobAttributeGrid, changedCells);
-        RefreshChangedGridRowsOnly(_jobAttributeGrid, changedCells, rowIndex => RefreshJobMatrixRowStyle(_jobAttributeGrid, rowIndex));
+        SyncJobAttributeEditorCellsToSource(changedCells);
+        var attributeEditorCells = BuildJobAttributeEditorCellKeys(changedCells);
+        RefreshChangedGridCells(_jobAttributeGrid, attributeEditorCells);
+        ConfigureJobAttributeEditorGrid();
+        RefreshChangedGridRowsOnly(_jobAttributeGrid, attributeEditorCells, rowIndex => RefreshJobMatrixRowStyle(_jobAttributeGrid, rowIndex));
         if (_jobAttributeGrid.Focused || _jobAttributeGrid.ContainsFocus)
         {
             ShowSelectedJobMatrixCell(_jobAttributeGrid, "兵种属性");
@@ -10561,26 +11447,105 @@ public sealed partial class MainForm
         }
     }
 
+    private IReadOnlyList<GridCellKey> BuildJobAttributeEditorCellKeys(IReadOnlyList<GridCellKey> changedCells)
+    {
+        if (_currentJobAttributeEditorData == null) return changedCells;
+        var result = new List<GridCellKey>();
+        foreach (var key in changedCells)
+        {
+            if (key.RowKey != null &&
+                int.TryParse(key.RowKey, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) &&
+                key.ColumnName != null &&
+                TryGetJobAttributeColumnId(key.ColumnName, out _))
+            {
+                result.Add(key);
+                continue;
+            }
+
+            if (key.RowKey != null &&
+                int.TryParse(key.RowKey, NumberStyles.Integer, CultureInfo.InvariantCulture, out var attributeRowId) &&
+                int.TryParse(key.ColumnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seriesId))
+            {
+                var definition = GetJobAttributeDefinition(attributeRowId);
+                var rowIndex = FindJobAttributeEditorGridRowIndex(seriesId);
+                if (rowIndex >= 0)
+                {
+                    result.Add(new GridCellKey(seriesId.ToString(CultureInfo.InvariantCulture), rowIndex, definition.Name));
+                }
+            }
+        }
+
+        return result.Count == 0 ? changedCells : result;
+    }
+
+    private int FindJobAttributeEditorGridRowIndex(int seriesId)
+    {
+        for (var i = 0; i < _jobAttributeGrid.Rows.Count; i++)
+        {
+            if (_jobAttributeGrid.Rows[i].IsNewRow) continue;
+            var value = _jobAttributeGrid.Rows[i].Cells["ID"].Value;
+            if (value != null && Convert.ToInt32(value, CultureInfo.InvariantCulture) == seriesId)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void SyncJobAttributeEditorCellsToSource(IReadOnlyList<GridCellKey> changedCells)
+    {
+        if (_jobAttributeRead == null || _currentJobAttributeEditorData == null) return;
+        foreach (var key in changedCells)
+        {
+            if (string.IsNullOrWhiteSpace(key.ColumnName) ||
+                !TryGetJobAttributeColumnId(key.ColumnName, out var attributeRowId))
+            {
+                continue;
+            }
+
+            var editorRow = key.RowKey != null &&
+                            int.TryParse(key.RowKey, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rowKey)
+                ? TryFindRowById(_currentJobAttributeEditorData, rowKey)
+                : key.RowIndex >= 0 && key.RowIndex < _currentJobAttributeEditorData.Rows.Count
+                    ? _currentJobAttributeEditorData.Rows[key.RowIndex]
+                    : null;
+            if (editorRow == null) continue;
+            var seriesId = Convert.ToInt32(editorRow["ID"], CultureInfo.InvariantCulture);
+            var value = Convert.ToInt32(editorRow[key.ColumnName], CultureInfo.InvariantCulture);
+            WriteJobAttributeRawValue(attributeRowId, seriesId, value);
+        }
+    }
+
     private void ShowSelectedJobMatrixCell(DataGridView grid, string matrixName)
     {
         if (grid.CurrentCell == null) return;
         var cell = grid.CurrentCell;
         if (cell.RowIndex < 0 || cell.ColumnIndex < 0) return;
         var columnName = grid.Columns[cell.ColumnIndex].DataPropertyName;
+        if (string.IsNullOrWhiteSpace(columnName)) return;
         var row = grid.Rows[cell.RowIndex];
         var isAttributeGrid = ReferenceEquals(grid, _jobAttributeGrid);
-        var rowName = isAttributeGrid
-            ? BuildJobAttributeRowLabel(Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture))
-            : row.Cells["名称"].Value;
-        var targetName = TryGetJobSeriesName(columnName, out var jobName) ? $"{columnName}:{jobName}" : columnName;
+        var rowName = isAttributeGrid ? BuildJobSeriesColumnLabel(Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture)) : row.Cells["名称"].Value;
+        var targetName = isAttributeGrid ? columnName : TryGetJobSeriesName(columnName, out var jobName) ? $"{columnName}:{jobName}" : columnName;
         var offsetText = TryBuildJobMatrixCellOffsetText(grid, row, columnName, out var fileOffset)
             ? $"文件偏移：{fileOffset}\r\n"
             : string.Empty;
+        var rawValueText = Convert.ToString(cell.Value, CultureInfo.InvariantCulture) ?? string.Empty;
+        var displayValueText = isAttributeGrid &&
+                               int.TryParse(rawValueText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rawValue) &&
+                               TryGetJobAttributeColumnId(columnName, out var attributeRowId)
+            ? FormatJobAttributeValue(attributeRowId, rawValue)
+            : rawValueText;
         _jobMatrixInfoBox.Text =
             $"{matrixName}：行={rowName}    列={targetName}\r\n" +
-            $"当前值：{cell.Value}\r\n\r\n" +
+            $"当前值：{displayValueText}\r\n" +
+            (displayValueText == rawValueText ? string.Empty : $"原始数值：{rawValueText}\r\n") +
+            "\r\n" +
             offsetText +
-            BuildJobMatrixColumnAnnotation(columnName, isAttributeGrid);
+            (isAttributeGrid
+                ? BuildJobAttributeColumnAnnotation(columnName)
+                : BuildJobMatrixColumnAnnotation(columnName));
     }
 
     private void ValidateJobMatrixCell(DataGridView grid, DataGridViewCellValidatingEventArgs e)
@@ -10590,12 +11555,15 @@ public sealed partial class MainForm
         if (column.ReadOnly) return;
         var value = Convert.ToString(e.FormattedValue, CultureInfo.InvariantCulture) ?? string.Empty;
         if (ReferenceEquals(grid, _jobAttributeGrid) &&
-            TryGetJobAttributeRowId(e.RowIndex, out var rowId) &&
-            rowId == 0 &&
-            TryParseMoveSoundDisplay(value, out _))
+            TryGetJobAttributeColumnId(column.DataPropertyName, out var rowId))
         {
-            grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = string.Empty;
-            return;
+            var definition = GetJobAttributeDefinition(rowId);
+            if (definition.EditorKind == JobAttributeEditorKind.Combo &&
+                TryParseJobAttributeDisplay(rowId, value, out _))
+            {
+                grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = string.Empty;
+                return;
+            }
         }
 
         var error = TryParseInteger(value, 0, byte.MaxValue, column.DataPropertyName, _currentPageHexButton.Checked);
@@ -10609,19 +11577,92 @@ public sealed partial class MainForm
     private void ParseJobAttributeMatrixCell(DataGridViewCellParsingEventArgs e)
     {
         if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
-        if (!TryGetJobAttributeRowId(e.RowIndex, out var rowId) || rowId != 0) return;
+        if (e.ColumnIndex >= _jobAttributeGrid.Columns.Count ||
+            !TryGetJobAttributeColumnId(_jobAttributeGrid.Columns[e.ColumnIndex].DataPropertyName, out var rowId))
+        {
+            return;
+        }
+
+        var definition = GetJobAttributeDefinition(rowId);
+        if (definition.EditorKind != JobAttributeEditorKind.Combo) return;
         var text = Convert.ToString(e.Value, CultureInfo.InvariantCulture) ?? string.Empty;
-        if (!TryParseMoveSoundDisplay(text, out var value)) return;
+        if (!TryParseJobAttributeDisplay(rowId, text, out var value)) return;
+        EnsureJobAttributeComboCellContainsValue(e.RowIndex, e.ColumnIndex, rowId, value);
         e.Value = value;
         e.ParsingApplied = true;
     }
 
-    private bool TryGetJobAttributeRowId(int rowIndex, out int rowId)
+    private void ConfigureJobAttributeEditingControl(Control control)
     {
-        rowId = -1;
+        if (control is not DataGridViewComboBoxEditingControl combo) return;
+        if (_jobAttributeGrid.CurrentCell == null ||
+            !TryGetJobAttributeColumnId(_jobAttributeGrid.Columns[_jobAttributeGrid.CurrentCell.ColumnIndex].DataPropertyName, out var rowId) ||
+            GetJobAttributeDefinition(rowId).EditorKind != JobAttributeEditorKind.Combo)
+        {
+            return;
+        }
+
+        combo.DropDownStyle = ComboBoxStyle.DropDown;
+        combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+        combo.AutoCompleteSource = AutoCompleteSource.ListItems;
+    }
+
+    private void HandleJobAttributeGridDataError(DataGridViewDataErrorEventArgs e)
+    {
+        e.ThrowException = false;
+        SetStatus("兵种属性单元格显示值无法匹配；可输入 0..255 原始数值，或重新选择下拉项。");
+    }
+
+    private void EnsureJobAttributeComboCellContainsValue(int rowIndex, int columnIndex, int rowId, int value)
+    {
+        if (rowIndex < 0 || rowIndex >= _jobAttributeGrid.Rows.Count ||
+            columnIndex < 0 || columnIndex >= _jobAttributeGrid.Columns.Count ||
+            _jobAttributeGrid.Rows[rowIndex].Cells[columnIndex] is not DataGridViewComboBoxCell comboCell)
+        {
+            return;
+        }
+
+        var definition = GetJobAttributeDefinition(rowId);
+        if (definition.EditorKind != JobAttributeEditorKind.Combo) return;
+        comboCell.DataSource = BuildJobAttributeChoicesWithCustomValue(definition, value);
+        comboCell.ValueMember = nameof(JobAttributeValueChoice.Value);
+        comboCell.DisplayMember = nameof(JobAttributeValueChoice.DisplayText);
+    }
+
+    private bool TryGetJobAttributeSeriesId(int rowIndex, out int seriesId)
+    {
+        seriesId = -1;
         if (rowIndex < 0 || rowIndex >= _jobAttributeGrid.Rows.Count) return false;
         var value = _jobAttributeGrid.Rows[rowIndex].Cells["ID"].Value;
-        return value != null && int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out rowId);
+        return value != null && int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out seriesId);
+    }
+
+    private static bool TryGetJobAttributeColumnId(string? columnName, out int rowId)
+    {
+        rowId = -1;
+        var definition = GetJobAttributeDefinitionByName(columnName);
+        if (definition == null) return false;
+        rowId = definition.RowId;
+        return true;
+    }
+
+    private void RefreshJobAttributeCellAfterEdit(int rowIndex, int columnIndex)
+    {
+        if (rowIndex < 0 || columnIndex < 0 ||
+            rowIndex >= _jobAttributeGrid.Rows.Count ||
+            columnIndex >= _jobAttributeGrid.Columns.Count ||
+            !TryGetJobAttributeSeriesId(rowIndex, out var seriesId) ||
+            !TryGetJobAttributeColumnId(_jobAttributeGrid.Columns[columnIndex].DataPropertyName, out var attributeRowId))
+        {
+            return;
+        }
+
+        var definition = GetJobAttributeDefinition(attributeRowId);
+        var cell = _jobAttributeGrid.Rows[rowIndex].Cells[columnIndex];
+        if (!int.TryParse(Convert.ToString(cell.Value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)) return;
+        WriteJobAttributeRawValue(attributeRowId, seriesId, value);
+        if (definition.EditorKind != JobAttributeEditorKind.Combo) return;
+        EnsureJobAttributeComboCellContainsValue(rowIndex, columnIndex, attributeRowId, value);
     }
 
     private void SaveJobMatrixEditor()
@@ -10652,6 +11693,7 @@ public sealed partial class MainForm
             var saves = new List<TableSaveResult>();
             if (SaveChangedTableAndVerify(_jobRestraintRead) is { } restraintSave) saves.Add(restraintSave);
             if (SaveChangedTableAndVerify(_jobAttributeRead) is { } attributeSave) saves.Add(attributeSave);
+            _currentJobAttributeEditorData?.AcceptChanges();
             RefreshJobMatrixRowStyles(_jobRestraintGrid);
             RefreshJobMatrixRowStyles(_jobAttributeGrid);
             ShowSelectedJobMatrixCell(
@@ -10717,6 +11759,14 @@ public sealed partial class MainForm
                 var rowLabel = ReferenceEquals(read, _jobAttributeRead)
                     ? BuildJobAttributeRowLabel(rowId)
                     : BuildJobSeriesColumnLabel(rowId);
+                if (ReferenceEquals(read, _jobAttributeRead) &&
+                    int.TryParse(originalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var originalValue) &&
+                    int.TryParse(currentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var currentValue))
+                {
+                    originalText = FormatJobAttributeValue(rowId, originalValue);
+                    currentText = FormatJobAttributeValue(rowId, currentValue);
+                }
+
                 lines.Add($"{matrixName} {rowLabel}[{columnLabel}] 0x{offset} {originalText} -> {currentText}");
             }
         }
@@ -10727,6 +11777,14 @@ public sealed partial class MainForm
         offsetText = string.Empty;
         var read = ReferenceEquals(grid, _jobAttributeGrid) ? _jobAttributeRead : _jobRestraintRead;
         if (read == null) return false;
+        if (ReferenceEquals(grid, _jobAttributeGrid))
+        {
+            if (!TryGetJobAttributeColumnId(columnName, out var attributeRowId)) return false;
+            var jobSeriesId = Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture);
+            offsetText = "0x" + HexDisplayFormatter.FormatOffset(read.Table.DataPos + ((long)attributeRowId * read.Table.RowSize) + jobSeriesId);
+            return true;
+        }
+
         if (!int.TryParse(columnName, NumberStyles.Integer, CultureInfo.InvariantCulture, out var columnId)) return false;
         var rowId = Convert.ToInt32(row.Cells["ID"].Value, CultureInfo.InvariantCulture);
         offsetText = "0x" + HexDisplayFormatter.FormatOffset(read.Table.DataPos + ((long)rowId * read.Table.RowSize) + columnId);
@@ -10734,9 +11792,25 @@ public sealed partial class MainForm
     }
 
     private string BuildJobSeriesColumnLabel(int id)
-        => _jobSeriesRead != null && id >= 0 && id < _jobSeriesRead.Data.Rows.Count
-            ? $"{id:00}:{Convert.ToString(_jobSeriesRead.Data.Rows[id]["名称"], CultureInfo.InvariantCulture) ?? string.Empty}"
-            : id.ToString("00", CultureInfo.InvariantCulture);
+    {
+        var name = BuildJobSeriesName(id);
+        return string.IsNullOrWhiteSpace(name)
+            ? $"{id:00}:未命名"
+            : $"{id:00}:{name}";
+    }
+
+    private string BuildJobSeriesName(int id)
+    {
+        var row = _jobSeriesRead == null ? null : TryFindRowById(_jobSeriesRead.Data, id);
+        if (row == null && _jobSeriesRead != null && id >= 0 && id < _jobSeriesRead.Data.Rows.Count)
+        {
+            row = _jobSeriesRead.Data.Rows[id];
+        }
+
+        return row == null
+            ? string.Empty
+            : Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
+    }
 
     private static string BuildJobAttributeRowLabel(int rowId)
         => rowId switch
@@ -10753,63 +11827,89 @@ public sealed partial class MainForm
         };
 
     private static string BuildJobAttributeValueRule(int rowId)
-        => rowId switch
-        {
-            0 => "值口径：0=马蹄声，1=车轮声，2=脚步声，3=无声。",
-            1 => "值口径：原始单字节，默认常见 0/1。",
-            2 => "值口径：原始单字节，默认常见 0/1。",
-            3 => "值口径：0/1 标志，1 表示远程兵种。",
-            4 => "值口径：0/1 标志，1 表示攻击延迟。",
-            5 => "值口径：原始单字节，默认常见 0/1/2。",
-            6 => "值口径：百分比式单字节，默认常见 90/100/110/120/125/130。",
-            7 => "值口径：0/1 标志，当前 6.5 基底默认全 1。",
-            _ => "值口径：原始单字节。"
-        };
+        => GetJobAttributeDefinition(rowId).ValueRule;
 
-    private static string FormatMoveSoundValue(int value)
-        => value switch
-        {
-            0 => "0=马蹄声",
-            1 => "1=车轮声",
-            2 => "2=脚步声",
-            3 => "3=无声",
-            _ => value.ToString(CultureInfo.InvariantCulture)
-        };
-
-    private static bool TryParseMoveSoundDisplay(string text, out int value)
+    private static string FormatJobAttributeValue(int rowId, int value)
     {
+        var definition = GetJobAttributeDefinition(rowId);
+        if (definition.EditorKind == JobAttributeEditorKind.Numeric)
+        {
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return definition.Choices.FirstOrDefault(choice => choice.Value == value)?.DisplayText ??
+               new JobAttributeValueChoice(value, "自定义").DisplayText;
+    }
+
+    private static bool TryParseJobAttributeDisplay(int rowId, string text, out int value)
+    {
+        value = 0;
         text = text.Trim();
-        if (text.StartsWith("0=", StringComparison.Ordinal) || text.Equals("马蹄声", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var definition = GetJobAttributeDefinition(rowId);
+        foreach (var choice in definition.Choices)
         {
-            value = 0;
-            return true;
+            if (text.Equals(choice.DisplayText, StringComparison.Ordinal) ||
+                text.Equals(choice.Label, StringComparison.Ordinal))
+            {
+                value = choice.Value;
+                return true;
+            }
         }
 
-        if (text.StartsWith("1=", StringComparison.Ordinal) || text.Equals("车轮声", StringComparison.Ordinal))
+        var separatorIndex = text.LastIndexOf('：');
+        if (separatorIndex < 0) separatorIndex = text.LastIndexOf(':');
+        if (separatorIndex >= 0 && separatorIndex < text.Length - 1)
         {
-            value = 1;
-            return true;
+            text = text[(separatorIndex + 1)..].Trim();
         }
 
-        if (text.StartsWith("2=", StringComparison.Ordinal) || text.Equals("脚步声", StringComparison.Ordinal))
-        {
-            value = 2;
-            return true;
-        }
+        return TryParseIntegerInput(text, out var parsed) &&
+               TryConvertParsedIntegerToSigned(parsed, byte.MinValue, byte.MaxValue, out var parsedValue) &&
+               parsedValue is >= byte.MinValue and <= byte.MaxValue &&
+               (value = (int)parsedValue) >= byte.MinValue;
+    }
 
-        if (text.StartsWith("3=", StringComparison.Ordinal) || text.Equals("无声", StringComparison.Ordinal))
-        {
-            value = 3;
-            return true;
-        }
+    private static JobAttributeDefinition GetJobAttributeDefinition(int rowId)
+        => JobAttributeDefinitions.TryGetValue(rowId, out var definition)
+            ? definition
+            : new JobAttributeDefinition(rowId, $"属性{rowId}", JobAttributeEditorKind.Numeric, "值口径：原始单字节。", []);
 
-        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value) && value is >= 0 and <= 3;
+    private static readonly IReadOnlyDictionary<int, JobAttributeDefinition> JobAttributeDefinitions =
+        new Dictionary<int, JobAttributeDefinition>
+        {
+            [0] = new(0, "移动声音", JobAttributeEditorKind.Combo, "值口径：马蹄声：0，车轮声：1，脚步声：2，无声：3。", [new(0, "马蹄声"), new(1, "车轮声"), new(2, "脚步声"), new(3, "无声")]),
+            [1] = new(1, "移动速度", JobAttributeEditorKind.Combo, "值口径：速度档位0：0，速度档位1：1。中性档位名，具体语义待进一步验证。", [new(0, "速度档位0"), new(1, "速度档位1")]),
+            [2] = new(2, "攻击声音", JobAttributeEditorKind.Combo, "值口径：攻击音效0：0，攻击音效1：1。中性档位名，具体语义待进一步验证。", [new(0, "攻击音效0"), new(1, "攻击音效1")]),
+            [3] = new(3, "远程兵种", JobAttributeEditorKind.Combo, "值口径：否：0，是：1。", [new(0, "否"), new(1, "是")]),
+            [4] = new(4, "攻击延迟", JobAttributeEditorKind.Combo, "值口径：无延迟：0，有延迟：1。", [new(0, "无延迟"), new(1, "有延迟")]),
+            [5] = new(5, "兵种类型", JobAttributeEditorKind.Combo, "值口径：类型0：0，类型1：1，类型2：2。中性类型名，具体语义待进一步验证。", [new(0, "类型0"), new(1, "类型1"), new(2, "类型2")]),
+            [6] = new(6, "策略伤害", JobAttributeEditorKind.Numeric, "值口径：百分比式单字节，常见值 90/100/110/120/125/130；本行使用数值输入。", []),
+            [7] = new(7, "参与围攻", JobAttributeEditorKind.Combo, "值口径：不参与：0，参与：1；当前 6.5 基底默认全 1。", [new(0, "不参与"), new(1, "参与")])
+        };
+
+    private sealed record JobAttributeDefinition(int RowId, string Name, JobAttributeEditorKind EditorKind, string ValueRule, IReadOnlyList<JobAttributeValueChoice> Choices);
+
+    private sealed record JobAttributeValueChoice(int Value, string Label)
+    {
+        public string DisplayText => $"{Label}：{Value}";
+    }
+
+    private enum JobAttributeEditorKind
+    {
+        Combo,
+        Numeric
     }
 
     private string BuildJobAttributeValueRuleForCurrentRow()
     {
-        if (_jobAttributeGrid.CurrentCell == null || _jobAttributeGrid.CurrentCell.RowIndex < 0) return "值口径：原始单字节。";
-        var id = Convert.ToInt32(_jobAttributeGrid.Rows[_jobAttributeGrid.CurrentCell.RowIndex].Cells["ID"].Value, CultureInfo.InvariantCulture);
+        if (_jobAttributeGrid.CurrentCell == null || _jobAttributeGrid.CurrentCell.ColumnIndex < 0) return "值口径：原始单字节。";
+        if (!TryGetJobAttributeColumnId(_jobAttributeGrid.Columns[_jobAttributeGrid.CurrentCell.ColumnIndex].DataPropertyName, out var id))
+        {
+            return "值口径：原始单字节。";
+        }
+
         return BuildJobAttributeValueRule(id);
     }
 

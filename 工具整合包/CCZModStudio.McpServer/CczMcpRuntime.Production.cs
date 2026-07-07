@@ -21,6 +21,7 @@ public sealed partial class CczMcpRuntime
     private readonly ShopEditorService _shopEditorService = new();
     private readonly ShopRuntimeDiagnosticService _shopRuntimeDiagnosticService = new();
     private readonly GlobalSettingsService _globalSettingsService = new();
+    private readonly AbilityTierPatchService _abilityTierPatchService = new();
     private readonly ScenarioTextImportService _scenarioTextImportService = new();
     private readonly ScenarioTextExportService _scenarioTextExportService = new();
     private readonly ScriptVariableUsageService _scriptVariableUsageService = new();
@@ -547,6 +548,73 @@ public sealed partial class CczMcpRuntime
             project.GameRoot,
             Report = report,
             SafetyNote = "Read-only static query. Candidate hits do not change CanEdit; pending fields still require official single-field diff."
+        };
+    }
+
+    public object QueryAbilityTierPatchPoints(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = _abilityTierPatchService.Scan(project);
+        return new
+        {
+            project.GameRoot,
+            Report = report,
+            SafetyNote = "Read-only scan. Fixed forum addresses are not trusted; write eligibility depends on PE mapping and local machine-code signatures."
+        };
+    }
+
+    public object PreviewWriteAbilityTierProfile(string? gameRoot, AbilityTierProfileUpdate update)
+    {
+        var project = LoadProject(gameRoot);
+        var profile = BuildAbilityTierProfile(update);
+        var preview = _abilityTierPatchService.Preview(project, profile);
+        return new
+        {
+            project.GameRoot,
+            Preview = preview,
+            SafetyNote = preview.CanWrite
+                ? "Preview only; no game files were modified. This profile can be written with backup and reread validation."
+                : "Preview only; no game files were modified. Non-writable profiles require relocation or additional validation."
+        };
+    }
+
+    public object WriteAbilityTierProfile(string? gameRoot, AbilityTierProfileUpdate update, string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var profile = BuildAbilityTierProfile(update);
+        var result = _abilityTierPatchService.Write(project, profile);
+        return new
+        {
+            project.GameRoot,
+            Result = result,
+            SafetyNote = "Ability-tier profile was written through signature-checked Ekd5.exe offsets with backup, SHA256 report, and read-back validation."
+        };
+    }
+
+    private AbilityTierProfile BuildAbilityTierProfile(AbilityTierProfileUpdate update)
+    {
+        if (update == null)
+        {
+            throw new InvalidOperationException("ability tier profile update is required.");
+        }
+
+        var displayMode = string.IsNullOrWhiteSpace(update.DisplayMode)
+            ? "Letter"
+            : update.DisplayMode.Trim();
+        var profile = _abilityTierPatchService.BuildDefaultProfile(update.TierCount, displayMode);
+        if (update.Labels.Count == 0)
+        {
+            return profile;
+        }
+
+        return new AbilityTierProfile
+        {
+            ProfileName = $"Custom{update.TierCount}Tier{displayMode}",
+            TierCount = update.TierCount,
+            DisplayMode = displayMode,
+            Labels = update.Labels.Select(label => label ?? string.Empty).ToList(),
+            PatchMode = profile.PatchMode
         };
     }
 

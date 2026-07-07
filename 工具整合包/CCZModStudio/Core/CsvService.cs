@@ -31,6 +31,20 @@ public static class CsvService
     public static void ExportColumnsRowsWithAnnotationRow(DataTable table, string path, IReadOnlyList<string> columnNames, IReadOnlyDictionary<string, string> annotations, IReadOnlyList<DataRow> rows)
         => ExportColumnsCore(table, path, columnNames, annotations, rows);
 
+    public static void WriteRecords(string path, IReadOnlyList<IReadOnlyList<string>> records)
+    {
+        var builder = new StringBuilder();
+        foreach (var record in records)
+        {
+            builder.AppendLine(string.Join(",", record.Select(Escape)));
+        }
+
+        File.WriteAllText(path, builder.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+    }
+
+    public static List<List<string>> ReadRecords(string path)
+        => ReadRecords(path, table: null);
+
     private static void ExportColumnsCore(DataTable table, string path, IReadOnlyList<string> columnNames, IReadOnlyDictionary<string, string>? annotationRows, IReadOnlyList<DataRow>? rows)
     {
         if (columnNames.Count == 0)
@@ -406,7 +420,7 @@ public static class CsvService
         return mustQuote ? $"\"{value}\"" : value;
     }
 
-    private static List<List<string>> ReadRecords(string path, DataTable? table = null)
+    private static List<List<string>> ReadRecords(string path, DataTable? table)
     {
         var text = ReadTextWithEncodingFallback(path, table);
         return ParseRecords(text);

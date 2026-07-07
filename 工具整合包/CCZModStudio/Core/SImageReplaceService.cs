@@ -19,8 +19,9 @@ public sealed class SImageReplaceService
 
     public SImageReplacePreviewResult Preview(CczProject project, SImageReplaceRequest request)
     {
-        var resolvedMapping = ResolveMapping(request);
+        var resolvedMapping = ResolveMapping(project, request);
         var stageTargets = CharacterImageResourceService.ResolveSImageStageTargets(
+            project,
             resolvedMapping,
             request.StageSlots,
             defaultAllStages: true);
@@ -32,7 +33,9 @@ public sealed class SImageReplaceService
         var mapping = ToSnapshot(resolvedMapping, stageTargets);
         var filePlans = BuildFilePlans(project, request, stageTargets);
         var warnings = new List<string>();
-        if (request.SImageId is >= 1 and <= 32 && request.StageSlots.Count == 0 && stageTargets.Count > 1)
+        if (CharacterImageResourceService.GetAvailableSImageStageSlots(project, request.SImageId).Count > 1 &&
+            request.StageSlots.Count == 0 &&
+            stageTargets.Count > 1)
         {
             warnings.Add("未指定转数，按旧行为写入该 S 对应的全部三转 Unit 图号。");
         }
@@ -107,7 +110,7 @@ public sealed class SImageReplaceService
         };
     }
 
-    private static SUnitImageMapping ResolveMapping(SImageReplaceRequest request)
+    private static SUnitImageMapping ResolveMapping(CczProject project, SImageReplaceRequest request)
     {
         if (request.SImageId == 0 && (!request.JobId.HasValue || request.JobId.Value < 0))
         {
@@ -115,6 +118,7 @@ public sealed class SImageReplaceService
         }
 
         var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(
+            project,
             request.SImageId,
             request.JobId,
             request.FactionSlot);

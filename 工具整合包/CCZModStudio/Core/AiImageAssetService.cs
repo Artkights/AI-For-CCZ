@@ -488,7 +488,7 @@ public sealed class AiImageAssetService
         {
             if (imageNumber.HasValue) return [imageNumber.Value];
             var s = sImageId ?? 1;
-            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(s, jobId, factionSlot);
+            var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, s, jobId, factionSlot);
             return mapping.ImageNumbers.Count == 0 ? [1] : mapping.ImageNumbers;
         }
 
@@ -557,7 +557,7 @@ public sealed class AiImageAssetService
         return preset.Key switch
         {
             "r_actor" => $"R={rImageId ?? 0} -> Pmapobj.e5 {joined}",
-            "s_unit" => CharacterImageResourceService.ResolveSUnitImageMapping(sImageId ?? 1, jobId, factionSlot).Detail + $"；目标 Unit 图 {joined}",
+            "s_unit" => CharacterImageResourceService.ResolveSUnitImageMapping(project, sImageId ?? 1, jobId, factionSlot).Detail + $"；目标 Unit 图 {joined}",
             "face" => new CharacterImageResourceService().MapFaceId(faceId ?? Math.Max(0, numbers.First() - 8)).Explanation + $"；目标 Face 图 {joined}",
             "dll_icon" when Ccz66RevisedLayout.Is66(project) && numbers.Count >= 2 => $"6.6 Item.e5 icon field value {(numbers[0] - 1) / 2} -> small #{numbers[0]} / large #{numbers[1]}",
             "dll_icon" when Ccz66RevisedLayout.Is66(project) => $"6.6 Mtem.e5 strategy icon field value {Math.Max(0, numbers.FirstOrDefault() - 1)} -> E5 image #{numbers.FirstOrDefault()}",

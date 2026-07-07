@@ -6,6 +6,7 @@ using System.Data;
 using System.Drawing;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Windows.Forms;
 
 internal partial class Program
@@ -69,6 +70,13 @@ internal partial class Program
         if (schema == null || !schema.ToString()!.Contains("EffectPackage", StringComparison.Ordinal))
         {
             throw new InvalidOperationException("EffectPackage schema resource 未生成。");
+        }
+        var schemaJson = JsonSerializer.Serialize(schema);
+        if (!schemaJson.Contains("expectedOldBytesHex", StringComparison.Ordinal) ||
+            !schemaJson.Contains("scan_exe_code_caves", StringComparison.Ordinal) ||
+            !schemaJson.Contains("apply_assembly_patch", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("EffectPackage schema resource 缺少汇编补丁工作流字段。");
         }
     
         var itemPackage = service.BuildPackageFromTemplate("config.item.binding", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

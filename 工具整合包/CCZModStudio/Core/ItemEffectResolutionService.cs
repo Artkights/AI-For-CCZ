@@ -26,6 +26,37 @@ public sealed class ItemEffectResolutionService
             return BuiltIn(rawEffectId, 255, "Common equipment", "Common shop equipment marker; no extended item effect is enabled.");
         }
 
+        if (ConsumableItemEffectCatalogService.IsConsumableCategory(majorCategory))
+        {
+            var consumableEffectiveId = rawEffectId is 3 ? typeId : rawEffectId;
+            if (consumableEffectiveId == 0)
+            {
+                return BuiltIn(rawEffectId, 0, "None", "No consumable effect / empty slot.");
+            }
+
+            if (consumableEffectiveId == 255)
+            {
+                return BuiltIn(rawEffectId, 255, "Common item", "Common item marker; no verified consumable effect is enabled.");
+            }
+
+            return new ItemEffectResolutionResult
+            {
+                RawEffectId = rawEffectId,
+                EffectiveEffectId = consumableEffectiveId,
+                CategoryMarker = rawEffectId == 3 ? rawEffectId : null,
+                DisplayName = ConsumableItemEffectCatalogService.BuildDisplayName(consumableEffectiveId),
+                Description = ConsumableItemEffectCatalogService.BuildDescription(consumableEffectiveId),
+                Source = "ImageAssignerConsumableCatalog",
+                Confidence = ConsumableItemEffectCatalogService.TryResolve(consumableEffectiveId, out _)
+                    ? "ImageAssignerAligned"
+                    : "UnverifiedConsumableEffect",
+                IsCategoryMarker = rawEffectId == 3,
+                Warnings = rawEffectId == 3
+                    ? [$"Consumable row: raw equipment-effect value {rawEffectId} is a category marker; type value {typeId} is displayed as the actual consumable effect id."]
+                    : []
+            };
+        }
+
         if (is66 && IsAccessoryOrConsumable(majorCategory) && rawEffectId is 2 or 3)
         {
             var resolved = typeId switch

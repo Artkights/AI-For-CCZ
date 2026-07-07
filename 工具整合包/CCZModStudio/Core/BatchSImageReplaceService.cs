@@ -78,7 +78,7 @@ public sealed class BatchSImageReplaceService
 
             foreach (var usage in usages)
             {
-                var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(usage.SImageId, usage.JobId, usage.FactionSlot);
+                var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, usage.SImageId, usage.JobId, usage.FactionSlot);
                 if (mapping.ImageNumbers.Count == 0)
                 {
                     skipped.Add(Skip(BuildUsageKey(usage), candidate.Folder, BatchImageImportSkipReasons.MissingFile, mapping.Detail));
@@ -86,6 +86,7 @@ public sealed class BatchSImageReplaceService
                 }
 
                 var stageTargets = CharacterImageResourceService.ResolveSImageStageTargets(
+                    project,
                     mapping,
                     requestedStages,
                     defaultAllStages: true);

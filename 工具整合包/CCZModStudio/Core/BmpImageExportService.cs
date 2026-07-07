@@ -22,6 +22,7 @@ public sealed class BmpImageExportService
     private readonly E5RawImageCodec _raw = new();
     private readonly ItemIconPreviewService _iconPreview = new();
     private readonly CharacterImageResourceService _character = new();
+    private readonly CharacterImageLayoutService _layout = new();
     private readonly DllBitmapIconCodecService _dllIconCodec = new();
 
     public BmpExportResult Export(CczProject project, BmpExportRequest request)
@@ -144,6 +145,7 @@ public sealed class BmpImageExportService
         List<string> warnings)
     {
         var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(
+            project,
             target.FieldValue,
             target.JobId,
             request.FactionSlot);
@@ -152,7 +154,21 @@ public sealed class BmpImageExportService
             throw new InvalidOperationException(mapping.Detail);
         }
 
+        var layout = _layout.Resolve(project);
+        if (layout.UnitEntryCount > 0 && target.FieldValue > 0 && target.FieldValue > layout.SMaxId)
+        {
+            throw new InvalidOperationException($"S={target.FieldValue} 超出当前项目 S 形象上限 {layout.SMaxId}。{layout.Evidence}");
+        }
+
+        var overflowImageNumbers = mapping.ImageNumbers.Where(number => number <= 0 || number > layout.UnitEntryCount).ToArray();
+        if (layout.UnitEntryCount > 0 && overflowImageNumbers.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"{mapping.ShortText} 对应 Unit 图号 {string.Join("/", overflowImageNumbers)} 超出当前项目 Unit_* 共同条目数 {layout.UnitEntryCount}。{layout.Evidence}");
+        }
+
         var stageTargets = CharacterImageResourceService.ResolveSImageStageTargets(
+            project,
             mapping,
             request.SImageStageSlots,
             defaultAllStages: false);
@@ -168,7 +184,7 @@ public sealed class BmpImageExportService
             var ignored = requested.Where(stage => !exported.Contains(stage)).ToArray();
             if (ignored.Length > 0)
             {
-                warnings.Add($"S{target.FieldValue} 只有 {string.Join("/", CharacterImageResourceService.GetAvailableSImageStageSlots(target.FieldValue).Select(CharacterImageResourceService.BuildSImageStageText))}；已忽略 {string.Join("/", ignored.Select(CharacterImageResourceService.BuildSImageStageText))}。");
+                warnings.Add($"S{target.FieldValue} 只有 {string.Join("/", CharacterImageResourceService.GetAvailableSImageStageSlots(project, target.FieldValue).Select(CharacterImageResourceService.BuildSImageStageText))}；已忽略 {string.Join("/", ignored.Select(CharacterImageResourceService.BuildSImageStageText))}。");
             }
         }
 
@@ -200,6 +216,12 @@ public sealed class BmpImageExportService
         if (target.FieldValue < 0)
         {
             throw new InvalidOperationException($"R image id cannot be negative: {target.FieldValue}");
+        }
+
+        var layout = _layout.Resolve(project);
+        if (layout.REntryCount > 0 && target.FieldValue > layout.RMaxId)
+        {
+            throw new InvalidOperationException($"R={target.FieldValue} 超出当前项目 R 形象上限 {layout.RMaxId}。{layout.Evidence}");
         }
 
         var sourcePath = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
@@ -447,6 +469,21 @@ public sealed class BmpImageExportService
                 ? ItemIconRasterNormalizeService.GameMagentaKey
                 : DllBitmapIconCodecService.DllTransparentKey
             : MagentaKey;
+        var pixelStats = AnalyzeVisiblePixels(bitmap, magentaKey);
+        if (ShouldRejectEmptyExport(request.Kind) && pixelStats.VisiblePixels == 0)
+        {
+            skipped.Add(new BmpExportSkippedItem
+            {
+                Kind = request.Kind,
+                RowId = target.RowId,
+                FieldValue = target.FieldValue,
+                DisplayName = target.DisplayName,
+                OutputPath = outputPath,
+                Reason = BuildEmptyBitmapReason(sourcePath, imageNumber, resourceId, bitmap, pixelStats)
+            });
+            return;
+        }
+
         SaveBmpWithMagentaBackground(bitmap, outputPath, magentaKey);
         files.Add(new BmpExportedFile
         {
@@ -461,8 +498,68 @@ public sealed class BmpImageExportService
             ResourceId = resourceId,
             Width = bitmap.Width,
             Height = bitmap.Height,
+            VisiblePixels = pixelStats.VisiblePixels,
+            TransparentPixels = pixelStats.TransparentPixels,
+            MagentaPixels = pixelStats.MagentaPixels,
             OutputPath = outputPath
         });
+    }
+
+    private static bool ShouldRejectEmptyExport(BmpExportKind kind)
+        => kind is BmpExportKind.JobSImage or BmpExportKind.RImage or BmpExportKind.SImage or BmpExportKind.Face;
+
+    private static BitmapPixelStats AnalyzeVisiblePixels(Bitmap bitmap, Color magentaKey)
+    {
+        var transparent = 0;
+        var magenta = 0;
+        var visible = 0;
+        for (var y = 0; y < bitmap.Height; y++)
+        {
+            for (var x = 0; x < bitmap.Width; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                if (pixel.A == 0)
+                {
+                    transparent++;
+                    continue;
+                }
+
+                if (IsMagentaKey(pixel, magentaKey))
+                {
+                    magenta++;
+                    continue;
+                }
+
+                visible++;
+            }
+        }
+
+        return new BitmapPixelStats(visible, transparent, magenta);
+    }
+
+    private static bool IsMagentaKey(Color pixel, Color magentaKey)
+    {
+        if (pixel.A == 0) return true;
+        if (pixel.R == magentaKey.R && pixel.G == magentaKey.G && pixel.B == magentaKey.B) return true;
+        return pixel.R >= 210 &&
+               pixel.B >= 210 &&
+               pixel.G <= 90 &&
+               Math.Abs(pixel.R - pixel.B) <= 70;
+    }
+
+    private static string BuildEmptyBitmapReason(
+        string sourcePath,
+        int? imageNumber,
+        int? resourceId,
+        Bitmap bitmap,
+        BitmapPixelStats stats)
+    {
+        var sourceId = imageNumber.HasValue
+            ? $"图号 #{imageNumber.Value.ToString(CultureInfo.InvariantCulture)}"
+            : resourceId.HasValue
+                ? $"资源 {resourceId.Value.ToString(CultureInfo.InvariantCulture)}"
+                : "未知资源";
+        return $"{Path.GetFileName(sourcePath)} {sourceId} 解码后没有可见像素，已跳过空白/占位 BMP。尺寸={bitmap.Width}x{bitmap.Height}，transparent={stats.TransparentPixels:N0}，magenta={stats.MagentaPixels:N0}。";
     }
 
     private static bool UsesFlatBatchLayout(BmpExportKind kind)
@@ -565,6 +662,9 @@ public sealed class BmpExportedFile
     public int? ResourceId { get; init; }
     public int Width { get; init; }
     public int Height { get; init; }
+    public int VisiblePixels { get; init; }
+    public int TransparentPixels { get; init; }
+    public int MagentaPixels { get; init; }
     public string OutputPath { get; init; } = string.Empty;
 }
 
@@ -577,3 +677,5 @@ public sealed class BmpExportSkippedItem
     public string OutputPath { get; init; } = string.Empty;
     public string Reason { get; init; } = string.Empty;
 }
+
+internal sealed record BitmapPixelStats(int VisiblePixels, int TransparentPixels, int MagentaPixels);
