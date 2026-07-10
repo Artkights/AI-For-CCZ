@@ -209,7 +209,7 @@ internal partial class Program
 
             using var renderer = new MapCanvasPreviewRenderer();
             draft.BeautifyGeneratedMap = false;
-            renderer.Rebuild(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0);
+            using var initialRendererPreview = renderer.Rebuild(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0);
             draft.TerrainCells[0] = 12;
             var dirtyRect = renderer.UpdateTerrainCell(draft, 0);
             if (dirtyRect.IsEmpty || !dirtyRect.Contains(new Rectangle(0, 0, 48, 48)) || dirtyRect.Width >= draft.PixelWidth || dirtyRect.Height >= draft.PixelHeight)

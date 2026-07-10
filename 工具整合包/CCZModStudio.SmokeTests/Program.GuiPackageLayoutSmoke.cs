@@ -29,6 +29,18 @@ internal partial class Program
             AssertTrue(actualRootEntries.Contains(expected), "GUI package root contains " + expected);
         }
 
+        var usageGuidePath = Path.Combine(publishRoot, "普罗工具整合包使用说明.md");
+        var usageGuideMarkdown = File.ReadAllText(usageGuidePath, System.Text.Encoding.UTF8);
+        foreach (var heading in new[] { "## 通用操作", "## 角色设定", "## 兵种设定", "## 图片设定", "## 地图编辑", "## 写回与备份边界" })
+        {
+            AssertTrue(usageGuideMarkdown.Contains(heading, StringComparison.Ordinal), "GUI package usage guide contains " + heading);
+        }
+
+        foreach (var forbidden in new[] { "个人特效(EXE表)", "导出PNG", "导出美化JPG", "角色RAW统一", "还原E5条目", "导出缺失报告" })
+        {
+            AssertTrue(!usageGuideMarkdown.Contains(forbidden, StringComparison.Ordinal), "GUI package usage guide omits hidden entry " + forbidden);
+        }
+
         var unexpected = actualRootEntries
             .Where(entry => !expectedRootEntries.Contains(entry))
             .OrderBy(entry => entry, StringComparer.OrdinalIgnoreCase)

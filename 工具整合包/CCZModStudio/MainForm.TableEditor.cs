@@ -561,8 +561,7 @@ public sealed partial class MainForm
 
         _chartColumnCombo.DataSource = numericColumns;
         _renderChartButton.Enabled = numericColumns.Count > 0;
-        _tableChartBox.Image?.Dispose();
-        _tableChartBox.Image = null;
+        SetPictureBoxImage(_tableChartBox, null);
         _tableChartInfoBox.Text = numericColumns.Count > 0 ? $"可绘制 {numericColumns.Count} 个数值列。" : "当前表未发现可绘制数值列。";
     }
 
@@ -708,9 +707,7 @@ public sealed partial class MainForm
         }
 
         var bitmap = DrawHistogram(_currentTableResult.Table.TableName, columnName, values, _tableChartBox.Width, _tableChartBox.Height);
-        var old = _tableChartBox.Image;
-        _tableChartBox.Image = bitmap;
-        old?.Dispose();
+        SetPictureBoxImage(_tableChartBox, bitmap);
         _tableChartInfoBox.Text = $"数量 {values.Count}，最小 {values.Min():0.##}，最大 {values.Max():0.##}，平均 {values.Average():0.##}";
     }
 

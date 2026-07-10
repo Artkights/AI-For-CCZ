@@ -32,6 +32,8 @@ internal partial class Program
 
     static void RunItemEditorReadOnlySmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
+        AssertItemEditorTabbedUi();
+
         var buildItemEditorData = typeof(MainForm).GetMethod("BuildItemEditorData", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException("MainForm.BuildItemEditorData");
         var configureItemEditorGrid = typeof(MainForm).GetMethod("ConfigureItemEditorGrid", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -112,11 +114,65 @@ internal partial class Program
             throw new InvalidOperationException("宝物设定派生列刷新后项目类型为空。旧值：" + oldProjectType);
         }
 
+        RunItemEditorReadOnlyDataColumnRefreshSmoke(refreshItemEditorDerivedCells, row);
         RunItemEditorCsvFilterSmoke(data, isItemEditorUserEditableColumn);
         RunItemEditorAccessoryEffectDisplaySmoke(data);
         RunItemEditorConsumableEffectDisplaySmoke(data);
 
         Console.WriteLine($"ITEM_EDITOR_READONLY_SMOKE_OK rows={data.Rows.Count}");
+    }
+
+    private static void AssertItemEditorTabbedUi()
+    {
+        var itemTab = FindTabPage(smokeForm, "宝物设定")
+            ?? throw new InvalidOperationException("MainForm did not expose 宝物设定 tab.");
+        var subTabs = itemTab.Controls.OfType<TabControl>().FirstOrDefault()
+            ?? throw new InvalidOperationException("宝物设定没有内部分页。");
+        foreach (var tabName in new[] { "data设定", "装备类型" })
+        {
+            if (subTabs.TabPages.Cast<TabPage>().All(page => page.Text != tabName))
+            {
+                throw new InvalidOperationException("宝物设定缺少子页：" + tabName);
+            }
+        }
+
+        var equipmentPage = subTabs.TabPages.Cast<TabPage>().First(page => page.Text == "装备类型");
+        var allVisibleText = string.Join("|", EnumerateControlTexts(equipmentPage));
+        foreach (var forbidden in new[] { "UE Offset", "ManualConfirmed", "NeedsManualReview", "默认长度", "证据", "CMF", "地址", "来源" })
+        {
+            if (allVisibleText.Contains(forbidden, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("宝物设定/装备类型 UI exposed diagnostic text: " + forbidden);
+            }
+        }
+    }
+
+    private static void RunItemEditorReadOnlyDataColumnRefreshSmoke(MethodInfo refreshItemEditorDerivedCells, DataRow row)
+    {
+        var columnsToLock = ItemReadOnlySmokeReadOnlyDerivedColumns
+            .Where(columnName => row.Table.Columns.Contains(columnName))
+            .ToList();
+        foreach (var columnName in columnsToLock)
+        {
+            row.Table.Columns[columnName]!.ReadOnly = true;
+        }
+
+        try
+        {
+            refreshItemEditorDerivedCells.Invoke(smokeForm, new object[] { row });
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is ReadOnlyException)
+        {
+            throw new InvalidOperationException("宝物设定内部刷新不应被只读派生 DataColumn 拦截。", ex.InnerException);
+        }
+
+        foreach (var columnName in columnsToLock)
+        {
+            if (!row.Table.Columns[columnName]!.ReadOnly)
+            {
+                throw new InvalidOperationException("宝物设定内部刷新后未恢复派生列只读状态：" + columnName);
+            }
+        }
     }
 
     static void RunItemEditorWriteSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)

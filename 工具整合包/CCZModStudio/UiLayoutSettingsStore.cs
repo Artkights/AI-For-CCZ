@@ -7,6 +7,7 @@ public sealed class UiLayoutSettings
 {
     public int Version { get; set; } = UiLayoutSettingsStore.Version;
     public Dictionary<string, double> SplitRatios { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int> TextWrapLimits { get; set; } = new(StringComparer.Ordinal);
     public int WindowLeft { get; set; }
     public int WindowTop { get; set; }
     public int WindowWidth { get; set; }
@@ -94,6 +95,12 @@ public static class UiLayoutSettingsStore
                 target.SplitRatios[NormalizeKey(pair.Key)] = pair.Value;
             }
 
+            foreach (var pair in settings.TextWrapLimits)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0) continue;
+                target.TextWrapLimits[NormalizeKey(pair.Key)] = pair.Value;
+            }
+
             var path = GetPath();
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, JsonSerializer.Serialize(target, JsonOptions), Encoding.UTF8);
@@ -112,6 +119,14 @@ public static class UiLayoutSettingsStore
         Save(settings, [key], updateWindow: false);
     }
 
+    public static void SaveTextWrapLimit(string key, int value)
+    {
+        var settings = Load();
+        var normalizedKey = NormalizeKey(key);
+        settings.TextWrapLimits[normalizedKey] = Math.Max(0, value);
+        Save(settings, splitKeysToPersist: Array.Empty<string>(), updateWindow: false);
+    }
+
     public static double? GetSplitRatio(UiLayoutSettings settings, string layoutKey)
     {
         Normalize(settings);
@@ -119,6 +134,15 @@ public static class UiLayoutSettingsStore
         return settings.SplitRatios.TryGetValue(key, out var ratio) && IsValidRatio(ratio)
             ? ratio
             : null;
+    }
+
+    public static int GetTextWrapLimit(UiLayoutSettings settings, string key, int defaultValue)
+    {
+        Normalize(settings);
+        var normalizedKey = NormalizeKey(key);
+        return settings.TextWrapLimits.TryGetValue(normalizedKey, out var value) && value >= 0
+            ? value
+            : Math.Max(0, defaultValue);
     }
 
     public static string GetPath()
@@ -144,7 +168,6 @@ public static class UiLayoutSettingsStore
         if (settings.SplitRatios == null)
         {
             settings.SplitRatios = new Dictionary<string, double>(StringComparer.Ordinal);
-            return;
         }
 
         var splitRatios = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -160,6 +183,21 @@ public static class UiLayoutSettingsStore
         }
 
         settings.SplitRatios = splitRatios;
+
+        if (settings.TextWrapLimits == null)
+        {
+            settings.TextWrapLimits = new Dictionary<string, int>(StringComparer.Ordinal);
+            return;
+        }
+
+        var textWrapLimits = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var pair in settings.TextWrapLimits)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0) continue;
+            textWrapLimits[NormalizeKey(pair.Key)] = pair.Value;
+        }
+
+        settings.TextWrapLimits = textWrapLimits;
     }
 
     private static bool IsValidRatio(double ratio)

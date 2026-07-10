@@ -677,6 +677,7 @@ internal sealed class PixelImageEditorDialog : Form
             g.FillRectangle(brush, 0, 0, bitmap.Width, bitmap.Height);
         }
         var old = _colorPreview.Image;
+        _colorPreview.Image = null;
         _colorPreview.Image = new Bitmap(bitmap);
         old?.Dispose();
     }

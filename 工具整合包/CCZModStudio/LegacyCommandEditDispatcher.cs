@@ -1,4 +1,5 @@
 using CCZModStudio.Models;
+using CCZModStudio.Core;
 
 namespace CCZModStudio;
 
@@ -18,7 +19,8 @@ internal static class LegacyCommandEditDispatcher
         string commandTitle,
         int commandCount,
         int precedingSameCommandCount,
-        LegacyMfcDialogDataSources dataSources)
+        LegacyMfcDialogDataSources dataSources,
+        LegacyTextWrapOptions? textWrapOptions = null)
     {
         if (!DialogByCommandId.TryGetValue(itemData.Id, out var dialogName))
         {
@@ -33,11 +35,11 @@ internal static class LegacyCommandEditDispatcher
 
         if (LegacyMfcDialogCatalog.TryGet(dialogName, out var spec))
         {
-            using var mfcDialog = new LegacyMfcItemDataEditDialog(itemData, spec, dataSources, commandTitle, commandCount, precedingSameCommandCount);
+            using var mfcDialog = new LegacyMfcItemDataEditDialog(itemData, spec, dataSources, commandTitle, commandCount, precedingSameCommandCount, textWrapOptions);
             return mfcDialog.ShowDialog(owner) == DialogResult.OK;
         }
 
-        using var dialog = new LegacyItemDataEditDialog(itemData, commandTitle, dialogName, commandCount);
+        using var dialog = new LegacyItemDataEditDialog(itemData, commandTitle, dialogName, commandCount, textWrapOptions);
         return dialog.ShowDialog(owner) == DialogResult.OK;
     }
 

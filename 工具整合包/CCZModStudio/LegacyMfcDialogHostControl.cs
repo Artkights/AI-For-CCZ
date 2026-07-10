@@ -1,4 +1,5 @@
 using CCZModStudio.Models;
+using CCZModStudio.Core;
 
 namespace CCZModStudio;
 
@@ -31,6 +32,9 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
     private LegacyMfcDialogDataSources? _dataSources;
     private int _commandCount;
     private int _precedingSameCommandCount;
+    private LegacyTextWrapOptions? _textWrapOptions;
+    private Action<LegacyTextWrapResult>? _textWrapResultChanged;
+    private bool _applyingTextWrap;
 
     public LegacyMfcDialogHostControl()
     {
@@ -82,7 +86,16 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
 
         BuildLayout(includeDialogButtons);
         InitializeWorkingData();
+        AttachTextWrappingHandlers();
         NormalizeControlRowsForReadableText();
+    }
+
+    public void ConfigureTextWrapping(LegacyTextWrapOptions? options, Action<LegacyTextWrapResult>? resultChanged = null)
+    {
+        _textWrapOptions = options;
+        _textWrapResultChanged = resultChanged;
+        AttachTextWrappingHandlers();
+        ApplyTextWrappingToAllTextBoxes(notify: true);
     }
 
     public void ClearDialog(string message = "请选择左侧指令。")
@@ -93,6 +106,9 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
         _dataSources = null;
         _commandCount = 0;
         _precedingSameCommandCount = 0;
+        _textWrapResultChanged?.Invoke(new LegacyTextWrapResult(string.Empty, Array.Empty<LegacyTextWrapDiagnostic>()));
+        _textWrapOptions = null;
+        _textWrapResultChanged = null;
         _controls.Clear();
         _surface.Controls.Clear();
         _surface.Controls.Add(new Label
@@ -114,6 +130,7 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
         _working = _target.CloneSnapshot();
         BuildLayout(includeDialogButtons: false);
         InitializeWorkingData();
+        AttachTextWrappingHandlers();
         NormalizeControlRowsForReadableText();
     }
 
@@ -130,11 +147,150 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
             return error;
         }
 
+        ApplyTextWrappingToWorkingData();
+
         _target.IntData.Clear();
         _target.IntData.AddRange(_working.IntData);
         _target.LongCharData = _working.LongCharData;
         return null;
     }
+
+    private void AttachTextWrappingHandlers()
+    {
+        if (_textWrapOptions == null || _controls.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var textBox in GetTextWrapTargetTextBoxes())
+        {
+            textBox.TextChanged -= HandleWrappedTextBoxTextChanged;
+            textBox.TextChanged += HandleWrappedTextBoxTextChanged;
+            textBox.Leave -= HandleWrappedTextBoxLeave;
+            textBox.Leave += HandleWrappedTextBoxLeave;
+        }
+    }
+
+    private void HandleWrappedTextBoxTextChanged(object? sender, EventArgs e)
+    {
+        if (_applyingTextWrap || sender is not TextBox textBox)
+        {
+            return;
+        }
+
+        ApplyTextWrapping(textBox, notify: true);
+    }
+
+    private void HandleWrappedTextBoxLeave(object? sender, EventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            ApplyTextWrapping(textBox, notify: true);
+        }
+    }
+
+    private void ApplyTextWrappingToAllTextBoxes(bool notify)
+    {
+        if (_textWrapOptions == null || _controls.Count == 0)
+        {
+            return;
+        }
+
+        var lastResult = new LegacyTextWrapResult(string.Empty, Array.Empty<LegacyTextWrapDiagnostic>());
+        foreach (var textBox in GetTextWrapTargetTextBoxes())
+        {
+            lastResult = ApplyTextWrapping(textBox, notify: false);
+        }
+
+        if (notify)
+        {
+            _textWrapResultChanged?.Invoke(lastResult);
+        }
+    }
+
+    private LegacyTextWrapResult ApplyTextWrapping(TextBox textBox, bool notify)
+    {
+        if (_textWrapOptions == null || _textWrapOptions.Disabled)
+        {
+            return new LegacyTextWrapResult(textBox.Text, Array.Empty<LegacyTextWrapDiagnostic>());
+        }
+
+        var result = LegacyTextWrapService.Wrap(textBox.Text, _textWrapOptions);
+        var displayText = result.Text.Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+        if (!string.Equals(textBox.Text, displayText, StringComparison.Ordinal))
+        {
+            var selectionStart = Math.Min(textBox.SelectionStart, displayText.Length);
+            _applyingTextWrap = true;
+            try
+            {
+                textBox.Text = displayText;
+                textBox.SelectionStart = selectionStart;
+                textBox.SelectionLength = 0;
+            }
+            finally
+            {
+                _applyingTextWrap = false;
+            }
+        }
+
+        if (notify)
+        {
+            _textWrapResultChanged?.Invoke(result);
+        }
+
+        return result;
+    }
+
+    private void ApplyTextWrappingToWorkingData()
+    {
+        if (_textWrapOptions == null || _textWrapOptions.Disabled || _working == null)
+        {
+            return;
+        }
+
+        var result = LegacyTextWrapService.Wrap(_working.LongCharData ?? string.Empty, _textWrapOptions);
+        _working.LongCharData = result.Text;
+        _textWrapResultChanged?.Invoke(result);
+    }
+
+    private IEnumerable<TextBox> GetTextWrapTargetTextBoxes()
+    {
+        if (_spec == null)
+        {
+            yield break;
+        }
+
+        var targetIds = GetTextWrapTargetIds(_spec.DialogName).ToHashSet(StringComparer.Ordinal);
+        foreach (var pair in _controls)
+        {
+            if (pair.Value is not TextBox textBox)
+            {
+                continue;
+            }
+
+            if (targetIds.Count == 0)
+            {
+                if (textBox.Multiline)
+                {
+                    yield return textBox;
+                }
+                continue;
+            }
+
+            if (targetIds.Contains(pair.Key) || targetIds.Contains(pair.Key.Split('#', 2)[0]))
+            {
+                yield return textBox;
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> GetTextWrapTargetIds(string dialogName)
+        => dialogName switch
+        {
+            "Dialog_2" or "Dialog_18" or "Dialog_21" or "Dialog_44" or "Dialog_96" or "Dialog_99" => ["IDC_EDIT1"],
+            "Dialog_103" or "Dialog_114" => ["IDC_EDIT2"],
+            _ => Array.Empty<string>()
+        };
 
     private void BuildLayout(bool includeDialogButtons)
     {

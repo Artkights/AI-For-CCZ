@@ -48,9 +48,10 @@ internal partial class Program
             var composeService = new MapCanvasComposeService();
             using var renderer = new MapCanvasPreviewRenderer();
             using var fullBefore = composeService.ComposePreview(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
-            var incrementalBefore = renderer.Rebuild(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
+            using var incrementalBefore = renderer.Rebuild(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
             AssertSameBitmap(fullBefore, incrementalBefore, "initial rebuild");
             AssertPixelNear(incrementalBefore, 72, 24, Color.FromArgb(20, 30, 40), "unpainted cell keeps real base map");
+            AssertPreviewSnapshotSurvivesRendererClear(draft);
 
             draft.TerrainBaseCells =
             [
@@ -71,7 +72,14 @@ internal partial class Program
             }
 
             using var fullAfterMap = composeService.ComposePreview(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
-            AssertSameBitmap(fullAfterMap, incrementalBefore, "map cell update");
+            using var incrementalAfterMap = renderer.GetCurrentPreviewImage(
+                draft,
+                Array.Empty<MaterialAsset>(),
+                terrainLayerOnly: false,
+                showGrid: true,
+                terrainOpacityPercent: 0,
+                showBeautifiedMap: false);
+            AssertSameBitmap(fullAfterMap, incrementalAfterMap, "map cell update");
 
             draft.TerrainCells[1] = 9;
             var dirtyTerrain = renderer.UpdateTerrainCell(draft, 1);
@@ -81,7 +89,14 @@ internal partial class Program
             }
 
             using var fullAfterTerrain = composeService.ComposePreview(draft, showTerrain: false, showGrid: true, terrainOpacityPercent: 0);
-            AssertSameBitmap(fullAfterTerrain, incrementalBefore, "terrain cell update");
+            using var incrementalAfterTerrain = renderer.GetCurrentPreviewImage(
+                draft,
+                Array.Empty<MaterialAsset>(),
+                terrainLayerOnly: false,
+                showGrid: true,
+                terrainOpacityPercent: 0,
+                showBeautifiedMap: false);
+            AssertSameBitmap(fullAfterTerrain, incrementalAfterTerrain, "terrain cell update");
 
             AssertAutoTileNeighborRefresh(tempRoot);
             AssertCustomBeautifyFilter(tempRoot);
@@ -261,7 +276,7 @@ internal partial class Program
         var topRow = new[] { 1, 2, 3 };
         draft.BuildingOverlayCells = topRow.Select(index => Cell(materialRoot, wall, index)).ToList();
         using var renderer = new MapCanvasPreviewRenderer();
-        var incremental = renderer.Rebuild(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0);
+        using var initial = renderer.Rebuild(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0);
 
         foreach (var index in new[] { 6, 8, 11, 12, 13, 16, 17, 18 })
         {
@@ -270,9 +285,37 @@ internal partial class Program
         }
 
         using var full = new MaterialDrivenTerrainService().ComposeVisualMap(draft, materials, checkerboardBlank: true, beautifyTerrain: false);
-        AssertSameBitmap(full, incremental, "auto-tile neighbor refresh");
-        AssertAutoTileCornerDirections(incremental, left: 1, top: 0, expectWest: false, expectEast: true, expectSouth: true, expectNorth: false, "top-left corner after neighbor refresh");
-        AssertAutoTileCornerDirections(incremental, left: 3, top: 0, expectWest: true, expectEast: false, expectSouth: true, expectNorth: false, "top-right corner after neighbor refresh");
+        using var refreshed = renderer.GetCurrentPreviewImage(
+            draft,
+            materials,
+            terrainLayerOnly: false,
+            showGrid: false,
+            terrainOpacityPercent: 0,
+            showBeautifiedMap: false);
+        AssertSameBitmap(full, refreshed, "auto-tile neighbor refresh");
+        AssertAutoTileCornerDirections(refreshed, left: 1, top: 0, expectWest: false, expectEast: true, expectSouth: true, expectNorth: false, "top-left corner after neighbor refresh");
+        AssertAutoTileCornerDirections(refreshed, left: 3, top: 0, expectWest: true, expectEast: false, expectSouth: true, expectNorth: false, "top-right corner after neighbor refresh");
+    }
+
+    private static void AssertPreviewSnapshotSurvivesRendererClear(MapWorkbenchDraft draft)
+    {
+        using var renderer = new MapCanvasPreviewRenderer();
+        using var snapshot = renderer.GetCurrentPreviewImage(
+            draft,
+            Array.Empty<MaterialAsset>(),
+            terrainLayerOnly: false,
+            showGrid: true,
+            terrainOpacityPercent: 0,
+            showBeautifiedMap: false);
+        var expected = snapshot.GetPixel(0, 0).ToArgb();
+        renderer.Clear();
+
+        if (snapshot.Width != draft.PixelWidth ||
+            snapshot.Height != draft.PixelHeight ||
+            snapshot.GetPixel(0, 0).ToArgb() != expected)
+        {
+            throw new InvalidOperationException("Map canvas preview snapshot should remain valid after renderer cache is cleared.");
+        }
     }
 
     private static void SaveDirectionalWallSheetForCanvasSmoke(string path)

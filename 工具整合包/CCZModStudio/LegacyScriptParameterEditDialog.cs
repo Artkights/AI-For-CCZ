@@ -196,16 +196,24 @@ internal sealed class LegacyScriptParameterEditDialog : Form
             ? (int)Math.Round(availableWidth * savedRatio.Value)
             : 420;
         target = Math.Clamp(target, minimumPanelWidth, maxDistance);
+        split.Panel1MinSize = 0;
+        split.Panel2MinSize = 0;
         if (split.SplitterDistance != target)
         {
             try
             {
                 split.SplitterDistance = target;
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
             {
                 // SplitContainer can briefly report inconsistent bounds during DPI/layout changes.
             }
+        }
+
+        if (availableWidth > minimumPanelWidth * 2)
+        {
+            split.Panel1MinSize = minimumPanelWidth;
+            split.Panel2MinSize = minimumPanelWidth;
         }
     }
 

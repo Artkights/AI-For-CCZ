@@ -250,7 +250,7 @@ internal sealed class SImageReplaceDialog : Form
         _statusLabel.Text =
             $"将写入：{stageText}。\r\n" +
             $"素材检测：{detected}\r\n" +
-            "每个转优先读取 turnN 子目录；没有对应文件时回退读取根目录 mov.bmp / atk.bmp / spc.bmp。";
+            "第一转可读取根目录平铺三件套或 turn1；第二/第三转必须使用对应 turn2 / turn3。";
         _okButton.Enabled = Directory.Exists(MaterialFolder) && StageSlots.Count > 0;
     }
 

@@ -21,6 +21,7 @@ var legacyScriptEditSmokeOnly = args.Contains("--legacy-script-edit-smoke", Stri
 var legacyVariableTestDisplaySmokeOnly = args.Contains("--legacy-variable-test-display-smoke", StringComparer.OrdinalIgnoreCase);
 var scriptVariableUsageSmokeOnly = args.Contains("--script-variable-usage-smoke", StringComparer.OrdinalIgnoreCase);
 var legacyMfcDialogSmokeOnly = args.Contains("--legacy-mfc-dialog-smoke", StringComparer.OrdinalIgnoreCase);
+var legacyTextWrapSmokeOnly = args.Contains("--legacy-text-wrap-smoke", StringComparer.OrdinalIgnoreCase);
 var rSceneDialogPreviewSmokeOnly = args.Contains("--rscene-dialog-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var rSceneFramePreviewSmokeOnly = args.Contains("--rscene-frame-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var e5ImageReplaceSmokeOnly = args.Contains("--e5-image-replace-smoke", StringComparer.OrdinalIgnoreCase);
@@ -32,6 +33,7 @@ var rImageRawReplaceSmokeOnly = args.Contains("--r-image-raw-replace-smoke", Str
 var sImageRawReplaceSmokeOnly = args.Contains("--s-image-raw-replace-smoke", StringComparer.OrdinalIgnoreCase);
 var rsPixelMaterialValidationSmokeOnly = args.Contains("--rs-pixel-material-validation-smoke", StringComparer.OrdinalIgnoreCase);
 var batchImageImportSmokeOnly = args.Contains("--batch-image-import-smoke", StringComparer.OrdinalIgnoreCase);
+var imageAssignmentImportPreviewDialogSmokeOnly = args.Contains("--image-assignment-import-preview-dialog-smoke", StringComparer.OrdinalIgnoreCase);
 var portraitFrameApplySmokeOnly = args.Contains("--portrait-frame-apply-smoke", StringComparer.OrdinalIgnoreCase);
 var portraitFrameDirectorySmokeOnly = args.Contains("--portrait-frame-directory-smoke", StringComparer.OrdinalIgnoreCase);
 var rImageTrueColorImport = args.Contains("--r-image-truecolor-import", StringComparer.OrdinalIgnoreCase);
@@ -59,17 +61,21 @@ var uiLayoutSettingsSmokeOnly = args.Contains("--ui-layout-settings-smoke", Stri
 var uiLayoutApplySmokeOnly = args.Contains("--ui-layout-apply-smoke", StringComparer.OrdinalIgnoreCase);
 var unsavedCloseSmokeOnly = args.Contains("--unsaved-close-smoke", StringComparer.OrdinalIgnoreCase);
 var mainTabSwitchLayoutSmokeOnly = args.Contains("--main-tab-switch-layout-smoke", StringComparer.OrdinalIgnoreCase);
+var simplifiedUiSmokeOnly = args.Contains("--simplified-ui-smoke", StringComparer.OrdinalIgnoreCase);
+var usageGuideDocumentSmokeOnly = args.Contains("--usage-guide-doc-smoke", StringComparer.OrdinalIgnoreCase);
 var sImageExportDialogLayoutSmokeOnly = args.Contains("--s-image-export-dialog-layout-smoke", StringComparer.OrdinalIgnoreCase);
 var csvEncodingSmokeOnly = args.Contains("--csv-encoding-smoke", StringComparer.OrdinalIgnoreCase);
 var gridEditingSmokeOnly = args.Contains("--grid-editing-smoke", StringComparer.OrdinalIgnoreCase);
 var csvImportCellChangeSmokeOnly = args.Contains("--csv-cell-change-smoke", StringComparer.OrdinalIgnoreCase);
 var itemEditorReadOnlySmokeOnly = args.Contains("--item-readonly-smoke", StringComparer.OrdinalIgnoreCase);
 var itemEditorWriteSmokeOnly = args.Contains("--item-editor-write-smoke", StringComparer.OrdinalIgnoreCase);
+var itemEquipmentTypeSettingsSmokeOnly = args.Contains("--item-equipment-type-smoke", StringComparer.OrdinalIgnoreCase);
 var tableDerivedDisplaySmokeOnly = args.Contains("--table-derived-smoke", StringComparer.OrdinalIgnoreCase);
 var mapPreviewSmokeOnly = args.Contains("--map-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var mapTerrainConsistencySmokeOnly = args.Contains("--map-terrain-consistency-smoke", StringComparer.OrdinalIgnoreCase);
 var hexzmapSyncSmokeOnly = args.Contains("--hexzmap-sync-smoke", StringComparer.OrdinalIgnoreCase);
 var hexzmapWriteSmokeOnly = args.Contains("--hexzmap-write-smoke", StringComparer.OrdinalIgnoreCase);
+var mapPairImportExportSmokeOnly = args.Contains("--map-pair-import-export-smoke", StringComparer.OrdinalIgnoreCase);
 var mapCanvasPreviewSmokeOnly = args.Contains("--map-canvas-preview-smoke", StringComparer.OrdinalIgnoreCase);
 var mapWorkbenchUiSmokeOnly = args.Contains("--map-workbench-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var terrainDrivenMapSmokeOnly = args.Contains("--terrain-driven-map-smoke", StringComparer.OrdinalIgnoreCase);
@@ -103,6 +109,7 @@ var scenarioTextImportSmokeOnly = args.Contains("--scenario-text-import-smoke", 
 var scenarioTextWriterSmokeOnly = args.Contains("--scenario-text-writer-smoke", StringComparer.OrdinalIgnoreCase);
 var roleCriticalQuoteUiSmokeOnly = args.Contains("--role-critical-quote-ui-smoke", StringComparer.OrdinalIgnoreCase);
 var roleDefaultEquipmentSmokeOnly = args.Contains("--role-default-equipment-smoke", StringComparer.OrdinalIgnoreCase);
+var roleTextUnsavedSyncSmokeOnly = args.Contains("--role-text-unsaved-sync-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66SmokeOnly = args.Contains("--66-revised-smoke", StringComparer.OrdinalIgnoreCase);
 var revised66RegressionSmokeOnly = args.Contains("--66-regression-smoke", StringComparer.OrdinalIgnoreCase);
 var dongwuLegacyLayoutSmokeOnly = args.Contains("--dongwu-legacy-layout-smoke", StringComparer.OrdinalIgnoreCase);
@@ -116,6 +123,12 @@ var qinger66WriteSmokeOnly = args.Contains("--qinger-66-write-smoke", StringComp
 var cmfProbeSmokeOnly = args.Contains("--cmf-probe-smoke", StringComparer.OrdinalIgnoreCase);
 var cmfCorpusSmokeOnly = args.Contains("--cmf-corpus-smoke", StringComparer.OrdinalIgnoreCase);
 var cmfKnowledgeSmokeOnly = args.Contains("--cmf-knowledge-smoke", StringComparer.OrdinalIgnoreCase);
+var cmfDesignerExtractionSmokeOnly = args.Contains("--cmf-designer-extraction-smoke", StringComparer.OrdinalIgnoreCase);
+var cmfDesignerUiProbeSmokeOnly = args.Contains("--cmf-designer-ui-probe-smoke", StringComparer.OrdinalIgnoreCase);
+var cmfDesignerWriteSmokeOnly = args.Contains("--cmf-designer-write-smoke", StringComparer.OrdinalIgnoreCase);
+var cmfManualSeedSmokeOnly = args.Contains("--cmf-manual-seed-smoke", StringComparer.OrdinalIgnoreCase);
+var cmSettingsSmokeOnly = args.Contains("--cm-settings-smoke", StringComparer.OrdinalIgnoreCase);
+var cmSettings66SmokeOnly = args.Contains("--cm-settings-66-smoke", StringComparer.OrdinalIgnoreCase);
 var imageAssignerOracleSmokeOnly = args.Contains("--image-assigner-oracle-smoke", StringComparer.OrdinalIgnoreCase);
 var imageAssignerOracleExperimentSmokeOnly = args.Contains("--image-assigner-oracle-experiment-smoke", StringComparer.OrdinalIgnoreCase);
 var lubuColorfulExportOnly = args.Contains("--lubu-colorful-export", StringComparer.OrdinalIgnoreCase);
@@ -141,6 +154,18 @@ if (battlefieldScriptTreeUiSmokeOnly)
 if (guiPackageLayoutSmokeOnly)
 {
     RunGuiPackageLayoutSmoke();
+    return;
+}
+
+if (simplifiedUiSmokeOnly)
+{
+    RunSimplifiedUiSmoke();
+    return;
+}
+
+if (usageGuideDocumentSmokeOnly)
+{
+    RunUsageGuideDocumentSmoke();
     return;
 }
 
@@ -177,6 +202,42 @@ if (cmfCorpusSmokeOnly)
 if (cmfKnowledgeSmokeOnly)
 {
     RunCmfKnowledgeSmoke();
+    return;
+}
+
+if (cmfDesignerExtractionSmokeOnly)
+{
+    RunCmfDesignerExtractionSmoke();
+    return;
+}
+
+if (cmfDesignerUiProbeSmokeOnly)
+{
+    RunCmfDesignerUiProbeSmoke();
+    return;
+}
+
+if (cmfDesignerWriteSmokeOnly)
+{
+    RunCmfDesignerWriteSmoke();
+    return;
+}
+
+if (cmfManualSeedSmokeOnly)
+{
+    RunCmfManualSeedSmoke();
+    return;
+}
+
+if (cmSettingsSmokeOnly)
+{
+    RunCmSettingsSmoke();
+    return;
+}
+
+if (cmSettings66SmokeOnly)
+{
+    RunCmSettings66Smoke();
     return;
 }
 
@@ -255,6 +316,18 @@ if (portraitFrameDirectorySmokeOnly)
 if (sImageExportDialogLayoutSmokeOnly)
 {
     RunSImageExportDialogLayoutSmoke();
+    return;
+}
+
+if (imageAssignmentImportPreviewDialogSmokeOnly)
+{
+    RunImageAssignmentImportPreviewDialogSmoke();
+    return;
+}
+
+if (legacyTextWrapSmokeOnly)
+{
+    RunLegacyTextWrapSmoke();
     return;
 }
 
@@ -553,6 +626,12 @@ if (itemEditorWriteSmokeOnly)
     return;
 }
 
+if (itemEquipmentTypeSettingsSmokeOnly)
+{
+    RunItemEquipmentTypeSettingsSmoke(project, tables);
+    return;
+}
+
 if (tableDerivedDisplaySmokeOnly)
 {
     RunTableDerivedDisplaySmoke(project, tables);
@@ -580,6 +659,12 @@ if (hexzmapSyncSmokeOnly)
 if (hexzmapWriteSmokeOnly)
 {
     RunHexzmapWriteSmoke(project);
+    return;
+}
+
+if (mapPairImportExportSmokeOnly)
+{
+    RunMapPairImportExportSmoke(project);
     return;
 }
 
@@ -784,6 +869,12 @@ if (roleCriticalQuoteUiSmokeOnly)
 if (roleDefaultEquipmentSmokeOnly)
 {
     RunRoleDefaultEquipmentSmoke(project, tables);
+    return;
+}
+
+if (roleTextUnsavedSyncSmokeOnly)
+{
+    RunRoleTextUnsavedSyncSmoke(project, tables);
     return;
 }
 

@@ -11,6 +11,7 @@ public sealed class GlobalSettingsDocument
     public required GlobalTitleSetting GameTitle { get; init; }
     public required IReadOnlyList<GlobalSettingEvidence> Evidence { get; init; }
     public IReadOnlyList<CmfFeatureCandidate> CmfCandidates { get; init; } = Array.Empty<CmfFeatureCandidate>();
+    public IReadOnlyList<CmfDesignerFieldListItem> CmfDesignerFields { get; init; } = Array.Empty<CmfDesignerFieldListItem>();
 }
 
 public enum GlobalNumericValueKind

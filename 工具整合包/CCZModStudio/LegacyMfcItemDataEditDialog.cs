@@ -1,4 +1,5 @@
 using CCZModStudio.Models;
+using CCZModStudio.Core;
 
 namespace CCZModStudio;
 
@@ -12,7 +13,8 @@ internal sealed class LegacyMfcItemDataEditDialog : Form
         LegacyMfcDialogDataSources dataSources,
         string commandTitle,
         int commandCount,
-        int precedingSameCommandCount)
+        int precedingSameCommandCount,
+        LegacyTextWrapOptions? textWrapOptions = null)
     {
         Text = $"{spec.DialogName} - {commandTitle}";
         StartPosition = FormStartPosition.CenterParent;
@@ -23,6 +25,7 @@ internal sealed class LegacyMfcItemDataEditDialog : Form
         AutoScaleMode = AutoScaleMode.None;
 
         _host.LoadDialog(target, spec, dataSources, commandCount, precedingSameCommandCount, includeDialogButtons: true);
+        _host.ConfigureTextWrapping(textWrapOptions);
         Controls.Add(_host);
         var clientSize = _host.PreferredDialogClientSize;
         ClientSize = clientSize;

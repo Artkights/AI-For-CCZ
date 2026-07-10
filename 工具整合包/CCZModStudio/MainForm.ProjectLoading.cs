@@ -95,8 +95,7 @@ public sealed partial class MainForm
         ClearRSceneDocumentView();
         InvalidateScriptVariableProjectCache();
 
-        var mode = project.IsTestCopy ? "测试副本" : "当前项目";
-        _projectLabel.Text = $"项目：{project.Name}    模式：{mode}";
+        _projectLabel.Text = BuildProjectHeaderText(project);
 
         ResetProjectBoundState();
 
@@ -156,6 +155,33 @@ public sealed partial class MainForm
         }
     }
 
+    private string BuildProjectHeaderText(CczProject? project)
+    {
+        if (project == null)
+        {
+            return "项目：未加载    模式：-    版本：-";
+        }
+
+        var mode = project.IsTestCopy ? "测试副本" : "当前项目";
+        var version = "未知（6.5兜底）";
+        try
+        {
+            var profile = _engineProfileService.Detect(project);
+            if (profile.IsKnown &&
+                !string.IsNullOrWhiteSpace(profile.VersionHint) &&
+                !profile.VersionHint.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                version = profile.VersionHint;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("读取项目版本失败：" + ex.Message);
+        }
+
+        return $"项目：{project.Name}    模式：{mode}    版本：{version}";
+    }
+
     private void RunPackageSelfCheck()
     {
         var result = PackageSelfCheckService.Check();
@@ -178,7 +204,7 @@ public sealed partial class MainForm
         _project = null;
         ApplicationErrorService.SetCurrentProjectPath(null);
         _tables = Array.Empty<HexTableDefinition>();
-        _projectLabel.Text = projectText;
+        _projectLabel.Text = BuildProjectHeaderText(null);
         ResetProjectBoundState();
         _tableList.DataSource = null;
         LoadMapWorkbenchSettings();
@@ -215,8 +241,7 @@ public sealed partial class MainForm
         _currentTableResult = null;
         _chartColumnCombo.DataSource = null;
         _renderChartButton.Enabled = false;
-        _tableChartBox.Image?.Dispose();
-        _tableChartBox.Image = null;
+        SetPictureBoxImage(_tableChartBox, null);
         _tableChartInfoBox.Clear();
         ClearCurrentTableReferenceTarget();
 
@@ -273,6 +298,14 @@ public sealed partial class MainForm
         _batchImportItemIconButton.Enabled = false;
         _editItemIconButton.Enabled = false;
         _exportItemIconBmpButton.Enabled = false;
+        _currentItemEquipmentTypeDocument = null;
+        _currentItemEquipmentTypeData = null;
+        _currentItemEquipmentTypeJobData = null;
+        _currentItemEquipmentTypeRowIndex = -1;
+        _itemEquipmentTypePendingJobStates.Clear();
+        _itemEquipmentTypeGrid.DataSource = null;
+        _itemEquipmentTypeJobGrid.DataSource = null;
+        _saveItemEquipmentTypeSettingsButton.Enabled = false;
 
         _currentShopEditorData = null;
         _shopEditorGrid.DataSource = null;

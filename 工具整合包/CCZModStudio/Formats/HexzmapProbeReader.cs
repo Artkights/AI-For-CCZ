@@ -133,6 +133,33 @@ public sealed class HexzmapProbeReader
         return decoded.AsSpan(block.DataPrefixLength, expected).ToArray();
     }
 
+    public byte[] GetBlockSegment(HexzmapProbeResult result, HexzmapBlockInfo block)
+    {
+        var expected = checked(block.Width * block.Height);
+        var entry = result.DirectoryEntries.FirstOrDefault(x => x.Index == block.Index);
+        if (entry == null || expected <= 0)
+        {
+            return Array.Empty<byte>();
+        }
+
+        var decoded = ReadEntryBytes(result.Payload, result.PayloadOffset, entry);
+        var expectedLength = block.DataPrefixLength + expected;
+        if (decoded.Length < expectedLength)
+        {
+            return Array.Empty<byte>();
+        }
+
+        return decoded.AsSpan(0, expectedLength).ToArray();
+    }
+
+    public byte[] GetBlockSegmentPrefix(HexzmapProbeResult result, HexzmapBlockInfo block)
+    {
+        var segment = GetBlockSegment(result, block);
+        return segment.Length < block.DataPrefixLength
+            ? Array.Empty<byte>()
+            : segment.AsSpan(0, block.DataPrefixLength).ToArray();
+    }
+
     public static IReadOnlyDictionary<byte, string> BuildTerrainNameLookup(IEnumerable<MaterialAsset> materials)
     {
         var groups = materials

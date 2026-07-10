@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using CCZModStudio.Core;
 using CCZModStudio.Models;
 
 namespace CCZModStudio;
@@ -11,9 +12,11 @@ internal sealed class LegacyItemDataEditDialog : Form
     private readonly LegacyScenarioItemData _working;
     private readonly string _dialogName;
     private readonly int _commandCount;
+    private readonly LegacyTextWrapOptions? _textWrapOptions;
     private readonly BindingList<IntDataRow> _rows = [];
     private readonly DataGridView _grid = new();
     private readonly TextBox _textBox = new();
+    private readonly Label _textWrapStatusLabel = new();
     private readonly TextBox _trueArrayBox = new();
     private readonly TextBox _falseArrayBox = new();
     private readonly NumericUpDown _jumpTargetInput = new();
@@ -22,12 +25,14 @@ internal sealed class LegacyItemDataEditDialog : Form
         LegacyScenarioItemData target,
         string commandTitle,
         string dialogName,
-        int commandCount)
+        int commandCount,
+        LegacyTextWrapOptions? textWrapOptions = null)
     {
         _target = target;
         _working = target.CloneSnapshot();
         _dialogName = dialogName;
         _commandCount = Math.Max(0, commandCount);
+        _textWrapOptions = textWrapOptions;
 
         Text = $"{dialogName} - {commandTitle}";
         StartPosition = FormStartPosition.CenterParent;
@@ -73,12 +78,26 @@ internal sealed class LegacyItemDataEditDialog : Form
         pages.TabPages.Add(intPage);
 
         var textPage = new TabPage("long_char_data");
+        var textLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1
+        };
+        textLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        textLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         _textBox.Dock = DockStyle.Fill;
         _textBox.Multiline = true;
         _textBox.AcceptsReturn = true;
         _textBox.ScrollBars = ScrollBars.Vertical;
         _textBox.WordWrap = true;
-        textPage.Controls.Add(_textBox);
+        _textBox.TextChanged += (_, _) => ApplyTextWrappingToTextBox();
+        _textBox.Leave += (_, _) => ApplyTextWrappingToTextBox();
+        _textWrapStatusLabel.AutoSize = true;
+        _textWrapStatusLabel.Padding = new Padding(0, 4, 0, 0);
+        textLayout.Controls.Add(_textBox, 0, 0);
+        textLayout.Controls.Add(_textWrapStatusLabel, 0, 1);
+        textPage.Controls.Add(textLayout);
         pages.TabPages.Add(textPage);
 
         var varPage = new TabPage("Dialog_5 变量数组");
@@ -262,6 +281,12 @@ internal sealed class LegacyItemDataEditDialog : Form
         }
 
         _working.LongCharData = _textBox.Text.Replace("\r", string.Empty, StringComparison.Ordinal);
+        if (_textWrapOptions is { Disabled: false })
+        {
+            var wrapResult = LegacyTextWrapService.Wrap(_working.LongCharData, _textWrapOptions);
+            _working.LongCharData = wrapResult.Text;
+            UpdateTextWrapStatus(wrapResult);
+        }
 
         if (_dialogName == "Dialog_5")
         {
@@ -284,6 +309,50 @@ internal sealed class LegacyItemDataEditDialog : Form
         _target.IntData.Clear();
         _target.IntData.AddRange(_working.IntData);
         _target.LongCharData = _working.LongCharData;
+    }
+
+    private bool _applyingTextWrap;
+
+    private void ApplyTextWrappingToTextBox()
+    {
+        if (_applyingTextWrap || _textWrapOptions == null || _textWrapOptions.Disabled)
+        {
+            return;
+        }
+
+        var result = LegacyTextWrapService.Wrap(_textBox.Text, _textWrapOptions);
+        var displayText = result.Text.Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+        if (!string.Equals(_textBox.Text, displayText, StringComparison.Ordinal))
+        {
+            var selectionStart = Math.Min(_textBox.SelectionStart, displayText.Length);
+            _applyingTextWrap = true;
+            try
+            {
+                _textBox.Text = displayText;
+                _textBox.SelectionStart = selectionStart;
+                _textBox.SelectionLength = 0;
+            }
+            finally
+            {
+                _applyingTextWrap = false;
+            }
+        }
+
+        UpdateTextWrapStatus(result);
+    }
+
+    private void UpdateTextWrapStatus(LegacyTextWrapResult result)
+    {
+        if (_textWrapOptions == null)
+        {
+            _textWrapStatusLabel.Text = string.Empty;
+            return;
+        }
+
+        _textWrapStatusLabel.ForeColor = result.HasWarnings ? Color.DarkRed : Color.DarkGreen;
+        _textWrapStatusLabel.Text = result.HasWarnings
+            ? LegacyTextWrapService.FormatDiagnostics(result.Diagnostics)
+            : $"每行上限：{_textWrapOptions.LineLimit}；最多 {_textWrapOptions.MaxLines} 行。";
     }
 
     private bool HasText()

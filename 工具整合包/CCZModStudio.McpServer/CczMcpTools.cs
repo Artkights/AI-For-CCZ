@@ -925,9 +925,9 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReplaceJobSImageRaw(game_root, job_id, material_folder, faction_slots, write_mode);
 
     [McpServerTool]
-    [Description("Preview batch true-color S unit image replacement from a material root without writing. Subfolders use S12, S_12, or 12 and contain mov.bmp/atk.bmp/spc.bmp.")]
+    [Description("Preview batch true-color S unit image replacement from a material root without writing. Subfolders use S12, S_12, S12_Name, or S12-Name and contain mov.bmp/atk.bmp/spc.bmp or turn1/turn2/turn3.")]
     public object preview_s_image_raw_batch_replace(
-        [Description("Material root containing numbered S image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material root containing S-prefixed image subfolders. Pure numeric subfolders are ignored. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
         [Description("Optional S usages to include. Use job_id for S=0 default unit mapping.")]
         List<BatchSImageUsageUpdate>? allowed_usages = null,
@@ -940,7 +940,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [McpServerTool]
     [Description("Replace batch S unit image assets as true-color PNG entries from a material root. Creates backups and structured aggregate report. The tool name is kept for legacy clients.")]
     public object replace_s_image_raw_batch(
-        [Description("Material root containing numbered S image subfolders. Relative paths resolve from workspace, project root, then cwd.")]
+        [Description("Material root containing S-prefixed image subfolders. Pure numeric subfolders are ignored. Relative paths resolve from workspace, project root, then cwd.")]
         string material_root,
         [Description("Optional S usages to include. Use job_id for S=0 default unit mapping.")]
         List<BatchSImageUsageUpdate>? allowed_usages = null,
@@ -1410,6 +1410,95 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
         string? game_root = null)
         => runtime.ImportCmfExportKnowledge(game_root, relative_path, export_path);
+
+    [McpServerTool]
+    [Description("Extract a read-only CheatMaker Designer snapshot for one CMF. UiProbe launches CheatMaker against a temp copy and exports snapshot.json, fields.csv, modules.md, addresses.md, and raw-ui-tree.json.")]
+    public object extract_cheatmaker_designer_snapshot(
+        [Description("CMF path relative to 老版游戏制作工具, for example Star6.5引擎exe修改器.cmf.")]
+        string relative_path,
+        [Description("Extraction mode: UiProbe, LaunchOnly, or StaticOnly. Defaults to UiProbe for this explicit tool.")]
+        string? mode = null,
+        [Description("Timeout in milliseconds while waiting for the CheatMaker window. Defaults to 15000.")]
+        int timeout_ms = 15000,
+        [Description("Leave the CheatMaker process open after probing. Defaults to false.")]
+        bool keep_process_open = false,
+        [Description("Optional existing snapshot.json to import/export through the same reporting path, useful for manual Designer captures and tests.")]
+        string? fixture_snapshot_path = null,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ExtractCheatMakerDesignerSnapshot(game_root, relative_path, mode, timeout_ms, keep_process_open, fixture_snapshot_path);
+
+    [McpServerTool]
+    [Description("Import an existing CheatMaker Designer snapshot.json for one CMF and convert it into CMF-derived field metadata. Read-only.")]
+    public object import_cheatmaker_designer_snapshot(
+        [Description("CMF path relative to 老版游戏制作工具, for example Star6.5引擎exe修改器.cmf.")]
+        string relative_path,
+        [Description("Path to snapshot.json produced by extract_cheatmaker_designer_snapshot or a compatible manual capture.")]
+        string snapshot_path,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ImportCheatMakerDesignerSnapshot(game_root, relative_path, snapshot_path);
+
+    [McpServerTool]
+    [Description("List field addresses read from existing CheatMaker Designer snapshot reports. Does not launch CheatMaker.")]
+    public object list_cheatmaker_designer_fields(
+        [Description("Optional CMF path relative to 老版游戏制作工具. When omitted, reads all available designer snapshots.")]
+        string? relative_path = null,
+        [Description("Maximum fields to return. Defaults to 200; capped at 2000.")]
+        int limit = 200,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ListCheatMakerDesignerFields(game_root, relative_path, limit);
+
+    [McpServerTool]
+    [Description("List built-in manually confirmed CheatMaker CMF seed fields. Read-only; supports keyword filtering such as 奋战, 地形, or 经验.")]
+    public object list_cheatmaker_manual_seed_fields(
+        [Description("Optional keyword across source CMF, module, field name, offset, and data-list preview.")]
+        string? keyword = null,
+        [Description("Maximum fields to return. Defaults to 200; capped at 2000.")]
+        int limit = 200,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ListCheatMakerManualSeedFields(game_root, keyword, limit);
+
+    [McpServerTool]
+    [Description("Validate built-in manually confirmed CheatMaker CMF seed JSON. Read-only and does not touch game files.")]
+    public object validate_cheatmaker_manual_seed(
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.ValidateCheatMakerManualSeed(game_root);
+
+    [McpServerTool]
+    [Description("Compare two CheatMaker Designer snapshots and write designer-diff.json/md. Does not launch CheatMaker or modify files.")]
+    public object compare_cheatmaker_designer_snapshots(
+        [Description("Left CMF path relative to 老版游戏制作工具.")]
+        string left_relative_path,
+        [Description("Right CMF path relative to 老版游戏制作工具.")]
+        string right_relative_path,
+        [Description("Optional explicit left snapshot.json path. Defaults to latest report for left CMF.")]
+        string? left_snapshot_path = null,
+        [Description("Optional explicit right snapshot.json path. Defaults to latest report for right CMF.")]
+        string? right_snapshot_path = null,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.CompareCheatMakerDesignerSnapshots(game_root, left_relative_path, right_relative_path, left_snapshot_path, right_snapshot_path);
+
+    [McpServerTool]
+    [Description("Verify CheatMaker Designer fields on a CCZModStudio test copy. Generates write-verification.json and never writes the source project.")]
+    public object verify_cheatmaker_designer_writes(
+        [Description("CMF path relative to 老版游戏制作工具.")]
+        string relative_path,
+        [Description("Optional snapshot.json path. Defaults to latest report for the CMF.")]
+        string? snapshot_path = null,
+        [Description("Optional binding ids to verify. Empty means all eligible fields up to max_fields.")]
+        List<string>? binding_ids = null,
+        [Description("Maximum fields to verify. Defaults to 500.")]
+        int max_fields = 500,
+        [Description("Include fields already marked NeedsManualReview. Defaults to false.")]
+        bool include_needs_manual_review = false,
+        [Description("Optional game root. Defaults to CCZMODSTUDIO_GAME_ROOT or auto-detection.")]
+        string? game_root = null)
+        => runtime.VerifyCheatMakerDesignerWrites(game_root, relative_path, snapshot_path, binding_ids, max_fields, include_needs_manual_review);
 
     [McpServerTool]
     [Description("List CMF-derived feature candidates for effects, EXE modifications, global settings, variables, and resources.")]
@@ -2015,6 +2104,21 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
     [Description("Write supported global settings using backups, reports, and reread validation.")]
     public object write_global_settings(GlobalSettingsUpdate update, string? game_root = null, string? write_mode = null)
         => runtime.WriteGlobalSettings(game_root, update, write_mode);
+
+    [McpServerTool]
+    [Description("Read integrated CM settings grouped for the CM设定 page. Read-only.")]
+    public object read_cm_settings(string? game_root = null)
+        => runtime.ReadCmSettings(game_root);
+
+    [McpServerTool]
+    [Description("Preview CM setting updates without writing game files.")]
+    public object preview_write_cm_settings(CmSettingsMcpUpdate update, string? game_root = null)
+        => runtime.PreviewWriteCmSettings(game_root, update);
+
+    [McpServerTool]
+    [Description("Write integrated CM settings to Ekd5.exe using whitelisted offsets, backup, report, and reread validation.")]
+    public object write_cm_settings(CmSettingsMcpUpdate update, string? game_root = null, string? write_mode = null)
+        => runtime.WriteCmSettings(game_root, update, write_mode);
 
     [McpServerTool]
     [Description("Prepare a safe manual diff experiment for global numeric settings. Creates test copies and a JSON report only.")]

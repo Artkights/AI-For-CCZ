@@ -13,6 +13,7 @@ public sealed class BatchSImageReplaceRequest
     public string MaterialRoot { get; init; } = string.Empty;
     public IReadOnlyList<BatchSImageUsage> AllowedSImageUsages { get; init; } = Array.Empty<BatchSImageUsage>();
     public bool IncludeOnlySelectedOrFiltered { get; init; } = true;
+    public bool IncludeAllRecognizedSDirectories { get; init; }
     public int FactionSlot { get; init; } = 1;
     public IReadOnlyList<int> StageSlots { get; init; } = Array.Empty<int>();
     public string WriteMode { get; init; } = "direct";
@@ -158,6 +159,7 @@ public sealed class BatchSImageReplaceItemPreview
 public class BatchSImageReplacePreviewResult
 {
     public BatchSImageReplaceRequest Request { get; init; } = new();
+    public SImageBatchMaterialScanSummary MaterialScan { get; init; } = new();
     public IReadOnlyList<BatchSImageReplaceItemPreview> Items { get; init; } = Array.Empty<BatchSImageReplaceItemPreview>();
     public IReadOnlyList<BatchImageImportSkippedItem> SkippedItems { get; init; } = Array.Empty<BatchImageImportSkippedItem>();
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
@@ -170,6 +172,71 @@ public sealed class BatchSImageReplaceResult : BatchSImageReplacePreviewResult
 {
     public IReadOnlyDictionary<string, E5ImageBatchReplaceResult> WriteResults { get; init; } = new Dictionary<string, E5ImageBatchReplaceResult>();
     public string AggregateReportPath { get; init; } = string.Empty;
+}
+
+public sealed class SImageBatchMaterialScanSummary
+{
+    public int TotalChildDirectories { get; init; }
+    public int RecognizedSDirectories { get; init; }
+    public IReadOnlyList<int> RecognizedSIds { get; init; } = Array.Empty<int>();
+    public int InvalidNameDirectories { get; init; }
+    public IReadOnlyList<string> InvalidNameExamples { get; init; } = Array.Empty<string>();
+    public int DuplicateIdDirectories { get; init; }
+    public IReadOnlyList<string> DuplicateIdExamples { get; init; } = Array.Empty<string>();
+    public int FilteredUnusedDirectories { get; init; }
+    public int MatchedMaterialDirectories { get; init; }
+    public int BlockingDirectories { get; init; }
+    public IReadOnlyList<SImageMaterialFolderCandidate> RecognizedFolders { get; init; } = Array.Empty<SImageMaterialFolderCandidate>();
+    public IReadOnlyList<SImageMaterialFolderLayoutSummary> FolderLayoutSummaries { get; init; } = Array.Empty<SImageMaterialFolderLayoutSummary>();
+}
+
+public sealed class SImageMaterialFolderCandidate
+{
+    public int SImageId { get; init; }
+    public string Folder { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+}
+
+public sealed class SImageMaterialFolderLayoutSummary
+{
+    public int SImageId { get; init; }
+    public string Folder { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
+    public SImageMaterialLayoutKind Kind { get; init; } = SImageMaterialLayoutKind.FlatFirstStage;
+    public bool HasFlatTriplet { get; init; }
+    public IReadOnlyList<int> PresentTurnStages { get; init; } = Array.Empty<int>();
+    public IReadOnlyList<int> CompleteTurnStages { get; init; } = Array.Empty<int>();
+    public bool HasAnyCompleteMaterial => HasFlatTriplet || CompleteTurnStages.Count > 0;
+}
+
+public sealed class SImageMaterialLayoutResult
+{
+    public string MaterialFolder { get; init; } = string.Empty;
+    public SImageMaterialLayoutKind Kind { get; init; } = SImageMaterialLayoutKind.FlatFirstStage;
+    public IReadOnlyList<SImageMaterialStageFiles> StageFiles { get; init; } = Array.Empty<SImageMaterialStageFiles>();
+    public IReadOnlyList<string> MissingItems => StageFiles.SelectMany(stage => stage.MissingFiles).ToArray();
+    public bool HasMissingFiles => StageFiles.Any(stage => !stage.IsComplete);
+}
+
+public sealed class SImageMaterialStageFiles
+{
+    public int StageSlot { get; init; }
+    public string StageName { get; init; } = string.Empty;
+    public string MovPath { get; init; } = string.Empty;
+    public string AtkPath { get; init; } = string.Empty;
+    public string SpcPath { get; init; } = string.Empty;
+    public IReadOnlyList<string> MissingFiles { get; init; } = Array.Empty<string>();
+    public bool IsComplete => !string.IsNullOrWhiteSpace(MovPath) &&
+                              !string.IsNullOrWhiteSpace(AtkPath) &&
+                              !string.IsNullOrWhiteSpace(SpcPath) &&
+                              MissingFiles.Count == 0;
+}
+
+public enum SImageMaterialLayoutKind
+{
+    FlatFirstStage,
+    TurnFolderStages,
+    Mixed
 }
 
 public sealed class BatchItemIconImportItemPreview

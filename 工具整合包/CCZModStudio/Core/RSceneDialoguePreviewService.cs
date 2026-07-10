@@ -12,7 +12,7 @@ public sealed class RSceneDialoguePreviewService
         BoxBounds: new Rectangle(164, 312, 330, 84),
         FaceBounds: new Rectangle(508, 286, 120, 112),
         NameBounds: new Rectangle(176, 320, 300, 20),
-        TextBounds: new Rectangle(176, 342, 306, 42),
+        TextBounds: new Rectangle(176, 342, 306, 50),
         NoFaceTextBounds: new Rectangle(176, 328, 306, 50),
         BorderColor: Color.FromArgb(255, 218, 202, 168),
         InnerBorderColor: Color.FromArgb(255, 248, 246, 238),
@@ -21,11 +21,21 @@ public sealed class RSceneDialoguePreviewService
         TextColor: Color.FromArgb(255, 8, 8, 8),
         ShadowColor: Color.FromArgb(0, 0, 0, 0),
         FontFamily: "SimSun",
-        NameFontSize: 14.5f,
-        TextFontSize: 14.5f,
-        MaxTextLines: 2,
-        TextLineHeight: 24,
-        MapTextBounds: new Rectangle(132, 36, 376, 42));
+        NameFontSize: 17f,
+        TextFontSize: 15f,
+        MaxTextLines: 3,
+        TextLineHeight: 16);
+
+    private static readonly MapTextPreviewProfile DefaultMapTextProfile = new(
+        PanelBounds: new Rectangle(56, 338, 560, 62),
+        TextBounds: new Rectangle(60, 346, 552, 46),
+        PanelColor: Color.FromArgb(150, 0, 0, 0),
+        TextColor: Color.White,
+        ShadowColor: Color.FromArgb(180, 0, 0, 0),
+        FontFamily: "SimSun",
+        TextFontSize: 15f,
+        MaxTextLines: 3,
+        TextLineHeight: 18);
 
     private readonly ImageAssignmentPreviewService _imageAssignmentPreviewService;
 
@@ -44,14 +54,15 @@ public sealed class RSceneDialoguePreviewService
         CczProject project,
         LegacyScenarioCommandNode? command,
         IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
-        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null)
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null,
+        LegacyTextWrapOptions? textWrapOptions = null)
     {
         if (command == null)
         {
             return RSceneDialoguePreviewResult.CreateNotApplied("未选择 R 剧本命令。");
         }
 
-        var model = BuildPreviewModel(command, people, personReferenceResolver);
+        var model = BuildPreviewModel(command, people, personReferenceResolver, textWrapOptions);
         if (model == null)
         {
             return RSceneDialoguePreviewResult.CreateNotApplied($"命令 {command.CommandIdHex} 不是对白预览命令。");
@@ -76,18 +87,32 @@ public sealed class RSceneDialoguePreviewService
         CczProject project,
         LegacyScenarioCommandNode? command,
         IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
-        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null)
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null,
+        LegacyTextWrapOptions? textWrapOptions = null)
     {
         using var graphics = Graphics.FromImage(image);
-        return DrawPreview(graphics, project, command, people, personReferenceResolver);
+        return DrawPreview(graphics, project, command, people, personReferenceResolver, textWrapOptions);
     }
 
     public RSceneDialoguePreviewModel? BuildPreviewModel(
         LegacyScenarioCommandNode command,
         IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
-        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null)
+        Func<LegacyScenarioCommandNode, int, int?>? personReferenceResolver = null,
+        LegacyTextWrapOptions? textWrapOptions = null)
     {
         var text = NormalizeText(command.TextParameters.FirstOrDefault()?.Text ?? string.Empty);
+        var wrapResult = LegacyTextWrapService.Wrap(
+            text,
+            textWrapOptions ?? LegacyTextWrapService.CreateOptions(
+                command.CommandId,
+                LegacyTextWrapService.GetDefaultLineLimit(command.CommandId)));
+        text = NormalizeText(wrapResult.Text);
+        var lineLimit = textWrapOptions?.LineLimit ?? LegacyTextWrapService.GetDefaultLineLimit(command.CommandId);
+        var previewLineCount = GetRenderLines(text, DefaultProfile.MaxTextLines).Count;
+        var wrapSummary = $"；每行上限={lineLimit}；正文预览 {previewLineCount} 行";
+        var warningSuffix = wrapResult.HasWarnings
+            ? wrapSummary + "；" + LegacyTextWrapService.FormatDiagnostics(wrapResult.Diagnostics).Replace(Environment.NewLine, "；", StringComparison.Ordinal)
+            : wrapSummary;
         if (string.IsNullOrWhiteSpace(text) && command.CommandId != 0x2C)
         {
             return null;
@@ -100,7 +125,8 @@ public sealed class RSceneDialoguePreviewService
                 text,
                 GetParameterValue(command, 0),
                 ResolveSpeakerId(command, GetParameterValue(command, 0), personReferenceResolver),
-                people),
+                people,
+                warningSuffix),
             0x16 => new RSceneDialoguePreviewModel(
                 RSceneDialoguePreviewKind.Information,
                 SpeakerId: null,
@@ -108,7 +134,7 @@ public sealed class RSceneDialoguePreviewService
                 SpeakerName: "信息",
                 Text: text,
                 HasFace: false,
-                Detail: $"{command.CommandIdHex} {command.CommandName}：无头像信息框"),
+                Detail: $"{command.CommandIdHex} {command.CommandName}：无头像信息框{warningSuffix}"),
             0x69 => new RSceneDialoguePreviewModel(
                 RSceneDialoguePreviewKind.Narration,
                 SpeakerId: null,
@@ -116,7 +142,7 @@ public sealed class RSceneDialoguePreviewService
                 SpeakerName: "旁白",
                 Text: text,
                 HasFace: false,
-                Detail: $"{command.CommandIdHex} {command.CommandName}：无头像旁白"),
+                Detail: $"{command.CommandIdHex} {command.CommandName}：无头像旁白{warningSuffix}"),
             0x2C => new RSceneDialoguePreviewModel(
                 RSceneDialoguePreviewKind.MapText,
                 SpeakerId: null,
@@ -124,7 +150,7 @@ public sealed class RSceneDialoguePreviewService
                 SpeakerName: string.Empty,
                 Text: text,
                 HasFace: false,
-                Detail: $"{command.CommandIdHex} {command.CommandName}：地图文字提示"),
+                Detail: $"{command.CommandIdHex} {command.CommandName}：地图文字横板{warningSuffix}"),
             _ => null
         };
     }
@@ -137,7 +163,8 @@ public sealed class RSceneDialoguePreviewService
         string text,
         int? rawSpeakerValue,
         int? speakerId,
-        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people)
+        IReadOnlyDictionary<int, RSceneDialoguePreviewPerson> people,
+        string warningSuffix)
     {
         var textSpeaker = ResolveSpeakerFromText(text, people);
         var resolvedSpeakerId = textSpeaker?.SpeakerId ?? speakerId;
@@ -182,7 +209,7 @@ public sealed class RSceneDialoguePreviewService
             SpeakerName: speakerName,
             Text: textSpeaker?.BodyText ?? text,
             HasFace: true,
-            Detail: $"{command.CommandIdHex} {command.CommandName}：{speakerName}（{speakerDetail}，{faceDetail}）");
+            Detail: $"{command.CommandIdHex} {command.CommandName}：{speakerName}（{speakerDetail}，{faceDetail}）{warningSuffix}");
     }
 
     private void DrawDialogueBox(Graphics graphics, CczProject project, RSceneDialoguePreviewModel model)
@@ -233,23 +260,62 @@ public sealed class RSceneDialoguePreviewService
 
     private static void DrawBodyText(Graphics graphics, string text, Rectangle bounds, DialoguePreviewProfile profile)
     {
-        var lines = WrapText(graphics, text, profile.TextFont, bounds.Width, profile.MaxTextLines);
+        var lines = GetRenderLines(text, profile.MaxTextLines);
         for (var i = 0; i < lines.Count; i++)
         {
             var lineRect = new Rectangle(bounds.Left, bounds.Top + i * profile.TextLineHeight, bounds.Width, profile.TextLineHeight);
-            DrawTextWithShadow(graphics, lines[i], lineRect, profile.TextFont, profile.TextColor, ContentAlignment.MiddleLeft);
+            DrawBodyLine(graphics, lines[i], lineRect, profile.TextFont, profile.TextColor);
         }
     }
 
     private static void DrawMapText(Graphics graphics, RSceneDialoguePreviewModel model)
     {
-        var profile = DefaultProfile;
-        using var fill = new SolidBrush(Color.FromArgb(246, 255, 255, 255));
-        using var border = new Pen(profile.BorderColor, 1);
-        var box = profile.MapTextBounds;
-        graphics.FillRectangle(fill, box);
-        graphics.DrawRectangle(border, box);
-        DrawTextWithShadow(graphics, model.Text, Rectangle.Inflate(box, -10, -4), profile.TextFont, profile.TextColor, ContentAlignment.MiddleCenter, trim: true);
+        var profile = DefaultMapTextProfile;
+        using var panelBrush = new SolidBrush(profile.PanelColor);
+        graphics.FillRectangle(panelBrush, profile.PanelBounds);
+
+        var lines = GetRenderLines(model.Text, profile.MaxTextLines);
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var lineRect = new Rectangle(
+                profile.TextBounds.Left,
+                profile.TextBounds.Top + i * profile.TextLineHeight,
+                profile.TextBounds.Width,
+                profile.TextLineHeight);
+            DrawMapTextLine(graphics, lines[i], lineRect, profile);
+        }
+    }
+
+    private static List<string> GetRenderLines(string text, int maxLines)
+    {
+        if (maxLines <= 0)
+        {
+            return [];
+        }
+
+        var lines = NormalizeNewLines(text).Split('\n').Take(maxLines).ToList();
+        return lines.Count == 0 ? [string.Empty] : lines;
+    }
+
+    private static void DrawBodyLine(Graphics graphics, string text, Rectangle bounds, Font font, Color color)
+    {
+        var displayText = TrimToFit(graphics, text, font, bounds.Width);
+        DrawTextWithShadow(graphics, displayText, bounds, font, color, ContentAlignment.MiddleLeft);
+    }
+
+    private static void DrawMapTextLine(Graphics graphics, string text, Rectangle bounds, MapTextPreviewProfile profile)
+    {
+        var displayText = TrimToFit(graphics, text, profile.TextFont, bounds.Width);
+        using var shadowBrush = new SolidBrush(profile.ShadowColor);
+        using var textBrush = new SolidBrush(profile.TextColor);
+        using var format = BuildStringFormat(ContentAlignment.MiddleLeft);
+        graphics.DrawString(
+            displayText,
+            profile.TextFont,
+            shadowBrush,
+            new Rectangle(bounds.Left + 1, bounds.Top + 1, bounds.Width, bounds.Height),
+            format);
+        graphics.DrawString(displayText, profile.TextFont, textBrush, bounds, format);
     }
 
     private static void DrawTextWithShadow(Graphics graphics, string text, Rectangle bounds, Font font, Color color, ContentAlignment alignment, bool trim = false)
@@ -294,44 +360,11 @@ public sealed class RSceneDialoguePreviewService
         return path;
     }
 
-    private static List<string> WrapText(Graphics graphics, string text, Font font, int maxWidth, int maxLines)
-    {
-        var result = new List<string>();
-        foreach (var paragraph in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
-        {
-            AppendWrappedParagraph(graphics, paragraph, font, maxWidth, maxLines, result);
-            if (result.Count >= maxLines) break;
-        }
-
-        return result.Count == 0 ? [string.Empty] : result;
-    }
-
-    private static void AppendWrappedParagraph(Graphics graphics, string paragraph, Font font, int maxWidth, int maxLines, List<string> result)
-    {
-        var current = string.Empty;
-        foreach (var rune in paragraph.EnumerateRunes())
-        {
-            var next = current + rune.ToString();
-            if (current.Length > 0 && MeasureTextWidth(graphics, next, font) > maxWidth)
-            {
-                result.Add(current);
-                if (result.Count >= maxLines) return;
-                current = rune.ToString();
-            }
-            else
-            {
-                current = next;
-            }
-        }
-
-        if (result.Count < maxLines && current.Length > 0)
-        {
-            result.Add(current);
-        }
-    }
-
     private static string NormalizeText(string text)
-        => string.IsNullOrEmpty(text) ? string.Empty : text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        => string.IsNullOrEmpty(text) ? string.Empty : NormalizeNewLines(text).Trim();
+
+    private static string NormalizeNewLines(string text)
+        => string.IsNullOrEmpty(text) ? string.Empty : text.Replace("\r\n", "\n").Replace('\r', '\n');
 
     private static int MeasureTextWidth(Graphics graphics, string text, Font font)
         => (int)Math.Ceiling(graphics.MeasureString(text, font, int.MaxValue, StringFormat.GenericTypographic).Width);
@@ -561,8 +594,7 @@ public sealed class RSceneDialoguePreviewService
         float NameFontSize,
         float TextFontSize,
         int MaxTextLines,
-        int TextLineHeight,
-        Rectangle MapTextBounds)
+        int TextLineHeight)
     {
         public Font NameFont { get; } = CreateFont(FontFamily, NameFontSize, FontStyle.Bold);
         public Font TextFont { get; } = CreateFont(FontFamily, TextFontSize, FontStyle.Regular);
@@ -571,11 +603,37 @@ public sealed class RSceneDialoguePreviewService
         {
             try
             {
-                return new Font(familyName, size, style, GraphicsUnit.Point);
+                return new Font(familyName, size, style, GraphicsUnit.Pixel);
             }
             catch
             {
-                return new Font(global::System.Drawing.FontFamily.GenericSansSerif, size, style, GraphicsUnit.Point);
+                return new Font(global::System.Drawing.FontFamily.GenericSansSerif, size, style, GraphicsUnit.Pixel);
+            }
+        }
+    }
+
+    private sealed record MapTextPreviewProfile(
+        Rectangle PanelBounds,
+        Rectangle TextBounds,
+        Color PanelColor,
+        Color TextColor,
+        Color ShadowColor,
+        string FontFamily,
+        float TextFontSize,
+        int MaxTextLines,
+        int TextLineHeight)
+    {
+        public Font TextFont { get; } = CreateFont(FontFamily, TextFontSize, FontStyle.Regular);
+
+        private static Font CreateFont(string familyName, float size, FontStyle style)
+        {
+            try
+            {
+                return new Font(familyName, size, style, GraphicsUnit.Pixel);
+            }
+            catch
+            {
+                return new Font(global::System.Drawing.FontFamily.GenericSansSerif, size, style, GraphicsUnit.Pixel);
             }
         }
     }

@@ -19,19 +19,25 @@ internal partial class Program
         };
         mainSettings.SplitRatios["Smoke.MainSplit"] = 0.25;
         mainSettings.SplitRatios["BuildLayout.mapSplit"] = 0.42;
+        mainSettings.TextWrapLimits["TextWrap.14"] = 39;
         UiLayoutSettingsStore.Save(mainSettings);
 
         UiLayoutSettingsStore.SaveSplitRatio("Smoke.DialogSplit", 0.73);
+        UiLayoutSettingsStore.SaveTextWrapLimit("TextWrap.2C", 72);
 
         var loaded = UiLayoutSettingsStore.Load();
         var mainRatio = UiLayoutSettingsStore.GetSplitRatio(loaded, "Smoke.MainSplit");
         var dialogRatio = UiLayoutSettingsStore.GetSplitRatio(loaded, "Smoke.DialogSplit");
         var migratedRatio = UiLayoutSettingsStore.GetSplitRatio(loaded, "BuildMapEditorPage.MapListEditor");
+        var dialogueWrap = UiLayoutSettingsStore.GetTextWrapLimit(loaded, "TextWrap.14", 0);
+        var mapWrap = UiLayoutSettingsStore.GetTextWrapLimit(loaded, "TextWrap.2C", 0);
         if (mainRatio is null || dialogRatio is null ||
             Math.Abs(mainRatio.Value - 0.25) > 0.0001 ||
             Math.Abs(dialogRatio.Value - 0.73) > 0.0001 ||
             migratedRatio is null ||
             Math.Abs(migratedRatio.Value - 0.42) > 0.0001 ||
+            dialogueWrap != 39 ||
+            mapWrap != 72 ||
             loaded.WindowLeft != 11 ||
             loaded.WindowTop != 22 ||
             loaded.WindowWidth != 1234 ||

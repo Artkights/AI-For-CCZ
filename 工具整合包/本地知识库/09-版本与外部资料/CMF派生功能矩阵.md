@@ -1,4 +1,4 @@
-# CMF 派生功能矩阵
+﻿# CMF 派生功能矩阵
 
 ## 结论速览
 
@@ -26,7 +26,7 @@
 | CMF | 派生功能方向 | 当前接入模块 | 当前状态 |
 |---|---|---|---|
 | `Star6.5引擎exe修改器.cmf` | 6.5 EXE 修改、全局参数 | `GlobalSettingsService`、未来 `ExePatchCatalogService` | 静态候选 |
-| `Star6.6X 引擎.cmf` | 6.6X EXE 修改、6.5/6.6 差异 | `CczEngineProfileService`、6.6 profile | 静态候选 |
+| `Star6.6X 引擎.cmf` | 6.6X EXE 修改、6.5/6.6 差异、6.6 全局参数 | `CczEngineProfileService`、`CmfManualSeedService`、`全局设定`、`宝物设定/装备类型` | `Star6.6 / ManualConfirmedWritableCandidate` |
 | `CheatMaker配套文件_star175EXE额外修改器[6.4版].cmf` | 6.4/star175 EXE 差异 | 版本差异提示 | 静态候选 |
 | `特效CM.cmf` | 特效修改器覆盖范围 | `EffectPackageService domain=cmf` | 静态候选 |
 | `修改特效名.cmf` | 特效名修改 | `EffectPackageService domain=cmf`、未来 `EffectNameTableService` | 静态候选 |
@@ -60,6 +60,39 @@
 - 通过 CheatMaker 正常打开 CMF 后导出地址/数据项，并用 `import_cmf_export_knowledge` 补齐字段级 metadata。
 - 对 `Star6.5` 与 `Star6.6X` 做页面/字段级 diff，确认 6.6X 多出的功能块。
 - 把确认后的特效名表、Imsg 说明表、EXE 全局参数逐项升级为可读写规则。
+
+## 2026-07-09 Star6.5 人工确认种子
+
+| CMF | 派生功能方向 | 当前接入模块 | 当前状态 |
+|---|---|---|---|
+| `Star6.5引擎exe修改器.cmf` | 6.5 EXE 修改、全局战斗参数、异常状态、地形策略可用性、装备类型 | `CmfManualSeedService`、`CmfDerivedCapabilityService`、`全局设定`、`宝物设定/装备类型`、MCP/诊断工具 | `全局设定 + 宝物设定/装备类型 / ManualConfirmedWritableCandidate` |
+
+本次新增 `star65-engine-exe-manual-seed.json`，把用户人工提供的 28 个单字段地址、30 项地形策略表、15 项装备类型名称表和 13 项装备类型显示表展开为 `CmfDesignerBinding`。诊断 UI/MCP 中显示为 `ManualConfirmedSeed` / `ManualConfirmed`；正式编辑分为 `全局设定`（全局 CM 字段、地形策略、全局参数、游戏标题）和 `宝物设定 / 装备类型`（装备类型名称、显示/隐藏、可装备部队）。主 UI 只显示名称、数值和勾选状态。
+
+`全局设定 / 装备经验` 当前集中承载装备经验相关字段：8 个新增 1 byte Decimal CM 地址、2 个原有经验开关，以及迁移自旧全局参数页的普装/特装等级上限和普装/特装提升等级。迁移后的 4 个 `EquipmentLevel*` leaf key 仍以 `GlobalSettingsService` 为写入真值，不复制到 CM 地址表。
+
+写入边界：
+
+- `全局设定` 与 `宝物设定 / 装备类型` 只接受白名单 key，不接受任意 offset。
+- 保存目标固定为当前项目 `Ekd5.exe`，写入前执行版本兼容、文件存在、越界检查和自动备份。
+- 单字段和装备类型显示使用固定 1 byte 覆盖；装备类型名称使用 4 字节 GBK 覆盖并保留第 5 字节分隔/结束值；地形表写入 `0x00..0x0F` 位标志组合；装备类型名称保存裸名称，`data设定` 类型码显示继续保留“普通/特殊”前缀。
+- 主 UI 隐藏地址、来源、证据和校验状态；这些信息保留在 CMF 诊断页、MCP 诊断工具和写入报告中。
+
+## 2026-07-09 Star6.6 人工确认种子
+
+| CMF | 派生功能方向 | 当前接入模块 | 当前状态 |
+|---|---|---|---|
+| `Star6.6X 引擎.cmf` | 6.6 EXE 修改、全局 CM 字段、异常状态、装备经验、装备类型 | `CmfManualSeedService`、`CmSettingsService`、`CczEngineProfileService`、`全局设定`、`宝物设定/装备类型`、MCP/诊断工具 | `Star6.6 / ManualConfirmedWritableCandidate` |
+
+本次新增 `star66-engine-exe-manual-seed.json`，按 `versionScope=Star6.6` 独立承载 25 个单字段地址、15 项装备类型名称表和 13 项装备类型显示表。`CmSettingsService` 根据 `CczEngineProfileService.Detect(project).VersionHint` 选择 6.5 或 6.6 seed；6.6 项目不显示 6.5 的地形策略表，也不加载 6.5 的 HP/MP 合并字段。
+
+6.6 `全局设定` 当前分组为：成长 3 项、装备经验 10 项、战斗公式 3 项、异常状态 9 项。异常能力幅度按裸十六进制显示；异常持续回合按 2-bit 位段解码显示 `0..3`。6.6 `宝物设定 / 装备类型` 继续使用 `0x8AC70` 名称表和 `0x81827` 显示表；可装备部队写入仅在当前项目兵种成长/许可槽解析通过时开放。
+
+冲突处理：
+
+- `0x1F53E` 和 `0x1F56D` 在 6.6 基底中不是本轮宝物质变/飞跃等级，记录为冲突候选，不进入 6.6 seed。
+- 6.6 `策略格挡武器获得exp` 固定为 `0x2086C`，不得回退到旧误读地址。
+- 本批没有 6.6 地形策略地址，不从 6.5 seed 猜测迁移。
 
 ## 详细记录
 

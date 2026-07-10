@@ -222,6 +222,30 @@ public sealed class GlobalSettingsUpdate
     public Dictionary<int, string> DetailedJobNames { get; init; } = new();
 }
 
+public sealed class CmSettingsMcpUpdate
+{
+    [JsonPropertyName("values")]
+    public Dictionary<string, string> Values { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("terrain_strategy")]
+    public Dictionary<int, CmTerrainStrategyMcpUpdate> TerrainStrategy { get; init; } = new();
+}
+
+public sealed class CmTerrainStrategyMcpUpdate
+{
+    [JsonPropertyName("fire")]
+    public bool? Fire { get; init; }
+
+    [JsonPropertyName("water")]
+    public bool? Water { get; init; }
+
+    [JsonPropertyName("wind")]
+    public bool? Wind { get; init; }
+
+    [JsonPropertyName("earth")]
+    public bool? Earth { get; init; }
+}
+
 public sealed class AbilityTierProfileUpdate
 {
     [JsonPropertyName("tier_count")]

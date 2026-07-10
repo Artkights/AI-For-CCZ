@@ -553,10 +553,8 @@ internal sealed class FreeImageAssignmentDialog : Form
             return;
         }
 
-        var old = card.Picture.Image;
-        card.Picture.Image = bitmap;
+        SetPictureImage(card.Picture, bitmap);
         card.Picture.BackColor = hasPreview ? Color.FromArgb(24, 26, 28) : Color.FromArgb(72, 48, 48);
-        old?.Dispose();
         ApplyCardState(card, hasPreview ? PreviewLoadState.Loaded : PreviewLoadState.Failed, null);
         CompletePreviewLoad(card, generation, resetToPending: false);
     }
@@ -589,7 +587,7 @@ internal sealed class FreeImageAssignmentDialog : Form
             };
             if (image != null)
             {
-                card.Picture.Image = image;
+                SetPictureImage(card.Picture, image);
             }
         }
 
@@ -661,14 +659,22 @@ internal sealed class FreeImageAssignmentDialog : Form
     {
         if (control is PictureBox picture)
         {
-            picture.Image?.Dispose();
-            picture.Image = null;
+            SetPictureImage(picture, null);
         }
 
         foreach (Control child in control.Controls)
         {
             DisposeControlImages(child);
         }
+    }
+
+    private static void SetPictureImage(PictureBox picture, Image? image)
+    {
+        var old = picture.Image;
+        if (ReferenceEquals(old, image)) return;
+        picture.Image = null;
+        picture.Image = image;
+        old?.Dispose();
     }
 
     private ImageAssignmentPreviewStance GetSelectedStance()

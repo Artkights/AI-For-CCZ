@@ -21,6 +21,28 @@ public sealed partial class MainForm
         _imageAssignmentFreeIdService.ClearCache();
     }
 
+    private bool ShowImageAssignmentImportPreviewDialog(ImageAssignmentImportPreviewDialogModel model)
+    {
+        if (_project == null) return false;
+
+        try
+        {
+            using var previewDialog = new ImageAssignmentImportPreviewDialog(_project, model);
+            return previewDialog.ShowDialog(this) == DialogResult.OK;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("Image assignment import preview dialog failed: " + ex);
+            MessageBox.Show(
+                this,
+                "图像预览窗口打开失败，未执行写入。\r\n\r\n" + ex.Message,
+                "导入预览失败",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+            return false;
+        }
+    }
+
     private void LoadImageResources()
     {
         if (_project == null)
@@ -1209,6 +1231,8 @@ public sealed partial class MainForm
     private static void SetPictureBoxImage(PictureBox box, Image? image)
     {
         var old = box.Image;
+        if (ReferenceEquals(old, image)) return;
+        box.Image = null;
         box.Image = image;
         old?.Dispose();
     }
@@ -1447,11 +1471,13 @@ public sealed partial class MainForm
 
         var previewText = BuildRImageReplacePreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
-        if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会把 front.bmp / back.bmp 标准化为真彩 PNG 并写入 Pmapobj.e5，写入前自动备份。是否继续？",
-                "确认一键替换 R 形象",
-                MessageBoxButtons.YesNo,
-                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        var previewDialogModel = new ImageAssignmentImportPreviewAdapter().FromRImage(preview, previewText, "一键导入 R 形象预览");
+        if (!ShowImageAssignmentImportPreviewDialog(previewDialogModel))
+        {
+            return;
+        }
+
+        if (!previewDialogModel.CanWrite)
         {
             return;
         }
@@ -1649,17 +1675,13 @@ public sealed partial class MainForm
 
         var previewText = BuildBatchRImageReplacePreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
-        if (!preview.CanWrite)
+        var previewDialogModel = new ImageAssignmentImportPreviewAdapter().FromBatchRImage(preview, previewText);
+        if (!ShowImageAssignmentImportPreviewDialog(previewDialogModel))
         {
-            MessageBox.Show(this, previewText, "批量导入 R 形象存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会把这些 R 形象一次写入 Pmapobj.e5，并自动备份。是否继续？",
-                "确认批量导入 R 形象",
-                MessageBoxButtons.YesNo,
-                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        if (!previewDialogModel.CanWrite)
         {
             return;
         }
@@ -1804,19 +1826,66 @@ public sealed partial class MainForm
 
         using var folderDialog = new FolderBrowserDialog
         {
-            Description = "选择 S 形象批量素材根目录；子目录使用 S12 / S_12 / 12，且包含 mov.bmp、atk.bmp、spc.bmp 或 turn1/turn2/turn3。",
+            Description = "选择 S 形象批量素材根目录；子目录使用 S12 / S_12 / S12_名称 / S12-名称，且包含 mov.bmp、atk.bmp、spc.bmp 或 turn1/turn2/turn3。",
             UseDescriptionForTitle = true
         };
         if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
 
+        SImageBatchMaterialScanSummary prescan;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            prescan = _batchSImageReplaceService.ScanMaterialRoot(folderDialog.SelectedPath);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Batch S image material prescan failed: " + ex);
+            MessageBox.Show(this, ex.Message, "批量导入 S 形象素材预扫失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var prescanText = BuildBatchSImageMaterialPrescanText(folderDialog.SelectedPath, prescan);
+        _imageAssignmentInfoBox.Text = prescanText;
+        if (prescan.RecognizedSDirectories == 0)
+        {
+            MessageBox.Show(this,
+                prescanText + "\r\n\r\n没有识别到可导入的 S 目录。有效命名示例：S12 / S_12 / S12_名称 / S12-名称；纯数字目录不会参与导入。",
+                "未识别到 S 形象素材目录",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (MessageBox.Show(this,
+                prescanText + "\r\n\r\n点击“确定”继续选择转数；点击“取消”放弃导入。",
+                "批量导入 S 形象素材预扫",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Information) != DialogResult.OK)
+        {
+            return;
+        }
+
         var stageSlots = SelectSImageStageSlots("选择批量导入 S 形象转数", "选择要批量导入的人物 S 形象转。三转 S 会按选择写入；单转 S 只支持第一转。");
         if (stageSlots.Count == 0) return;
+
+        var rangeChoice = MessageBox.Show(this,
+            "是否导入根目录下全部识别到的 S 编号？\r\n\r\n是：导入全部识别到的 S 目录。\r\n否：只导入当前人物形象表可见/筛选行引用的 S 编号。\r\n取消：放弃导入。",
+            "选择批量导入范围",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Question);
+        if (rangeChoice == DialogResult.Cancel) return;
+        var includeAllRecognized = rangeChoice == DialogResult.Yes;
 
         var request = new BatchSImageReplaceRequest
         {
             MaterialRoot = folderDialog.SelectedPath,
             AllowedSImageUsages = CollectVisibleSImageUsages(),
-            IncludeOnlySelectedOrFiltered = true,
+            IncludeOnlySelectedOrFiltered = !includeAllRecognized,
+            IncludeAllRecognizedSDirectories = includeAllRecognized,
             FactionSlot = GetImageAssignmentSPreviewFactionSlot(),
             StageSlots = stageSlots,
             WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
@@ -1841,17 +1910,13 @@ public sealed partial class MainForm
 
         var previewText = BuildBatchSImageReplacePreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
-        if (!preview.CanWrite)
+        var previewDialogModel = new ImageAssignmentImportPreviewAdapter().FromBatchSImage(preview, previewText);
+        if (!ShowImageAssignmentImportPreviewDialog(previewDialogModel))
         {
-            MessageBox.Show(this, previewText, "批量导入 S 形象存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会按 Unit_mov.e5 / Unit_atk.e5 / Unit_spc.e5 分组批量写入，并自动备份。是否继续？",
-                "确认批量导入 S 形象",
-                MessageBoxButtons.YesNo,
-                _project.IsTestCopy ? MessageBoxIcon.Question : MessageBoxIcon.Warning) != DialogResult.Yes)
+        if (!previewDialogModel.CanWrite)
         {
             return;
         }
@@ -1943,13 +2008,107 @@ public sealed partial class MainForm
     private static string BuildBatchSImageReplacePreviewText(BatchSImageReplacePreviewResult preview)
         => "批量导入 S 形象预览\r\n" +
            $"素材根目录：{preview.Request.MaterialRoot}\r\n" +
+           BuildBatchSImageMaterialScanText(preview.MaterialScan) +
            $"匹配成功：{preview.Items.Count} 个 S 映射，写入条目：{preview.TotalOperationCount}\r\n" +
            $"目标文件：{string.Join(", ", preview.FilePreviews.Keys)}\r\n" +
            $"跳过/问题：{preview.SkippedItems.Count}\r\n" +
+           BuildBatchSImageNoMatchHint(preview) +
            string.Join("\r\n", preview.Items.Take(30).Select(item =>
                $"- S{item.SImageId} {item.StageName}: #{item.ImageNumber} <- {Path.GetFileName(item.MaterialFolder)}")) +
            BuildSkippedItemsText(preview.SkippedItems) +
            BuildWarningsText(preview.Warnings);
+
+    private static string BuildBatchSImageMaterialScanText(SImageBatchMaterialScanSummary scan)
+        => "素材扫描：\r\n" +
+           $"根目录一级子目录：{scan.TotalChildDirectories}\r\n" +
+           $"识别到 S 目录：{scan.RecognizedSDirectories}，S编号：{FormatSImageIds(scan.RecognizedSIds)}\r\n" +
+           $"当前导入范围内：{scan.MatchedMaterialDirectories}\r\n" +
+           $"因人物形象表未引用而跳过：{scan.FilteredUnusedDirectories}\r\n" +
+           $"目录名不合法：{scan.InvalidNameDirectories}{FormatExampleSuffix(scan.InvalidNameExamples)}\r\n" +
+           $"重复 S 编号目录：{scan.DuplicateIdDirectories}{FormatExampleSuffix(scan.DuplicateIdExamples)}\r\n" +
+           $"阻断项目录：{scan.BlockingDirectories}\r\n" +
+           BuildBatchSImageFolderLayoutLines(scan.FolderLayoutSummaries, 12);
+
+    private static string BuildBatchSImageMaterialPrescanText(string materialRoot, SImageBatchMaterialScanSummary scan)
+        => "批量导入 S 形象素材预扫\r\n" +
+           $"素材根目录：{materialRoot}\r\n" +
+           $"根目录一级子目录：{scan.TotalChildDirectories}\r\n" +
+           $"识别到 S 目录：{scan.RecognizedSDirectories}，S编号：{FormatSImageIds(scan.RecognizedSIds)}\r\n" +
+           $"目录名不合法：{scan.InvalidNameDirectories}{FormatExampleSuffix(scan.InvalidNameExamples)}\r\n" +
+           $"重复 S 编号目录：{scan.DuplicateIdDirectories}{FormatExampleSuffix(scan.DuplicateIdExamples)}\r\n" +
+           "命名规则：S12 / S_12 / S12_名称 / S12-名称；纯数字目录不会参与导入。\r\n" +
+           "未识别目录只会作为提示列出，不会参与导入。\r\n" +
+           BuildBatchSImageFolderLayoutLines(scan.FolderLayoutSummaries, 20);
+
+    private static string BuildBatchSImageFolderLayoutLines(IReadOnlyList<SImageMaterialFolderLayoutSummary> layouts, int maxRows)
+    {
+        if (layouts.Count == 0) return string.Empty;
+
+        var builder = new StringBuilder();
+        builder.AppendLine("识别目录结构：");
+        foreach (var layout in layouts.Take(maxRows))
+        {
+            builder.AppendLine($"- S{layout.SImageId}: {layout.DisplayName}，{FormatSImageFolderLayout(layout)}");
+        }
+
+        if (layouts.Count > maxRows)
+        {
+            builder.AppendLine($"- ... 还有 {layouts.Count - maxRows} 个识别目录");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string FormatSImageFolderLayout(SImageMaterialFolderLayoutSummary layout)
+    {
+        var parts = new List<string>();
+        if (layout.HasFlatTriplet)
+        {
+            parts.Add("平铺三件套完整");
+        }
+
+        if (layout.PresentTurnStages.Count > 0)
+        {
+            var complete = layout.CompleteTurnStages.Count == 0
+                ? "无完整 turn 三件套"
+                : "完整 " + string.Join("/", layout.CompleteTurnStages.Select(stage => $"turn{stage}"));
+            var present = string.Join("/", layout.PresentTurnStages.Select(stage => $"turn{stage}"));
+            parts.Add($"{present}，{complete}");
+        }
+
+        return parts.Count == 0
+            ? "未发现平铺三件套或 turn1/turn2/turn3"
+            : string.Join("；", parts);
+    }
+
+    private static string FormatExampleSuffix(IReadOnlyList<string> examples)
+        => examples.Count == 0
+            ? string.Empty
+            : $"，示例：{string.Join(", ", examples.Take(8))}{(examples.Count > 8 ? $", ... 还有 {examples.Count - 8} 个" : string.Empty)}";
+
+    private static string BuildBatchSImageNoMatchHint(BatchSImageReplacePreviewResult preview)
+    {
+        var scan = preview.MaterialScan;
+        if (scan.MatchedMaterialDirectories != 0 ||
+            scan.RecognizedSDirectories == 0 ||
+            scan.FilteredUnusedDirectories == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"已识别到 {FormatSImageIds(scan.RecognizedSIds)}，但当前人物形象设定可见行没有引用这些 S 编号。\r\n" +
+               "请先把人物的 S形象编号改为对应编号，或重新执行并选择“导入根目录下全部识别到的 S 编号”。\r\n";
+    }
+
+    private static string FormatSImageIds(IReadOnlyList<int> ids)
+    {
+        if (ids.Count == 0) return "无";
+
+        var formatted = string.Join(", ", ids.Take(20).Select(id => id.ToString(CultureInfo.InvariantCulture)));
+        return ids.Count > 20
+            ? $"{formatted}, ... 还有 {ids.Count - 20} 个"
+            : formatted;
+    }
 
     private static string BuildBatchSImageReplaceResultText(BatchSImageReplaceResult result)
         => "批量导入 S 形象完成\r\n" +

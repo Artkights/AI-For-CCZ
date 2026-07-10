@@ -16,6 +16,7 @@ public sealed class SImageReplaceService
 
     private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
+    private readonly SImageMaterialLayoutResolver _layoutResolver = new();
 
     public SImageReplacePreviewResult Preview(CczProject project, SImageReplaceRequest request)
     {
@@ -27,7 +28,7 @@ public sealed class SImageReplaceService
             defaultAllStages: true);
         if (stageTargets.Count == 0)
         {
-            throw new InvalidOperationException($"当前 S 形象不包含所选转数：{string.Join(", ", request.StageSlots)}。");
+            throw new InvalidOperationException($"Current S image does not contain selected stages: {string.Join(", ", request.StageSlots)}.");
         }
 
         var mapping = ToSnapshot(resolvedMapping, stageTargets);
@@ -37,7 +38,7 @@ public sealed class SImageReplaceService
             request.StageSlots.Count == 0 &&
             stageTargets.Count > 1)
         {
-            warnings.Add("未指定转数，按旧行为写入该 S 对应的全部三转 Unit 图号。");
+            warnings.Add("No stage was selected, so all available S image stages will be written.");
         }
 
         var files = new List<SImageReplaceFilePreview>();
@@ -114,7 +115,7 @@ public sealed class SImageReplaceService
     {
         if (request.SImageId == 0 && (!request.JobId.HasValue || request.JobId.Value < 0))
         {
-            throw new InvalidOperationException("S=0 必须从已选角色执行，并提供有效职业编号。");
+            throw new InvalidOperationException("S=0 must be imported from a selected character with a valid job id.");
         }
 
         var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(
@@ -151,82 +152,68 @@ public sealed class SImageReplaceService
     {
         if (string.IsNullOrWhiteSpace(request.MaterialFolder))
         {
-            throw new InvalidOperationException("缺少 S 形象素材目录。");
+            throw new InvalidOperationException("Missing S image material folder.");
         }
 
         var folder = Path.GetFullPath(request.MaterialFolder);
         if (!Directory.Exists(folder))
         {
-            throw new DirectoryNotFoundException($"找不到 S 形象素材目录：{folder}");
+            throw new DirectoryNotFoundException($"S image material folder not found: {folder}");
         }
 
-        var actions = new[]
+        var layout = _layoutResolver.Resolve(folder, stageTargets);
+        var missing = layout.StageFiles
+            .Where(stage => !stage.IsComplete)
+            .Select(stage => $"{stage.StageName}: {string.Join(", ", stage.MissingFiles)}")
+            .ToArray();
+        if (missing.Length > 0)
         {
-            new SImageActionPlan("移动", "Unit_mov.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5"), "mov.bmp", E5RawImageCodec.UnitMovSpec),
-            new SImageActionPlan("攻击", "Unit_atk.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), "atk.bmp", E5RawImageCodec.UnitAtkSpec),
-            new SImageActionPlan("特技", "Unit_spc.e5", CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), "spc.bmp", E5RawImageCodec.UnitSpcSpec)
-        };
-        var plans = new List<SImageFilePlan>();
-        foreach (var stageTarget in stageTargets)
-        {
-            foreach (var action in actions)
-            {
-                var sourcePath = ResolveMaterialFile(folder, stageTarget.StageSlot, action.SourceFileName);
-                if (string.IsNullOrWhiteSpace(sourcePath))
-                {
-                    continue;
-                }
+            throw new InvalidOperationException("S image material is missing required files: " + string.Join("; ", missing));
+        }
 
-                plans.Add(new SImageFilePlan(
-                    action.ActionName,
-                    stageTarget.StageSlot,
-                    stageTarget.DisplayName,
-                    stageTarget.ImageNumber,
-                    action.TargetFileName,
-                    action.TargetPath,
-                    sourcePath,
-                    action.Spec));
-            }
+        var plans = new List<SImageFilePlan>();
+        foreach (var stageFiles in layout.StageFiles)
+        {
+            var stageTarget = stageTargets.Single(target => target.StageSlot == stageFiles.StageSlot);
+            AddFilePlan(plans, project, stageTarget, "mov", "Unit_mov.e5", stageFiles.MovPath, E5RawImageCodec.UnitMovSpec);
+            AddFilePlan(plans, project, stageTarget, "atk", "Unit_atk.e5", stageFiles.AtkPath, E5RawImageCodec.UnitAtkSpec);
+            AddFilePlan(plans, project, stageTarget, "spc", "Unit_spc.e5", stageFiles.SpcPath, E5RawImageCodec.UnitSpcSpec);
         }
 
         if (plans.Count == 0)
         {
-            throw new InvalidOperationException("没有找到可导入的 S 形象素材。");
+            throw new InvalidOperationException("No importable S image materials were found.");
         }
 
         foreach (var plan in plans)
         {
             if (!File.Exists(plan.TargetPath))
             {
-                throw new FileNotFoundException($"找不到目标 E5：{plan.TargetFileName}", plan.TargetPath);
+                throw new FileNotFoundException($"Target E5 file not found: {plan.TargetFileName}", plan.TargetPath);
             }
         }
 
         return plans;
     }
 
-    private static string ResolveMaterialFile(string folder, int stageSlot, string fileName)
+    private static void AddFilePlan(
+        List<SImageFilePlan> plans,
+        CczProject project,
+        SImageStageTarget stageTarget,
+        string actionName,
+        string targetFileName,
+        string sourcePath,
+        E5RawImageSpec spec)
     {
-        var stageFolder = Path.Combine(folder, $"turn{stageSlot.ToString(CultureInfo.InvariantCulture)}");
-        var staged = Directory.Exists(stageFolder)
-            ? ResolveMaterialFile(stageFolder, fileName)
-            : string.Empty;
-        return !string.IsNullOrWhiteSpace(staged)
-            ? staged
-            : ResolveMaterialFile(folder, fileName);
-    }
-
-    private static string ResolveMaterialFile(string folder, string fileName)
-    {
-        var path = Directory
-            .EnumerateFiles(folder)
-            .FirstOrDefault(file => Path.GetFileName(file).Equals(fileName, StringComparison.OrdinalIgnoreCase));
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            return path;
-        }
-
-        return string.Empty;
+        plans.Add(new SImageFilePlan(
+            actionName,
+            stageTarget.StageSlot,
+            stageTarget.DisplayName,
+            stageTarget.ImageNumber,
+            targetFileName,
+            CharacterImageResourceService.ResolveGameFile(project, targetFileName),
+            sourcePath,
+            spec));
     }
 
     private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildRequests(
@@ -242,7 +229,7 @@ public sealed class SImageReplaceService
                 SourceBytes = encode.ImageBytes,
                 SourceBytesAreRaw = false,
                 SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
-                OperationKind = $"一键替换S形象-{stageName}-{actionName}"
+                OperationKind = $"S image import {stageName} {actionName}"
             }
         };
 
@@ -254,7 +241,7 @@ public sealed class SImageReplaceService
         var reportPath = Path.Combine(backupRoot, $"{stamp}_SImageTrueColorReplaceReport.json");
         var payload = new
         {
-            OperationKind = "S形象一键真彩替换",
+            OperationKind = "S image true-color replace",
             CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ProjectRoot = project.GameRoot,
             result.Request,
@@ -321,12 +308,5 @@ public sealed class SImageReplaceService
         string TargetFileName,
         string TargetPath,
         string SourcePath,
-        E5RawImageSpec Spec);
-
-    private sealed record SImageActionPlan(
-        string ActionName,
-        string TargetFileName,
-        string TargetPath,
-        string SourceFileName,
         E5RawImageSpec Spec);
 }

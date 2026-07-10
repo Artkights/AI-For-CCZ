@@ -59,6 +59,10 @@ internal partial class Program
         {
             throw new InvalidOperationException("Batch R image preview did not match the expected selected-id mapping.");
         }
+        AssertImageAssignmentImportPreviewVisuals(
+            testProject,
+            new ImageAssignmentImportPreviewAdapter().FromBatchRImage(preview, "batch R smoke"),
+            expectedItems: 4);
 
         var result = service.Replace(testProject, request);
         if (result.WriteResult == null ||
@@ -97,10 +101,14 @@ internal partial class Program
         var materialRoot = Path.Combine(smokeRoot, "_BatchSMaterials");
         CreateBatchSFolder(materialRoot, "S1", Color.FromArgb(255, 220, 30, 80), Color.FromArgb(255, 30, 160, 220));
         CreateBatchSFolder(materialRoot, "S250", Color.FromArgb(255, 30, 180, 90), Color.FromArgb(255, 220, 140, 30));
-        CreateBatchSFolder(materialRoot, "0", Color.FromArgb(255, 140, 80, 220), Color.FromArgb(255, 240, 220, 40));
+        CreateBatchSFolder(materialRoot, "S0", Color.FromArgb(255, 140, 80, 220), Color.FromArgb(255, 240, 220, 40));
         CreateBatchSFolder(Path.Combine(materialRoot, "S1", "turn2"), "", Color.FromArgb(255, 80, 210, 230), Color.FromArgb(255, 210, 80, 120));
+        CreateBatchSFolder(Path.Combine(materialRoot, "S1", "turn3"), "", Color.FromArgb(255, 210, 80, 230), Color.FromArgb(255, 80, 210, 120));
 
         var service = new BatchSImageReplaceService();
+        AssertSImageFolderParserRules();
+        RunBatchSImageMaterialRootScanSmoke(testProject, smokeRoot, service);
+
         var request = new BatchSImageReplaceRequest
         {
             MaterialRoot = materialRoot,
@@ -120,6 +128,9 @@ internal partial class Program
             preview.Items.Count != 5 ||
             preview.TotalOperationCount != 15 ||
             preview.FilePreviews.Count != 3 ||
+            preview.MaterialScan.TotalChildDirectories != 3 ||
+            preview.MaterialScan.RecognizedSDirectories != 3 ||
+            preview.MaterialScan.MatchedMaterialDirectories != 3 ||
             !preview.Items.Where(item => item.SImageId == 1).Select(item => item.ImageNumber).SequenceEqual(new[] { 241, 242, 243 }) ||
             preview.Items.Single(item => item.SImageId == 1 && item.StageSlot == 2).MovSourcePath.Contains("turn2", StringComparison.OrdinalIgnoreCase) == false ||
             preview.Items.Single(item => item.SImageId == 250).ImageNumbers.SequenceEqual(new[] { 554 }) == false ||
@@ -127,6 +138,10 @@ internal partial class Program
         {
             throw new InvalidOperationException("Batch S image preview did not match regular, staged, and S=0 mappings.");
         }
+        AssertImageAssignmentImportPreviewVisuals(
+            testProject,
+            new ImageAssignmentImportPreviewAdapter().FromBatchSImage(preview, "batch S smoke"),
+            expectedItems: 15);
 
         var result = service.Replace(testProject, request);
         if (result.WriteResults.Count != 3 ||
@@ -146,8 +161,26 @@ internal partial class Program
 
         var beforeS1Turn1Mov = e5.ReadEntryBytes(CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 241);
         var beforeS1Turn3Mov = e5.ReadEntryBytes(CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), 243);
+        var flatSecondTurnRoot = Path.Combine(smokeRoot, "_BatchSFlatSecondTurn");
+        CreateBatchSFolder(flatSecondTurnRoot, "S1", Color.FromArgb(255, 20, 210, 80), Color.FromArgb(255, 210, 60, 210));
+        var flatSecondTurnPreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = flatSecondTurnRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(1, null, 1) },
+            IncludeOnlySelectedOrFiltered = true,
+            StageSlots = new[] { 2 },
+            WriteMode = "test_copy"
+        });
+        if (flatSecondTurnPreview.CanWrite ||
+            flatSecondTurnPreview.SkippedItems.All(item =>
+                !item.Reason.StartsWith(BatchImageImportSkipReasons.MissingFile, StringComparison.Ordinal) ||
+                !item.Reason.Contains("turn2/mov.bmp", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Batch S flat first-stage material should not be accepted for second-turn import.");
+        }
+
         var secondTurnOnlyRoot = Path.Combine(smokeRoot, "_BatchSSecondTurnOnly");
-        CreateBatchSFolder(secondTurnOnlyRoot, "S1", Color.FromArgb(255, 20, 210, 80), Color.FromArgb(255, 210, 60, 210));
+        CreateBatchSFolder(Path.Combine(secondTurnOnlyRoot, "S1", "turn2"), "", Color.FromArgb(255, 20, 210, 80), Color.FromArgb(255, 210, 60, 210));
         var secondTurnOnly = service.Replace(testProject, new BatchSImageReplaceRequest
         {
             MaterialRoot = secondTurnOnlyRoot,
@@ -178,10 +211,70 @@ internal partial class Program
             IncludeOnlySelectedOrFiltered = true,
             WriteMode = "test_copy"
         });
-        if (duplicatePreview.CanWrite ||
-            duplicatePreview.SkippedItems.All(item => !item.Reason.StartsWith(BatchImageImportSkipReasons.DuplicateTarget, StringComparison.Ordinal)))
+        if (!duplicatePreview.CanWrite ||
+            duplicatePreview.SkippedItems.Any(item => item.Reason.StartsWith(BatchImageImportSkipReasons.DuplicateTarget, StringComparison.Ordinal)))
         {
-            throw new InvalidOperationException("Batch S image preview should block duplicate target image numbers.");
+            throw new InvalidOperationException("Batch S image preview should deduplicate same-source duplicate target image numbers.");
+        }
+
+        var nameSuffixRoot = Path.Combine(smokeRoot, "_BatchSNameSuffix");
+        CreateBatchSFolder(nameSuffixRoot, "S249-Test", Color.FromArgb(255, 70, 180, 220), Color.FromArgb(255, 220, 90, 80));
+        CreateBatchSFolder(nameSuffixRoot, "S250_Test", Color.FromArgb(255, 30, 120, 220), Color.FromArgb(255, 220, 210, 40));
+        CreateBatchSFolder(nameSuffixRoot, "S_250_Duplicate", Color.FromArgb(255, 40, 180, 220), Color.FromArgb(255, 220, 120, 40));
+        var nameSuffixPreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = nameSuffixRoot,
+            AllowedSImageUsages = new[]
+            {
+                new BatchSImageUsage(249, null, 1),
+                new BatchSImageUsage(250, null, 1)
+            },
+            IncludeOnlySelectedOrFiltered = true,
+            StageSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (nameSuffixPreview.CanWrite ||
+            !nameSuffixPreview.MaterialScan.RecognizedSIds.SequenceEqual(new[] { 249, 250 }) ||
+            nameSuffixPreview.MaterialScan.DuplicateIdDirectories != 2 ||
+            nameSuffixPreview.SkippedItems.All(item => !item.Reason.StartsWith(BatchImageImportSkipReasons.DuplicateId, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("Batch S image preview should parse suffix folder names and block duplicate S ids.");
+        }
+
+        var unusedRoot = Path.Combine(smokeRoot, "_BatchSUnused");
+        CreateBatchSFolder(unusedRoot, "S249_UnusedA", Color.FromArgb(255, 80, 180, 230), Color.FromArgb(255, 230, 120, 80));
+        CreateBatchSFolder(unusedRoot, "S250-UnusedB", Color.FromArgb(255, 90, 190, 230), Color.FromArgb(255, 230, 130, 80));
+        var unusedPreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = unusedRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(1, null, 1) },
+            IncludeOnlySelectedOrFiltered = true,
+            StageSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (unusedPreview.CanWrite ||
+            unusedPreview.MaterialScan.RecognizedSDirectories != 2 ||
+            unusedPreview.MaterialScan.FilteredUnusedDirectories != 2 ||
+            unusedPreview.MaterialScan.MatchedMaterialDirectories != 0)
+        {
+            throw new InvalidOperationException("Batch S image preview should report recognized but unused S directories.");
+        }
+
+        var includeAllPreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = unusedRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(1, null, 1) },
+            IncludeOnlySelectedOrFiltered = false,
+            IncludeAllRecognizedSDirectories = true,
+            StageSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (!includeAllPreview.CanWrite ||
+            includeAllPreview.MaterialScan.FilteredUnusedDirectories != 0 ||
+            includeAllPreview.MaterialScan.MatchedMaterialDirectories != 2 ||
+            !includeAllPreview.Items.Select(item => item.SImageId).SequenceEqual(new[] { 249, 250 }))
+        {
+            throw new InvalidOperationException("Batch S image include-all mode should import all recognized S directories.");
         }
 
         var missingRoot = Path.Combine(smokeRoot, "_BatchSMissing");
@@ -199,6 +292,117 @@ internal partial class Program
             missingPreview.SkippedItems.All(item => !item.Reason.StartsWith(BatchImageImportSkipReasons.MissingFile, StringComparison.Ordinal)))
         {
             throw new InvalidOperationException("Batch S image preview should block when spc.bmp is missing.");
+        }
+
+        var invalidSizeRoot = Path.Combine(smokeRoot, "_BatchSInvalidSize");
+        var invalidSizeFolder = Path.Combine(invalidSizeRoot, "S250");
+        Directory.CreateDirectory(invalidSizeFolder);
+        CreateSmokeBmp(Path.Combine(invalidSizeFolder, "mov.bmp"), 47, 528, Color.FromArgb(255, 90, 180, 230), Color.FromArgb(255, 230, 90, 150));
+        CreateSmokeBmp(Path.Combine(invalidSizeFolder, "atk.bmp"), 64, 768, Color.FromArgb(255, 190, 80, 220), Color.FromArgb(255, 80, 220, 180));
+        CreateSmokeBmp(Path.Combine(invalidSizeFolder, "spc.bmp"), 48, 240, Color.FromArgb(255, 80, 180, 220), Color.FromArgb(255, 220, 80, 180));
+        var invalidSizePreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = invalidSizeRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(250, null, 1) },
+            IncludeOnlySelectedOrFiltered = true,
+            StageSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (invalidSizePreview.CanWrite ||
+            invalidSizePreview.SkippedItems.All(item => !item.Reason.StartsWith(BatchImageImportSkipReasons.InvalidSize, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("Batch S image preview should categorize wrong strip dimensions as invalid-size.");
+        }
+    }
+
+    private static void AssertSImageFolderParserRules()
+    {
+        foreach (var (name, expectedId) in new[] { ("S1", 1), ("S_1", 1), ("S1_赵云", 1), ("S_1_赵云", 1), ("S1-赵云", 1), ("s12 test", 12) })
+        {
+            if (!SImageMaterialLayoutResolver.TryParseSFolderId(name, out var actualId) || actualId != expectedId)
+            {
+                throw new InvalidOperationException($"S folder parser should accept {name} as S{expectedId}, actual={actualId}.");
+            }
+        }
+
+        foreach (var name in new[] { "1", "001", "10_赵云", "abcS1", "Job1" })
+        {
+            if (SImageMaterialLayoutResolver.TryParseSFolderId(name, out var actualId))
+            {
+                throw new InvalidOperationException($"S folder parser should reject pure/non-prefixed folder {name}, actual=S{actualId}.");
+            }
+        }
+    }
+
+    private static void RunBatchSImageMaterialRootScanSmoke(CczProject testProject, string smokeRoot, BatchSImageReplaceService service)
+    {
+        var scanRoot = Path.Combine(smokeRoot, "_BatchSDesktopLikeRoot");
+        for (var sId = 1; sId <= 10; sId++)
+        {
+            var sFolder = Path.Combine(scanRoot, $"S{sId.ToString(CultureInfo.InvariantCulture)}");
+            for (var stage = 1; stage <= 3; stage++)
+            {
+                CreateBatchSFolder(
+                    Path.Combine(sFolder, $"turn{stage.ToString(CultureInfo.InvariantCulture)}"),
+                    "",
+                    Color.FromArgb(255, 20 + sId * 10, 40 + stage * 20, 120),
+                    Color.FromArgb(255, 210 - sId * 5, 120, 40 + stage * 20));
+            }
+        }
+
+        foreach (var invalidName in new[] { "1", "实训", "科研", "笔记" })
+        {
+            Directory.CreateDirectory(Path.Combine(scanRoot, invalidName));
+        }
+
+        var scan = service.ScanMaterialRoot(scanRoot);
+        if (scan.TotalChildDirectories != 14 ||
+            scan.RecognizedSDirectories != 10 ||
+            !scan.RecognizedSIds.SequenceEqual(Enumerable.Range(1, 10)) ||
+            scan.InvalidNameDirectories != 4 ||
+            !scan.InvalidNameExamples.Contains("1", StringComparer.Ordinal) ||
+            scan.DuplicateIdDirectories != 0 ||
+            scan.FolderLayoutSummaries.Count != 10 ||
+            scan.FolderLayoutSummaries.Any(layout =>
+                layout.HasFlatTriplet ||
+                !layout.PresentTurnStages.SequenceEqual(new[] { 1, 2, 3 }) ||
+                !layout.CompleteTurnStages.SequenceEqual(new[] { 1, 2, 3 })))
+        {
+            throw new InvalidOperationException("Batch S image prescan should recognize S1-S10 and treat desktop-style plain folders as invalid names.");
+        }
+
+        var unusedPreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = scanRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(249, null, 1) },
+            IncludeOnlySelectedOrFiltered = true,
+            StageSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (unusedPreview.CanWrite ||
+            unusedPreview.MaterialScan.RecognizedSDirectories != 10 ||
+            unusedPreview.MaterialScan.MatchedMaterialDirectories != 0 ||
+            unusedPreview.MaterialScan.FilteredUnusedDirectories != 10 ||
+            unusedPreview.MaterialScan.DuplicateIdDirectories != 0)
+        {
+            throw new InvalidOperationException("Batch S image preview should report recognized S directories that are outside the current visible/filtered scope.");
+        }
+
+        var includeAllPreview = service.Preview(testProject, new BatchSImageReplaceRequest
+        {
+            MaterialRoot = scanRoot,
+            AllowedSImageUsages = new[] { new BatchSImageUsage(249, null, 1) },
+            IncludeOnlySelectedOrFiltered = false,
+            IncludeAllRecognizedSDirectories = true,
+            StageSlots = new[] { 1 },
+            WriteMode = "test_copy"
+        });
+        if (!includeAllPreview.CanWrite ||
+            includeAllPreview.MaterialScan.FilteredUnusedDirectories != 0 ||
+            includeAllPreview.MaterialScan.MatchedMaterialDirectories != 10 ||
+            !includeAllPreview.Items.Select(item => item.SImageId).SequenceEqual(Enumerable.Range(1, 10)))
+        {
+            throw new InvalidOperationException("Batch S image include-all mode should make desktop-style S1-S10 materials writable.");
         }
     }
 
@@ -552,6 +756,10 @@ internal partial class Program
         {
             throw new InvalidOperationException("Batch role face ordered preview did not map selected rows to Face.e5 image numbers.");
         }
+        AssertImageAssignmentImportPreviewVisuals(
+            testProject,
+            new ImageAssignmentImportPreviewAdapter().FromRoleFace(orderedPreview, "face smoke", "face smoke"),
+            expectedItems: 2);
 
         var orderedResult = service.Replace(testProject, orderedRequest);
         if (orderedResult.E5Result == null ||
@@ -697,6 +905,41 @@ internal partial class Program
         using var memory = new MemoryStream(bytes, writable: false);
         using var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: true);
         return image.Width == 120 && image.Height == 120;
+    }
+
+    private static void AssertImageAssignmentImportPreviewVisuals(
+        CczProject project,
+        ImageAssignmentImportPreviewDialogModel model,
+        int expectedItems)
+    {
+        if (!model.CanWrite || model.Items.Count != expectedItems)
+        {
+            throw new InvalidOperationException($"Image assignment import visual preview model mismatch: canWrite={model.CanWrite}, items={model.Items.Count}, expected={expectedItems}.");
+        }
+
+        var renderer = new ImageAssignmentImportPreviewRenderer();
+        var targetSizes = new[] { new Size(300, 440), new Size(420, 520) };
+        foreach (var item in model.Items.Take(6))
+        {
+            using var current = renderer.RenderCurrentTarget(project, item);
+            using var output = renderer.RenderOutputPreview(item);
+            if (current.Width <= 0 || current.Height <= 0 ||
+                output.Width <= 0 || output.Height <= 0)
+            {
+                throw new InvalidOperationException($"Image assignment import visual preview rendered an empty bitmap for {item.DisplayName}.");
+            }
+
+            foreach (var targetSize in targetSizes)
+            {
+                using var sizedCurrent = renderer.RenderCurrentTarget(project, item, targetSize);
+                using var sizedOutput = renderer.RenderOutputPreview(item, targetSize);
+                if (sizedCurrent.Size != targetSize || sizedOutput.Size != targetSize)
+                {
+                    throw new InvalidOperationException(
+                        $"Image assignment import visual preview did not fill target canvas for {item.DisplayName}: current={sizedCurrent.Size}, output={sizedOutput.Size}, expected={targetSize}.");
+                }
+            }
+        }
     }
 
     private static void CreateBatchRFolder(string root, string folderName, Color primary, Color secondary)

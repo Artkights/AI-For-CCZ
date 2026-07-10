@@ -28,6 +28,8 @@ public sealed partial class MainForm : Form
     private sealed record ItemEditorCellTarget(DataRow Row, string ColumnName);
     private sealed record ItemEditorCellEdit(DataRow Row, string ColumnName, object? OldValue, object? NewValue);
     private sealed record JobStrategyIconImportTarget(int StrategyId, string StrategyName, int IconIndex, string SourcePath);
+    private sealed record JobStrategyBitFlagDefinition(int Mask, string Name, string Description);
+    private sealed record TextWrapLimitBinding(int CommandId, LegacyScenarioCommandNode? Command);
     private sealed record BattlefieldCommand25Marker(int GridX, int GridY, LegacyScenarioCommandNode Command, int Count);
 
     private enum ItemIconPreviewRole
@@ -100,7 +102,30 @@ public sealed partial class MainForm : Form
         ("命中上限", "6.5-5-6 策略命中率"),
         ("效果索引", "6.5-5-7 学会策略"),
         ("AI策略（战场）", "6.5-5-8 战场AI策略限制"),
-        ("AI策略（练武）", "6.5-5-9 练武场AI策略限制")
+        ("AI策略（练武）", "6.5-5-9 练武场AI策略限制"),
+        ("策略扩展标记", "6.5-5-0 策略扩展标记")
+    ];
+    private static readonly JobStrategyBitFlagDefinition[] JobStrategyEffectIndexFlags =
+    [
+        new(0x01, "四系", "四系策略分类。"),
+        new(0x02, "降能力", "降低能力类策略分类。"),
+        new(0x04, "妨碍", "妨碍类策略分类。"),
+        new(0x08, "补给", "补给类策略分类。"),
+        new(0x10, "升能力", "提升能力类策略分类。"),
+        new(0x20, "气候", "气候类策略分类。"),
+        new(0x40, "绝", "绝类策略分类。"),
+        new(0x80, "四神", "四神策略分类。")
+    ];
+    private static readonly JobStrategyBitFlagDefinition[] JobStrategyExtensionFlags =
+    [
+        new(0x01, "策略模仿", "能否通过“策略模仿”特效学会该策略。"),
+        new(0x02, "辅助穿透", "能否通过“提升策略穿透”扩展该策略穿透范围。"),
+        new(0x04, "保留1", "保留位，当前语义未知；保留读写以避免丢失旧数据。"),
+        new(0x08, "保留2", "保留位，当前语义未知；保留读写以避免丢失旧数据。"),
+        new(0x10, "保留3", "保留位，当前语义未知；保留读写以避免丢失旧数据。"),
+        new(0x20, "保留4", "保留位，当前语义未知；保留读写以避免丢失旧数据。"),
+        new(0x40, "保留5", "保留位，当前语义未知；保留读写以避免丢失旧数据。"),
+        new(0x80, "保留6", "保留位，当前语义未知；保留读写以避免丢失旧数据。")
     ];
     private static readonly string[] JobEquipmentCategoryColumns =
     [
@@ -230,6 +255,7 @@ public sealed partial class MainForm : Form
     private readonly MapDraftService _mapDraftService = new();
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
+    private readonly MapPairImportExportService _mapPairImportExportService = new();
     private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
     private readonly CurrentMapStyleProfileService _currentMapStyleProfileService = new();
@@ -273,6 +299,7 @@ public sealed partial class MainForm : Form
     private readonly ItemEffectResolutionService _itemEffectResolutionService = new();
     private readonly Ccz66ItemEffectNameService _ccz66ItemEffectNameService = new();
     private readonly ProjectEquipmentTypeProfileService _equipmentTypeProfileService = new();
+    private readonly ItemEquipmentTypeSettingsService _itemEquipmentTypeSettingsService = new();
     private readonly AccessoryJobGroupService _accessoryJobGroupService = new();
     private readonly ShopEditorService _shopEditorService = new();
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
@@ -282,6 +309,7 @@ public sealed partial class MainForm : Form
     private readonly CodeCaveRegistry _codeCaveRegistry = new();
     private readonly AssemblyPatchCompiler _assemblyPatchCompiler = new();
     private readonly SpecialSkillInjectionService _specialSkillInjectionService = new();
+    private readonly CmSettingsService _cmSettingsService = new();
     private EffectPackage? _currentEffectInjectionPreviewPackage;
 
     private CczProject? _project;
@@ -402,6 +430,10 @@ public sealed partial class MainForm : Form
     private readonly Stack<LegacyScenarioHistorySnapshot> _battlefieldScriptRedoStack = new();
     private readonly Stack<LegacyScenarioHistorySnapshot> _rSceneScriptUndoStack = new();
     private readonly Stack<LegacyScenarioHistorySnapshot> _rSceneScriptRedoStack = new();
+    private readonly ToolTip _textWrapDiagnosticToolTip = new();
+    private bool _updatingTextWrapLimitControls;
+    private bool _applyingScriptTextEditorWrap;
+    private bool _applyingBattlefieldScriptTextEditorWrap;
     private IReadOnlyList<RSceneCommandCandidate> _currentRSceneCommandCandidates = Array.Empty<RSceneCommandCandidate>();
     private IReadOnlyList<RSceneStateCandidate> _currentRSceneStateCandidates = Array.Empty<RSceneStateCandidate>();
     private IReadOnlyList<ImageResourceEntryInfo> _currentRSceneBackgroundEntries = Array.Empty<ImageResourceEntryInfo>();
@@ -483,6 +515,10 @@ public sealed partial class MainForm : Form
     private bool _jobStrategyDescriptionBoxHasValidationError;
     private string _jobStrategyDescriptionBoxValidationError = string.Empty;
     private bool _restoringJobStrategyDescriptionSelection;
+    private DataRow? _jobStrategyBitFlagsEditorBoundRow;
+    private string _jobStrategyBitFlagsEditorBoundColumn = string.Empty;
+    private JobStrategyBitFlagDefinition[] _jobStrategyBitFlagsEditorDefinitions = [];
+    private bool _bindingJobStrategyBitFlagsEditor;
     private int _jobStrategyConfiguredMagicCount;
     private string _jobStrategyConfiguredMagicSource = string.Empty;
     private DataTable? _currentJobEffectData;
@@ -498,6 +534,12 @@ public sealed partial class MainForm : Form
     private IReadOnlyDictionary<int, string> _rolePersonalEffectPersonNames = new Dictionary<int, string>();
     private IReadOnlyDictionary<int, string> _rolePersonalEffectItemNames = new Dictionary<int, string>();
     private DataTable? _currentItemEditorData;
+    private ItemEquipmentTypeSettingsDocument? _currentItemEquipmentTypeDocument;
+    private DataTable? _currentItemEquipmentTypeData;
+    private DataTable? _currentItemEquipmentTypeJobData;
+    private int _currentItemEquipmentTypeRowIndex = -1;
+    private bool _bindingItemEquipmentTypeEditors;
+    private readonly Dictionary<(int RowIndex, int JobId), CheckState> _itemEquipmentTypePendingJobStates = new();
     private TableReadResult? _itemBaseLowRead;
     private TableReadResult? _itemBaseHighRead;
     private TableReadResult? _itemDescriptionLowRead;
@@ -576,6 +618,7 @@ public sealed partial class MainForm : Form
     private bool _loadingBattlefieldScenarioDocument;
     private bool _reloadBattlefieldScenarioAfterCurrentLoad;
     private bool _bindingBattlefieldUnits;
+    private bool _bindingBattlefieldUnitPalette;
     private bool _bindingBattlefieldControlPanel;
     private bool _bindingBattlefieldBatchControlPanel;
     private bool _battlefieldConsoleDirty;
@@ -625,6 +668,7 @@ public sealed partial class MainForm : Form
     private readonly HashSet<DataGridView> _numberBaseGrids = new();
     private readonly Button _openProjectButton = new();
     private readonly Button _reloadButton = new();
+    private readonly Button _usageGuideButton = new();
     private readonly Button _testCopyButton = new();
     private readonly Button _saveTableButton = new();
     private readonly Button _exportCsvButton = new();
@@ -736,6 +780,12 @@ public sealed partial class MainForm : Form
     private readonly Label _jobStrategyLearningEditorTitleLabel = new();
     private readonly TextBox _jobStrategyLearningDescriptionBox = new();
     private readonly Label _jobStrategyLearningEditorStatusLabel = new();
+    private readonly Panel _jobStrategyBitFlagsEditorPanel = new();
+    private readonly Label _jobStrategyBitFlagsTitleLabel = new();
+    private readonly TextBox _jobStrategyBitFlagsInfoBox = new();
+    private readonly NumericUpDown _jobStrategyBitFlagsNumeric = new();
+    private readonly CheckBox[] _jobStrategyBitFlagCheckBoxes = Enumerable.Range(0, 8).Select(_ => new CheckBox()).ToArray();
+    private readonly Label _jobStrategyBitFlagsStatusLabel = new();
     private readonly Button _loadJobEffectEditorButton = new();
     private readonly Button _saveJobEffectEditorButton = new();
     private readonly Button _openJobExclusiveEffectTableButton = new();
@@ -762,6 +812,11 @@ public sealed partial class MainForm : Form
     private readonly TextBox _itemEditorSearchBox = new();
     private readonly DataGridView _itemEditorGrid = new();
     private readonly TextBox _itemEditorInfoBox = new();
+    private readonly Button _loadItemEquipmentTypeSettingsButton = new();
+    private readonly Button _saveItemEquipmentTypeSettingsButton = new();
+    private readonly DataGridView _itemEquipmentTypeGrid = new();
+    private readonly DataGridView _itemEquipmentTypeJobGrid = new();
+    private readonly TextBox _itemEquipmentTypeInfoBox = new();
     private readonly SplitContainer _itemIconPreviewSplit = new();
     private readonly Panel _itemIconLargePreviewScrollPanel = new();
     private readonly Panel _itemIconSmallPreviewScrollPanel = new();
@@ -856,6 +911,8 @@ public sealed partial class MainForm : Form
     private readonly Button _mapMakerNewDraftButton = new();
     private readonly Button _mapMakerLoadLastDraftButton = new();
     private readonly Button _mapMakerSaveDraftButton = new();
+    private readonly Button _mapMakerExportPairButton = new();
+    private readonly Button _mapMakerImportPairButton = new();
     private readonly NumericUpDown _mapMakerGridWidthInput = new();
     private readonly NumericUpDown _mapMakerGridHeightInput = new();
     private readonly ComboBox _mapMakerBrushModeCombo = new();
@@ -1041,7 +1098,15 @@ public sealed partial class MainForm : Form
     private readonly TextBox _battlefieldScriptParameterValueBox = new();
     private readonly Button _applyBattlefieldScriptParameterButton = new();
     private readonly Button _editBattlefieldScriptParametersButton = new();
+    private readonly Button _resetBattlefieldInlineDialogButton = new();
+    private readonly FlowLayoutPanel _battlefieldScriptTextWrapLimitPanel = new();
+    private readonly NumericUpDown _battlefieldScriptTextWrapLimitInput = new();
     private readonly TextBox _battlefieldScriptDetailBox = new();
+    private readonly PictureBox _battlefieldScriptImagePreviewBox = new();
+    private readonly TextBox _battlefieldScriptImagePreviewInfoBox = new();
+    private readonly LegacyMfcDialogHostControl _battlefieldInlineDialogHost = new();
+    private readonly Panel _battlefieldScriptPreviewPanel = new();
+    private readonly Panel _battlefieldConsolePreviewPanel = new();
     private readonly ListBox _battlefieldUnitListBox = new();
     private readonly PictureBox _battlefieldUnitPreviewBox = new();
     private readonly TextBox _battlefieldUnitPreviewInfoBox = new();
@@ -1095,6 +1160,8 @@ public sealed partial class MainForm : Form
     private readonly LegacyMfcDialogHostControl _rSceneInlineDialogHost = new();
     private readonly Button _applyRSceneInlineDialogButton = new();
     private readonly Button _resetRSceneInlineDialogButton = new();
+    private readonly FlowLayoutPanel _rSceneTextWrapLimitPanel = new();
+    private readonly NumericUpDown _rSceneTextWrapLimitInput = new();
     private readonly DataGridView _rSceneCommandGrid = new();
     private readonly TextBox _rSceneActorFilterBox = new();
     private readonly ListBox _rSceneActorListBox = new();
@@ -1184,6 +1251,8 @@ public sealed partial class MainForm : Form
     private readonly LegacyMfcDialogHostControl _scriptInlineDialogHost = new();
     private readonly Button _applyScriptInlineDialogButton = new();
     private readonly Button _resetScriptInlineDialogButton = new();
+    private readonly FlowLayoutPanel _scriptTextWrapLimitPanel = new();
+    private readonly NumericUpDown _scriptTextWrapLimitInput = new();
     private readonly DataGridView _scriptTextGrid = new();
     private readonly DataGridView _scriptSearchResultGrid = new();
     private readonly TabControl _scriptLowerLeftTabs = new();
@@ -1487,12 +1556,11 @@ public sealed partial class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             Padding = new Padding(8)
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Controls.Add(root);
@@ -1519,34 +1587,47 @@ public sealed partial class MainForm : Form
         _openProjectButton.AutoSize = true;
         _reloadButton.Text = "重新读取";
         _reloadButton.AutoSize = true;
+        _usageGuideButton.Text = "使用指南";
+        _usageGuideButton.AutoSize = true;
         _testCopyButton.Text = "创建测试副本";
         _testCopyButton.AutoSize = true;
+        _testCopyButton.Visible = false;
         _saveTableButton.Text = "保存当前表";
         _saveTableButton.AutoSize = true;
         _saveTableButton.Enabled = false;
+        _saveTableButton.Visible = false;
         _exportCsvButton.Text = "导出CSV";
         _exportCsvButton.AutoSize = true;
         _exportCsvButton.Enabled = false;
+        _exportCsvButton.Visible = false;
         _importCsvButton.Text = "导入CSV";
         _importCsvButton.AutoSize = true;
         _importCsvButton.Enabled = false;
+        _importCsvButton.Visible = false;
         _copyTableSelectionButton.Text = "复制";
         _copyTableSelectionButton.AutoSize = true;
+        _copyTableSelectionButton.Visible = false;
         _pasteTableSelectionButton.Text = "粘贴";
         _pasteTableSelectionButton.AutoSize = true;
+        _pasteTableSelectionButton.Visible = false;
         _batchFillTableColumnButton.Text = "批量填列";
         _batchFillTableColumnButton.AutoSize = true;
+        _batchFillTableColumnButton.Visible = false;
         _batchModifyTableButton.Text = "Batch modify";
         _batchModifyTableButton.AutoSize = true;
         _batchModifyTableButton.Enabled = false;
+        _batchModifyTableButton.Visible = false;
         _undoTableEditButton.Text = "Undo";
         _undoTableEditButton.AutoSize = true;
         _undoTableEditButton.Enabled = false;
+        _undoTableEditButton.Visible = false;
         _redoTableEditButton.Text = "Redo";
         _redoTableEditButton.AutoSize = true;
         _redoTableEditButton.Enabled = false;
+        _redoTableEditButton.Visible = false;
         _openPlanButton.Text = "打开 plan.md";
         _openPlanButton.AutoSize = true;
+        _openPlanButton.Visible = false;
         _showAllTables.Text = "显示全部版本/禁用表";
         _showAllTables.AutoSize = true;
         _showAllTables.Margin = new Padding(18, 8, 3, 3);
@@ -1555,17 +1636,7 @@ public sealed partial class MainForm : Form
         {
             _openProjectButton,
             _reloadButton,
-            _testCopyButton,
-            _saveTableButton,
-            _exportCsvButton,
-            _importCsvButton,
-            _copyTableSelectionButton,
-            _pasteTableSelectionButton,
-            _batchFillTableColumnButton,
-            _batchModifyTableButton,
-            _undoTableEditButton,
-            _redoTableEditButton,
-            _openPlanButton
+            _usageGuideButton
         });
 
         var numberBasePanel = new FlowLayoutPanel
@@ -1595,7 +1666,14 @@ public sealed partial class MainForm : Form
             _currentPageDecimalButton,
             _currentPageHexButton
         });
+        _projectLabel.AutoSize = false;
+        _projectLabel.AutoEllipsis = true;
+        _projectLabel.Padding = new Padding(0, 6, 0, 6);
+        _projectLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _projectLabel.Text = BuildProjectHeaderText(null);
+
         topBar.Controls.Add(toolbar);
+        topBar.Controls.Add(_projectLabel);
         topBar.Controls.Add(numberBasePanel);
         void LayoutTopBar()
         {
@@ -1603,30 +1681,30 @@ public sealed partial class MainForm : Form
             var numberHeight = Math.Min(topBar.ClientSize.Height, Math.Max(1, numberBasePanel.PreferredSize.Height));
             var numberLeft = Math.Max(0, topBar.ClientSize.Width - numberWidth);
             numberBasePanel.SetBounds(numberLeft, 0, numberWidth, numberHeight);
-            toolbar.SetBounds(0, 0, Math.Max(0, numberLeft - 8), topBar.ClientSize.Height);
+
+            var toolbarWidth = Math.Min(toolbar.PreferredSize.Width, Math.Max(0, numberLeft - 8));
+            toolbar.SetBounds(0, 0, toolbarWidth, topBar.ClientSize.Height);
+
+            var labelLeft = toolbarWidth + 8;
+            var labelWidth = Math.Max(0, numberLeft - labelLeft - 8);
+            _projectLabel.SetBounds(labelLeft, 0, labelWidth, topBar.ClientSize.Height);
         }
 
         topBar.Resize += (_, _) => LayoutTopBar();
+        toolbar.SizeChanged += (_, _) => LayoutTopBar();
         numberBasePanel.SizeChanged += (_, _) => LayoutTopBar();
         LayoutTopBar();
         root.Controls.Add(topBar, 0, 0);
 
-        _projectLabel.AutoSize = false;
-        _projectLabel.AutoEllipsis = true;
-        _projectLabel.Dock = DockStyle.Fill;
-        _projectLabel.Padding = new Padding(0, 6, 0, 6);
-        _projectLabel.TextAlign = ContentAlignment.MiddleLeft;
-        _projectLabel.Text = "项目：未加载";
-        root.Controls.Add(_projectLabel, 0, 1);
-
         _mainTabs.Dock = DockStyle.Fill;
-        root.Controls.Add(_mainTabs, 0, 2);
+        root.Controls.Add(_mainTabs, 0, 1);
 
         _mainTabs.TabPages.Add(BuildXiaoAnMessagePage());
         _mainTabs.TabPages.Add(BuildRoleEditorPage());
         _mainTabs.TabPages.Add(BuildJobEditorPage());
         _mainTabs.TabPages.Add(BuildItemEditorPage());
         _mainTabs.TabPages.Add(BuildEffectInjectionPage());
+        _mainTabs.TabPages.Add(BuildCmSettingsPage());
 
         if (ShowGenericTableEditorPage)
         {
@@ -1800,6 +1878,7 @@ public sealed partial class MainForm : Form
         ConfigureToolbarButton(_batchClearImageResourceEntriesButton, 88);
         _normalizeRoleRawImagesButton.Text = "角色RAW统一";
         ConfigureToolbarButton(_normalizeRoleRawImagesButton, 104);
+        _normalizeRoleRawImagesButton.Visible = false;
         _exportImageResourceEntriesButton.Text = "导出条目CSV";
         ConfigureToolbarButton(_exportImageResourceEntriesButton, 118);
         _imageResourceCategoryFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -1818,7 +1897,6 @@ public sealed partial class MainForm : Form
             _restoreImageResourceEntryButton,
             _batchImportImageResourceEntriesButton,
             _batchClearImageResourceEntriesButton,
-            _normalizeRoleRawImagesButton,
             _exportImageResourceEntriesButton);
         AddToolbarRow(imageResourceToolbar, 1,
             CreateToolbarLabel("分类：", 0),
@@ -1946,8 +2024,10 @@ public sealed partial class MainForm : Form
         _exportImageAssignmentFaceBmpButton.Enabled = false;
         _restoreImageResourceButton.Text = "还原E5条目";
         ConfigureToolbarButton(_restoreImageResourceButton, 104);
+        _restoreImageResourceButton.Visible = false;
         _exportMissingImageResourcesButton.Text = "\u5bfc\u51fa\u7f3a\u5931\u62a5\u544a";
         ConfigureToolbarButton(_exportMissingImageResourcesButton, 118);
+        _exportMissingImageResourcesButton.Visible = false;
         AddToolbarRow(imageToolbarLayout, 0,
             _loadImageAssignmentsButton,
             _saveImageAssignmentsButton,
@@ -1975,9 +2055,7 @@ public sealed partial class MainForm : Form
             _batchApplyImageAssignmentFaceFrameButton,
             _exportRImageBmpButton,
             _exportSImageBmpButton,
-            _exportImageAssignmentFaceBmpButton,
-            _restoreImageResourceButton,
-            _exportMissingImageResourcesButton);
+            _exportImageAssignmentFaceBmpButton);
         imageLayout.Controls.Add(imageToolbarLayout, 0, 0);
         _imageAssignmentInfoBox.Dock = DockStyle.Fill;
         _imageAssignmentInfoBox.Multiline = true;
@@ -2650,7 +2728,7 @@ public sealed partial class MainForm : Form
         _statusStrip.Items.Add(_statusErrorCloseButton);
         _statusLabel.Text = "就绪";
         _statusErrorCloseButton.Visible = false;
-        root.Controls.Add(_statusStrip, 0, 3);
+        root.Controls.Add(_statusStrip, 0, 2);
     }
 
     private void OpenPlan()

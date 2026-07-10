@@ -871,6 +871,21 @@
     <ReadOnly>false</ReadOnly>
   </HexTable>
   <HexTable>
+    <ID>77</ID>
+    <Enable>true</Enable>
+    <TableName>6.5-5-0 策略扩展标记</TableName>
+    <FileName>Ekd5.exe</FileName>
+    <DataPos>666848</DataPos>
+    <RowCount>144</RowCount>
+    <RowSize>1</RowSize>
+    <Columns>名称,内容</Columns>
+    <Bytes>-1,1</Bytes>
+    <IndexTable>6.5-5 策略</IndexTable>
+    <BeginID>0</BeginID>
+    <OnMem>false</OnMem>
+    <ReadOnly>false</ReadOnly>
+  </HexTable>
+  <HexTable>
     <ID>59</ID>
     <Enable>true</Enable>
     <TableName>6.5-5-2 策略动画1</TableName>

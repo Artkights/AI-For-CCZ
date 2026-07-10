@@ -27,6 +27,7 @@ public sealed class GlobalSettingsDialog : Form
     private readonly TextBox _titleBox = new();
     private readonly Label _titleCapacityLabel = new();
     private readonly DataGridView _cmfCandidateGrid = new();
+    private readonly DataGridView _cmfDesignerFieldGrid = new();
     private readonly DataGridView _evidenceGrid = new();
     private readonly TextBox _statusBox = new();
     private readonly Button _saveJobSeriesButton = new();
@@ -92,7 +93,7 @@ public sealed class GlobalSettingsDialog : Form
 
         var tabs = new TabControl { Dock = DockStyle.Fill };
         tabs.TabPages.Add(BuildNumericPage());
-        tabs.TabPages.Add(BuildCmfCandidatePage());
+        tabs.TabPages.Add(BuildCmfDesignerPage());
         tabs.TabPages.Add(BuildJobSeriesPage());
         tabs.TabPages.Add(BuildDetailedJobPage());
         tabs.TabPages.Add(BuildTitlePage());
@@ -170,6 +171,35 @@ public sealed class GlobalSettingsDialog : Form
         _cmfCandidateGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         page.Controls.Add(_cmfCandidateGrid);
         return page;
+    }
+
+    private TabPage BuildCmfDesignerPage()
+    {
+        var page = new TabPage("CMF候选");
+        var tabs = new TabControl { Dock = DockStyle.Fill };
+
+        var featurePage = new TabPage("功能候选");
+        ConfigureReadOnlyFullRowGrid(_cmfCandidateGrid);
+        featurePage.Controls.Add(_cmfCandidateGrid);
+        tabs.TabPages.Add(featurePage);
+
+        var fieldPage = new TabPage("字段地址");
+        ConfigureReadOnlyFullRowGrid(_cmfDesignerFieldGrid);
+        fieldPage.Controls.Add(_cmfDesignerFieldGrid);
+        tabs.TabPages.Add(fieldPage);
+
+        page.Controls.Add(tabs);
+        return page;
+    }
+
+    private static void ConfigureReadOnlyFullRowGrid(DataGridView grid)
+    {
+        grid.Dock = DockStyle.Fill;
+        grid.ReadOnly = true;
+        grid.AllowUserToAddRows = false;
+        grid.AllowUserToDeleteRows = false;
+        grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
     }
 
     private TabPage BuildJobSeriesPage()
@@ -298,6 +328,7 @@ public sealed class GlobalSettingsDialog : Form
         _detailedJobGrid.DataSource = _document.DetailedJobNames;
         _titleBox.Text = _document.GameTitle.Title;
         _cmfCandidateGrid.DataSource = ToCmfCandidateGrid(_document.CmfCandidates);
+        _cmfDesignerFieldGrid.DataSource = ToCmfDesignerFieldGrid(_document.CmfDesignerFields);
         _evidenceGrid.DataSource = ToEvidenceGrid(_document.Evidence);
         ConfigureNumericGrid();
         ConfigureNameGrid(_jobSeriesGrid);
@@ -443,7 +474,7 @@ public sealed class GlobalSettingsDialog : Form
         _saveNumericButton.Enabled = _document.NumericSettings.Any(setting => setting.CanEdit);
         if (_numericGrid.Columns.Count == 0) return;
 
-        foreach (var column in _numericGrid.Columns.Cast<DataGridViewColumn>().ToList())
+        foreach (var column in SnapshotGridColumns(_numericGrid))
         {
             column.Visible = column.DataPropertyName is NumericNameColumn
                 or NumericCanEditColumn
@@ -470,8 +501,9 @@ public sealed class GlobalSettingsDialog : Form
             }
         }
 
-        foreach (DataGridViewRow row in _numericGrid.Rows)
+        foreach (var row in SnapshotGridRows(_numericGrid))
         {
+            if (row.DataGridView == null || !_numericGrid.Columns.Contains(NumericCanEditColumn)) continue;
             var canEdit = row.Cells[NumericCanEditColumn].Value is bool editable && editable;
             row.ReadOnly = !canEdit;
             row.DefaultCellStyle.ForeColor = canEdit ? SystemColors.ControlText : SystemColors.GrayText;
@@ -489,7 +521,7 @@ public sealed class GlobalSettingsDialog : Form
         {
             column.MinimumWidth = width;
         }
-        catch (NullReferenceException)
+        catch (Exception ex) when (ex is NullReferenceException or InvalidOperationException or ArgumentOutOfRangeException)
         {
             // WinForms can throw while auto-generated columns are being initialized in headless smoke tests.
         }
@@ -530,12 +562,52 @@ public sealed class GlobalSettingsDialog : Form
 
     private void ConfigureNameGrid(DataGridView grid)
     {
-        foreach (DataGridViewColumn column in grid.Columns)
+        foreach (var column in SnapshotGridColumns(grid))
         {
             column.ReadOnly = column.DataPropertyName != "名称";
-            if (column.DataPropertyName == "ID") column.MinimumWidth = 64;
+            if (column.DataPropertyName == "ID") SetColumnMinimumWidth(column, 64);
             if (column.DataPropertyName == "名称") column.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
         }
+    }
+
+    private static List<DataGridViewColumn> SnapshotGridColumns(DataGridView grid)
+    {
+        var columns = new List<DataGridViewColumn>(grid.Columns.Count);
+        for (var i = 0; i < grid.Columns.Count; i++)
+        {
+            try
+            {
+                columns.Add(grid.Columns[i]);
+            }
+            catch (Exception ex) when (ex is ArgumentOutOfRangeException or InvalidOperationException)
+            {
+                break;
+            }
+        }
+
+        return columns;
+    }
+
+    private static List<DataGridViewRow> SnapshotGridRows(DataGridView grid)
+    {
+        var rows = new List<DataGridViewRow>(grid.Rows.Count);
+        for (var i = 0; i < grid.Rows.Count; i++)
+        {
+            try
+            {
+                var row = grid.Rows[i];
+                if (!row.IsNewRow)
+                {
+                    rows.Add(row);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentOutOfRangeException or InvalidOperationException)
+            {
+                break;
+            }
+        }
+
+        return rows;
     }
 
     private void ValidateNameCell(object? sender, DataGridViewCellValidatingEventArgs e)
@@ -619,6 +691,45 @@ public sealed class GlobalSettingsDialog : Form
                 candidate.TargetSubsystem,
                 candidate.ConversionStatus,
                 candidate.WritePolicy);
+        }
+
+        return table;
+    }
+
+    private static DataTable ToCmfDesignerFieldGrid(IReadOnlyList<CmfDesignerFieldListItem> fields)
+    {
+        var table = new DataTable("CMF字段地址");
+        table.Columns.Add("来源CMF", typeof(string));
+        table.Columns.Add("来源类型", typeof(string));
+        table.Columns.Add("信任等级", typeof(string));
+        table.Columns.Add("页面", typeof(string));
+        table.Columns.Add("模块", typeof(string));
+        table.Columns.Add("控件", typeof(string));
+        table.Columns.Add("类型", typeof(string));
+        table.Columns.Add("字段", typeof(string));
+        table.Columns.Add("UE偏移", typeof(string));
+        table.Columns.Add("长度", typeof(int));
+        table.Columns.Add("数据类型", typeof(string));
+        table.Columns.Add("功能类型", typeof(string));
+        table.Columns.Add("默认值", typeof(string));
+        table.Columns.Add("校验状态", typeof(string));
+        foreach (var field in fields)
+        {
+            table.Rows.Add(
+                field.SourceCmfRelativePath,
+                field.ExtractionMode,
+                field.TrustLevel,
+                field.PageName,
+                field.ModuleTitle,
+                field.ControlName,
+                field.ControlType,
+                field.DisplayName,
+                field.UeOffsetHex,
+                field.ByteLength,
+                field.DataType,
+                field.FunctionType,
+                field.DefaultValueRaw,
+                field.ValidationStatus);
         }
 
         return table;

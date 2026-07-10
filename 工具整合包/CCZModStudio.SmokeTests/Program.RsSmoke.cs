@@ -408,8 +408,11 @@ internal partial class Program
         if (profile.JobPermissionSlots.Count != ProjectEquipmentTypeProfileService.JobPermissionSlotCount ||
             profile.JobPermissionSlots.Any(slot => string.IsNullOrWhiteSpace(slot.StorageColumnName)) ||
             !profile.Types.TryGetValue(8, out var type8) ||
+            !profile.Types.TryGetValue(9, out var type9) ||
             type8.Source is EquipmentTypeSourceConfidence.LegacyFallback or EquipmentTypeSourceConfidence.Unknown ||
             type8.SampleItemNames.Count == 0 ||
+            !string.Equals(type8.DisplayName, "普通炮车", StringComparison.Ordinal) ||
+            !string.Equals(type9.DisplayName, "特殊炮车", StringComparison.Ordinal) ||
             profile.NameTableProbe == null ||
             !string.Equals(profile.NameTableProbe.FileName, "Ekd5.exe", StringComparison.OrdinalIgnoreCase) ||
             profile.NameTableProbe.Offset != ProjectEquipmentTypeProfileService.ExeTypeNameTableOffset ||
@@ -421,9 +424,9 @@ internal partial class Program
             !nameTableProbeResults.Any(result => string.Equals(result.FileName, "Data.e5", StringComparison.OrdinalIgnoreCase) &&
                                                  result.Diagnostics.Any(line => line.Contains("不能当作离线 Data.e5 文件偏移", StringComparison.Ordinal))))
         {
-            throw new InvalidOperationException($"项目化装备类型 profile 不符合预期：slots={profile.JobPermissionSlots.Count}, type8={profile.Types.GetValueOrDefault(8)?.DisplayName ?? "<missing>"} source={profile.Types.GetValueOrDefault(8)?.SourceDisplayName}, probe={profile.NameTableProbe?.SummaryText ?? "<missing>"}, dataLen=0x{dataLength:X}");
+            throw new InvalidOperationException($"项目化装备类型 profile 不符合预期：slots={profile.JobPermissionSlots.Count}, type8={profile.Types.GetValueOrDefault(8)?.DisplayName ?? "<missing>"}, type9={profile.Types.GetValueOrDefault(9)?.DisplayName ?? "<missing>"} source={profile.Types.GetValueOrDefault(8)?.SourceDisplayName}, probe={profile.NameTableProbe?.SummaryText ?? "<missing>"}, dataLen=0x{dataLength:X}");
         }
-        Console.WriteLine($"PROJECT_EQUIPMENT_TYPE_PROFILE slots={profile.JobPermissionSlots.Count} type8={type8.DisplayName} source={type8.SourceDisplayName} probe={profile.NameTableProbe.SummaryText} dataLen=0x{dataLength:X} samples={string.Join("/", type8.SampleItemNames.Take(3))}");
+        Console.WriteLine($"PROJECT_EQUIPMENT_TYPE_PROFILE slots={profile.JobPermissionSlots.Count} type8={type8.DisplayName} type9={type9.DisplayName} source={type8.SourceDisplayName} probe={profile.NameTableProbe.SummaryText} dataLen=0x{dataLength:X} samples={string.Join("/", type8.SampleItemNames.Take(3))}");
 
         var itemBoundary = ItemCategoryBoundaryService.Resolve(project);
         if (itemBoundary.WeaponStartId != 0 ||
@@ -697,6 +700,7 @@ internal partial class Program
         var people = LoadRSceneDialoguePreviewPeople(project, tables);
         var service = new RSceneDialoguePreviewService();
         AssertRSceneDialogueTextSpeakerResolution(service);
+        AssertRSceneDialogueWrapPreview(service);
         var model = service.BuildPreviewModel(dialogueCommand, people)
                     ?? throw new InvalidOperationException("R 场景对白预览模型构建失败。");
         using var canvas = new Bitmap(640, 400);
@@ -931,6 +935,154 @@ internal partial class Program
         if (unresolved.SpeakerId.HasValue || unresolved.FaceId.HasValue || unresolved.Text.Contains("&不存在", StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"R 场景对白预览未匹配人名不应误配头像：speaker={unresolved.SpeakerId} face={unresolved.FaceId} text={unresolved.Text}");
+        }
+    }
+
+    static void AssertRSceneDialogueWrapPreview(RSceneDialoguePreviewService service)
+    {
+        var people = new Dictionary<int, RSceneDialoguePreviewPerson>
+        {
+            [0] = new("小暗", 157)
+        };
+
+        var chinese20 = new string('曹', 20);
+        var chineseModel = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", chinese20, speakerId: 0),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x14, 39))
+            ?? throw new InvalidOperationException("R 场景对白预览中文换行模型构建失败。");
+        AssertEqual(new string('曹', 19) + "\n曹", chineseModel.Text, "R scene dialogue preview wraps 20 CJK chars at 19 chars for limit 39");
+        AssertTrue(chineseModel.Detail.Contains("每行上限=39", StringComparison.Ordinal), "R scene dialogue preview detail includes line limit 39");
+
+        var ascii40 = new string('7', 40);
+        var asciiModel = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", ascii40, speakerId: 0),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x14, 39))
+            ?? throw new InvalidOperationException("R 场景对白预览 ASCII 换行模型构建失败。");
+        AssertEqual(new string('7', 39) + "\n7", asciiModel.Text, "R scene dialogue preview wraps 40 ASCII chars as 39+1 for limit 39");
+
+        var disabledText = new string('曹', 30);
+        var disabledModel = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", disabledText, speakerId: 0),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x14, 0))
+            ?? throw new InvalidOperationException("R 场景对白预览不限制模型构建失败。");
+        AssertEqual(disabledText, disabledModel.Text, "R scene dialogue preview keeps long line when limit is 0");
+        AssertTrue(disabledModel.Detail.Contains("每行上限=0", StringComparison.Ordinal), "R scene dialogue preview detail includes disabled line limit");
+
+        var speakerBody = new string('曹', 20);
+        var speakerModel = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", "&小暗\n" + speakerBody, speakerId: 0),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x14, 39))
+            ?? throw new InvalidOperationException("R 场景对白预览 &姓名 换行模型构建失败。");
+        AssertEqual(new string('曹', 19) + "\n曹", speakerModel.Text, "R scene dialogue preview excludes speaker line from body wrapping");
+        AssertTrue(speakerModel.SpeakerId == 0 && speakerModel.FaceId == 157, "R scene dialogue preview still resolves speaker from text segment");
+
+        var mapText = new string('7', 73);
+        var mapModel = service.BuildPreviewModel(
+            CreateRSceneDialoguePreviewCommand(0x2C, "地图文字", mapText),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x2C, 72))
+            ?? throw new InvalidOperationException("R 场景地图文字换行模型构建失败。");
+        AssertEqual(new string('7', 72) + "\n7", mapModel.Text, "R scene map text wraps 73 ASCII chars as 72+1 for limit 72");
+        AssertTrue(mapModel.Detail.Contains("地图文字横板", StringComparison.Ordinal), "R scene map text detail uses bottom panel wording");
+
+        var project = new CczProject
+        {
+            WorkspaceRoot = Directory.GetCurrentDirectory(),
+            GameRoot = Directory.GetCurrentDirectory(),
+            HexTableXmlPath = Path.Combine(Directory.GetCurrentDirectory(), "ConfigTable", "HexTable.xml")
+        };
+
+        var background = Color.FromArgb(36, 56, 72);
+        using var mapCanvas = new Bitmap(640, 400);
+        using (var graphics = Graphics.FromImage(mapCanvas))
+        {
+            graphics.Clear(background);
+        }
+
+        var mapRenderResult = service.RenderPreviewOnImage(
+            mapCanvas,
+            project,
+            CreateRSceneDialoguePreviewCommand(0x2C, "地图文字", mapText),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x2C, 72));
+        if (!mapRenderResult.Applied)
+        {
+            throw new InvalidOperationException("R 场景地图文字横板渲染用例未应用：" + mapRenderResult.Message);
+        }
+
+        var mapPanelPixels = CountNonBackgroundPixels(mapCanvas, new Rectangle(56, 338, 560, 62), background);
+        if (mapPanelPixels < 5000)
+        {
+            throw new InvalidOperationException($"R 场景地图文字底部横板像素不足：panelPixels={mapPanelPixels} detail={mapRenderResult.Message}");
+        }
+
+        var staleTopBoxPixels = CountBrightPixels(mapCanvas, new Rectangle(132, 36, 376, 62));
+        if (staleTopBoxPixels > 100)
+        {
+            throw new InvalidOperationException($"R 场景地图文字不应继续绘制顶部白框：staleTopBoxPixels={staleTopBoxPixels} detail={mapRenderResult.Message}");
+        }
+
+        var mapTextPixels = CountBrightPixels(mapCanvas, new Rectangle(60, 346, 552, 46));
+        if (mapTextPixels < 20)
+        {
+            throw new InvalidOperationException($"R 场景地图文字横板白色文字像素不足：mapTextPixels={mapTextPixels} detail={mapRenderResult.Message}");
+        }
+
+        var mapLinePixels = CountBrightPixels(mapCanvas, new Rectangle(560, 346, 52, 18));
+        if (mapLinePixels < 1)
+        {
+            throw new InvalidOperationException($"R 场景地图文字横板未完整承载 72 个半角字符：mapLinePixels={mapLinePixels} detail={mapRenderResult.Message}");
+        }
+
+        var threeLineMapText = string.Join('\n', new string('一', 30), new string('二', 30), new string('三', 30));
+        using var threeLineMapCanvas = new Bitmap(640, 400);
+        using (var graphics = Graphics.FromImage(threeLineMapCanvas))
+        {
+            graphics.Clear(background);
+        }
+
+        var threeLineMapRenderResult = service.RenderPreviewOnImage(
+            threeLineMapCanvas,
+            project,
+            CreateRSceneDialoguePreviewCommand(0x2C, "地图文字", threeLineMapText),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x2C, 72));
+        if (!threeLineMapRenderResult.Applied)
+        {
+            throw new InvalidOperationException("R 场景地图文字三行横板渲染用例未应用：" + threeLineMapRenderResult.Message);
+        }
+
+        var thirdLinePixels = CountBrightPixels(threeLineMapCanvas, new Rectangle(60, 382, 552, 18));
+        if (thirdLinePixels < 20)
+        {
+            throw new InvalidOperationException($"R 场景地图文字第三行未完整露出：thirdLinePixels={thirdLinePixels} detail={threeLineMapRenderResult.Message}");
+        }
+
+        using var canvas = new Bitmap(640, 480);
+        using (var graphics = Graphics.FromImage(canvas))
+        {
+            graphics.Clear(background);
+        }
+
+        var renderResult = service.RenderPreviewOnImage(
+            canvas,
+            project,
+            CreateRSceneDialoguePreviewCommand(0x14, "对话", "&小暗\n" + new string('曹', 80), speakerId: 0),
+            people,
+            textWrapOptions: LegacyTextWrapService.CreateOptions(0x14, 39));
+        if (!renderResult.Applied)
+        {
+            throw new InvalidOperationException("R 场景对白换行渲染用例未应用：" + renderResult.Message);
+        }
+
+        var textPixels = CountDarkPixels(canvas, new Rectangle(170, 338, 320, 56));
+        if (textPixels < 20)
+        {
+            throw new InvalidOperationException($"R 场景对白换行渲染正文像素不足：textPixels={textPixels} detail={renderResult.Message}");
         }
     }
 
@@ -1212,6 +1364,24 @@ internal partial class Program
             {
                 var pixel = bitmap.GetPixel(x, y);
                 if (pixel.R > 180 && pixel.G > 170 && pixel.B > 120)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
+    }
+
+    static int CountDarkPixels(Bitmap bitmap, Rectangle rect)
+    {
+        var count = 0;
+        for (var y = Math.Max(0, rect.Top); y < Math.Min(bitmap.Height, rect.Bottom); y++)
+        {
+            for (var x = Math.Max(0, rect.Left); x < Math.Min(bitmap.Width, rect.Right); x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                if (pixel.R < 80 && pixel.G < 80 && pixel.B < 80)
                 {
                     count++;
                 }

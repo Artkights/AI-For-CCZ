@@ -405,6 +405,11 @@ public sealed class ProjectEquipmentTypeProfileService
 
     private static string BuildExeAndSampleDisplayName(int typeId, string exeBaseName, string sampleName)
     {
+        if (typeId < JobPermissionSlotCount && !string.IsNullOrWhiteSpace(exeBaseName))
+        {
+            return BuildPermissionTypeDisplayName(typeId, exeBaseName);
+        }
+
         var baseName = string.IsNullOrWhiteSpace(sampleName)
             ? exeBaseName
             : NamesLookCompatible(sampleName, exeBaseName)
@@ -422,6 +427,22 @@ public sealed class ProjectEquipmentTypeProfileService
         }
 
         return baseName;
+    }
+
+    private static string BuildPermissionTypeDisplayName(int typeId, string baseName)
+    {
+        var text = baseName.Trim();
+        foreach (var prefixToRemove in new[] { "普通", "特殊" })
+        {
+            if (text.StartsWith(prefixToRemove, StringComparison.Ordinal) && text.Length > prefixToRemove.Length)
+            {
+                text = text[prefixToRemove.Length..];
+                break;
+            }
+        }
+
+        var prefix = typeId % 2 == 0 ? "普通" : "特殊";
+        return string.IsNullOrWhiteSpace(text) ? $"类型码{typeId}" : prefix + text;
     }
 
     private static string CleanDisplayName(string value)

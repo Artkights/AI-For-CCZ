@@ -9,7 +9,7 @@ internal partial class Program
     private static readonly string[] RsMojibakeAuditMarkers =
     [
         "鍦", "璇", "鐨", "鑰", "鏂", "瀛", "淇", "妫", "缂", "绋", "鍓", "鏁",
-        "瑙", "瀹", "鎺", "锟", "\uFFFD", "Ã", "Â"
+        "瑙", "瀹", "鎺", "浠嬬粛", "锟", "\uFFFD", "Ã", "Â"
     ];
 
     static void RunRsMojibakeSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)

@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using CCZModStudio.Models;
 
@@ -10,6 +12,12 @@ public sealed class CmfKnowledgeExtractor
 {
     private static readonly Regex HexAddressRegex = new(@"(?<![0-9A-Fa-f])(?:00)?[4-5][0-9A-Fa-f]{5}(?![0-9A-Fa-f])", RegexOptions.Compiled);
     private static readonly Regex ExplicitHexAddressRegex = new(@"(?<![0-9A-Fa-f])(?:0x|&H|＄|\$)?([0-9A-Fa-f]{5,8})(?![0-9A-Fa-f])", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true
+    };
 
     private static readonly IReadOnlyList<(string Keyword, string Category, string Subsystem)> FeatureKeywords =
     [
@@ -141,6 +149,81 @@ public sealed class CmfKnowledgeExtractor
         return CloneProjectWithExport(project, fields, exportBindings, promotedFeatures, warnings);
     }
 
+    public CmfToolProject ImportDesignerSnapshot(string cmfPath, string snapshotPath, string? rootPath = null)
+    {
+        if (!File.Exists(snapshotPath))
+        {
+            var project = Extract(cmfPath, rootPath, "CheatMakerDesignerSnapshotImport");
+            return CloneProjectWithDesigner(
+                project,
+                null,
+                Array.Empty<CmfPageDefinition>(),
+                Array.Empty<CmfControlDefinition>(),
+                Array.Empty<CmfDataBinding>(),
+                project.FeatureCandidates,
+                project.Warnings.Concat(["CheatMaker designer snapshot file was not found: " + snapshotPath]).ToArray());
+        }
+
+        var snapshot = JsonSerializer.Deserialize<CmfDesignerSnapshot>(File.ReadAllText(snapshotPath, Encoding.UTF8), JsonOptions)
+            ?? throw new InvalidOperationException("CheatMaker designer snapshot JSON was empty or invalid: " + snapshotPath);
+        return ImportDesignerSnapshot(cmfPath, snapshot, rootPath);
+    }
+
+    public CmfToolProject ImportDesignerSnapshot(string cmfPath, CmfDesignerSnapshot snapshot, string? rootPath = null)
+    {
+        var project = Extract(cmfPath, rootPath, "CheatMakerDesignerSnapshotImport");
+        var snapshotTrustLevel = ResolveSnapshotTrustLevel(snapshot);
+        var designerPages = snapshot.Pages.Select(page => new CmfPageDefinition
+        {
+            PageId = string.IsNullOrWhiteSpace(page.PageId) ? BuildStableId(project.RelativePath, "designer-page", page.Name) : page.PageId,
+            Name = page.Name,
+            TrustLevel = snapshotTrustLevel,
+            SourceNote = snapshotTrustLevel == CmfTrustLevel.ManualConfirmed
+                ? "Page created from a manually confirmed CheatMaker seed."
+                : "Page read from CheatMaker Designer snapshot."
+        }).ToList();
+
+        if (designerPages.Count == 0 && (snapshot.Controls.Count > 0 || snapshot.Bindings.Count > 0))
+        {
+            designerPages.Add(new CmfPageDefinition
+            {
+                PageId = BuildStableId(project.RelativePath, "designer-page", "main"),
+                Name = Path.GetFileNameWithoutExtension(project.FileName),
+                TrustLevel = snapshotTrustLevel,
+                SourceNote = snapshotTrustLevel == CmfTrustLevel.ManualConfirmed
+                    ? "Synthetic page created for a manually confirmed CheatMaker seed without page metadata."
+                    : "Synthetic page created for a designer snapshot without page metadata."
+            });
+        }
+
+        var defaultPageId = designerPages.FirstOrDefault()?.PageId ?? project.Pages.FirstOrDefault()?.PageId ?? string.Empty;
+        var designerControls = snapshot.Controls.Select(control => new CmfControlDefinition
+        {
+            ControlId = string.IsNullOrWhiteSpace(control.ControlId)
+                ? BuildStableId(project.RelativePath, "designer-control", control.Name + "|" + control.Text)
+                : control.ControlId,
+            PageId = string.IsNullOrWhiteSpace(control.PageId) ? defaultPageId : control.PageId,
+            Name = string.IsNullOrWhiteSpace(control.Name) ? control.Text : control.Name,
+            ControlKind = control.ControlType,
+            TrustLevel = ResolveBindingOrSnapshotTrustLevel(snapshot, control.Properties),
+            SourceNote = ResolveBindingOrSnapshotTrustLevel(snapshot, control.Properties) == CmfTrustLevel.ManualConfirmed
+                ? "Control created from a manually confirmed CheatMaker seed."
+                : "Control read from CheatMaker Designer snapshot."
+        }).ToList();
+
+        var designerBindings = snapshot.Bindings.Select((binding, index) => ToDesignerDataBinding(project, snapshot, binding, defaultPageId, index)).ToList();
+        var promotedFeatures = PromoteFeaturesWithDesigner(project, snapshot, designerBindings).ToList();
+        var warnings = new List<string>(project.Warnings)
+        {
+            designerBindings.Count == 0
+                ? "CheatMaker Designer snapshot was loaded, but no address bindings were present."
+                : $"CheatMaker Designer snapshot imported {designerBindings.Count} field binding(s). They are stronger than static CMF bytes, but still require address classification, bounds check, test-copy write, and reread validation before writes."
+        };
+        warnings.AddRange(snapshot.Warnings.Select(warning => "Designer snapshot: " + warning));
+
+        return CloneProjectWithDesigner(project, snapshot, designerPages, designerControls, designerBindings, promotedFeatures, warnings);
+    }
+
     public CmfPromotionDraft PromoteFeature(CmfToolProject project, string featureId)
     {
         var feature = project.FeatureCandidates.FirstOrDefault(candidate => candidate.FeatureId.Equals(featureId, StringComparison.OrdinalIgnoreCase))
@@ -227,9 +310,272 @@ public sealed class CmfKnowledgeExtractor
             DataBindings = project.DataBindings.Concat(exportBindings).ToArray(),
             AddressEntries = project.AddressEntries,
             ExportFields = exportFields,
+            DesignerSnapshot = project.DesignerSnapshot,
             FeatureCandidates = features,
             Warnings = warnings
         };
+
+    private static CmfToolProject CloneProjectWithDesigner(
+        CmfToolProject project,
+        CmfDesignerSnapshot? snapshot,
+        IReadOnlyList<CmfPageDefinition> designerPages,
+        IReadOnlyList<CmfControlDefinition> designerControls,
+        IReadOnlyList<CmfDataBinding> designerBindings,
+        IReadOnlyList<CmfFeatureCandidate> features,
+        IReadOnlyList<string> warnings)
+        => new()
+        {
+            SourcePath = project.SourcePath,
+            RelativePath = project.RelativePath,
+            FileName = project.FileName,
+            Sha256 = project.Sha256,
+            Length = project.Length,
+            FormatSignature = project.FormatSignature,
+            FormatVersion = project.FormatVersion,
+            IsCheatMakerCmf = project.IsCheatMakerCmf,
+            AuthoritativeToolSource = project.AuthoritativeToolSource,
+            ExtractionMode = snapshot == null ? project.ExtractionMode : "CheatMakerDesignerSnapshotImport",
+            ConversionPolicy = "CheatMaker Designer snapshot is preferred over static CMF byte guesses. Writes still require version match, address classification, bounds check, test-copy write, and reread validation.",
+            Segments = project.Segments,
+            Pages = project.Pages.Concat(designerPages).DistinctBy(page => page.PageId).ToArray(),
+            Controls = project.Controls.Concat(designerControls).DistinctBy(control => control.ControlId).ToArray(),
+            DataBindings = project.DataBindings.Concat(designerBindings).DistinctBy(binding => binding.BindingId).ToArray(),
+            AddressEntries = project.AddressEntries,
+            ExportFields = project.ExportFields,
+            DesignerSnapshot = snapshot,
+            FeatureCandidates = features,
+            Warnings = warnings
+        };
+
+    private static CmfDataBinding ToDesignerDataBinding(CmfToolProject project, CmfDesignerSnapshot snapshot, CmfDesignerBinding binding, string defaultPageId, int index)
+    {
+        var addressSemantic = ClassifyDesignerAddress(binding);
+        var address = addressSemantic == CmfAddressSemantic.ExeImageAddress
+            ? binding.OdVirtualAddress
+            : binding.UeOffset ?? binding.OdVirtualAddress;
+        var addressText = !string.IsNullOrWhiteSpace(binding.UeOffsetHex)
+            ? binding.UeOffsetHex
+            : !string.IsNullOrWhiteSpace(binding.OdVirtualAddressHex)
+                ? binding.OdVirtualAddressHex
+                : address.HasValue
+                    ? "0x" + address.Value.ToString("X", CultureInfo.InvariantCulture)
+                    : string.Empty;
+        var dataType = NormalizeDesignerDataType(binding.DataType);
+        var conversionStatus = string.IsNullOrWhiteSpace(binding.ValidationStatus)
+            ? "ExtractedFromDesigner"
+            : binding.ValidationStatus;
+        if (binding.ByteLength <= 0 || string.IsNullOrWhiteSpace(dataType) || dataType.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            conversionStatus = "NeedsManualReview";
+        }
+
+        var trustLevel = ResolveBindingOrSnapshotTrustLevel(snapshot, binding.SourceProperties);
+        return new CmfDataBinding
+        {
+            BindingId = string.IsNullOrWhiteSpace(binding.BindingId)
+                ? BuildStableId(project.RelativePath, "designer-binding", index.ToString(CultureInfo.InvariantCulture) + "|" + addressText + "|" + binding.ControlName)
+                : binding.BindingId,
+            PageId = string.IsNullOrWhiteSpace(binding.PageId) ? defaultPageId : binding.PageId,
+            ControlId = binding.ControlId,
+            Name = string.IsNullOrWhiteSpace(binding.DisplayName) ? binding.ControlName : binding.DisplayName,
+            TargetFile = string.IsNullOrWhiteSpace(binding.TargetFile) && addressSemantic == CmfAddressSemantic.FileOffset
+                ? InferDesignerTargetFile(project.FileName)
+                : binding.TargetFile,
+            DataType = dataType,
+            ByteLength = binding.ByteLength,
+            AddressSemantic = addressSemantic,
+            Address = address,
+            AddressText = addressText,
+            TrustLevel = trustLevel,
+            ConversionStatus = conversionStatus,
+            SourceNote = trustLevel == CmfTrustLevel.ManualConfirmed
+                ? "Field binding created from a manually confirmed CheatMaker seed; address(HEX) is stored as UE file offset unless AddressKind says otherwise."
+                : "Field binding read from CheatMaker Designer property grid; address(HEX) is stored as UE file offset unless AddressKind says otherwise."
+        };
+    }
+
+    private static IEnumerable<CmfFeatureCandidate> PromoteFeaturesWithDesigner(
+        CmfToolProject project,
+        CmfDesignerSnapshot snapshot,
+        IReadOnlyList<CmfDataBinding> designerBindings)
+    {
+        var bindingIds = designerBindings.Select(binding => binding.BindingId).Take(128).ToArray();
+        var hasManualConfirmedBindings = designerBindings.Any(binding => binding.TrustLevel == CmfTrustLevel.ManualConfirmed);
+        var importedTrustLevel = hasManualConfirmedBindings
+            ? CmfTrustLevel.ManualConfirmed
+            : CmfTrustLevel.ExtractedFromCheatMakerDesigner;
+        var importedStatus = hasManualConfirmedBindings
+            ? "ManualConfirmedReadOnlyCandidate"
+            : "DesignerFieldMetadataImported";
+        var importedWritePolicy = hasManualConfirmedBindings
+            ? "Manual-confirmed CMF fields are imported as read-only candidates. Writes still require version match, address classification, bounds check, test-copy write, and reread validation."
+            : "CheatMaker Designer field metadata is imported. Writes still require version match, address classification, PE/file mapping, bounds check, test-copy write, and reread validation.";
+        foreach (var feature in project.FeatureCandidates)
+        {
+            yield return new CmfFeatureCandidate
+            {
+                FeatureId = feature.FeatureId,
+                Name = feature.Name,
+                Category = feature.Category,
+                VersionScope = feature.VersionScope,
+                SourceCmfRelativePath = feature.SourceCmfRelativePath,
+                SourcePageId = feature.SourcePageId,
+                TargetSubsystem = feature.TargetSubsystem,
+                TrustLevel = designerBindings.Count == 0 ? feature.TrustLevel : importedTrustLevel,
+                ConversionStatus = designerBindings.Count == 0 ? feature.ConversionStatus : importedStatus,
+                WritePolicy = designerBindings.Count == 0
+                    ? feature.WritePolicy
+                    : importedWritePolicy,
+                EvidenceNotes = feature.EvidenceNotes
+                    .Concat(snapshot.Modules.Take(8).Select(module => "Designer module: " + module.Title))
+                    .Concat(snapshot.Bindings.Take(12).Select(binding => $"Designer field: {binding.DisplayName} {binding.UeOffsetHex} {binding.DataType}/{binding.ByteLength}B"))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                RelatedBindings = feature.RelatedBindings.Concat(bindingIds).Distinct(StringComparer.OrdinalIgnoreCase).Take(128).ToArray()
+            };
+        }
+
+        foreach (var module in snapshot.Modules.Where(module => !string.IsNullOrWhiteSpace(module.Title)))
+        {
+            var moduleDesignerBindings = snapshot.Bindings
+                .Where(binding => binding.ModuleId.Equals(module.ModuleId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var related = designerBindings
+                .Where(binding => moduleDesignerBindings.Any(source => source.BindingId.Equals(binding.BindingId, StringComparison.OrdinalIgnoreCase)))
+                .Select(binding => binding.BindingId)
+                .ToArray();
+            if (related.Length == 0 && module.BindingIds.Count > 0)
+            {
+                related = module.BindingIds.ToArray();
+            }
+
+            var category = InferFieldCategory(module.Title);
+            yield return new CmfFeatureCandidate
+            {
+                FeatureId = BuildStableId(project.RelativePath, "designer-module", module.ModuleId + "|" + module.Title),
+                Name = module.Title,
+                Category = category == "ExportField" ? "DesignerModule" : category,
+                VersionScope = InferVersionScope(project.FileName),
+                SourceCmfRelativePath = project.RelativePath,
+                SourcePageId = module.PageId,
+                TargetSubsystem = InferDesignerSubsystem(module.Title, moduleDesignerBindings.FirstOrDefault()?.TargetFile ?? string.Empty),
+                TrustLevel = related.Any(id => designerBindings.Any(binding => binding.BindingId.Equals(id, StringComparison.OrdinalIgnoreCase) && binding.TrustLevel == CmfTrustLevel.ManualConfirmed))
+                    ? CmfTrustLevel.ManualConfirmed
+                    : CmfTrustLevel.ExtractedFromCheatMakerDesigner,
+                ConversionStatus = related.Any(id => designerBindings.Any(binding => binding.BindingId.Equals(id, StringComparison.OrdinalIgnoreCase) && binding.TrustLevel == CmfTrustLevel.ManualConfirmed))
+                    ? "ManualConfirmedReadOnlyCandidate"
+                    : "DesignerFieldMetadataImported",
+                WritePolicy = "Designer/manual module metadata is read-only until its fields pass address classification, bounds check, test-copy write, and reread validation.",
+                EvidenceNotes = module.Notes.Select(note => note.Text)
+                    .Where(note => !string.IsNullOrWhiteSpace(note))
+                    .Concat(moduleDesignerBindings.Take(12).Select(binding => $"Designer field: {binding.DisplayName} {binding.UeOffsetHex}"))
+                    .ToArray(),
+                RelatedBindings = related
+            };
+        }
+    }
+
+    private static CmfTrustLevel ResolveSnapshotTrustLevel(CmfDesignerSnapshot snapshot)
+        => snapshot.ExtractionMode.Contains("ManualConfirmedSeed", StringComparison.OrdinalIgnoreCase) ||
+           snapshot.Bindings.Any(binding => ResolveBindingOrSnapshotTrustLevel(snapshot, binding.SourceProperties) == CmfTrustLevel.ManualConfirmed)
+            ? CmfTrustLevel.ManualConfirmed
+            : CmfTrustLevel.ExtractedFromCheatMakerDesigner;
+
+    private static CmfTrustLevel ResolveBindingOrSnapshotTrustLevel(CmfDesignerSnapshot snapshot, IReadOnlyDictionary<string, string> sourceProperties)
+    {
+        if (sourceProperties.TryGetValue("trustLevel", out var trustLevel) &&
+            trustLevel.Equals("ManualConfirmed", StringComparison.OrdinalIgnoreCase))
+        {
+            return CmfTrustLevel.ManualConfirmed;
+        }
+
+        if (sourceProperties.TryGetValue("sourceType", out var sourceType) &&
+            sourceType.Contains("ManualConfirmedSeed", StringComparison.OrdinalIgnoreCase))
+        {
+            return CmfTrustLevel.ManualConfirmed;
+        }
+
+        if (snapshot.ExtractionMode.Equals("ManualConfirmedSeed", StringComparison.OrdinalIgnoreCase))
+        {
+            return CmfTrustLevel.ManualConfirmed;
+        }
+
+        return CmfTrustLevel.ExtractedFromCheatMakerDesigner;
+    }
+
+    private static CmfAddressSemantic ClassifyDesignerAddress(CmfDesignerBinding binding)
+    {
+        if (binding.AddressKind.Contains("OD", StringComparison.OrdinalIgnoreCase) ||
+            binding.AddressKind.Contains("VA", StringComparison.OrdinalIgnoreCase) ||
+            binding.AddressKind.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
+        {
+            return CmfAddressSemantic.ExeImageAddress;
+        }
+
+        if (binding.AddressKind.Contains("Resource", StringComparison.OrdinalIgnoreCase) ||
+            binding.TargetFile.EndsWith(".e5", StringComparison.OrdinalIgnoreCase))
+        {
+            return CmfAddressSemantic.ResourceFile;
+        }
+
+        if (binding.AddressKind.Contains("UE", StringComparison.OrdinalIgnoreCase) ||
+            binding.AddressKind.Contains("File", StringComparison.OrdinalIgnoreCase) ||
+            binding.UeOffset.HasValue)
+        {
+            return CmfAddressSemantic.FileOffset;
+        }
+
+        return CmfAddressSemantic.Unknown;
+    }
+
+    private static string NormalizeDesignerDataType(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "Unknown";
+        if (value.Contains("十六进制", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("hex", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Hex";
+        }
+
+        if (value.Contains("十进制", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("decimal", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Decimal";
+        }
+
+        if (value.Contains("文本", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("text", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("string", StringComparison.OrdinalIgnoreCase))
+        {
+            return "GbkText";
+        }
+
+        return value;
+    }
+
+    private static string InferDesignerTargetFile(string fileName)
+    {
+        var lower = fileName.ToLowerInvariant();
+        return lower.Contains("exe", StringComparison.OrdinalIgnoreCase) ||
+               lower.Contains("引擎", StringComparison.OrdinalIgnoreCase)
+            ? "Ekd5.exe"
+            : string.Empty;
+    }
+
+    private static string InferDesignerSubsystem(string text, string targetFile)
+    {
+        foreach (var (keyword, _, subsystem) in FeatureKeywords)
+        {
+            if (text.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                return subsystem;
+            }
+        }
+
+        return targetFile.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase)
+            ? "ExePatchCatalogService"
+            : "CmfDerivedCapabilityService";
+    }
 
     private static IEnumerable<CmfFeatureCandidate> PromoteFeaturesWithExport(
         CmfToolProject project,

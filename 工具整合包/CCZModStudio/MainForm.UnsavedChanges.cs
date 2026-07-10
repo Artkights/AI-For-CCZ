@@ -155,6 +155,7 @@ public sealed partial class MainForm
             }
         }
 
+        CommitItemEquipmentTypeJobGridEdits();
         SyncSelectedRoleTextDetailsIntoTables();
     }
 
@@ -169,6 +170,8 @@ public sealed partial class MainForm
         yield return _jobStrategyLearningEditorGrid;
         yield return _jobEffectEditorGrid;
         yield return _itemEditorGrid;
+        yield return _itemEquipmentTypeGrid;
+        yield return _itemEquipmentTypeJobGrid;
         yield return _shopEditorGrid;
         yield return _imageAssignmentGrid;
         yield return _scriptTextGrid;
@@ -570,13 +573,7 @@ public sealed partial class MainForm
         var criticalMapping = _roleQuoteMappingService.ResolveCriticalQuoteSelection(roleRow, _roleCriticalQuoteRead.Data, criticalSelection);
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
-        bioRow["浠嬬粛"] = _roleBiographyBox.Text;
-        ApplyCriticalQuoteEditorToRows(criticalMapping);
-
-        if (retreatMapping.QuoteRow != null)
-        {
-            retreatMapping.QuoteRow["浠嬬粛"] = _roleRetreatQuoteBox.Text;
-        }
+        ApplyRoleTextEditorToRows(bioRow, criticalMapping, retreatMapping);
     }
 
     private Task SaveCurrentTableSilentlyAsync()

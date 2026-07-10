@@ -606,17 +606,16 @@ public sealed partial class MainForm
 
         var previewText = BuildBatchRoleFaceImportPreviewText(preview);
         _imageAssignmentInfoBox.Text = previewText;
-        if (!preview.CanWrite)
+        var previewDialogModel = new ImageAssignmentImportPreviewAdapter().FromRoleFace(
+            preview,
+            previewText,
+            singleMode ? "一键导入头像预览" : "批量导入头像预览");
+        if (!ShowImageAssignmentImportPreviewDialog(previewDialogModel))
         {
-            MessageBox.Show(this, previewText, "头像导入存在阻断项", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        if (MessageBox.Show(this,
-                previewText + "\r\n\r\n确认后会写入 Face.e5，并自动备份；不会修改人物表“头像”字段。是否继续？",
-                singleMode ? "确认导入头像" : "确认批量导入头像",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question) != DialogResult.Yes)
+        if (!previewDialogModel.CanWrite)
         {
             return;
         }

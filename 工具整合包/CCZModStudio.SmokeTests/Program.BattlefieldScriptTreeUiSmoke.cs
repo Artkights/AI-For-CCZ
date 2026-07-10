@@ -20,6 +20,10 @@ internal partial class Program
 
                 var tree = GetPrivateField<TreeView>(form, "_battlefieldScriptTree");
                 var infoBox = GetPrivateField<TextBox>(form, "_battlefieldInfoBox");
+                var scriptDetailBox = GetPrivateField<TextBox>(form, "_battlefieldScriptDetailBox");
+                var scriptPreviewPanel = GetPrivateField<Panel>(form, "_battlefieldScriptPreviewPanel");
+                var consolePreviewPanel = GetPrivateField<Panel>(form, "_battlefieldConsolePreviewPanel");
+                var consoleSummaryLabel = GetPrivateField<Label>(form, "_battlefieldConsoleSummaryLabel");
                 tree.Nodes.Clear();
 
                 var friendNode = AddBattlefieldScriptSmokeNode(form, tree, commandId: 0x46, commandName: "友军出场设定", commandIndex: 46);
@@ -45,19 +49,23 @@ internal partial class Program
                     AssertEqual(0x46, intercepted.LastOrDefault(), "battlefield tree double-click reaches command 46 edit path");
                     AssertTrue(ReferenceEquals(tree.SelectedNode, friendNode), "battlefield tree double-click selects command 46 node");
                     AssertEqual("Script", form.BattlefieldRightPreviewModeForSmoke, "battlefield script tree double-click switches right preview to script mode");
-                    AssertTrue(infoBox.Text.Contains("S 剧本指令预览", StringComparison.Ordinal), "battlefield script preview labels command preview");
-                    AssertTrue(infoBox.Text.Contains("0x46", StringComparison.Ordinal) || infoBox.Text.Contains("46 ", StringComparison.Ordinal), "battlefield script preview contains command 46");
-                    AssertTrue(infoBox.Text.Contains("Dialog_70", StringComparison.Ordinal), "battlefield script preview shows Dialog_70 for command 46");
-                    AssertTrue(!infoBox.Text.Contains("当前地图单位", StringComparison.Ordinal), "battlefield script preview does not show console unit title");
-                    AssertTrue(!infoBox.Text.Contains("当前出场/坐标候选", StringComparison.Ordinal), "battlefield script preview does not show candidate console title");
+                    AssertTrue(scriptPreviewPanel.Visible, "battlefield script preview panel is visible");
+                    AssertTrue(!consolePreviewPanel.Visible, "battlefield console preview panel is hidden for script selection");
+                    AssertTrue(!infoBox.Visible || infoBox.Parent == null, "battlefield legacy text preview box is not visible in right preview");
+                    AssertTrue(scriptDetailBox.Text.Contains("S 剧本指令预览", StringComparison.Ordinal), "battlefield script preview labels command preview");
+                    AssertTrue(scriptDetailBox.Text.Contains("0x46", StringComparison.Ordinal) || scriptDetailBox.Text.Contains("46 ", StringComparison.Ordinal), "battlefield script preview contains command 46");
+                    AssertTrue(scriptDetailBox.Text.Contains("Dialog_70", StringComparison.Ordinal), "battlefield script preview shows Dialog_70 for command 46");
+                    AssertTrue(!scriptDetailBox.Text.Contains("当前地图单位", StringComparison.Ordinal), "battlefield script preview does not show console unit title");
+                    AssertTrue(!scriptDetailBox.Text.Contains("当前出场/坐标候选", StringComparison.Ordinal), "battlefield script preview does not show candidate console title");
+                    AssertTrue(!scriptDetailBox.Text.Contains("说明：点击", StringComparison.Ordinal), "battlefield script preview omits instructional prose");
 
                     InvokeBattlefieldScriptDoubleClick(form, enemyNode);
                     Application.DoEvents();
                     AssertEqual(0x47, intercepted.LastOrDefault(), "battlefield tree double-click reaches command 47 edit path");
                     AssertTrue(ReferenceEquals(tree.SelectedNode, enemyNode), "battlefield tree double-click selects command 47 node");
                     AssertEqual("Script", form.BattlefieldRightPreviewModeForSmoke, "battlefield script tree double-click keeps script preview mode for command 47");
-                    AssertTrue(infoBox.Text.Contains("敌军出场设定", StringComparison.Ordinal), "battlefield script preview contains command 47 name");
-                    AssertTrue(infoBox.Text.Contains("Dialog_70", StringComparison.Ordinal), "battlefield script preview shows Dialog_70 for command 47");
+                    AssertTrue(scriptDetailBox.Text.Contains("敌军出场设定", StringComparison.Ordinal), "battlefield script preview contains command 47 name");
+                    AssertTrue(scriptDetailBox.Text.Contains("Dialog_70", StringComparison.Ordinal), "battlefield script preview shows Dialog_70 for command 47");
 
                     var beforeNonCommandCount = intercepted.Count;
                     InvokeBattlefieldScriptDoubleClick(form, sectionNode);
@@ -67,12 +75,31 @@ internal partial class Program
 
                     form.ShowBattlefieldConsolePreviewForSmoke("当前地图单位：\r\n12 preview 坐标=(8,10) 阵营=友军 AI=主动");
                     AssertEqual("Console", form.BattlefieldRightPreviewModeForSmoke, "battlefield candidate/map selection can switch right preview to console mode");
-                    AssertTrue(infoBox.Text.Contains("当前地图单位", StringComparison.Ordinal), "battlefield console preview contains unit title");
+                    AssertTrue(consolePreviewPanel.Visible, "battlefield console preview panel is visible");
+                    AssertTrue(!scriptPreviewPanel.Visible, "battlefield script preview panel is hidden for console selection");
+                    AssertTrue(consoleSummaryLabel.Text.Contains("当前地图单位", StringComparison.Ordinal), "battlefield console summary contains unit title");
 
                     InvokeBattlefieldScriptDoubleClick(form, friendNode);
                     Application.DoEvents();
                     AssertEqual("Script", form.BattlefieldRightPreviewModeForSmoke, "battlefield script tree click switches back from console preview to script preview");
-                    AssertTrue(infoBox.Text.Contains("友军出场设定", StringComparison.Ordinal), "battlefield script preview restores command 46 name");
+                    AssertTrue(scriptDetailBox.Text.Contains("友军出场设定", StringComparison.Ordinal), "battlefield script preview restores command 46 name");
+
+                    form.ShowBattlefieldPaletteConsolePreviewForSmoke(new BattlefieldUnitPaletteItem
+                    {
+                        PersonId = 0,
+                        Name = "孙策",
+                        JobId = 1,
+                        JobName = "君主",
+                        RImageId = 10,
+                        SImageId = 20
+                    });
+                    Application.DoEvents();
+                    AssertEqual("Console", form.BattlefieldRightPreviewModeForSmoke, "battlefield palette selection switches right preview to console mode");
+                    AssertTrue(consoleSummaryLabel.Text.Contains("角色默认预览", StringComparison.Ordinal), "battlefield palette console uses readonly role summary");
+                    AssertTrue(consoleSummaryLabel.Text.Contains("孙策", StringComparison.Ordinal), "battlefield palette console summary contains selected role");
+                    AssertTrue(GetPrivateField<object?>(form, "_selectedBattlefieldPlacedUnit") == null, "battlefield palette console does not bind a placed unit");
+                    AssertTrue(!GetPrivateField<ComboBox>(form, "_battlefieldConsoleWeaponCombo").Enabled, "battlefield palette console disables equipment write controls");
+                    AssertTrue(!GetPrivateField<NumericUpDown>(form, "_battlefieldLevelOffsetInput").Enabled, "battlefield palette console disables placement write controls");
                 }
                 finally
                 {

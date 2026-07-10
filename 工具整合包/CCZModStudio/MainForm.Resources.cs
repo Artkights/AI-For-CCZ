@@ -143,18 +143,13 @@ public sealed partial class MainForm
 
         try
         {
-            var old = _materialPreview.Image;
-            _materialPreview.Image = null;
-            old?.Dispose();
             using var source = Image.FromFile(asset.FilePath);
-            _materialPreview.Image = new Bitmap(source);
+            SetPictureBoxImage(_materialPreview, new Bitmap(source));
             SetStatus($"素材预览：{asset.Category}/{asset.FileName}");
         }
         catch (Exception ex)
         {
-            var old = _materialPreview.Image;
-            _materialPreview.Image = null;
-            old?.Dispose();
+            SetPictureBoxImage(_materialPreview, null);
             System.Diagnostics.Debug.WriteLine($"素材预览失败：{asset.FilePath} {ex.Message}");
         }
     }
@@ -700,9 +695,9 @@ public sealed partial class MainForm
         try
         {
             using var image = Image.FromFile(path);
-            previewBox.Image = new Bitmap(image);
+            SetPictureBoxImage(previewBox, new Bitmap(image));
             infoLabel.Text = $"图片可读：{image.Width}x{image.Height}    文件：{path}";
-            disposeOnClose.FormClosed += (_, _) => previewBox.Image?.Dispose();
+            disposeOnClose.FormClosed += (_, _) => SetPictureBoxImage(previewBox, null);
         }
         catch (Exception ex)
         {
@@ -827,9 +822,7 @@ public sealed partial class MainForm
             $"\u8def\u5f84\uff1a{item.Path}\r\n" +
             $"\u4e2d\u6587\u6ce8\u91ca\uff1a{item.Annotation}";
 
-        var old = _gameResourcePreview.Image;
-        _gameResourcePreview.Image = null;
-        old?.Dispose();
+        SetPictureBoxImage(_gameResourcePreview, null);
 
         var ext = Path.GetExtension(item.Path);
         if (!ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) &&
@@ -844,7 +837,7 @@ public sealed partial class MainForm
         try
         {
             using var source = Image.FromFile(item.Path);
-            _gameResourcePreview.Image = new Bitmap(source);
+            SetPictureBoxImage(_gameResourcePreview, new Bitmap(source));
             SetStatus($"资源预览：{item.Category}/{item.Name}");
         }
         catch (Exception ex)
@@ -1360,9 +1353,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var result = _eexByteHeatmapService.Analyze(path, category, offset, length, sourceKind);
             var bitmap = _eexByteHeatmapService.Render(result);
-            var old = _eexByteHeatmapBox.Image;
-            _eexByteHeatmapBox.Image = bitmap;
-            old?.Dispose();
+            SetPictureBoxImage(_eexByteHeatmapBox, bitmap);
             _currentEexByteHeatmap = result;
             _eexByteHeatmapInfoBox.Text = BuildEexHeatmapInfoText(result);
             System.Diagnostics.Debug.WriteLine($"已生成 EEX 字节热力图：{result.FileName} {result.OffsetHex}-{result.EndOffsetHex}，单元 {result.CellCount}。");
@@ -1404,7 +1395,7 @@ public sealed partial class MainForm
 
         try
         {
-            if (_eexByteHeatmapBox.Image != null)
+            if (TryGetPictureBoxImageSize(_eexByteHeatmapBox, out _))
             {
                 _eexByteHeatmapBox.Image.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
             }
@@ -1426,9 +1417,7 @@ public sealed partial class MainForm
     private void ClearEexHeatmapPreview()
     {
         _currentEexByteHeatmap = null;
-        var old = _eexByteHeatmapBox.Image;
-        _eexByteHeatmapBox.Image = null;
-        old?.Dispose();
+        SetPictureBoxImage(_eexByteHeatmapBox, null);
         _eexByteHeatmapInfoBox.Text = "EEX 字节热力图：请选择左侧 EEX 文件，或先解析区段后选择右侧候选区段，再点击“生成字节热力图”。该预览只读，不解压、不写入。";
     }
 

@@ -137,6 +137,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerSaveDraftButton.Text = "保存草稿";
         ConfigureToolbarButton(_mapMakerSaveDraftButton, 88);
         _mapMakerSaveDraftButton.Enabled = false;
+        _mapMakerExportPairButton.Text = "一键导出地图";
+        ConfigureToolbarButton(_mapMakerExportPairButton, 118);
+        _mapMakerExportPairButton.Enabled = false;
+        _mapMakerImportPairButton.Text = "一键导入地图";
+        ConfigureToolbarButton(_mapMakerImportPairButton, 118);
+        _mapMakerImportPairButton.Enabled = false;
         _mapMakerGridWidthInput.Minimum = 1;
         _mapMakerGridWidthInput.Maximum = 256;
         _mapMakerGridWidthInput.Value = 30;
@@ -239,9 +245,11 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerExportPreviewButton.Text = "导出PNG";
         ConfigureToolbarButton(_mapMakerExportPreviewButton, 88);
         _mapMakerExportPreviewButton.Enabled = false;
+        _mapMakerExportPreviewButton.Visible = false;
         _mapMakerExportJpgButton.Text = "导出美化JPG";
         ConfigureToolbarButton(_mapMakerExportJpgButton, 118);
         _mapMakerExportJpgButton.Enabled = false;
+        _mapMakerExportJpgButton.Visible = false;
         _mapMakerExtractMaterialButton.Text = "提取素材";
         ConfigureToolbarButton(_mapMakerExtractMaterialButton, 88);
         _mapMakerExtractMaterialButton.Enabled = false;
@@ -271,6 +279,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             CreateToolbarLabel("x", 0),
             _mapMakerGridHeightInput,
             _mapMakerSaveDraftButton,
+            _mapMakerExportPairButton,
+            _mapMakerImportPairButton,
             _mapFitButton,
             _mapActualButton,
             CreateToolbarLabel("缩放："),
@@ -284,9 +294,12 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _mapMakerUndoTerrainButton,
             _mapMakerRedoTerrainButton,
             _mapMakerTerrainStyleButton,
-            _mapMakerExportPreviewButton,
-            _mapMakerExportJpgButton,
             _mapMakerPublishAllButton);
+        foreach (Control row in mapToolbar.Controls)
+        {
+            row.Margin = Padding.Empty;
+            row.Padding = Padding.Empty;
+        }
         mapLayout.Controls.Add(mapToolbar, 0, 0);
         var mapSplit = new SplitContainer
         {
@@ -495,19 +508,20 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         ConfigureToolbarButton(_openRoleInTableEditorButton, 128);
         _openRolePersonalEffectButton.Text = "剧本专属/套装(72/10)";
         ConfigureToolbarButton(_openRolePersonalEffectButton, 160);
-        _openRoleEffectButton.Text = "个人特效(EXE表)";
+        _openRoleEffectButton.Text = "个人特效页";
         ConfigureToolbarButton(_openRoleEffectButton, 128);
-        _openGlobalSettingsButton.Text = "全局设定";
-        ConfigureToolbarButton(_openGlobalSettingsButton, 88);
         _importRoleFaceButton.Text = "\u4e00\u952e\u5bfc\u5165\u5934\u50cf";
         ConfigureToolbarButton(_importRoleFaceButton, 118);
         _importRoleFaceButton.Enabled = false;
+        _importRoleFaceButton.Visible = false;
         _batchImportRoleFaceButton.Text = "\u6279\u91cf\u5bfc\u5165\u5934\u50cf";
         ConfigureToolbarButton(_batchImportRoleFaceButton, 118);
         _batchImportRoleFaceButton.Enabled = false;
+        _batchImportRoleFaceButton.Visible = false;
         _exportRoleFaceBmpButton.Text = "\u5bfc\u51fa\u5934\u50cfBMP";
         ConfigureToolbarButton(_exportRoleFaceBmpButton, 118);
         _exportRoleFaceBmpButton.Enabled = false;
+        _exportRoleFaceBmpButton.Visible = false;
         _exportRoleEditorCsvButton.Text = "导出CSV";
         ConfigureToolbarButton(_exportRoleEditorCsvButton, 88);
         _exportRoleEditorCsvButton.Enabled = false;
@@ -530,11 +544,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _loadRoleEditorButton,
             _saveRoleEditorButton,
             _openRolePersonalEffectButton,
-            _openRoleEffectButton,
-            _openGlobalSettingsButton,
-            _importRoleFaceButton,
-            _batchImportRoleFaceButton,
-            _exportRoleFaceBmpButton);
+            _openRoleEffectButton);
         AddToolbarRow(toolbar, 1,
             _exportRoleEditorCsvButton,
             _importRoleEditorCsvButton,
@@ -730,6 +740,13 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
     private TabPage BuildItemEditorPage()
     {
         var page = new TabPage("宝物设定");
+        var tabs = new TabControl
+        {
+            Dock = DockStyle.Fill
+        };
+        page.Controls.Add(tabs);
+
+        var dataPage = new TabPage("data设定");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -739,7 +756,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.Controls.Add(layout);
+        dataPage.Controls.Add(layout);
 
         var toolbar = CreateToolbarStack(2);
         _loadItemEditorButton.Text = "读取宝物/物品";
@@ -928,6 +945,128 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _itemEditorInfoBox.Text = "宝物设定：按旧版格式显示 ID、图标、名称、类别、能力、价格、特效和介绍；特效名随特效号动态映射，可通过“宝物特效”维护项目侧 UTF-8 特效目录。";
         AddCollapsibleSplitPanel(body, 2, "图标预览", previewPanel, "BuildItemEditorPage.GridPreview.Preview");
         layout.Controls.Add(body, 0, 1);
+        tabs.TabPages.Add(dataPage);
+        tabs.TabPages.Add(BuildItemEquipmentTypeSettingsPage());
+        return page;
+    }
+
+    private TabPage BuildItemEquipmentTypeSettingsPage()
+    {
+        var page = new TabPage("装备类型");
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 3,
+            ColumnCount = 1,
+            Padding = new Padding(6)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        page.Controls.Add(layout);
+
+        var toolbar = CreateToolbarRow();
+        _loadItemEquipmentTypeSettingsButton.Text = "读取装备类型";
+        ConfigureToolbarButton(_loadItemEquipmentTypeSettingsButton, 118);
+        _saveItemEquipmentTypeSettingsButton.Text = "保存装备类型";
+        ConfigureToolbarButton(_saveItemEquipmentTypeSettingsButton, 118);
+        _saveItemEquipmentTypeSettingsButton.Enabled = false;
+        toolbar.Controls.Add(_loadItemEquipmentTypeSettingsButton);
+        toolbar.Controls.Add(_saveItemEquipmentTypeSettingsButton);
+        layout.Controls.Add(toolbar, 0, 0);
+
+        _itemEquipmentTypeGrid.Dock = DockStyle.Fill;
+        _itemEquipmentTypeGrid.AutoGenerateColumns = false;
+        _itemEquipmentTypeGrid.AllowUserToAddRows = false;
+        _itemEquipmentTypeGrid.AllowUserToDeleteRows = false;
+        _itemEquipmentTypeGrid.RowHeadersVisible = false;
+        _itemEquipmentTypeGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _itemEquipmentTypeGrid.MultiSelect = false;
+        _itemEquipmentTypeGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _itemEquipmentTypeGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Description",
+            DataPropertyName = "Description",
+            HeaderText = "说明",
+            ReadOnly = true,
+            FillWeight = 24
+        });
+        _itemEquipmentTypeGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Name",
+            DataPropertyName = "Name",
+            HeaderText = "名称",
+            FillWeight = 22
+        });
+        _itemEquipmentTypeGrid.Columns.Add(new DataGridViewCheckBoxColumn
+        {
+            Name = "Visible",
+            DataPropertyName = "Visible",
+            HeaderText = "显示",
+            ThreeState = true,
+            TrueValue = true,
+            FalseValue = false,
+            IndeterminateValue = DBNull.Value,
+            FillWeight = 12
+        });
+        _itemEquipmentTypeGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "EquipmentSummary",
+            DataPropertyName = "EquipmentSummary",
+            HeaderText = "可装备部队",
+            ReadOnly = true,
+            FillWeight = 42
+        });
+
+        _itemEquipmentTypeJobGrid.Dock = DockStyle.Fill;
+        _itemEquipmentTypeJobGrid.AutoGenerateColumns = false;
+        _itemEquipmentTypeJobGrid.AllowUserToAddRows = false;
+        _itemEquipmentTypeJobGrid.AllowUserToDeleteRows = false;
+        _itemEquipmentTypeJobGrid.RowHeadersVisible = false;
+        _itemEquipmentTypeJobGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
+        _itemEquipmentTypeJobGrid.MultiSelect = false;
+        _itemEquipmentTypeJobGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+        _itemEquipmentTypeJobGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "SeriesName",
+            DataPropertyName = "SeriesName",
+            HeaderText = "兵种系",
+            ReadOnly = true,
+            FillWeight = 32
+        });
+        _itemEquipmentTypeJobGrid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "JobName",
+            DataPropertyName = "JobName",
+            HeaderText = "部队",
+            ReadOnly = true,
+            FillWeight = 40
+        });
+        _itemEquipmentTypeJobGrid.Columns.Add(new DataGridViewCheckBoxColumn
+        {
+            Name = "State",
+            DataPropertyName = "State",
+            HeaderText = "可装备",
+            ThreeState = true,
+            TrueValue = CheckState.Checked,
+            FalseValue = CheckState.Unchecked,
+            IndeterminateValue = CheckState.Indeterminate,
+            FillWeight = 18
+        });
+
+        var split = CreateResizableSplit("BuildItemEquipmentTypeSettingsPage.Main", Orientation.Vertical, 720);
+        AddCollapsibleSplitPanel(split, 1, "装备类型", _itemEquipmentTypeGrid, "BuildItemEquipmentTypeSettingsPage.TypeGrid");
+        AddCollapsibleSplitPanel(split, 2, "可装备部队", _itemEquipmentTypeJobGrid, "BuildItemEquipmentTypeSettingsPage.JobGrid");
+        layout.Controls.Add(split, 0, 1);
+
+        _itemEquipmentTypeInfoBox.Dock = DockStyle.Fill;
+        _itemEquipmentTypeInfoBox.Multiline = true;
+        _itemEquipmentTypeInfoBox.ReadOnly = true;
+        _itemEquipmentTypeInfoBox.ScrollBars = ScrollBars.Vertical;
+        _itemEquipmentTypeInfoBox.WordWrap = true;
+        _itemEquipmentTypeInfoBox.Text = "读取后编辑装备类型名称、显示状态和可装备部队。";
+        layout.Controls.Add(_itemEquipmentTypeInfoBox, 0, 2);
+
         return page;
     }
 
@@ -1139,6 +1278,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobTerrainButton.Enabled = false;
         _openJobRestraintTableButton.Text = "通用兵种相克表";
         ConfigureToolbarButton(_openJobRestraintTableButton, 128);
+        _openJobRestraintTableButton.Visible = false;
         ConfigureToolbarInput(_jobTerrainSearchBox, 200, 150);
         _jobTerrainSearchBox.PlaceholderText = "兵种系/地形/数值";
         _filterJobTerrainButton.Text = "筛选";
@@ -1191,11 +1331,11 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobMatrixButton.Enabled = false;
         _openJobMatrixRestraintTableButton.Text = "通用兵种相克表";
         ConfigureToolbarButton(_openJobMatrixRestraintTableButton, 128);
+        _openJobMatrixRestraintTableButton.Visible = false;
         matrixToolbar.Controls.AddRange(new Control[]
         {
             _loadJobMatrixButton,
-            _saveJobMatrixButton,
-            _openJobMatrixRestraintTableButton
+            _saveJobMatrixButton
         });
         matrixLayout.Controls.Add(matrixToolbar, 0, 0);
 
@@ -1227,6 +1367,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _saveJobAttributeMatrixButton.Enabled = false;
         _openJobMatrixAttributeTableButton.Text = "通用兵种属性表";
         ConfigureToolbarButton(_openJobMatrixAttributeTableButton, 128);
+        _openJobMatrixAttributeTableButton.Visible = false;
         _exportJobAttributeCsvButton.Text = "导出属性CSV";
         ConfigureToolbarButton(_exportJobAttributeCsvButton, 108);
         _exportJobAttributeCsvButton.Enabled = false;
@@ -1246,7 +1387,6 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         {
             _loadJobAttributeMatrixButton,
             _saveJobAttributeMatrixButton,
-            _openJobMatrixAttributeTableButton,
             _exportJobAttributeCsvButton,
             _importJobAttributeCsvButton,
             _pasteJobMatrixSelectionButton,
@@ -1421,6 +1561,88 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         strategyLearningEditorRoot.Controls.Add(_jobStrategyLearningEditorStatusLabel, 0, 3);
         strategyPreviewContentPanel.Controls.Add(_jobStrategyLearningEditorPanel);
 
+        _jobStrategyBitFlagsEditorPanel.Dock = DockStyle.Fill;
+        _jobStrategyBitFlagsEditorPanel.Visible = false;
+        _jobStrategyBitFlagsEditorPanel.BorderStyle = BorderStyle.FixedSingle;
+        _jobStrategyBitFlagsEditorPanel.Padding = new Padding(8);
+        var strategyBitFlagsRoot = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 5
+        };
+        strategyBitFlagsRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        strategyBitFlagsRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 42));
+        strategyBitFlagsRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        strategyBitFlagsRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 58));
+        strategyBitFlagsRoot.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _jobStrategyBitFlagsEditorPanel.Controls.Add(strategyBitFlagsRoot);
+
+        _jobStrategyBitFlagsTitleLabel.Dock = DockStyle.Fill;
+        _jobStrategyBitFlagsTitleLabel.AutoSize = true;
+        _jobStrategyBitFlagsTitleLabel.Font = new Font(Font, FontStyle.Bold);
+        strategyBitFlagsRoot.Controls.Add(_jobStrategyBitFlagsTitleLabel, 0, 0);
+
+        _jobStrategyBitFlagsInfoBox.Dock = DockStyle.Fill;
+        _jobStrategyBitFlagsInfoBox.Multiline = true;
+        _jobStrategyBitFlagsInfoBox.ReadOnly = true;
+        _jobStrategyBitFlagsInfoBox.ScrollBars = ScrollBars.Vertical;
+        _jobStrategyBitFlagsInfoBox.WordWrap = true;
+        _jobStrategyBitFlagsInfoBox.Margin = new Padding(0, 6, 0, 6);
+        strategyBitFlagsRoot.Controls.Add(_jobStrategyBitFlagsInfoBox, 0, 1);
+
+        var strategyBitFlagsNumericPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        strategyBitFlagsNumericPanel.Controls.Add(new Label
+        {
+            Text = "原始值",
+            AutoSize = true,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(0, 4, 6, 0)
+        });
+        _jobStrategyBitFlagsNumeric.Minimum = 0;
+        _jobStrategyBitFlagsNumeric.Maximum = 255;
+        _jobStrategyBitFlagsNumeric.Width = 86;
+        strategyBitFlagsNumericPanel.Controls.Add(_jobStrategyBitFlagsNumeric);
+        strategyBitFlagsRoot.Controls.Add(strategyBitFlagsNumericPanel, 0, 2);
+
+        var strategyBitFlagsCheckPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 4,
+            Margin = new Padding(0, 0, 0, 6)
+        };
+        strategyBitFlagsCheckPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        strategyBitFlagsCheckPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        for (var rowIndex = 0; rowIndex < 4; rowIndex++)
+        {
+            strategyBitFlagsCheckPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+        }
+
+        for (var i = 0; i < _jobStrategyBitFlagCheckBoxes.Length; i++)
+        {
+            var checkBox = _jobStrategyBitFlagCheckBoxes[i];
+            checkBox.Dock = DockStyle.Fill;
+            checkBox.AutoEllipsis = true;
+            checkBox.Margin = new Padding(0, 2, 8, 2);
+            strategyBitFlagsCheckPanel.Controls.Add(checkBox, i % 2, i / 2);
+        }
+
+        strategyBitFlagsRoot.Controls.Add(strategyBitFlagsCheckPanel, 0, 3);
+
+        _jobStrategyBitFlagsStatusLabel.Dock = DockStyle.Fill;
+        _jobStrategyBitFlagsStatusLabel.AutoSize = true;
+        _jobStrategyBitFlagsStatusLabel.Padding = new Padding(0, 6, 0, 0);
+        strategyBitFlagsRoot.Controls.Add(_jobStrategyBitFlagsStatusLabel, 0, 4);
+        strategyPreviewContentPanel.Controls.Add(_jobStrategyBitFlagsEditorPanel);
+
         SetJobStrategyPreviewLayout(JobStrategyPreviewLayoutMode.LearningAndDescription);
         AddCollapsibleSplitPanel(strategyBody, 2, "策略预览", strategyPreviewPanel, "BuildJobEditorPage.StrategyGridPreview.Preview");
 
@@ -1569,6 +1791,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _showBattlefieldVariablesButton.Text = "变量 Ctrl+L";
         ConfigureToolbarButton(_showBattlefieldVariablesButton, 104);
         _showBattlefieldVariablesButton.Enabled = false;
+        ConfigureTextWrapLimitInput(_battlefieldScriptTextWrapLimitInput);
+        ConfigureTextWrapLimitPanel(_battlefieldScriptTextWrapLimitPanel, _battlefieldScriptTextWrapLimitInput);
         AddToolbarRow(scriptToolbar, 0,
             _battlefieldScriptSearchBox,
             _battlefieldScriptSearchButton,
@@ -1644,6 +1868,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldInfoBox.ReadOnly = true;
         _battlefieldInfoBox.ScrollBars = ScrollBars.Vertical;
         _battlefieldInfoBox.WordWrap = true;
+        _battlefieldInfoBox.Visible = false;
         _battlefieldInfoBox.Text = "战场编辑：读取关卡后可编辑标题/胜败条件文本，并联动显示地图底图、地形层和战场命令候选。未知 R/S eex 命令结构不强写。";
         var titleConditionSplit = CreateResizableSplit("BuildBattlefieldEditorPage.TitleCondition", Orientation.Horizontal, 96, 54, 80);
         AddCollapsibleSplitPanel(titleConditionSplit, 1, "关卡标题", titlePanel, "BuildBattlefieldEditorPage.TitleCondition.Title");
@@ -1733,20 +1958,22 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
-            RowCount = 4,
+            RowCount = 5,
             ColumnCount = 1,
             Padding = new Padding(8)
         };
-        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
-        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
+        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 36));
         controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _battlefieldConsoleSummaryLabel.AutoSize = true;
-        _battlefieldConsoleSummaryLabel.Dock = DockStyle.Fill;
+        _battlefieldConsoleSummaryLabel.Dock = DockStyle.Top;
         _battlefieldConsoleSummaryLabel.Padding = new Padding(0, 0, 0, 4);
         _battlefieldConsoleSummaryLabel.Text = "未选中战场单位。";
-        _battlefieldConsoleSummaryLabel.Visible = false;
+        _battlefieldConsoleSummaryLabel.Visible = true;
+        controlOptionsPanel.Controls.Add(_battlefieldConsoleSummaryLabel, 0, 0);
 
         var placementPanel = new TableLayoutPanel
         {
@@ -1788,7 +2015,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldDirectionCombo.Items.AddRange(new object[] { "上", "右", "下", "左" });
         _battlefieldDirectionCombo.SelectedIndex = 2;
         AddBattlefieldConsoleField(placementPanel, 5, "方向", _battlefieldDirectionCombo);
-        controlOptionsPanel.Controls.Add(placementPanel, 0, 0);
+        controlOptionsPanel.Controls.Add(placementPanel, 0, 1);
 
         var equipmentPanel = new TableLayoutPanel
         {
@@ -1810,7 +2037,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         AddBattlefieldConsoleField(equipmentPanel, 3, "防具等级", _battlefieldConsoleArmorLevelInput);
         AddBattlefieldConsoleField(equipmentPanel, 4, "辅助", _battlefieldConsoleAssistCombo);
         AddBattlefieldConsoleField(equipmentPanel, 5, "兵种", _battlefieldConsoleJobCombo);
-        controlOptionsPanel.Controls.Add(equipmentPanel, 0, 1);
+        controlOptionsPanel.Controls.Add(equipmentPanel, 0, 2);
 
         _battlefieldConsoleAbilityGrid.Dock = DockStyle.Fill;
         _battlefieldConsoleAbilityGrid.Margin = new Padding(0, 0, 0, 6);
@@ -1821,7 +2048,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldConsoleAbilityGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _battlefieldConsoleAbilityGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _battlefieldConsoleAbilityGrid.MultiSelect = false;
-        controlOptionsPanel.Controls.Add(_battlefieldConsoleAbilityGrid, 0, 2);
+        controlOptionsPanel.Controls.Add(_battlefieldConsoleAbilityGrid, 0, 3);
 
         var consoleInfoPanel = new TableLayoutPanel
         {
@@ -1866,7 +2093,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         actionPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         actionPanel.Controls.Add(_battlefieldRemovePlacedUnitButton, 0, 1);
         _battlefieldClearPlacedUnitsButton.Visible = false;
-        controlOptionsPanel.Controls.Add(actionPanel, 0, 3);
+        controlOptionsPanel.Controls.Add(actionPanel, 0, 4);
 
         var unitTabs = new TabControl { Dock = DockStyle.Fill };
         var unitPage = new TabPage("候选");
@@ -1923,9 +2150,136 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         unitTabs.TabPages.Add(unitPage);
         unitTabs.TabPages.Add(commandPage);
         unitTabs.Visible = false;
+        _battlefieldScriptDetailBox.Dock = DockStyle.Fill;
+        _battlefieldScriptDetailBox.Multiline = true;
+        _battlefieldScriptDetailBox.ReadOnly = true;
+        _battlefieldScriptDetailBox.ScrollBars = ScrollBars.Vertical;
+        _battlefieldScriptDetailBox.WordWrap = true;
+        _battlefieldScriptDetailBox.Text = "选择左侧 S 剧本命令后显示参数和修改预览。";
+
+        _battlefieldScriptParameterGrid.Dock = DockStyle.Fill;
+        _battlefieldScriptParameterGrid.ReadOnly = true;
+        _battlefieldScriptParameterGrid.AllowUserToAddRows = false;
+        _battlefieldScriptParameterGrid.AllowUserToDeleteRows = false;
+        _battlefieldScriptParameterGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+        _battlefieldScriptParameterGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _battlefieldScriptParameterGrid.MultiSelect = false;
+        _battlefieldScriptParameterGrid.RowHeadersVisible = false;
+        _battlefieldScriptParameterGrid.BorderStyle = BorderStyle.FixedSingle;
+
+        _battlefieldScriptTextBox.Dock = DockStyle.Fill;
+        _battlefieldScriptTextBox.Multiline = true;
+        _battlefieldScriptTextBox.ScrollBars = ScrollBars.Vertical;
+        _battlefieldScriptTextBox.WordWrap = true;
+        _battlefieldScriptTextBox.AcceptsReturn = true;
+        _battlefieldScriptTextBox.AcceptsTab = true;
+        _battlefieldScriptTextCapacityLabel.AutoSize = true;
+        _battlefieldScriptTextCapacityLabel.Text = "文本容量：未选择";
+        _battlefieldScriptTextCapacityLabel.Padding = new Padding(0, 4, 0, 0);
+
+        _battlefieldScriptImagePreviewBox.Dock = DockStyle.Fill;
+        _battlefieldScriptImagePreviewBox.BackColor = Color.Black;
+        _battlefieldScriptImagePreviewBox.BorderStyle = BorderStyle.FixedSingle;
+        _battlefieldScriptImagePreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
+        _battlefieldScriptImagePreviewBox.Margin = Padding.Empty;
+        _battlefieldScriptImagePreviewInfoBox.Dock = DockStyle.Fill;
+        _battlefieldScriptImagePreviewInfoBox.Multiline = true;
+        _battlefieldScriptImagePreviewInfoBox.ReadOnly = true;
+        _battlefieldScriptImagePreviewInfoBox.ScrollBars = ScrollBars.Vertical;
+        _battlefieldScriptImagePreviewInfoBox.WordWrap = true;
+        _battlefieldScriptImagePreviewInfoBox.BorderStyle = BorderStyle.FixedSingle;
+        _battlefieldScriptImagePreviewInfoBox.Text = "无图片预览";
+
+        var battlefieldScriptParameterEditToolbar = CreateToolbarRow();
+        _battlefieldScriptParameterValueBox.Width = 160;
+        _battlefieldScriptParameterValueBox.MinimumSize = new Size(120, 0);
+        _battlefieldScriptParameterValueBox.Margin = new Padding(3);
+        _applyBattlefieldScriptParameterButton.Text = "应用修改";
+        ConfigureToolbarButton(_applyBattlefieldScriptParameterButton, 88);
+        _applyBattlefieldScriptParameterButton.Enabled = false;
+        _resetBattlefieldInlineDialogButton.Text = "重置";
+        ConfigureToolbarButton(_resetBattlefieldInlineDialogButton, 72);
+        _resetBattlefieldInlineDialogButton.Enabled = false;
+        _editBattlefieldScriptParametersButton.Text = "弹窗修改";
+        ConfigureToolbarButton(_editBattlefieldScriptParametersButton, 88);
+        _editBattlefieldScriptParametersButton.Enabled = false;
+        battlefieldScriptParameterEditToolbar.Controls.AddRange(new Control[]
+        {
+            _applyBattlefieldScriptParameterButton,
+            _resetBattlefieldInlineDialogButton,
+            _battlefieldScriptTextWrapLimitPanel
+        });
+
+        var battlefieldScriptTextPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        battlefieldScriptTextPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        battlefieldScriptTextPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        battlefieldScriptTextPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        battlefieldScriptTextPanel.Controls.Add(_battlefieldScriptTextBox, 0, 0);
+        battlefieldScriptTextPanel.Controls.Add(_battlefieldScriptTextCapacityLabel, 0, 1);
+
+        var battlefieldScriptParameterPanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        battlefieldScriptParameterPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        battlefieldScriptParameterPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        battlefieldScriptParameterPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _battlefieldInlineDialogHost.Margin = Padding.Empty;
+        battlefieldScriptParameterPanel.Controls.Add(_battlefieldInlineDialogHost, 0, 0);
+        battlefieldScriptParameterPanel.Controls.Add(battlefieldScriptParameterEditToolbar, 0, 1);
+
+        var hiddenBattlefieldScriptBindingsPanel = new Panel
+        {
+            Visible = false,
+            Size = Size.Empty
+        };
+        hiddenBattlefieldScriptBindingsPanel.Controls.AddRange(new Control[]
+        {
+            _battlefieldScriptDetailBox,
+            _battlefieldScriptParameterGrid,
+            _battlefieldScriptParameterValueBox,
+            _editBattlefieldScriptParametersButton,
+            battlefieldScriptTextPanel,
+            _battlefieldScriptImagePreviewInfoBox
+        });
+        page.Controls.Add(hiddenBattlefieldScriptBindingsPanel);
+
+        _battlefieldScriptPreviewPanel.Dock = DockStyle.Fill;
+        _battlefieldScriptPreviewPanel.Controls.Add(battlefieldScriptParameterPanel);
+        _battlefieldConsolePreviewPanel.Dock = DockStyle.Fill;
+        _battlefieldConsolePreviewPanel.Controls.Add(controlOptionsPanel);
+
+        var battlefieldPreviewModeHost = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        battlefieldPreviewModeHost.Controls.Add(_battlefieldConsolePreviewPanel);
+        battlefieldPreviewModeHost.Controls.Add(_battlefieldScriptPreviewPanel);
+
+        var battlefieldPreviewPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        battlefieldPreviewPanel.Controls.Add(battlefieldPreviewModeHost);
+
         var mapControlSplit = CreateResizableSplit("BuildBattlefieldEditorPage.MapControl", Orientation.Vertical, 620, 320, 320);
         AddCollapsibleSplitPanel(mapControlSplit, 1, "战场地图", mapLayout, "BuildBattlefieldEditorPage.MapControl.Map");
-        AddCollapsibleSplitPanel(mapControlSplit, 2, "控制台", controlOptionsPanel, "BuildBattlefieldEditorPage.MapControl.Console");
+        AddCollapsibleSplitPanel(mapControlSplit, 2, "预览/控制台", battlefieldPreviewPanel, "BuildBattlefieldEditorPage.MapControl.Console");
         var unitMapControlSplit = CreateResizableSplit("BuildBattlefieldEditorPage.UnitMapControl", Orientation.Vertical, 190, 120, 360);
         unitMapControlSplit.Panel1.Controls.Add(unitPanel);
         unitMapControlSplit.Panel2.Controls.Add(mapControlSplit);
@@ -2118,6 +2472,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _rSceneDialoguePreviewCheckBox.Text = "对白预览";
         ConfigureToolbarCheckBox(_rSceneDialoguePreviewCheckBox);
         _rSceneDialoguePreviewCheckBox.Checked = true;
+        ConfigureTextWrapLimitInput(_rSceneTextWrapLimitInput);
+        ConfigureTextWrapLimitPanel(_rSceneTextWrapLimitPanel, _rSceneTextWrapLimitInput);
         _rSceneZoomLabel.Text = "缩放 100%";
         _rSceneZoomLabel.AutoSize = true;
         _rSceneZoomLabel.Padding = new Padding(8, 5, 0, 0);
@@ -2155,7 +2511,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         rSceneParameterEditToolbar.Controls.AddRange(new Control[]
         {
             _applyRSceneInlineDialogButton,
-            _resetRSceneInlineDialogButton
+            _resetRSceneInlineDialogButton,
+            _rSceneTextWrapLimitPanel
         });
 
         var rSceneParameterPanel = new TableLayoutPanel
@@ -2474,10 +2831,13 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _resetScriptInlineDialogButton.Text = "重置";
         ConfigureToolbarButton(_resetScriptInlineDialogButton, 72);
         _resetScriptInlineDialogButton.Enabled = false;
+        ConfigureTextWrapLimitInput(_scriptTextWrapLimitInput);
+        ConfigureTextWrapLimitPanel(_scriptTextWrapLimitPanel, _scriptTextWrapLimitInput);
         parameterEditToolbar.Controls.AddRange(new Control[]
         {
             _applyScriptInlineDialogButton,
-            _resetScriptInlineDialogButton
+            _resetScriptInlineDialogButton,
+            _scriptTextWrapLimitPanel
         });
 
         var parameterPanel = new TableLayoutPanel

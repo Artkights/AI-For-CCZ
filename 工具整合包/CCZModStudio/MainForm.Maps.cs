@@ -223,9 +223,7 @@ public sealed partial class MainForm
                 length,
                 $"Ls/E5载荷/{item.RoleHint}");
             var bitmap = _eexByteHeatmapService.Render(result);
-            var old = _lsResourceHeatmapBox.Image;
-            _lsResourceHeatmapBox.Image = bitmap;
-            old?.Dispose();
+            SetPictureBoxImage(_lsResourceHeatmapBox, bitmap);
             _currentLsResourceHeatmap = result;
             _exportLsResourceHeatmapPngButton.Enabled = true;
             _lsResourceHeatmapInfoBox.Text =
@@ -270,7 +268,7 @@ public sealed partial class MainForm
 
         try
         {
-            if (_lsResourceHeatmapBox.Image != null)
+            if (TryGetPictureBoxImageSize(_lsResourceHeatmapBox, out _))
             {
                 _lsResourceHeatmapBox.Image.Save(dialog.FileName, System.Drawing.Imaging.ImageFormat.Png);
             }
@@ -292,9 +290,7 @@ public sealed partial class MainForm
     private void ClearLsResourceHeatmapPreview()
     {
         _currentLsResourceHeatmap = null;
-        var old = _lsResourceHeatmapBox.Image;
-        _lsResourceHeatmapBox.Image = null;
-        old?.Dispose();
+        SetPictureBoxImage(_lsResourceHeatmapBox, null);
         _exportLsResourceHeatmapPngButton.Enabled = false;
         _lsResourceHeatmapInfoBox.Text = "Ls/E5 字节热力图：请选择一个 Ls/E5 资源后点击“生成字节热力图”。该预览只读，仅观察 16 字节头之后的载荷分布，不解压、不重封包、不写入。";
     }
@@ -303,7 +299,7 @@ public sealed partial class MainForm
     {
         x = 0;
         y = 0;
-        if (box.Image == null || box.Width <= 0 || box.Height <= 0 || gridWidth <= 0 || gridHeight <= 0) return false;
+        if (!TryGetPictureBoxImageSize(box, out _) || box.Width <= 0 || box.Height <= 0 || gridWidth <= 0 || gridHeight <= 0) return false;
         var rect = GetImageDisplayRectangle(box);
         if (!rect.Contains(point)) return false;
         x = (int)((point.X - rect.X) * gridWidth / (double)rect.Width);
@@ -315,9 +311,9 @@ public sealed partial class MainForm
 
     private static Rectangle GetImageDisplayRectangle(PictureBox box)
     {
-        if (box.Image == null) return Rectangle.Empty;
+        if (!TryGetPictureBoxImageSize(box, out var imageSize)) return Rectangle.Empty;
         if (box.SizeMode != PictureBoxSizeMode.Zoom) return box.ClientRectangle;
-        var imageRatio = box.Image.Width / (double)box.Image.Height;
+        var imageRatio = imageSize.Width / (double)imageSize.Height;
         var boxRatio = box.ClientSize.Width / (double)Math.Max(1, box.ClientSize.Height);
         if (imageRatio > boxRatio)
         {
@@ -330,6 +326,34 @@ public sealed partial class MainForm
             var height = box.ClientSize.Height;
             var width = (int)Math.Round(height * imageRatio);
             return new Rectangle((box.ClientSize.Width - width) / 2, 0, width, height);
+        }
+    }
+
+    private static bool TryGetPictureBoxImageSize(PictureBox box, out Size size)
+    {
+        size = Size.Empty;
+        var image = box.Image;
+        if (image == null) return false;
+
+        try
+        {
+            var width = image.Width;
+            var height = image.Height;
+            if (width <= 0 || height <= 0) return false;
+            size = new Size(width, height);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or ObjectDisposedException)
+        {
+            var old = box.Image;
+            box.Image = null;
+            if (old != null && ReferenceEquals(old, image))
+            {
+                old.Dispose();
+            }
+
+            ApplicationErrorService.Report(ex, "PictureBox image size", notify: false);
+            return false;
         }
     }
 
@@ -420,10 +444,10 @@ public sealed partial class MainForm
         if (block == null) return;
 
         var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
-        _hexzmapPreviewBox.Image?.Dispose();
-        _hexzmapPreviewBox.Image = cells.Length == block.BytesRead
+        var previewImage = cells.Length == block.BytesRead
             ? RenderHexzmapPreview(block, cells)
             : null;
+        SetPictureBoxImage(_hexzmapPreviewBox, previewImage);
         _exportHexzmapOverlayPngButton.Enabled = _hexzmapPreviewBox.Image != null;
         _hexzmapInfoBox.Text =
             $"候选地图块：{block.MapId}    Index={block.Index}    偏移：{block.OffsetHex}    {block.Width}x{block.Height}\r\n" +
@@ -2053,8 +2077,7 @@ public sealed partial class MainForm
     private void SetMapWorkbenchSelectedMaterial(MaterialAsset? asset)
     {
         _mapMakerSelectedMaterial = asset;
-        _mapMakerMaterialPreview.Image?.Dispose();
-        _mapMakerMaterialPreview.Image = null;
+        SetPictureBoxImage(_mapMakerMaterialPreview, null);
         if (asset == null)
         {
             _mapMakerMaterialInfoBox.Text = "请选择右侧素材后绘制。";
@@ -2065,9 +2088,10 @@ public sealed partial class MainForm
         try
         {
             using var image = Image.FromFile(asset.FilePath);
-            _mapMakerMaterialPreview.Image = asset.AssetType.Equals(MaterialAssetTypes.Scenery, StringComparison.OrdinalIgnoreCase)
+            var previewImage = asset.AssetType.Equals(MaterialAssetTypes.Scenery, StringComparison.OrdinalIgnoreCase)
                 ? BuildZoomedPreviewBitmap(image, 160, 160)
                 : new Bitmap(image);
+            SetPictureBoxImage(_mapMakerMaterialPreview, previewImage);
         }
         catch (Exception ex)
         {
@@ -2294,9 +2318,8 @@ public sealed partial class MainForm
         }
 
         SyncMapWorkbenchDraftFromEditor();
-        _mapViewerBox.Image = null;
         var stopwatch = Stopwatch.StartNew();
-        _mapViewerRenderedImage = _mapCanvasPreviewRenderer.GetCurrentPreviewImage(
+        var renderedImage = _mapCanvasPreviewRenderer.GetCurrentPreviewImage(
             _currentMapWorkbenchDraft,
             _currentMaterialAssets,
             terrainLayerOnly: ShouldRenderMapWorkbenchTerrainLayerOnly(),
@@ -2308,7 +2331,7 @@ public sealed partial class MainForm
         {
             _mapMakerLastBaseRefreshMs = stopwatch.ElapsedMilliseconds;
         }
-        _mapViewerBox.Image = _mapViewerRenderedImage;
+        SetMapViewerRenderedImage(renderedImage);
         _mapMakerExportPreviewButton.Enabled = true;
         UpdateMapMakerEditingButtons();
     }
@@ -2469,11 +2492,22 @@ public sealed partial class MainForm
     private void ClearMapMakerPreviewImages()
     {
         CancelPendingMapMakerBeautify();
-        _mapViewerBox.Image = null;
+        SetMapViewerRenderedImage(null);
         _mapCanvasPreviewRenderer.Clear();
-        _mapViewerRenderedImage = null;
         _mapMakerDirtyTerrainPreviewIndexes.Clear();
         _mapMakerDirtyBaseRefreshTimer.Stop();
+    }
+
+    private void SetMapViewerRenderedImage(Bitmap? image)
+    {
+        var oldImage = _mapViewerRenderedImage;
+        _mapViewerBox.Image = null;
+        _mapViewerRenderedImage = image;
+        _mapViewerBox.Image = image;
+        if (oldImage != null && !ReferenceEquals(oldImage, image))
+        {
+            oldImage.Dispose();
+        }
     }
 
     private void CancelPendingMapMakerBeautify()
@@ -2718,14 +2752,20 @@ public sealed partial class MainForm
         }
 
         var displayRect = MapMakerSourceRectToDisplayRect(sourceRect);
-        _mapViewerBox.Invalidate(displayRect.IsEmpty ? _mapViewerBox.ClientRectangle : displayRect);
+        if (displayRect.IsEmpty)
+        {
+            RenderMapMakerPreview(force: true);
+            return;
+        }
+
+        _mapViewerBox.Invalidate(displayRect);
     }
 
     private Rectangle MapMakerSourceRectToDisplayRect(Rectangle sourceRect)
     {
-        if (_mapViewerRenderedImage == null || _mapViewerBox.Width <= 0 || _mapViewerBox.Height <= 0) return Rectangle.Empty;
-        var scaleX = _mapViewerBox.Width / (float)_mapViewerRenderedImage.Width;
-        var scaleY = _mapViewerBox.Height / (float)_mapViewerRenderedImage.Height;
+        if (!TryGetMapViewerRenderedImageSize(out var imageSize) || _mapViewerBox.Width <= 0 || _mapViewerBox.Height <= 0) return Rectangle.Empty;
+        var scaleX = _mapViewerBox.Width / (float)imageSize.Width;
+        var scaleY = _mapViewerBox.Height / (float)imageSize.Height;
         var left = (int)Math.Floor(sourceRect.Left * scaleX);
         var top = (int)Math.Floor(sourceRect.Top * scaleY);
         var right = (int)Math.Ceiling(sourceRect.Right * scaleX);
@@ -2735,6 +2775,28 @@ public sealed partial class MainForm
             Math.Max(0, top - 2),
             Math.Min(_mapViewerBox.Width, right + 2),
             Math.Min(_mapViewerBox.Height, bottom + 2));
+    }
+
+    private bool TryGetMapViewerRenderedImageSize(out Size size)
+    {
+        size = Size.Empty;
+        var image = _mapViewerRenderedImage;
+        if (image == null) return false;
+
+        try
+        {
+            var width = image.Width;
+            var height = image.Height;
+            if (width <= 0 || height <= 0) return false;
+            size = new Size(width, height);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or ObjectDisposedException)
+        {
+            ApplicationErrorService.Report(ex, "Map maker preview image size", notify: false);
+            SetMapViewerRenderedImage(null);
+            return false;
+        }
     }
 
     private void BeginMapMakerTerrainPaint(MouseEventArgs e)
@@ -2824,55 +2886,70 @@ public sealed partial class MainForm
 
     private void EndMapMakerTerrainPaint()
     {
-        if (_mapMakerSelectingCells)
+        try
         {
-            EndMapMakerCellSelection();
-            return;
-        }
-
-        if (_sceneryOverlayDragging)
-        {
-            EndMapWorkbenchSceneryObjectEdit();
-            return;
-        }
-
-        if (!_mapMakerPainting) return;
-        _mapMakerPainting = false;
-        if (_mapMakerPendingMapPaintChanges.Count > 0)
-        {
-            _mapMakerMapUndoStack.Push(_mapMakerPendingMapPaintChanges.ToList());
-            _mapMakerMapRedoStack.Clear();
-        }
-        if (_mapMakerPendingTerrainPaintChanges.Count > 0)
-        {
-            _mapMakerTerrainUndoStack.Push(_mapMakerPendingTerrainPaintChanges.ToList());
-            _mapMakerTerrainRedoStack.Clear();
-        }
-
-        var hadChanges = _mapMakerPendingMapPaintChanges.Count > 0 || _mapMakerPendingTerrainPaintChanges.Count > 0;
-        _mapMakerPendingMapPaintChanges.Clear();
-        _mapMakerPendingMapPaintIndexes.Clear();
-        _mapMakerPendingTerrainPaintChanges.Clear();
-        _mapMakerPendingTerrainPaintIndexes.Clear();
-        if (hadChanges)
-        {
-            RefreshGeneratedMapCells();
-            SyncMapWorkbenchOverridesFromLookup();
-            FlushMapMakerDirtyBasePreview(runBeautify: false);
-        }
-
-        if (_mapMakerRenderDeferred)
-        {
-            if (_mapMakerDirtyTerrainPreviewIndexes.Count == 0)
+            if (_mapMakerSelectingCells)
             {
-                RenderMapMakerPreview(force: true);
+                EndMapMakerCellSelection();
+                return;
             }
+
+            if (_sceneryOverlayDragging)
+            {
+                EndMapWorkbenchSceneryObjectEdit();
+                return;
+            }
+
+            if (!_mapMakerPainting) return;
+            _mapMakerPainting = false;
+            if (_mapMakerPendingMapPaintChanges.Count > 0)
+            {
+                _mapMakerMapUndoStack.Push(_mapMakerPendingMapPaintChanges.ToList());
+                _mapMakerMapRedoStack.Clear();
+            }
+            if (_mapMakerPendingTerrainPaintChanges.Count > 0)
+            {
+                _mapMakerTerrainUndoStack.Push(_mapMakerPendingTerrainPaintChanges.ToList());
+                _mapMakerTerrainRedoStack.Clear();
+            }
+
+            var hadChanges = _mapMakerPendingMapPaintChanges.Count > 0 || _mapMakerPendingTerrainPaintChanges.Count > 0;
+            _mapMakerPendingMapPaintChanges.Clear();
+            _mapMakerPendingMapPaintIndexes.Clear();
+            _mapMakerPendingTerrainPaintChanges.Clear();
+            _mapMakerPendingTerrainPaintIndexes.Clear();
+            if (hadChanges)
+            {
+                RefreshGeneratedMapCells();
+                SyncMapWorkbenchOverridesFromLookup();
+                FlushMapMakerDirtyBasePreview(runBeautify: false);
+            }
+
+            if (_mapMakerRenderDeferred)
+            {
+                if (_mapMakerDirtyTerrainPreviewIndexes.Count == 0)
+                {
+                    RenderMapMakerPreview(force: true);
+                }
+            }
+            else if (hadChanges)
+            {
+                _mapViewerInfoBox.Text = BuildMapMakerInfo("地形绘制完成。");
+            }
+            UpdateMapMakerEditingButtons();
         }
-        else if (hadChanges)
+        catch (Exception ex)
         {
-            _mapViewerInfoBox.Text = BuildMapMakerInfo("地形绘制完成。");
+            _mapMakerPainting = false;
+            _mapMakerPendingMapPaintChanges.Clear();
+            _mapMakerPendingMapPaintIndexes.Clear();
+            _mapMakerPendingTerrainPaintChanges.Clear();
+            _mapMakerPendingTerrainPaintIndexes.Clear();
+            _mapMakerRenderDeferred = false;
+            _mapMakerDirtyBaseRefreshTimer.Stop();
+            ApplicationErrorService.Report(ex, "Map maker terrain paint end");
+            UpdateMapMakerEditingButtons();
         }
-        UpdateMapMakerEditingButtons();
     }
 
     private void ConfigureMapViewerContextMenu()
@@ -3942,9 +4019,9 @@ public sealed partial class MainForm
 
     private float GetSceneryOverlayHandleHitRadiusInSource()
     {
-        if (_mapViewerRenderedImage == null || _mapViewerBox.Width <= 0 || _mapViewerBox.Height <= 0) return 8f;
-        var scaleX = _mapViewerBox.Width / (float)Math.Max(1, _mapViewerRenderedImage.Width);
-        var scaleY = _mapViewerBox.Height / (float)Math.Max(1, _mapViewerRenderedImage.Height);
+        if (!TryGetMapViewerRenderedImageSize(out var imageSize) || _mapViewerBox.Width <= 0 || _mapViewerBox.Height <= 0) return 8f;
+        var scaleX = _mapViewerBox.Width / (float)Math.Max(1, imageSize.Width);
+        var scaleY = _mapViewerBox.Height / (float)Math.Max(1, imageSize.Height);
         var scale = Math.Max(0.01f, Math.Min(scaleX, scaleY));
         return MathF.Max(6f, 10f / scale);
     }
@@ -3971,29 +4048,29 @@ public sealed partial class MainForm
 
     private PointF MapMakerSourcePointToDisplayPoint(PointF source)
     {
-        if (_mapViewerRenderedImage == null || _mapViewerRenderedImage.Width <= 0 || _mapViewerRenderedImage.Height <= 0) return PointF.Empty;
-        var scaleX = _mapViewerBox.Width / (float)_mapViewerRenderedImage.Width;
-        var scaleY = _mapViewerBox.Height / (float)_mapViewerRenderedImage.Height;
+        if (!TryGetMapViewerRenderedImageSize(out var imageSize)) return PointF.Empty;
+        var scaleX = _mapViewerBox.Width / (float)imageSize.Width;
+        var scaleY = _mapViewerBox.Height / (float)imageSize.Height;
         return new PointF(source.X * scaleX, source.Y * scaleY);
     }
 
     private static bool TryMapPictureBoxPointToImagePoint(PictureBox box, Point point, out PointF imagePoint)
     {
         imagePoint = PointF.Empty;
-        if (box.Image == null || box.Width <= 0 || box.Height <= 0) return false;
+        if (!TryGetPictureBoxImageSize(box, out var imageSize) || box.Width <= 0 || box.Height <= 0) return false;
         if (box.SizeMode == PictureBoxSizeMode.StretchImage)
         {
             imagePoint = new PointF(
-                point.X * box.Image.Width / (float)Math.Max(1, box.Width),
-                point.Y * box.Image.Height / (float)Math.Max(1, box.Height));
-            return imagePoint.X >= 0 && imagePoint.Y >= 0 && imagePoint.X < box.Image.Width && imagePoint.Y < box.Image.Height;
+                point.X * imageSize.Width / (float)Math.Max(1, box.Width),
+                point.Y * imageSize.Height / (float)Math.Max(1, box.Height));
+            return imagePoint.X >= 0 && imagePoint.Y >= 0 && imagePoint.X < imageSize.Width && imagePoint.Y < imageSize.Height;
         }
 
         var rect = GetImageDisplayRectangle(box);
         if (!rect.Contains(point)) return false;
         imagePoint = new PointF(
-            (point.X - rect.X) * box.Image.Width / (float)Math.Max(1, rect.Width),
-            (point.Y - rect.Y) * box.Image.Height / (float)Math.Max(1, rect.Height));
+            (point.X - rect.X) * imageSize.Width / (float)Math.Max(1, rect.Width),
+            (point.Y - rect.Y) * imageSize.Height / (float)Math.Max(1, rect.Height));
         return true;
     }
 
@@ -5021,6 +5098,7 @@ public sealed partial class MainForm
         var hasBoundMap = hasDraft && _currentMapMakerItem != null;
         var hasProjectWriteTarget = hasDraft && HasProjectBoundMapWriteTarget();
         var canPublishMap = CanPublishCurrentMapWorkbenchMap(out _);
+        var canExportPair = CanPublishCurrentMapWorkbenchTerrain(out var exportPairReason);
         var terrainGenerateMode = IsMapWorkbenchTerrainGenerateMode;
         if (!hasDraft && _mapMakerEditTerrainCheckBox.Checked)
         {
@@ -5031,6 +5109,10 @@ public sealed partial class MainForm
         _mapMakerRollbackBeautifyButton.Visible = !terrainGenerateMode;
         _mapMakerTerrainStyleButton.Visible = terrainGenerateMode;
         _mapMakerSaveDraftButton.Enabled = hasDraft;
+        _mapMakerExportPairButton.Enabled = canExportPair;
+        _mapMakerExportPairButton.AccessibleDescription = canExportPair ? "导出当前地图 Mxxx.JPG + Mxxx.BMP" : exportPairReason;
+        _mapMakerImportPairButton.Enabled = _project != null;
+        _mapMakerImportPairButton.AccessibleDescription = _project != null ? "从文件夹导入 Mxxx.JPG + Mxxx.BMP" : "需要打开 MOD 项目";
         _mapMakerEditTerrainCheckBox.Enabled = hasDraft;
         _mapMakerBeautifyCheckBox.Enabled = hasDraft && !terrainGenerateMode;
         _mapMakerSaveTerrainButton.Enabled = hasDraft && terrainGenerateMode;
@@ -5435,6 +5517,327 @@ public sealed partial class MainForm
             MessageBox.Show(this, ex.Message, "导出失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
+
+    private void ExportCurrentMapPair()
+    {
+        if (_project == null || _currentMapWorkbenchDraft == null || _currentMapMakerItem == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目，并选择一个已绑定的 Mxxx 地图。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (!CanPublishCurrentMapWorkbenchTerrain(out var reason))
+        {
+            MessageBox.Show(this, reason, "无法一键导出地图", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentHexzmapProbe == null)
+        {
+            MessageBox.Show(this, "Hexzmap.e5 尚未读取。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var block = FindHexzmapBlockForMap(_currentMapMakerItem);
+        if (block == null)
+        {
+            MessageBox.Show(this, "没有找到同编号 Hexzmap 地形块。", "无法一键导出地图", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var mapId = GetMapIdForMapResource(_currentMapMakerItem);
+        var exportRoot = GetMapWorkbenchExportsRoot("MapPair");
+        Directory.CreateDirectory(exportRoot);
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = $"选择导出 {mapId}.JPG + {mapId}.BMP 的文件夹",
+            UseDescriptionForTitle = true,
+            SelectedPath = exportRoot
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        var jpegPath = Path.Combine(dialog.SelectedPath, mapId + ".JPG");
+        var bmpPath = Path.Combine(dialog.SelectedPath, mapId + ".BMP");
+        if ((File.Exists(jpegPath) || File.Exists(bmpPath)) &&
+            MessageBox.Show(this,
+                $"目标文件夹已存在同名文件：\r\n{jpegPath}\r\n{bmpPath}\r\n\r\n是否覆盖？选择“否”将取消整次导出。",
+                "确认覆盖地图两件套",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            EnsureMapWorkbenchMaterialLibraryIndexed(showMessages: false);
+            SyncMapWorkbenchDraftFromEditor();
+            EnsureCurrentTerrainMaterialPlan(persist: true);
+            ForceBeautifiedGeneratedMapForOutput();
+            DeriveCurrentMapWorkbenchTerrain();
+
+            if (!CanPublishCurrentMapWorkbenchTerrain(out reason))
+            {
+                throw new InvalidOperationException(reason);
+            }
+
+            block = FindHexzmapBlockForMap(_currentMapMakerItem)
+                    ?? throw new InvalidOperationException("没有找到同编号 Hexzmap 地形块。");
+            var targetCells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe!, block);
+            var changedTerrainCells = CountChangedBytes(targetCells, _currentMapWorkbenchDraft.TerrainCells);
+            var result = _mapPairImportExportService.ExportCurrentMapPair(
+                _project,
+                _currentMapWorkbenchDraft,
+                _currentMapMakerItem,
+                _currentHexzmapProbe!,
+                block,
+                _currentMaterialAssets,
+                dialog.SelectedPath);
+
+            var targetJpegSha = File.Exists(_currentMapMakerItem.Path)
+                ? WriteOperationReportService.ComputeSha256(_currentMapMakerItem.Path)
+                : string.Empty;
+            var mapDiffText = !string.IsNullOrWhiteSpace(targetJpegSha) &&
+                              result.JpegSha256.Equals(targetJpegSha, StringComparison.OrdinalIgnoreCase)
+                ? "底图与项目当前 JPG 相同"
+                : "底图包含当前编辑器合成状态";
+            var info =
+                $"一键导出地图完成：{result.MapId}\r\n" +
+                $"输出文件夹：{dialog.SelectedPath}\r\n" +
+                $"JPG：{Path.GetFileName(result.JpegPath)}  {result.PixelWidth}x{result.PixelHeight}  SHA256={result.JpegSha256}\r\n" +
+                $"BMP：{Path.GetFileName(result.TerrainBmpPath)}  {result.GridWidth}x{result.GridHeight}  段头={FormatByteArray(result.TerrainPrefixBytes)}  地形字节={result.TerrainCellCount}  SHA256={result.TerrainBmpSha256}\r\n" +
+                $"来源 MapId：{result.MapId}  格数：{result.GridWidth}x{result.GridHeight}={result.TerrainCellCount}\r\n" +
+                $"{mapDiffText}；地形与项目当前 Hexzmap 差异格数：{changedTerrainCells}";
+            _mapViewerInfoBox.Text = BuildMapMakerInfo(info);
+            RenderMapMakerPreview(force: true);
+            SetStatus($"一键导出地图完成：{result.MapId}");
+            MessageBox.Show(this, info, "一键导出地图完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键导出地图失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键导出地图失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private void ImportMapPairFromFolder()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "需要先打开 MOD 项目，才能把 Mxxx.JPG + Mxxx.BMP 写入 Map/Hexzmap。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var importRoot = GetMapWorkbenchExportsRoot("MapPair");
+        Directory.CreateDirectory(importRoot);
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = "选择包含 Mxxx.JPG/JPEG + Mxxx.BMP 的文件夹",
+            UseDescriptionForTitle = true,
+            SelectedPath = importRoot
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        MapPairImportPreview preview;
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            var candidates = _mapPairImportExportService.ListImportCandidates(dialog.SelectedPath).ToList();
+            if (candidates.Count == 0)
+            {
+                throw new InvalidOperationException("所选文件夹顶层没有找到同编号 Mxxx.JPG/JPEG + Mxxx.BMP。");
+            }
+
+            MapPairImportCandidate? candidate = null;
+            var preferredMapId = _currentMapMakerItem != null
+                ? GetMapIdForMapResource(_currentMapMakerItem)
+                : _currentMapWorkbenchDraft?.BoundMapId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(preferredMapId))
+            {
+                candidate = candidates.FirstOrDefault(item => item.MapId.Equals(preferredMapId, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (candidate == null)
+            {
+                candidate = candidates.Count == 1 ? candidates[0] : SelectMapPairImportCandidate(candidates);
+            }
+
+            if (candidate == null) return;
+            preview = _mapPairImportExportService.PreviewImportCandidate(_project, dialog.SelectedPath, candidate);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键导入地图预检失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键导入地图预检失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        var confirmation = BuildMapPairImportConfirmationText(preview);
+        if (MessageBox.Show(this, confirmation, "确认一键导入地图", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Cursor = Cursors.WaitCursor;
+            if (_terrainEditorTerrainLookup.Count == 0)
+            {
+                _terrainEditorTerrainLookup = BuildTerrainNameLookupForCurrentProject();
+                RefreshMapMakerPresetCombo();
+            }
+
+            var result = _mapPairImportExportService.ImportMapPair(_project, preview, _terrainEditorTerrainLookup);
+            _currentMapResources = Array.Empty<MapResourceItem>();
+            _currentHexzmapProbe = _hexzmapProbeReader.Read(_project, _terrainEditorTerrainLookup);
+            LoadMapImages();
+            SelectMapImageByName(preview.MapId + ".JPG");
+            RenderMapMakerPreview(force: true);
+
+            var resultText = BuildMapPairImportResultText(preview, result);
+            _mapViewerInfoBox.Text = resultText;
+            SetStatus($"一键导入地图完成：{result.MapId}");
+            MessageBox.Show(this, resultText, "一键导入地图完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("一键导入地图失败：" + ex);
+            MessageBox.Show(this, ex.Message, "一键导入地图失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    private MapPairImportCandidate? SelectMapPairImportCandidate(IReadOnlyList<MapPairImportCandidate> candidates)
+    {
+        using var dialog = new Form
+        {
+            Text = "选择要导入的地图两件套",
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.SizableToolWindow,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            Width = 520,
+            Height = 360,
+            Font = Font
+        };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            RowCount = 2,
+            ColumnCount = 1,
+            Padding = new Padding(10)
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(layout);
+
+        var list = new ListBox
+        {
+            Dock = DockStyle.Fill,
+            DataSource = new BindingList<MapPairImportCandidate>(candidates.ToList())
+        };
+        layout.Controls.Add(list, 0, 0);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.RightToLeft
+        };
+        var okButton = new Button { Text = "导入所选", AutoSize = true, DialogResult = DialogResult.OK };
+        var cancelButton = new Button { Text = "取消", AutoSize = true, DialogResult = DialogResult.Cancel };
+        buttons.Controls.AddRange(new Control[] { okButton, cancelButton });
+        layout.Controls.Add(buttons, 0, 1);
+        dialog.AcceptButton = okButton;
+        dialog.CancelButton = cancelButton;
+
+        return dialog.ShowDialog(this) == DialogResult.OK && list.SelectedItem is MapPairImportCandidate candidate
+            ? candidate
+            : null;
+    }
+
+    private string BuildMapPairImportConfirmationText(MapPairImportPreview preview)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"即将导入地图两件套：{preview.MapId}");
+        builder.AppendLine($"来源文件夹：{preview.FolderPath}");
+        builder.AppendLine($"目标底图：{preview.TargetMap.Path}");
+        builder.AppendLine();
+        builder.AppendLine($"JPG：{Path.GetFileName(preview.JpegPath)}  {preview.JpegWidth}x{preview.JpegHeight}");
+        builder.AppendLine($"当前 JPG SHA256：{preview.TargetJpegSha256}");
+        builder.AppendLine($"导入 JPG SHA256：{preview.SourceJpegSha256}");
+        builder.AppendLine(preview.JpegIdentical ? "底图哈希相同：将跳过底图写入。" : "底图哈希不同：将生成底图备份并写入。");
+        builder.AppendLine();
+        builder.AppendLine($"BMP：{Path.GetFileName(preview.TerrainBmpPath)}  {preview.GridWidth}x{preview.GridHeight}  地形格数={preview.TerrainBmp.TerrainCells.Length}");
+        builder.AppendLine($"导入 BMP 段头：{FormatByteArray(preview.TerrainBmp.PrefixBytes)}");
+        builder.AppendLine($"目标 Hexzmap 段头：{FormatByteArray(preview.TargetPrefixBytes)}");
+        builder.AppendLine($"当前地形 SHA256：{preview.TargetTerrainSha256}");
+        builder.AppendLine($"导入地形 SHA256：{preview.SourceTerrainSha256}");
+        builder.AppendLine($"地形改动格数：{preview.ChangedTerrainCells}");
+        builder.AppendLine(preview.TerrainIdentical ? "地形字节相同：将跳过 Hexzmap 写入。" : "地形字节不同：将生成 Hexzmap.e5 备份并写入地形 cells。");
+        if (preview.Warnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("格式提示：");
+            foreach (var warning in preview.Warnings)
+            {
+                builder.AppendLine("- " + warning);
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("BMP 的 2 字节段头仅用于校验和提示；导入不会覆盖目标 Hexzmap 段头。是否继续？");
+        return builder.ToString();
+    }
+
+    private static string BuildMapPairImportResultText(MapPairImportPreview preview, MapPairImportResult result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"一键导入地图完成：{result.MapId}");
+        builder.AppendLine($"来源文件夹：{preview.FolderPath}");
+        builder.AppendLine($"目标：Map\\{preview.MapId}.JPG + Hexzmap.e5 {preview.MapId}");
+        builder.AppendLine();
+        if (result.SkippedJpeg)
+        {
+            builder.AppendLine("底图：SHA256 相同，已跳过写入。");
+        }
+        else if (result.MapImageResult != null)
+        {
+            builder.AppendLine($"底图：已写入 {result.MapImageResult.NewWidth}x{result.MapImageResult.NewHeight}，估算改动字节={result.MapImageResult.ChangedBytesEstimate}");
+            builder.AppendLine($"底图备份：{result.MapImageResult.BackupPath}");
+            builder.AppendLine($"底图报告：{result.MapImageResult.ReportJsonPath}");
+        }
+
+        if (result.SkippedTerrain)
+        {
+            builder.AppendLine("地形：cells 相同，已跳过 Hexzmap 写入。");
+        }
+        else if (result.TerrainResult != null)
+        {
+            builder.AppendLine($"地形：已写入 {result.TerrainResult.MapId}，改动格数={result.TerrainResult.ChangedCells}");
+            builder.AppendLine($"Hexzmap 备份：{result.TerrainResult.BackupPath}");
+            builder.AppendLine($"Hexzmap 报告：{result.TerrainResult.ReportJsonPath}");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string FormatByteArray(byte[] bytes)
+        => bytes.Length == 0
+            ? "(empty)"
+            : string.Join(" ", bytes.Select(value => value.ToString("X2", CultureInfo.InvariantCulture)));
 
     private void ExportCurrentMapWorkbenchJpg()
     {
@@ -6019,11 +6422,11 @@ public sealed partial class MainForm
 
     private void FitMapToView()
     {
-        if (_mapViewerRenderedImage == null || _mapViewerBox.Parent == null) return;
+        if (!TryGetMapViewerRenderedImageSize(out var imageSize) || _mapViewerBox.Parent == null) return;
         var client = _mapViewerBox.Parent.ClientSize;
         if (client.Width <= 0 || client.Height <= 0) return;
-        var zoomX = client.Width * 100.0 / _mapViewerRenderedImage.Width;
-        var zoomY = client.Height * 100.0 / _mapViewerRenderedImage.Height;
+        var zoomX = client.Width * 100.0 / imageSize.Width;
+        var zoomY = client.Height * 100.0 / imageSize.Height;
         var zoom = (int)Math.Clamp(Math.Floor(Math.Min(zoomX, zoomY)), _mapZoomTrackBar.Minimum, _mapZoomTrackBar.Maximum);
         _mapZoomTrackBar.Value = Math.Max(_mapZoomTrackBar.Minimum, zoom);
         ApplyMapZoom();
@@ -6031,10 +6434,10 @@ public sealed partial class MainForm
 
     private void ApplyMapZoom()
     {
-        if (_mapViewerRenderedImage == null) return;
+        if (!TryGetMapViewerRenderedImageSize(out var imageSize)) return;
         var zoom = _mapZoomTrackBar.Value / 100.0;
-        _mapViewerBox.Width = Math.Max(1, (int)Math.Round(_mapViewerRenderedImage.Width * zoom));
-        _mapViewerBox.Height = Math.Max(1, (int)Math.Round(_mapViewerRenderedImage.Height * zoom));
+        _mapViewerBox.Width = Math.Max(1, (int)Math.Round(imageSize.Width * zoom));
+        _mapViewerBox.Height = Math.Max(1, (int)Math.Round(imageSize.Height * zoom));
         if (_currentMapMakerItem != null)
         {
             _mapViewerInfoBox.Text = BuildMapMakerInfo("缩放已调整。");

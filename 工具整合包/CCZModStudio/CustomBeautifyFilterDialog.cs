@@ -307,6 +307,7 @@ public sealed class CustomBeautifyFilterDialog : Form
             var next = BuildPreviewBitmap(filtered, Math.Max(1, _previewBox.ClientSize.Width), Math.Max(1, _previewBox.ClientSize.Height));
             var old = _previewBitmap;
             _previewBitmap = next;
+            _previewBox.Image = null;
             _previewBox.Image = _previewBitmap;
             old?.Dispose();
         }

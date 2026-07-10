@@ -401,6 +401,7 @@ public sealed partial class MainForm
             _rSceneScriptDetailBox.Text = itemData.Command != null
                 ? BuildLegacyScriptRowDetail(itemRow, itemData.Command)
                 : BuildRSceneScriptRowDetail(itemRow);
+            UpdateRSceneTextWrapLimitControl(itemData.Command);
             LoadInlineRSceneScriptDialogForSelection();
             SetStatus(BuildRSceneSelectedItemDataStatus(itemData));
             if (itemRow.NodeType == "Command候选")
@@ -425,6 +426,10 @@ public sealed partial class MainForm
         }
 
         _rSceneScriptDetailBox.Text = BuildRSceneScriptRowDetail(row);
+        UpdateRSceneTextWrapLimitControl(
+            row.NodeType == "Command候选" && TryGetRSceneLegacyCommandForRow(row, out var command)
+                ? command
+                : null);
         LoadInlineRSceneScriptDialogForSelection();
         SetStatus(row.CommandName);
         if (row.NodeType == "Command候选")
@@ -453,8 +458,10 @@ public sealed partial class MainForm
         if (!TryGetSelectedRSceneLegacyItemData(out var itemData) || itemData.Command == null)
         {
             _rSceneInlineDialogHost.ClearDialog("请选择左侧 R 剧本指令。");
+            UpdateRSceneTextWrapLimitControl(null);
             return;
         }
+        UpdateRSceneTextWrapLimitControl(itemData.Command);
 
         if (!LegacyCommandEditDispatcher.CanEdit(itemData.Id))
         {
@@ -478,6 +485,9 @@ public sealed partial class MainForm
             _currentRSceneLegacyScriptDocument?.CommandCount ?? 0,
             precedingSameCommandCount,
             includeDialogButtons: false);
+        _rSceneInlineDialogHost.ConfigureTextWrapping(
+            BuildLegacyTextWrapOptions(itemData),
+            result => ShowLegacyTextWrapResult(_rSceneInlineDialogHost, _rSceneTextWrapLimitInput, result));
         _applyRSceneInlineDialogButton.Enabled = true;
         _resetRSceneInlineDialogButton.Enabled = true;
     }
@@ -500,6 +510,7 @@ public sealed partial class MainForm
         var oldSummary = BuildLegacyScriptParameterPreview(command);
         var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.RScene, _currentRSceneLegacyScriptDocument);
+        _rSceneInlineDialogHost.ConfigureTextWrapping(BuildLegacyTextWrapOptions(itemData));
         var error = _rSceneInlineDialogHost.CommitToTarget();
         if (!string.IsNullOrWhiteSpace(error))
         {
@@ -964,7 +975,8 @@ public sealed partial class MainForm
             : _rSceneDialoguePreviewService.BuildPreviewModel(
                 _currentRSceneDialoguePreviewCommand,
                 BuildRSceneDialoguePreviewPeople(),
-                ResolveRScenePersonReference)?.Detail ?? string.Empty;
+                ResolveRScenePersonReference,
+                BuildLegacyTextWrapOptions(_currentRSceneDialoguePreviewCommand))?.Detail ?? string.Empty;
         if (render)
         {
             RenderRSceneCanvas();
@@ -2315,7 +2327,17 @@ public sealed partial class MainForm
     private void RenderRSceneCanvasIfNotSuppressed()
     {
         if (_suppressRSceneCanvasRender) return;
-        RenderRSceneCanvas();
+        try
+        {
+            RenderRSceneCanvas();
+        }
+        catch (Exception ex)
+        {
+            ClearRSceneMovePreview();
+            ClearRSceneCanvasDragPreview(render: false);
+            PauseRScenePlayback("预览失败");
+            ApplicationErrorService.Report(ex, "R scene canvas render");
+        }
     }
 
     private void HandleRSceneBackgroundSelectionChanged()
@@ -2456,10 +2478,6 @@ public sealed partial class MainForm
 
     private void RenderRSceneCanvas()
     {
-        var old = _rSceneCanvasBox.Image;
-        _rSceneCanvasBox.Image = null;
-        old?.Dispose();
-
         var image = RenderRSceneBackgroundImage();
         using (var graphics = Graphics.FromImage(image))
         {
@@ -2481,7 +2499,7 @@ public sealed partial class MainForm
             DrawRSceneDialoguePreview(graphics);
         }
 
-        _rSceneCanvasBox.Image = image;
+        SetPictureBoxImage(_rSceneCanvasBox, image);
         ApplyRSceneCanvasZoom();
         var previewText = _rSceneDragPreviewPayload != null && _rSceneDragPreviewGrid.HasValue
             ? $"；拖放预览 {_rSceneDragPreviewPayload.Actor.Name} 动作帧={_rSceneDragPreviewPayload.FrameIndex} ({_rSceneDragPreviewGrid.Value.X},{_rSceneDragPreviewGrid.Value.Y})"
@@ -2504,7 +2522,8 @@ public sealed partial class MainForm
                 _project,
                 _currentRSceneDialoguePreviewCommand,
                 BuildRSceneDialoguePreviewPeople(),
-                ResolveRScenePersonReference);
+                ResolveRScenePersonReference,
+                BuildLegacyTextWrapOptions(_currentRSceneDialoguePreviewCommand));
             _currentRSceneDialoguePreviewMessage = result.Applied ? result.Message : string.Empty;
         }
         catch (Exception ex)
@@ -2553,8 +2572,7 @@ public sealed partial class MainForm
 
     private void ApplyRSceneCanvasZoom()
     {
-        var image = _rSceneCanvasBox.Image;
-        if (image == null)
+        if (!TryGetPictureBoxImageSize(_rSceneCanvasBox, out var imageSize))
         {
             _rSceneZoomLabel.Text = "缩放 100%";
             return;
@@ -2563,8 +2581,8 @@ public sealed partial class MainForm
         var zoom = Math.Clamp(_rSceneCanvasZoomPercent, 25, 800) / 100.0;
         _rSceneCanvasZoomPercent = (int)Math.Round(zoom * 100);
         _rSceneCanvasBox.Size = new Size(
-            Math.Max(1, (int)Math.Round(image.Width * zoom)),
-            Math.Max(1, (int)Math.Round(image.Height * zoom)));
+            Math.Max(1, (int)Math.Round(imageSize.Width * zoom)),
+            Math.Max(1, (int)Math.Round(imageSize.Height * zoom)));
         _rSceneZoomLabel.Text = $"缩放 {_rSceneCanvasZoomPercent}%";
     }
 
@@ -3019,7 +3037,14 @@ public sealed partial class MainForm
         var dialogDataSources = LegacyMfcDialogDataSources.Create(_project, _tables);
         var precedingSameCommandCount = CountPrecedingSameLegacyCommands(_currentRSceneLegacyScriptDocument, command);
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.RScene, _currentRSceneLegacyScriptDocument!);
-        if (!LegacyCommandEditDispatcher.Edit(this, itemData, commandTitle, _currentRSceneLegacyScriptDocument?.CommandCount ?? 0, precedingSameCommandCount, dialogDataSources))
+        if (!LegacyCommandEditDispatcher.Edit(
+                this,
+                itemData,
+                commandTitle,
+                _currentRSceneLegacyScriptDocument?.CommandCount ?? 0,
+                precedingSameCommandCount,
+                dialogDataSources,
+                BuildLegacyTextWrapOptions(command)))
         {
             return;
         }

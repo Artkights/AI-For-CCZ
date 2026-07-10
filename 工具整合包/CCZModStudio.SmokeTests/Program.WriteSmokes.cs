@@ -1031,12 +1031,14 @@ internal partial class Program
         var strategyTable = tables.Single(t => t.TableName == "6.5-5 策略");
         var strategyDescriptionTable = tables.Single(t => t.TableName == "6.5-5-1 策略说明");
         var strategyLearnTable = tables.Single(t => t.TableName == "6.5-5-7 学会策略");
+        var strategyExtensionTable = tables.Single(t => t.TableName == "6.5-5-0 策略扩展标记");
         var strategyBattleAiTable = tables.Single(t => t.TableName == "6.5-5-8 战场AI策略限制");
         var strategyRead = reader.Read(testProject, strategyTable, tables);
         var strategyDescriptionRead = reader.Read(testProject, strategyDescriptionTable, tables);
         var strategyLearnRead = reader.Read(testProject, strategyLearnTable, tables);
+        var strategyExtensionRead = reader.Read(testProject, strategyExtensionTable, tables);
         var strategyBattleAiRead = reader.Read(testProject, strategyBattleAiTable, tables);
-        if (!strategyRead.Validation.IsUsable || !strategyDescriptionRead.Validation.IsUsable || !strategyLearnRead.Validation.IsUsable || !strategyBattleAiRead.Validation.IsUsable)
+        if (!strategyRead.Validation.IsUsable || !strategyDescriptionRead.Validation.IsUsable || !strategyLearnRead.Validation.IsUsable || !strategyExtensionRead.Validation.IsUsable || !strategyBattleAiRead.Validation.IsUsable)
         {
             throw new InvalidOperationException("兵种策略写入烟测读取策略主表、策略说明或 EKD5 附表失败。");
         }
@@ -1045,6 +1047,7 @@ internal partial class Program
         var strategyRow = FindSmokeRowById(strategyRead.Data, strategyId);
         var strategyDescriptionRow = FindSmokeRowById(strategyDescriptionRead.Data, strategyId);
         var strategyLearnRow = FindSmokeRowById(strategyLearnRead.Data, strategyId);
+        var strategyExtensionRow = FindSmokeRowById(strategyExtensionRead.Data, strategyId);
         var strategyBattleAiRow = FindSmokeRowById(strategyBattleAiRead.Data, strategyId);
         var jobLevelColumn = strategyRead.Data.Columns.Contains("0")
             ? "0"
@@ -1057,37 +1060,46 @@ internal partial class Program
             : "写入烟测策略介绍";
         var strategyLearnOriginal = Convert.ToInt32(strategyLearnRow["内容"], CultureInfo.InvariantCulture);
         var strategyLearnChanged = strategyLearnOriginal == 1 ? 2 : 1;
+        var strategyExtensionOriginal = Convert.ToInt32(strategyExtensionRow["内容"], CultureInfo.InvariantCulture);
+        var strategyExtensionChanged = strategyExtensionOriginal == 0x83 ? 0x02 : 0x83;
         var strategyBattleAiOriginal = Convert.ToInt32(strategyBattleAiRow["内容"], CultureInfo.InvariantCulture);
         var strategyBattleAiChanged = strategyBattleAiOriginal == 1 ? 2 : 1;
         strategyRow[jobLevelColumn] = strategyLevelChanged;
         strategyDescriptionRow["介绍"] = strategyDescriptionChanged;
         strategyLearnRow["内容"] = strategyLearnChanged;
+        strategyExtensionRow["内容"] = strategyExtensionChanged;
         strategyBattleAiRow["内容"] = strategyBattleAiChanged;
         var strategySaves = new[]
         {
             writer.Save(testProject, strategyTable, strategyRead.Data),
             writer.Save(testProject, strategyDescriptionTable, strategyDescriptionRead.Data),
             writer.Save(testProject, strategyLearnTable, strategyLearnRead.Data),
+            writer.Save(testProject, strategyExtensionTable, strategyExtensionRead.Data),
             writer.Save(testProject, strategyBattleAiTable, strategyBattleAiRead.Data)
         };
         var strategyVerify = reader.Read(testProject, strategyTable, tables);
         var strategyDescriptionVerify = reader.Read(testProject, strategyDescriptionTable, tables);
         var strategyLearnVerify = reader.Read(testProject, strategyLearnTable, tables);
+        var strategyExtensionVerify = reader.Read(testProject, strategyExtensionTable, tables);
         var strategyBattleAiVerify = reader.Read(testProject, strategyBattleAiTable, tables);
         var strategyLevelActual = Convert.ToInt32(FindSmokeRowById(strategyVerify.Data, strategyId)[jobLevelColumn], CultureInfo.InvariantCulture);
         var strategyDescriptionActual = Convert.ToString(FindSmokeRowById(strategyDescriptionVerify.Data, strategyId)["介绍"], CultureInfo.InvariantCulture) ?? string.Empty;
         var strategyLearnActual = Convert.ToInt32(FindSmokeRowById(strategyLearnVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
+        var strategyExtensionActual = Convert.ToInt32(FindSmokeRowById(strategyExtensionVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
         var strategyBattleAiActual = Convert.ToInt32(FindSmokeRowById(strategyBattleAiVerify.Data, strategyId)["内容"], CultureInfo.InvariantCulture);
         if (strategyLevelActual != strategyLevelChanged ||
             strategyDescriptionActual != strategyDescriptionChanged ||
             strategyLearnActual != strategyLearnChanged ||
+            strategyExtensionActual != strategyExtensionChanged ||
             strategyBattleAiActual != strategyBattleAiChanged ||
             strategySaves.Any(x => string.IsNullOrWhiteSpace(x.BackupPath) || !File.Exists(x.BackupPath)))
         {
-            throw new InvalidOperationException($"兵种策略写入烟测复读失败：level={strategyLevelActual}, desc={strategyDescriptionActual}, learn={strategyLearnActual}, battleAi={strategyBattleAiActual}");
+            throw new InvalidOperationException($"兵种策略写入烟测复读失败：level={strategyLevelActual}, desc={strategyDescriptionActual}, learn={strategyLearnActual}, extension={strategyExtensionActual}, battleAi={strategyBattleAiActual}");
         }
+
+        var extensionOffset = strategyExtensionTable.DataPos + strategyId;
     
-        Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_OK id={strategyId} 学会等级[{jobLevelColumn}]={strategyLevelOriginal}->{strategyLevelActual} 策略介绍='{strategyDescriptionOriginal}'->'{strategyDescriptionActual}' 效果索引={strategyLearnOriginal}->{strategyLearnActual} AI战场={strategyBattleAiOriginal}->{strategyBattleAiActual} saves={strategySaves.Length}");
+        Console.WriteLine($"JOB_STRATEGY_WRITE_SMOKE_OK id={strategyId} 学会等级[{jobLevelColumn}]={strategyLevelOriginal}->{strategyLevelActual} 策略介绍='{strategyDescriptionOriginal}'->'{strategyDescriptionActual}' 效果索引={strategyLearnOriginal}->{strategyLearnActual} 策略扩展标记@0x{extensionOffset:X}={strategyExtensionOriginal}->{strategyExtensionActual} AI战场={strategyBattleAiOriginal}->{strategyBattleAiActual} saves={strategySaves.Length}");
     }
     
     static void RunBattlefieldTextWriteSmokeLayered(CczProject sourceProject, CczProject testProject, IReadOnlyList<HexTableDefinition> tables, string scenarioFileName)

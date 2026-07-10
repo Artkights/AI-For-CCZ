@@ -302,6 +302,7 @@ public sealed partial class MainForm
             "兵种设定",
             "宝物设定",
             "特效注入",
+            "全局设定",
             "图片设定",
             "地图编辑",
             "剧本编辑",
@@ -592,15 +593,22 @@ public sealed partial class MainForm
         var maxDistance = Math.Max(panel1Min, usableLength - panel2Min);
         var target = Math.Clamp(targetDistance, panel1Min, maxDistance);
 
-        split.Panel1MinSize = 0;
-        split.Panel2MinSize = 0;
-        if (split.SplitterDistance != target)
+        try
         {
-            split.SplitterDistance = target;
-        }
+            split.Panel1MinSize = 0;
+            split.Panel2MinSize = 0;
+            if (split.SplitterDistance != target)
+            {
+                split.SplitterDistance = target;
+            }
 
-        split.Panel1MinSize = panel1Min;
-        split.Panel2MinSize = panel2Min;
+            split.Panel1MinSize = panel1Min;
+            split.Panel2MinSize = panel2Min;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            // SplitContainer can briefly report inconsistent bounds during DPI/layout changes.
+        }
     }
 
     private void ApplyAdaptiveDefaultWindowLayout()
@@ -753,42 +761,55 @@ public sealed partial class MainForm
 
         void Apply()
         {
-            if (split.IsDisposed) return;
-            var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
-            if (totalLength <= split.SplitterWidth + 2) return;
-            if (TryApplyCollapsedSplitDistance(split)) return;
-
-            var canUseRequestedMins = totalLength > desiredPanel1Min + desiredPanel2Min + split.SplitterWidth;
-            if (!canUseRequestedMins)
+            try
             {
+                if (split.IsDisposed) return;
+                var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+                if (totalLength <= split.SplitterWidth + 2) return;
+                if (TryApplyCollapsedSplitDistance(split)) return;
+
                 split.Panel1MinSize = 0;
                 split.Panel2MinSize = 0;
-            }
 
-            var panel1Min = canUseRequestedMins ? desiredPanel1Min : 0;
-            var panel2Min = canUseRequestedMins ? desiredPanel2Min : 0;
-            var maxDistance = Math.Max(panel1Min, totalLength - panel2Min - split.SplitterWidth);
-            var target = Math.Clamp(
-                ResolveConfiguredSplitterDistance(layoutKey, totalLength, split.SplitterWidth, desiredDistance),
-                panel1Min,
-                maxDistance);
-            if (split.SplitterDistance != target)
-            {
-                applyingProgrammaticDistance = true;
-                try
+                var usableLength = totalLength - split.SplitterWidth;
+                if (usableLength <= 0) return;
+
+                var canUseRequestedMins = usableLength > desiredPanel1Min + desiredPanel2Min;
+                var panel1Min = canUseRequestedMins ? desiredPanel1Min : 0;
+                var panel2Min = canUseRequestedMins ? desiredPanel2Min : 0;
+                var maxDistance = Math.Max(panel1Min, usableLength - panel2Min);
+                if (maxDistance < panel1Min)
                 {
-                    split.SplitterDistance = target;
+                    return;
                 }
-                finally
+
+                var target = Math.Clamp(
+                    ResolveConfiguredSplitterDistance(layoutKey, totalLength, split.SplitterWidth, desiredDistance),
+                    panel1Min,
+                    maxDistance);
+                if (split.SplitterDistance != target)
                 {
-                    applyingProgrammaticDistance = false;
+                    applyingProgrammaticDistance = true;
+                    try
+                    {
+                        split.SplitterDistance = target;
+                    }
+                    finally
+                    {
+                        applyingProgrammaticDistance = false;
+                    }
+                }
+
+                if (canUseRequestedMins)
+                {
+                    split.Panel1MinSize = desiredPanel1Min;
+                    split.Panel2MinSize = desiredPanel2Min;
                 }
             }
-
-            if (canUseRequestedMins)
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
             {
-                split.Panel1MinSize = desiredPanel1Min;
-                split.Panel2MinSize = desiredPanel2Min;
+                applyingProgrammaticDistance = false;
+                // SplitContainer can briefly report inconsistent bounds during DPI/layout changes.
             }
         }
 

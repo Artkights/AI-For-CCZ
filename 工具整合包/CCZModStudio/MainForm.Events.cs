@@ -18,14 +18,15 @@ public sealed partial class MainForm
 {
     private void WireEvents()
     {
-        _battlefieldUnitAnimationTimer.Tick += (_, _) => AdvanceBattlefieldUnitAnimation();
+        _battlefieldUnitAnimationTimer.Tick += (_, _) => RunUiEvent(AdvanceBattlefieldUnitAnimation, "Battlefield unit animation timer");
         _battlefieldUnitAnimationTimer.Start();
-        _rScenePlaybackTimer.Tick += (_, _) => AdvanceRScenePlayback();
-        _jobStrategyAnimationTimer.Tick += (_, _) => AdvanceJobStrategyAnimationPreview();
-        _mapMakerDirtyBaseRefreshTimer.Tick += (_, _) => FlushMapMakerDirtyBasePreview(runBeautify: false);
-        _mainTabs.SelectedIndexChanged += (_, _) => HandleMainTabSelectionChanged();
+        _rScenePlaybackTimer.Tick += (_, _) => RunUiEvent(AdvanceRScenePlayback, "R scene playback timer");
+        _jobStrategyAnimationTimer.Tick += (_, _) => RunUiEvent(AdvanceJobStrategyAnimationPreview, "Job strategy animation timer");
+        _mapMakerDirtyBaseRefreshTimer.Tick += (_, _) => RunMapMakerDirtyBaseRefreshTimer();
+        _mainTabs.SelectedIndexChanged += (_, _) => RunUiEvent(HandleMainTabSelectionChanged, "Main tab selection changed");
         _openProjectButton.Click += (_, _) => OpenProjectDialog();
         _reloadButton.Click += (_, _) => ReloadCurrentProject();
+        _usageGuideButton.Click += (_, _) => ShowUsageGuideDialog();
         _saveTableButton.Click += (_, _) => SaveCurrentTable();
         _exportCsvButton.Click += (_, _) => ExportCurrentTableCsv();
         _importCsvButton.Click += (_, _) => ImportCurrentTableCsv();
@@ -44,8 +45,7 @@ public sealed partial class MainForm
         _saveRoleTextDetailButton.Click += (_, _) => SaveSelectedRoleTextDetails();
         _openRoleInTableEditorButton.Click += (_, _) => OpenCoreTable("6.5-0 人物");
         _openRolePersonalEffectButton.Click += (_, _) => OpenRolePersonalEffectEditor();
-        _openRoleEffectButton.Click += (_, _) => OpenRolePersonalEffectTableEditor();
-        _openGlobalSettingsButton.Click += (_, _) => OpenGlobalSettingsDialog();
+        _openRoleEffectButton.Click += (_, _) => OpenJobEffectEditor();
         _exportRoleEditorCsvButton.Click += (_, _) => ExportRoleEditorCsv();
         _importRoleEditorCsvButton.Click += (_, _) => ImportRoleEditorCsv();
         _copyRoleEditorSelectionButton.Click += (_, _) => CopyGridSelection(_roleEditorGrid);
@@ -160,9 +160,40 @@ public sealed partial class MainForm
         };
         _itemEditorGrid.CellEndEdit += (_, e) =>
         {
-            CompleteItemEditorCellEdit(e.RowIndex, e.ColumnIndex);
-            RefreshItemEditorRowStyle(e.RowIndex);
-            ShowSelectedItemEditorCell();
+            try
+            {
+                CompleteItemEditorCellEdit(e.RowIndex, e.ColumnIndex);
+                RefreshItemEditorRowStyle(e.RowIndex);
+                ShowSelectedItemEditorCell();
+            }
+            catch (Exception ex)
+            {
+                _itemEditorPendingCellEditOriginals = [];
+                ApplicationErrorService.Report(ex, "Item editor CellEndEdit");
+                RefreshItemEditorRowStyle(e.RowIndex);
+            }
+        };
+        _loadItemEquipmentTypeSettingsButton.Click += (_, _) => LoadItemEquipmentTypeSettings();
+        _saveItemEquipmentTypeSettingsButton.Click += (_, _) => SaveItemEquipmentTypeSettings();
+        _itemEquipmentTypeGrid.SelectionChanged += (_, _) => HandleItemEquipmentTypeSelectionChanged();
+        _itemEquipmentTypeGrid.CellBeginEdit += (_, e) => BeginItemEquipmentTypeCellEdit(e);
+        _itemEquipmentTypeGrid.CellValidating += (_, e) => ValidateItemEquipmentTypeCell(e);
+        _itemEquipmentTypeGrid.CurrentCellDirtyStateChanged += (_, _) => CommitItemEquipmentTypeDirtyCell(_itemEquipmentTypeGrid);
+        _itemEquipmentTypeGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            _itemEquipmentTypeInfoBox.Text = "装备类型单元格值无法匹配，请重新读取或检查输入。";
+        };
+        _itemEquipmentTypeJobGrid.CurrentCellDirtyStateChanged += (_, _) => CommitItemEquipmentTypeDirtyCell(_itemEquipmentTypeJobGrid);
+        _itemEquipmentTypeJobGrid.CellValueChanged += (_, _) =>
+        {
+            if (_bindingItemEquipmentTypeEditors) return;
+            CommitItemEquipmentTypeJobGridEdits();
+        };
+        _itemEquipmentTypeJobGrid.DataError += (_, e) =>
+        {
+            e.ThrowException = false;
+            _itemEquipmentTypeInfoBox.Text = "可装备部队勾选状态无法匹配，请重新读取。";
         };
         _loadShopEditorButton.Click += (_, _) => LoadShopEditor();
         _saveShopEditorButton.Click += (_, _) => SaveShopEditor();
@@ -280,6 +311,11 @@ public sealed partial class MainForm
 
             UpdateJobStrategyLearningEditorStatus();
         };
+        _jobStrategyBitFlagsNumeric.ValueChanged += (_, _) => ApplyJobStrategyBitFlagsNumericEdit();
+        foreach (var checkBox in _jobStrategyBitFlagCheckBoxes)
+        {
+            checkBox.CheckedChanged += (_, _) => ApplyJobStrategyBitFlagsCheckEdit();
+        }
         _loadJobEffectEditorButton.Click += (_, _) => LoadJobEffectEditor();
         _saveJobEffectEditorButton.Click += (_, _) => SaveJobEffectEditor();
         _openJobExclusiveEffectTableButton.Click += (_, _) => OpenCoreTable("6.5-7-3 人物专属、套装专属");
@@ -414,17 +450,17 @@ public sealed partial class MainForm
         _imageAssignmentGrid.CellValidating += (_, e) => ValidateImageAssignmentCell(e);
         _imageAssignmentGrid.CellEndEdit += (_, e) => UpdateImageAssignmentResourceStatus(e.RowIndex);
         _imageAssignmentGrid.SelectionChanged += (_, _) => ShowSelectedImageAssignmentDetail();
-        _loadBattlefieldButton.Click += async (_, _) => await LoadBattlefieldScenariosAsync();
-        _battlefieldScenarioCombo.SelectedIndexChanged += async (_, _) =>
+        _loadBattlefieldButton.Click += (_, _) => _ = RunUiEventAsync(LoadBattlefieldScenariosAsync, "Load battlefield scenarios");
+        _battlefieldScenarioCombo.SelectedIndexChanged += (_, _) => _ = RunUiEventAsync(async () =>
         {
             if (!TryCommitPendingBattlefieldConsoleChanges()) return;
             await LoadSelectedBattlefieldScenarioAsync();
-        };
+        }, "Load selected battlefield scenario");
         _saveBattlefieldTextsButton.Click += (_, _) => SaveBattlefieldTexts();
         _saveBattlefieldUnitReviewsButton.Click += (_, _) => SaveBattlefieldUnitReviews();
-        _writeBattlefieldDeploymentButton.Click += async (_, _) => await WriteBattlefieldDeploymentAsync();
+        _writeBattlefieldDeploymentButton.Click += (_, _) => _ = RunUiEventAsync(WriteBattlefieldDeploymentAsync, "Write battlefield deployment");
         _jumpBattlefieldMapButton.Click += (_, _) => JumpBattlefieldMapMaker();
-        _jumpBattlefieldScenarioButton.Click += async (_, _) => await JumpBattlefieldScenarioStructureAsync();
+        _jumpBattlefieldScenarioButton.Click += (_, _) => _ = RunUiEventAsync(JumpBattlefieldScenarioStructureAsync, "Jump battlefield scenario structure");
         _battlefieldTitleBox.TextChanged += (_, _) => UpdateBattlefieldCapacityLabels();
         _battlefieldConditionsBox.TextChanged += (_, _) => UpdateBattlefieldCapacityLabels();
         _filterBattlefieldUnitsButton.Click += (_, _) => ApplyBattlefieldUnitFilter();
@@ -432,7 +468,7 @@ public sealed partial class MainForm
         _battlefieldUnitCategoryFilterCombo.SelectedIndexChanged += (_, _) => ApplyBattlefieldUnitFilter();
         _markBattlefieldUnitReviewedButton.Click += (_, _) => MarkSelectedBattlefieldUnit("已核对");
         _markBattlefieldUnitNeedsChangeButton.Click += (_, _) => MarkSelectedBattlefieldUnit("需修改");
-        _jumpBattlefieldUnitScriptButton.Click += async (_, _) => await JumpSelectedBattlefieldUnitToScriptCommandAsync();
+        _jumpBattlefieldUnitScriptButton.Click += (_, _) => _ = RunUiEventAsync(JumpSelectedBattlefieldUnitToScriptCommandAsync, "Jump battlefield unit script");
         _battlefieldUnitGrid.SelectionChanged += (_, _) =>
         {
             if (!TryCommitPendingBattlefieldConsoleChanges()) return;
@@ -475,9 +511,13 @@ public sealed partial class MainForm
         _battlefieldScriptTree.NodeMouseClick += (_, e) => HandleLegacyScriptTreeNodeMouseClick(LegacyScriptEditorScope.Battlefield, e);
         _battlefieldScriptTree.NodeMouseDoubleClick += (_, e) => HandleBattlefieldScriptTreeNodeMouseDoubleClick(e);
         _battlefieldScriptTree.KeyDown += (_, e) => HandleLegacyScriptTreeKeyDown(LegacyScriptEditorScope.Battlefield, e);
-        _battlefieldScriptTextBox.TextChanged += (_, _) => UpdateBattlefieldScriptTextCapacityLabel();
-        _saveBattlefieldScriptTextButton.Click += async (_, _) => await SaveSelectedBattlefieldScriptTextAsync();
-        _saveBattlefieldScriptStructureButton.Click += async (_, _) => await SaveCurrentBattlefieldLegacyScriptStructureAsync();
+        _battlefieldScriptTextBox.TextChanged += (_, _) =>
+        {
+            ApplyBattlefieldScriptTextEditorWrapping();
+            UpdateBattlefieldScriptTextCapacityLabel();
+        };
+        _saveBattlefieldScriptTextButton.Click += (_, _) => _ = RunUiEventAsync(SaveSelectedBattlefieldScriptTextAsync, "Save battlefield script text");
+        _saveBattlefieldScriptStructureButton.Click += (_, _) => _ = RunUiEventAsync(SaveCurrentBattlefieldLegacyScriptStructureAsync, "Save battlefield script structure");
         _showBattlefieldVariablesButton.Click += (_, _) => ShowScriptVariableUsageDialog(LegacyScriptEditorScope.Battlefield);
         _battlefieldScriptParameterGrid.SelectionChanged += (_, _) => ShowSelectedBattlefieldScriptParameter();
         _battlefieldScriptParameterGrid.CellDoubleClick += (_, _) => QueueEditSelectedBattlefieldScriptParameters();
@@ -488,7 +528,8 @@ public sealed partial class MainForm
             e.Handled = true;
             e.SuppressKeyPress = true;
         };
-        _applyBattlefieldScriptParameterButton.Click += (_, _) => ApplySelectedBattlefieldScriptParameterValue();
+        _applyBattlefieldScriptParameterButton.Click += (_, _) => ApplyBattlefieldInlineLegacyScriptDialog();
+        _resetBattlefieldInlineDialogButton.Click += (_, _) => LoadBattlefieldInlineLegacyScriptDialogForSelection();
         _editBattlefieldScriptParametersButton.Click += (_, _) => EditSelectedBattlefieldScriptParameters();
         _battlefieldScriptSearchButton.Click += (_, _) => ApplyBattlefieldScriptSearch();
         _battlefieldScriptClearSearchButton.Click += (_, _) => ClearBattlefieldScriptSearch();
@@ -567,12 +608,12 @@ public sealed partial class MainForm
         };
         _battlefieldConsoleAbilityGrid.DataError += (_, e) => e.ThrowException = false;
         RegisterBattlefieldConsoleDeferredCommitHandlers();
-        _loadRSceneButton.Click += async (_, _) => await LoadRSceneScenariosAsync();
-        _rSceneScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedRSceneScenarioAsync();
+        _loadRSceneButton.Click += (_, _) => _ = RunUiEventAsync(LoadRSceneScenariosAsync, "Load R scene scenarios");
+        _rSceneScenarioCombo.SelectedIndexChanged += (_, _) => _ = RunUiEventAsync(LoadSelectedRSceneScenarioAsync, "Load selected R scene scenario");
         _saveRSceneDraftButton.Click += (_, _) => SaveRSceneDraft();
-        _saveRSceneScriptStructureButton.Click += async (_, _) => await SaveCurrentRSceneLegacyScriptStructureAsync();
+        _saveRSceneScriptStructureButton.Click += (_, _) => _ = RunUiEventAsync(SaveCurrentRSceneLegacyScriptStructureAsync, "Save R scene script structure");
         _showRSceneVariablesButton.Click += (_, _) => ShowScriptVariableUsageDialog(LegacyScriptEditorScope.RScene);
-        _jumpRSceneScriptButton.Click += async (_, _) => await JumpRSceneScriptAsync();
+        _jumpRSceneScriptButton.Click += (_, _) => _ = RunUiEventAsync(JumpRSceneScriptAsync, "Jump R scene script");
         _rSceneScriptSearchButton.Click += (_, _) => ApplyLegacyScriptSearch(LegacyScriptEditorScope.RScene);
         _rSceneScriptClearSearchButton.Click += (_, _) => ClearLegacyScriptSearch(LegacyScriptEditorScope.RScene);
         _rSceneScriptSearchBox.KeyDown += (_, e) =>
@@ -628,6 +669,7 @@ public sealed partial class MainForm
         _rSceneGridSizeInput.ValueChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
         _rSceneShowGridCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
         _rSceneDialoguePreviewCheckBox.CheckedChanged += (_, _) => RenderRSceneCanvasIfNotSuppressed();
+        _rSceneTextWrapLimitInput.ValueChanged += (_, _) => HandleTextWrapLimitChanged(_rSceneTextWrapLimitInput, LegacyScriptEditorScope.RScene);
         _rSceneFacingCombo.SelectedIndexChanged += (_, _) =>
         {
             ApplyRSceneControlPanelToSelectedActor();
@@ -641,8 +683,8 @@ public sealed partial class MainForm
         };
         _rScenePlaybackButton.Click += (_, _) => ToggleRScenePlayback();
         _rScenePlaybackDelayInput.ValueChanged += (_, _) => UpdateRScenePlaybackTimerInterval();
-        _loadScriptButton.Click += async (_, _) => await LoadScriptScenariosAsync();
-        _scriptScenarioCombo.SelectedIndexChanged += async (_, _) => await LoadSelectedScriptScenarioAsync();
+        _loadScriptButton.Click += (_, _) => _ = RunUiEventAsync(LoadScriptScenariosAsync, "Load script scenarios");
+        _scriptScenarioCombo.SelectedIndexChanged += (_, _) => _ = RunUiEventAsync(LoadSelectedScriptScenarioAsync, "Load selected script scenario");
         _scriptSearchButton.Click += (_, _) => ApplyScriptSearch();
         _scriptClearSearchButton.Click += (_, _) => ClearScriptSearch();
         _scriptSearchBox.KeyDown += (_, e) =>
@@ -668,8 +710,8 @@ public sealed partial class MainForm
         _pasteScriptCommandAfterButton.Click += (_, _) => PasteCopiedLegacyScriptCommandNearSelected(beforeSelected: false);
         _moveScriptCommandUpButton.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: true);
         _moveScriptCommandDownButton.Click += (_, _) => MoveSelectedLegacyScriptCommand(up: false);
-        _saveScriptStructureButton.Click += async (_, _) => await SaveCurrentLegacyScriptStructureAsync();
-        _jumpScriptBattlefieldButton.Click += async (_, _) => await JumpScriptBattlefieldAsync();
+        _saveScriptStructureButton.Click += (_, _) => _ = RunUiEventAsync(SaveCurrentLegacyScriptStructureAsync, "Save script structure");
+        _jumpScriptBattlefieldButton.Click += (_, _) => _ = RunUiEventAsync(JumpScriptBattlefieldAsync, "Jump script battlefield");
         _scriptTree.AfterSelect += (_, _) => ShowSelectedScriptTreeNode();
         _scriptSearchResultGrid.CellDoubleClick += (_, _) => ShowSelectedLegacyScriptSearchResult(LegacyScriptEditorScope.Script);
         _scriptParameterGrid.SelectionChanged += (_, _) => ShowSelectedLegacyScriptParameter();
@@ -684,12 +726,20 @@ public sealed partial class MainForm
         _editScriptParametersButton.Click += (_, _) => EditSelectedLegacyItemDataCommand();
         _applyScriptInlineDialogButton.Click += (_, _) => ApplyInlineLegacyScriptDialog();
         _resetScriptInlineDialogButton.Click += (_, _) => LoadInlineLegacyScriptDialogForSelection();
-        _scriptTextEditorBox.TextChanged += (_, _) => UpdateScriptTextCapacityLabel();
+        _scriptTextWrapLimitInput.ValueChanged += (_, _) => HandleTextWrapLimitChanged(_scriptTextWrapLimitInput, LegacyScriptEditorScope.Script);
+        _battlefieldScriptTextWrapLimitInput.ValueChanged += (_, _) => HandleTextWrapLimitChanged(_battlefieldScriptTextWrapLimitInput, LegacyScriptEditorScope.Battlefield);
+        _scriptTextEditorBox.TextChanged += (_, _) =>
+        {
+            ApplyScriptTextEditorWrapping();
+            UpdateScriptTextCapacityLabel();
+        };
         _loadMapImagesButton.Click += (_, _) => LoadMapImages();
         _mapImageList.SelectedIndexChanged += (_, _) => LoadSelectedMapImage();
         _mapMakerNewDraftButton.Click += (_, _) => CreateNewMapWorkbenchDraftFromInputs();
         _mapMakerLoadLastDraftButton.Click += (_, _) => LoadLastMapWorkbenchDraft();
         _mapMakerSaveDraftButton.Click += (_, _) => SaveCurrentMapWorkbenchDraft();
+        _mapMakerExportPairButton.Click += (_, _) => ExportCurrentMapPair();
+        _mapMakerImportPairButton.Click += (_, _) => ImportMapPairFromFolder();
         _mapWorkbenchModeTabs.SelectedIndexChanged += (_, _) => HandleMapWorkbenchModeTabChanged();
         _mapMakerGridWidthInput.ValueChanged += (_, _) => ResizeCurrentMapWorkbenchDraftFromInputs();
         _mapMakerGridHeightInput.ValueChanged += (_, _) => ResizeCurrentMapWorkbenchDraftFromInputs();
@@ -844,5 +894,45 @@ public sealed partial class MainForm
         };
         _hexzmapPreviewBox.MouseMove += (_, e) => UpdateHexzmapCellPreview(e.Location);
         _hexzmapPreviewBox.MouseLeave += (_, _) => ClearHexzmapCellPreview();
+    }
+
+    private void RunUiEvent(Action action, string source)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            ApplicationErrorService.Report(ex, source);
+        }
+    }
+
+    private async Task RunUiEventAsync(Func<Task> action, string source)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ApplicationErrorService.Report(ex, source);
+        }
+    }
+
+    private void RunMapMakerDirtyBaseRefreshTimer()
+    {
+        try
+        {
+            FlushMapMakerDirtyBasePreview(runBeautify: false);
+        }
+        catch (Exception ex)
+        {
+            _mapMakerDirtyBaseRefreshTimer.Stop();
+            _mapMakerRenderDeferred = false;
+            _mapMakerDirtyTerrainPreviewIndexes.Clear();
+            ApplicationErrorService.Report(ex, "Map maker dirty base refresh timer");
+            UpdateMapMakerEditingButtons();
+        }
     }
 }

@@ -4,6 +4,7 @@ public enum CmfTrustLevel
 {
     StaticSegmentOnly,
     ExtractedFromCheatMakerExport,
+    ExtractedFromCheatMakerDesigner,
     ExtractedFromUiAutomation,
     ManualConfirmed
 }
@@ -38,6 +39,7 @@ public sealed class CmfToolProject
     public IReadOnlyList<CmfDataBinding> DataBindings { get; init; } = Array.Empty<CmfDataBinding>();
     public IReadOnlyList<CmfAddressEntry> AddressEntries { get; init; } = Array.Empty<CmfAddressEntry>();
     public IReadOnlyList<CmfExportFieldRecord> ExportFields { get; init; } = Array.Empty<CmfExportFieldRecord>();
+    public CmfDesignerSnapshot? DesignerSnapshot { get; init; }
     public IReadOnlyList<CmfFeatureCandidate> FeatureCandidates { get; init; } = Array.Empty<CmfFeatureCandidate>();
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
 }

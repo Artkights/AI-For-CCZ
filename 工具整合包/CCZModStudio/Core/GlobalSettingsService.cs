@@ -187,6 +187,7 @@ public sealed class GlobalSettingsService
 
         var title = ReadGameTitle(project);
         var cmfCandidates = _cmfDerivedCapabilityService.ListGlobalSettingCandidates(project);
+        var cmfDesignerFields = _cmfDerivedCapabilityService.ListDesignerFields(project);
         var evidence = BuildEvidence(project, jobSeriesTable, detailedJobTable, title, cmfCandidates).ToList();
         return new GlobalSettingsDocument
         {
@@ -196,7 +197,8 @@ public sealed class GlobalSettingsService
             DetailedJobNames = detailedJobRead.Data,
             GameTitle = title,
             Evidence = evidence,
-            CmfCandidates = cmfCandidates
+            CmfCandidates = cmfCandidates,
+            CmfDesignerFields = cmfDesignerFields
         };
     }
 

@@ -320,6 +320,180 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    public object ExtractCheatMakerDesignerSnapshot(
+        string? gameRoot,
+        string relativePath,
+        string? mode,
+        int timeoutMs,
+        bool keepProcessOpen,
+        string? fixtureSnapshotPath)
+    {
+        var project = LoadProject(gameRoot);
+        var result = _cmfDerivedCapabilityService.ExtractDesignerSnapshot(
+            project,
+            relativePath,
+            new CmfDesignerExtractionOptions
+            {
+                Mode = string.IsNullOrWhiteSpace(mode) ? "UiProbe" : mode!,
+                TimeoutMs = timeoutMs <= 0 ? 15000 : timeoutMs,
+                KeepProcessOpen = keepProcessOpen,
+                FixtureSnapshotPath = fixtureSnapshotPath ?? string.Empty
+            });
+
+        return new
+        {
+            project.GameRoot,
+            result.ReportDirectory,
+            result.SnapshotJsonPath,
+            result.FieldsCsvPath,
+            result.ModulesMarkdownPath,
+            result.AddressesMarkdownPath,
+            result.RawUiTreeJsonPath,
+            result.Snapshot.SourcePath,
+            result.Snapshot.RelativePath,
+            result.Snapshot.SourceSha256,
+            result.Snapshot.ExtractionMode,
+            PageCount = result.Snapshot.Pages.Count,
+            ModuleCount = result.Snapshot.Modules.Count,
+            ControlCount = result.Snapshot.Controls.Count,
+            BindingCount = result.Snapshot.Bindings.Count,
+            Bindings = result.Snapshot.Bindings.Take(200),
+            result.Warnings,
+            SafetyNote = "Designer extraction is read-only: the source CMF is copied to a temp directory before CheatMaker is launched, and writes are not enabled until address classification, bounds check, test-copy write, and reread validation pass."
+        };
+    }
+
+    public object ImportCheatMakerDesignerSnapshot(string? gameRoot, string relativePath, string snapshotPath)
+    {
+        var project = LoadProject(gameRoot);
+        var cmf = _cmfDerivedCapabilityService.ImportDesignerSnapshot(project, relativePath, snapshotPath);
+        return new
+        {
+            project.GameRoot,
+            cmf.AuthoritativeToolSource,
+            cmf.ConversionPolicy,
+            cmf.ExtractionMode,
+            DesignerFieldCount = cmf.DesignerSnapshot?.Bindings.Count ?? 0,
+            BindingCount = cmf.DataBindings.Count,
+            FeatureCount = cmf.FeatureCandidates.Count,
+            DesignerFields = cmf.DesignerSnapshot?.Bindings.Take(200) ?? Array.Empty<CmfDesignerBinding>(),
+            Features = cmf.FeatureCandidates.Take(100),
+            Warnings = cmf.Warnings,
+            SafetyNote = "Designer snapshot import is read-only and treats 地址(HEX) as UE file offset first. Writes still require version match, address classification, bounds check, test-copy write, and reread validation."
+        };
+    }
+
+    public object ListCheatMakerDesignerFields(string? gameRoot, string? relativePath, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var effectiveLimit = NormalizeLimit(limit, 200, 2000);
+        var fields = _cmfDerivedCapabilityService.ListDesignerFields(project, relativePath);
+        return new
+        {
+            project.GameRoot,
+            TotalFields = fields.Count,
+            Fields = fields.Take(effectiveLimit),
+            SafetyNote = "Designer fields are address evidence only. UE offsets are not writable rules until each field is classified, bounds checked, written on a test copy, and reread."
+        };
+    }
+
+    public object ListCheatMakerManualSeedFields(string? gameRoot, string? keyword, int limit)
+    {
+        var project = LoadProject(gameRoot);
+        var effectiveLimit = NormalizeLimit(limit, 200, 2000);
+        var fields = _cmfDerivedCapabilityService.ListManualSeedFields(project, keyword);
+        return new
+        {
+            project.GameRoot,
+            TotalFields = fields.Count,
+            Fields = fields.Take(effectiveLimit),
+            SafetyNote = "Manual seed fields are user-confirmed CMF address evidence only. They remain read-only until each field passes bounds check, test-copy write, and reread validation."
+        };
+    }
+
+    public object ValidateCheatMakerManualSeed(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var report = _cmfDerivedCapabilityService.ValidateManualSeeds(project);
+        return new
+        {
+            project.GameRoot,
+            report.ReportKind,
+            report.CreatedAt,
+            report.SeedCount,
+            report.FieldCount,
+            report.TableCount,
+            report.ExpandedTableEntryCount,
+            report.IsValid,
+            report.Issues,
+            SafetyNote = "Manual seed validation checks the built-in CMF manual address seeds only. It does not write CMF or game files."
+        };
+    }
+
+    public object CompareCheatMakerDesignerSnapshots(
+        string? gameRoot,
+        string leftRelativePath,
+        string rightRelativePath,
+        string? leftSnapshotPath,
+        string? rightSnapshotPath)
+    {
+        var project = LoadProject(gameRoot);
+        var report = _cmfDerivedCapabilityService.CompareDesignerSnapshots(
+            project,
+            leftRelativePath,
+            rightRelativePath,
+            leftSnapshotPath,
+            rightSnapshotPath);
+        return new
+        {
+            project.GameRoot,
+            report.ReportDirectory,
+            report.JsonReportPath,
+            report.MarkdownReportPath,
+            PageDiffCount = report.PageDiffs.Count,
+            ModuleDiffCount = report.ModuleDiffs.Count,
+            BindingDiffCount = report.BindingDiffs.Count,
+            report.PageDiffs,
+            report.ModuleDiffs,
+            BindingDiffs = report.BindingDiffs.Take(200),
+            report.Warnings,
+            SafetyNote = "Designer snapshot diff compares extracted design-time metadata only; it does not modify CMF or game files."
+        };
+    }
+
+    public object VerifyCheatMakerDesignerWrites(
+        string? gameRoot,
+        string relativePath,
+        string? snapshotPath,
+        List<string>? bindingIds,
+        int maxFields,
+        bool includeNeedsManualReview)
+    {
+        var project = LoadProject(gameRoot);
+        var report = _cmfDerivedCapabilityService.VerifyDesignerWrites(
+            project,
+            relativePath,
+            new CmfDesignerWriteVerificationOptions
+            {
+                SnapshotPath = snapshotPath ?? string.Empty,
+                BindingIds = bindingIds?.ToArray() ?? Array.Empty<string>(),
+                MaxFields = maxFields <= 0 ? 500 : maxFields,
+                IncludeNeedsManualReview = includeNeedsManualReview
+            });
+        return new
+        {
+            project.GameRoot,
+            report.TestCopyRoot,
+            report.ReportDirectory,
+            report.JsonReportPath,
+            report.TotalFields,
+            report.WriteVerifiedCount,
+            Fields = report.Fields.Take(200),
+            report.Warnings,
+            SafetyNote = "Write verification writes only to a CCZModStudio test copy. Only fields with FinalStatus=WriteVerified and CanPromoteToWrite=true may be considered for a formal save path."
+        };
+    }
+
     public object ListCmfFeatures(string? gameRoot, string? category, string? keyword, int limit)
     {
         var project = LoadProject(gameRoot);

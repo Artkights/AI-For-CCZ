@@ -7366,6 +7366,319 @@ public sealed partial class MainForm
         _editScriptParametersButton.Enabled = false;
         _applyScriptInlineDialogButton.Enabled = false;
         _resetScriptInlineDialogButton.Enabled = false;
+        UpdateScriptTextWrapLimitControl(null);
+    }
+
+    private LegacyTextWrapOptions? BuildLegacyTextWrapOptions(LegacyScenarioCommandNode? command)
+    {
+        if (command == null)
+        {
+            return null;
+        }
+
+        var hasText = command.TextParameters.Any();
+        if (!LegacyTextWrapService.IsTextCommand(command.CommandId, hasText))
+        {
+            return null;
+        }
+
+        var defaultLimit = LegacyTextWrapService.GetDefaultLineLimit(command.CommandId);
+        var limit = UiLayoutSettingsStore.GetTextWrapLimit(
+            _uiLayoutSettings,
+            LegacyTextWrapService.BuildSettingsKey(command.CommandId),
+            defaultLimit);
+        return LegacyTextWrapService.CreateOptions(command.CommandId, limit);
+    }
+
+    private LegacyTextWrapOptions? BuildLegacyTextWrapOptions(LegacyScenarioItemData? itemData)
+        => BuildLegacyTextWrapOptions(itemData?.Command);
+
+    private LegacyTextWrapOptions? BuildLegacyTextWrapOptions(int? commandId)
+        => commandId.HasValue
+            ? LegacyTextWrapService.CreateOptions(
+                commandId.Value,
+                UiLayoutSettingsStore.GetTextWrapLimit(
+                    _uiLayoutSettings,
+                    LegacyTextWrapService.BuildSettingsKey(commandId.Value),
+                    LegacyTextWrapService.GetDefaultLineLimit(commandId.Value)))
+            : null;
+
+    private LegacyTextWrapOptions? BuildLegacyTextWrapOptions(ScenarioTextEntry? entry, LegacyScriptEditorScope scope)
+    {
+        if (entry == null)
+        {
+            return null;
+        }
+
+        return BuildLegacyTextWrapOptions(TryGetTextEntryCommandId(entry, scope));
+    }
+
+    private LegacyScenarioCommandNode? TryGetLegacyTextOwnerCommand(ScenarioTextEntry entry, LegacyScriptEditorScope scope)
+        => scope switch
+        {
+            LegacyScriptEditorScope.Script => _legacyScriptTextByOffset.TryGetValue(entry.Offset, out var scriptText)
+                ? scriptText.Command
+                : null,
+            LegacyScriptEditorScope.Battlefield => _battlefieldScriptTextByOffset.TryGetValue(entry.Offset, out var battlefieldText)
+                ? battlefieldText.Command
+                : null,
+            _ => null
+        };
+
+    private int? TryGetTextEntryCommandId(ScenarioTextEntry entry, LegacyScriptEditorScope scope)
+    {
+        var command = TryGetLegacyTextOwnerCommand(entry, scope);
+        if (command != null)
+        {
+            return command.CommandId;
+        }
+
+        var rows = scope == LegacyScriptEditorScope.Script
+            ? GetScriptCommandsForText(entry)
+            : GetScriptCommandsForText(entry, scope);
+        var firstRow = rows.FirstOrDefault();
+        return firstRow != null && TryParseHex(firstRow.CommandIdHex, out var commandId)
+            ? commandId
+            : null;
+    }
+
+    private LegacyTextWrapResult ApplyTextWrapToEditorTextBox(
+        TextBox textBox,
+        ScenarioTextEntry? entry,
+        LegacyScriptEditorScope scope,
+        bool updateTextBox)
+    {
+        var options = BuildLegacyTextWrapOptions(entry, scope);
+        if (options == null)
+        {
+            var unchanged = new LegacyTextWrapResult(
+                BattlefieldEditorService.NormalizeText(textBox.Text),
+                Array.Empty<LegacyTextWrapDiagnostic>());
+            _textWrapDiagnosticToolTip.SetToolTip(textBox, string.Empty);
+            return unchanged;
+        }
+
+        var result = LegacyTextWrapService.Wrap(textBox.Text, options);
+        if (updateTextBox)
+        {
+            var displayText = result.Text.Replace("\n", Environment.NewLine, StringComparison.Ordinal);
+            if (!string.Equals(textBox.Text, displayText, StringComparison.Ordinal))
+            {
+                var selectionStart = Math.Min(textBox.SelectionStart, displayText.Length);
+                textBox.Text = displayText;
+                textBox.SelectionStart = selectionStart;
+                textBox.SelectionLength = 0;
+            }
+        }
+
+        var message = result.HasWarnings
+            ? LegacyTextWrapService.FormatDiagnostics(result.Diagnostics)
+            : "0 表示不限制；达到该显示宽度后自动换行，超过三行时只提示不拦截保存。";
+        _textWrapDiagnosticToolTip.SetToolTip(textBox, message);
+        return result;
+    }
+
+    private void ApplyScriptTextEditorWrapping()
+    {
+        if (_applyingScriptTextEditorWrap)
+        {
+            return;
+        }
+
+        _applyingScriptTextEditorWrap = true;
+        try
+        {
+            ApplyTextWrapToEditorTextBox(
+                _scriptTextEditorBox,
+                GetSelectedScriptTextEntry(),
+                LegacyScriptEditorScope.Script,
+                updateTextBox: true);
+        }
+        finally
+        {
+            _applyingScriptTextEditorWrap = false;
+        }
+    }
+
+    private void ApplyBattlefieldScriptTextEditorWrapping()
+    {
+        if (_applyingBattlefieldScriptTextEditorWrap)
+        {
+            return;
+        }
+
+        _applyingBattlefieldScriptTextEditorWrap = true;
+        try
+        {
+            ApplyTextWrapToEditorTextBox(
+                _battlefieldScriptTextBox,
+                _selectedBattlefieldScriptTextEntry,
+                LegacyScriptEditorScope.Battlefield,
+                updateTextBox: true);
+        }
+        finally
+        {
+            _applyingBattlefieldScriptTextEditorWrap = false;
+        }
+    }
+
+    private void SaveLegacyTextWrapLimit(int commandId, int limit)
+    {
+        var key = LegacyTextWrapService.BuildSettingsKey(commandId);
+        limit = Math.Max(0, limit);
+        _uiLayoutSettings.TextWrapLimits[key] = limit;
+        UiLayoutSettingsStore.SaveTextWrapLimit(key, limit);
+    }
+
+    private void SaveLegacyTextWrapLimit(LegacyScenarioCommandNode command, int limit)
+        => SaveLegacyTextWrapLimit(command.CommandId, limit);
+
+    private static void ConfigureTextWrapLimitInput(NumericUpDown input)
+    {
+        input.Minimum = 0;
+        input.Maximum = 512;
+        input.Increment = 1;
+        input.Width = 64;
+        input.Enabled = false;
+        input.TextAlign = HorizontalAlignment.Right;
+        input.AccessibleName = "每行上限";
+        input.AccessibleDescription = "0 表示不限制；39 对应约 19 个汉字或 39 个半角字符，2C 地图文字默认 72。";
+    }
+
+    private static void ConfigureTextWrapLimitPanel(FlowLayoutPanel panel, NumericUpDown input)
+    {
+        panel.AutoSize = true;
+        panel.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        panel.FlowDirection = FlowDirection.LeftToRight;
+        panel.WrapContents = false;
+        panel.Margin = new Padding(3);
+        panel.Visible = false;
+        panel.Controls.Clear();
+        panel.Controls.Add(CreateToolbarLabel("每行上限", 0));
+        panel.Controls.Add(input);
+    }
+
+    private void UpdateScriptTextWrapLimitControl(LegacyScenarioCommandNode? command)
+        => UpdateTextWrapLimitControl(_scriptTextWrapLimitPanel, _scriptTextWrapLimitInput, command?.CommandId, command);
+
+    private void UpdateBattlefieldTextWrapLimitControl(LegacyScenarioCommandNode? command)
+        => UpdateTextWrapLimitControl(_battlefieldScriptTextWrapLimitPanel, _battlefieldScriptTextWrapLimitInput, command?.CommandId, command);
+
+    private void UpdateRSceneTextWrapLimitControl(LegacyScenarioCommandNode? command)
+        => UpdateTextWrapLimitControl(_rSceneTextWrapLimitPanel, _rSceneTextWrapLimitInput, command?.CommandId, command);
+
+    private void UpdateScriptTextWrapLimitControlForTextEntry(ScenarioTextEntry? entry)
+        => UpdateTextWrapLimitControl(
+            _scriptTextWrapLimitPanel,
+            _scriptTextWrapLimitInput,
+            entry == null ? null : TryGetTextEntryCommandId(entry, LegacyScriptEditorScope.Script),
+            null);
+
+    private void UpdateBattlefieldTextWrapLimitControlForTextEntry(ScenarioTextEntry? entry)
+        => UpdateTextWrapLimitControl(
+            _battlefieldScriptTextWrapLimitPanel,
+            _battlefieldScriptTextWrapLimitInput,
+            entry == null ? null : TryGetTextEntryCommandId(entry, LegacyScriptEditorScope.Battlefield),
+            null);
+
+    private void UpdateTextWrapLimitControl(FlowLayoutPanel panel, NumericUpDown input, int? commandId, LegacyScenarioCommandNode? command)
+    {
+        var options = command != null
+            ? BuildLegacyTextWrapOptions(command)
+            : BuildLegacyTextWrapOptions(commandId);
+        _updatingTextWrapLimitControls = true;
+        try
+        {
+            panel.Visible = options != null;
+            input.Enabled = options != null;
+            input.Tag = options == null ? null : new TextWrapLimitBinding(options.CommandId, command);
+            input.BackColor = SystemColors.Window;
+            input.Value = options == null
+                ? 0
+                : Math.Clamp(options.LineLimit, (int)input.Minimum, (int)input.Maximum);
+            _textWrapDiagnosticToolTip.SetToolTip(
+                input,
+                options == null
+                    ? string.Empty
+                    : "0 表示不限制；达到该显示宽度后自动换行，超过三行时只提示不拦截保存。");
+            _textWrapDiagnosticToolTip.SetToolTip(panel, options == null ? string.Empty : _textWrapDiagnosticToolTip.GetToolTip(input));
+        }
+        finally
+        {
+            _updatingTextWrapLimitControls = false;
+        }
+    }
+
+    private void HandleTextWrapLimitChanged(NumericUpDown input, LegacyScriptEditorScope scope)
+    {
+        if (_updatingTextWrapLimitControls)
+        {
+            return;
+        }
+
+        if (input.Tag is not TextWrapLimitBinding binding)
+        {
+            return;
+        }
+
+        SaveLegacyTextWrapLimit(binding.CommandId, (int)input.Value);
+        switch (scope)
+        {
+            case LegacyScriptEditorScope.Script:
+                if (binding.Command != null)
+                {
+                    LoadInlineLegacyScriptDialogForSelection();
+                }
+                else
+                {
+                    ApplyScriptTextEditorWrapping();
+                    UpdateScriptTextCapacityLabel();
+                }
+                break;
+            case LegacyScriptEditorScope.Battlefield:
+                if (binding.Command != null)
+                {
+                    ShowSelectedBattlefieldScriptNode();
+                }
+                else
+                {
+                    ApplyBattlefieldScriptTextEditorWrapping();
+                    UpdateBattlefieldScriptTextCapacityLabel();
+                }
+                break;
+            case LegacyScriptEditorScope.RScene:
+                LoadInlineRSceneScriptDialogForSelection();
+                if (binding.Command != null)
+                {
+                    UpdateRSceneDialoguePreviewCommand(binding.Command, render: true);
+                }
+                break;
+        }
+    }
+
+    private static void ShowLegacyTextWrapResult(Control host, LegacyTextWrapResult result)
+    {
+        if (result.HasWarnings)
+        {
+            host.BackColor = Color.MistyRose;
+            host.Tag = LegacyTextWrapService.FormatDiagnostics(result.Diagnostics);
+        }
+        else
+        {
+            host.BackColor = SystemColors.Control;
+            host.Tag = string.Empty;
+        }
+    }
+
+    private void ShowLegacyTextWrapResult(Control host, NumericUpDown limitInput, LegacyTextWrapResult result)
+    {
+        ShowLegacyTextWrapResult(host, result);
+        var message = result.HasWarnings
+            ? LegacyTextWrapService.FormatDiagnostics(result.Diagnostics)
+            : "0 表示不限制；达到该显示宽度后自动换行，超过三行时只提示不拦截保存。";
+        limitInput.BackColor = result.HasWarnings ? Color.MistyRose : SystemColors.Window;
+        _textWrapDiagnosticToolTip.SetToolTip(limitInput, message);
+        _textWrapDiagnosticToolTip.SetToolTip(host, message);
     }
 
     private void LoadInlineLegacyScriptDialogForSelection()
@@ -7376,8 +7689,10 @@ public sealed partial class MainForm
         if (!TryGetSelectedLegacyItemData(out var itemData) || itemData.Command == null)
         {
             _scriptInlineDialogHost.ClearDialog("请选择左侧指令。");
+            UpdateScriptTextWrapLimitControl(null);
             return;
         }
+        UpdateScriptTextWrapLimitControl(itemData.Command);
 
         if (!LegacyCommandEditDispatcher.CanEdit(itemData.Id))
         {
@@ -7401,6 +7716,9 @@ public sealed partial class MainForm
             _currentLegacyScriptDocument?.CommandCount ?? 0,
             precedingSameCommandCount,
             includeDialogButtons: false);
+        _scriptInlineDialogHost.ConfigureTextWrapping(
+            BuildLegacyTextWrapOptions(itemData),
+            result => ShowLegacyTextWrapResult(_scriptInlineDialogHost, _scriptTextWrapLimitInput, result));
         _applyScriptInlineDialogButton.Enabled = true;
         _resetScriptInlineDialogButton.Enabled = true;
     }
@@ -7416,6 +7734,7 @@ public sealed partial class MainForm
         var oldSummary = BuildLegacyScriptParameterPreview(itemData.Command);
         var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Script, _currentLegacyScriptDocument!);
+        _scriptInlineDialogHost.ConfigureTextWrapping(BuildLegacyTextWrapOptions(itemData));
         var error = _scriptInlineDialogHost.CommitToTarget();
         if (!string.IsNullOrWhiteSpace(error))
         {
@@ -7496,7 +7815,14 @@ public sealed partial class MainForm
         }
 
         var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Script, _currentLegacyScriptDocument!);
-        if (!LegacyCommandEditDispatcher.Edit(this, itemData, commandTitle, _currentLegacyScriptDocument?.CommandCount ?? 0, precedingSameCommandCount, dialogDataSources))
+        if (!LegacyCommandEditDispatcher.Edit(
+                this,
+                itemData,
+                commandTitle,
+                _currentLegacyScriptDocument?.CommandCount ?? 0,
+                precedingSameCommandCount,
+                dialogDataSources,
+                BuildLegacyTextWrapOptions(itemData)))
         {
             return;
         }
@@ -8296,6 +8622,7 @@ public sealed partial class MainForm
         {
             _selectedScriptCommandRow = null;
             _selectedScriptTextEntry = text;
+            UpdateScriptTextWrapLimitControlForTextEntry(text);
             var contextOwner = FindScriptOwnerRowForTextNode(_scriptTree.SelectedNode);
             var contextRows = contextOwner == null
                 ? new List<ScenarioStructureRow>()
@@ -10689,6 +11016,7 @@ public sealed partial class MainForm
             return;
         }
 
+        ApplyScriptTextEditorWrapping();
         var newText = BattlefieldEditorService.NormalizeText(_scriptTextEditorBox.Text);
         if (newText.Contains('\0'))
         {

@@ -543,44 +543,52 @@ internal sealed class ScriptVariableUsageDialog : Form
 
             void Apply()
             {
-                if (split.IsDisposed) return;
-                var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
-                if (totalLength <= split.SplitterWidth + 2) return;
-
-                var canUseRequestedMins = totalLength > desiredPanel1Min + desiredPanel2Min + split.SplitterWidth;
-                if (!canUseRequestedMins)
+                try
                 {
+                    if (split.IsDisposed) return;
+                    var totalLength = split.Orientation == Orientation.Vertical ? split.Width : split.Height;
+                    if (totalLength <= split.SplitterWidth + 2) return;
+
                     split.Panel1MinSize = 0;
                     split.Panel2MinSize = 0;
-                }
+                    var usableLength = totalLength - split.SplitterWidth;
+                    if (usableLength <= 0) return;
 
-                var panel1Min = canUseRequestedMins ? desiredPanel1Min : 0;
-                var panel2Min = canUseRequestedMins ? desiredPanel2Min : 0;
-                var maxDistance = Math.Max(panel1Min, totalLength - panel2Min - split.SplitterWidth);
-                var usableLength = totalLength - split.SplitterWidth;
-                var savedRatio = UiLayoutSettingsStore.GetSplitRatio(UiLayoutSettingsStore.Load(), layoutKey);
-                var target = savedRatio.HasValue && usableLength > 0
-                    ? (int)Math.Round(usableLength * savedRatio.Value)
-                    : desiredDistance;
-                target = Math.Clamp(target, panel1Min, maxDistance);
+                    var canUseRequestedMins = usableLength > desiredPanel1Min + desiredPanel2Min;
+                    var panel1Min = canUseRequestedMins ? desiredPanel1Min : 0;
+                    var panel2Min = canUseRequestedMins ? desiredPanel2Min : 0;
+                    var maxDistance = Math.Max(panel1Min, usableLength - panel2Min);
+                    if (maxDistance < panel1Min) return;
 
-                if (split.SplitterDistance != target)
-                {
-                    applyingProgrammaticDistance = true;
-                    try
+                    var savedRatio = UiLayoutSettingsStore.GetSplitRatio(UiLayoutSettingsStore.Load(), layoutKey);
+                    var target = savedRatio.HasValue && usableLength > 0
+                        ? (int)Math.Round(usableLength * savedRatio.Value)
+                        : desiredDistance;
+                    target = Math.Clamp(target, panel1Min, maxDistance);
+
+                    if (split.SplitterDistance != target)
                     {
-                        split.SplitterDistance = target;
+                        applyingProgrammaticDistance = true;
+                        try
+                        {
+                            split.SplitterDistance = target;
+                        }
+                        finally
+                        {
+                            applyingProgrammaticDistance = false;
+                        }
                     }
-                    finally
+
+                    if (canUseRequestedMins)
                     {
-                        applyingProgrammaticDistance = false;
+                        split.Panel1MinSize = desiredPanel1Min;
+                        split.Panel2MinSize = desiredPanel2Min;
                     }
                 }
-
-                if (canUseRequestedMins)
+                catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
                 {
-                    split.Panel1MinSize = desiredPanel1Min;
-                    split.Panel2MinSize = desiredPanel2Min;
+                    applyingProgrammaticDistance = false;
+                    // SplitContainer can briefly report inconsistent bounds during DPI/layout changes.
                 }
             }
 

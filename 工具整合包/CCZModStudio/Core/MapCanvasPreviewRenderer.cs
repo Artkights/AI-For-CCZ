@@ -75,7 +75,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             RebuildBeautifiedMapCache(draft);
         }
 
-        return ComposeCurrentPreview(draft);
+        return CreatePreviewSnapshot(ComposeCurrentPreview(draft));
     }
 
     public Bitmap RebuildTerrainLayer(MapWorkbenchDraft draft, bool showGrid)
@@ -93,7 +93,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             RebuildTerrainLayerCache(draft);
         }
 
-        return ComposeCurrentPreview(draft);
+        return CreatePreviewSnapshot(ComposeCurrentPreview(draft));
     }
 
     public Rectangle UpdateMapCell(MapWorkbenchDraft draft, int index, MapCellOverride? cell)
@@ -277,7 +277,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             RebuildBaseMapCache(draft);
         }
 
-        return ComposeCurrentPreview(draft);
+        return CreatePreviewSnapshot(ComposeCurrentPreview(draft));
     }
 
     public void SetBeautifiedMapCache(MapWorkbenchDraft draft, Bitmap bitmap)
@@ -733,6 +733,9 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _lastComposedTerrainOpacityPercent = _terrainOpacityPercent;
         return _preview;
     }
+
+    private static Bitmap CreatePreviewSnapshot(Bitmap source)
+        => new(source);
 
     private Bitmap? SelectCurrentSource()
     {

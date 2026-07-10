@@ -21,6 +21,7 @@ public sealed partial class CczMcpRuntime
     private readonly ShopEditorService _shopEditorService = new();
     private readonly ShopRuntimeDiagnosticService _shopRuntimeDiagnosticService = new();
     private readonly GlobalSettingsService _globalSettingsService = new();
+    private readonly CmSettingsService _cmSettingsService = new();
     private readonly AbilityTierPatchService _abilityTierPatchService = new();
     private readonly ScenarioTextImportService _scenarioTextImportService = new();
     private readonly ScenarioTextExportService _scenarioTextExportService = new();
@@ -499,6 +500,43 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    public object ReadCmSettings(string? gameRoot)
+    {
+        var project = LoadProject(gameRoot);
+        var document = _cmSettingsService.Load(project);
+        return new
+        {
+            project.GameRoot,
+            Document = document,
+            SafetyNote = "Read-only CM settings view. Use preview_write_cm_settings before write_cm_settings."
+        };
+    }
+
+    public object PreviewWriteCmSettings(string? gameRoot, CmSettingsMcpUpdate update)
+    {
+        var project = LoadProject(gameRoot);
+        var changes = _cmSettingsService.Preview(project, ToCmSettingsUpdate(update));
+        return new
+        {
+            project.GameRoot,
+            Changes = changes,
+            SafetyNote = "Preview only; no game files were modified."
+        };
+    }
+
+    public object WriteCmSettings(string? gameRoot, CmSettingsMcpUpdate update, string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var result = _cmSettingsService.Save(project, ToCmSettingsUpdate(update));
+        return new
+        {
+            project.GameRoot,
+            Result = result,
+            SafetyNote = "CM setting writes use whitelisted offsets, backup, fixed-length overwrite, and reread validation."
+        };
+    }
+
     public object RunGlobalNumericDiscovery(string? gameRoot)
     {
         var project = LoadProject(gameRoot);
@@ -511,6 +549,30 @@ public sealed partial class CczMcpRuntime
             Report = report,
             SafetyNote = "Prepared test copies and a JSON report only; source project files were not modified."
         };
+    }
+
+    private static CmSettingsUpdate ToCmSettingsUpdate(CmSettingsMcpUpdate? update)
+    {
+        var result = new CmSettingsUpdate();
+        if (update == null) return result;
+
+        foreach (var pair in update.Values)
+        {
+            result.Values[pair.Key] = pair.Value;
+        }
+
+        foreach (var pair in update.TerrainStrategy)
+        {
+            result.TerrainStrategy[pair.Key] = new CmTerrainStrategyUpdate
+            {
+                Fire = pair.Value.Fire,
+                Water = pair.Value.Water,
+                Wind = pair.Value.Wind,
+                Earth = pair.Value.Earth
+            };
+        }
+
+        return result;
     }
 
     public object RunGlobalNumericLowRiskDiscovery(string? gameRoot)

@@ -909,6 +909,7 @@ public sealed partial class MainForm
     {
         var previousPreviewMode = _battlefieldRightPreviewMode;
         var previousPreviewText = _battlefieldInfoBox.Text;
+        var previousSummaryText = _battlefieldConsoleSummaryLabel.Text;
         foreach (DataGridViewRow gridRow in _battlefieldUnitGrid.Rows)
         {
             if (gridRow.DataBoundItem is not BattlefieldUnitCandidate candidate ||
@@ -928,6 +929,8 @@ public sealed partial class MainForm
             {
                 _battlefieldRightPreviewMode = previousPreviewMode;
                 _battlefieldInfoBox.Text = previousPreviewText;
+                _battlefieldConsoleSummaryLabel.Text = previousSummaryText;
+                ApplyBattlefieldRightPreviewMode();
             }
 
             return true;
@@ -1984,14 +1987,22 @@ public sealed partial class MainForm
     {
         if (_battlefieldMapStaticPreviewImage == null)
         {
-            var oldEmpty = _battlefieldMapPreviewBox.Image;
-            _battlefieldMapPreviewBox.Image = null;
-            oldEmpty?.Dispose();
+            SetPictureBoxImage(_battlefieldMapPreviewBox, null);
             ApplyBattlefieldMapZoom();
             return;
         }
 
-        var image = new Bitmap(_battlefieldMapStaticPreviewImage.Width, _battlefieldMapStaticPreviewImage.Height, PixelFormat.Format32bppArgb);
+        Bitmap image;
+        try
+        {
+            image = new Bitmap(_battlefieldMapStaticPreviewImage.Width, _battlefieldMapStaticPreviewImage.Height, PixelFormat.Format32bppArgb);
+        }
+        catch (Exception ex) when (ex is ArgumentException or ObjectDisposedException)
+        {
+            ClearBattlefieldMapPreviewImages();
+            ApplicationErrorService.Report(ex, "Battlefield map dynamic preview source", notify: false);
+            return;
+        }
         using (var graphics = Graphics.FromImage(image))
         {
             graphics.DrawImageUnscaled(_battlefieldMapStaticPreviewImage, 0, 0);
@@ -2009,9 +2020,7 @@ public sealed partial class MainForm
             DrawBattlefieldBatchSelectionOverlay(image, gridWidth, gridHeight);
         }
 
-        var old = _battlefieldMapPreviewBox.Image;
-        _battlefieldMapPreviewBox.Image = image;
-        old?.Dispose();
+        SetPictureBoxImage(_battlefieldMapPreviewBox, image);
         ApplyBattlefieldMapZoom();
     }
 
@@ -2101,9 +2110,7 @@ public sealed partial class MainForm
 
     private void ClearBattlefieldMapPreviewImages()
     {
-        var old = _battlefieldMapPreviewBox.Image;
-        _battlefieldMapPreviewBox.Image = null;
-        old?.Dispose();
+        SetPictureBoxImage(_battlefieldMapPreviewBox, null);
         _battlefieldMapStaticPreviewImage?.Dispose();
         _battlefieldMapStaticPreviewImage = null;
         _battlefieldMapStaticGridSize = default;
@@ -2141,8 +2148,7 @@ public sealed partial class MainForm
 
     private void ApplyBattlefieldMapZoom()
     {
-        var image = _battlefieldMapPreviewBox.Image;
-        if (image == null)
+        if (!TryGetPictureBoxImageSize(_battlefieldMapPreviewBox, out var imageSize))
         {
             _battlefieldMapZoomPercent = Math.Clamp(_battlefieldMapZoomPercent, 25, 800);
             _battlefieldMapPreviewBox.Size = Size.Empty;
@@ -2153,21 +2159,41 @@ public sealed partial class MainForm
         var zoom = Math.Clamp(_battlefieldMapZoomPercent, 25, 800) / 100.0;
         _battlefieldMapZoomPercent = (int)Math.Round(zoom * 100);
         _battlefieldMapPreviewBox.Size = new Size(
-            Math.Max(1, (int)Math.Round(image.Width * zoom)),
-            Math.Max(1, (int)Math.Round(image.Height * zoom)));
+            Math.Max(1, (int)Math.Round(imageSize.Width * zoom)),
+            Math.Max(1, (int)Math.Round(imageSize.Height * zoom)));
         _battlefieldMapZoomLabel.Text = $"缩放 {_battlefieldMapZoomPercent}%";
     }
 
     private (int Width, int Height) GetCurrentBattlefieldMapGridSize(Image? image)
     {
-        if (image != null &&
-            image.Width % MapResourceItem.MapTilePixelSize == 0 &&
-            image.Height % MapResourceItem.MapTilePixelSize == 0)
+        if (TryGetImageSize(image, out var imageSize) &&
+            imageSize.Width % MapResourceItem.MapTilePixelSize == 0 &&
+            imageSize.Height % MapResourceItem.MapTilePixelSize == 0)
         {
-            return (image.Width / MapResourceItem.MapTilePixelSize, image.Height / MapResourceItem.MapTilePixelSize);
+            return (imageSize.Width / MapResourceItem.MapTilePixelSize, imageSize.Height / MapResourceItem.MapTilePixelSize);
         }
 
         return (0, 0);
+    }
+
+    private static bool TryGetImageSize(Image? image, out Size size)
+    {
+        size = Size.Empty;
+        if (image == null) return false;
+
+        try
+        {
+            var width = image.Width;
+            var height = image.Height;
+            if (width <= 0 || height <= 0) return false;
+            size = new Size(width, height);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or ObjectDisposedException)
+        {
+            ApplicationErrorService.Report(ex, "Image size", notify: false);
+            return false;
+        }
     }
 
     private static void DrawBattlefieldGrid(Image image, int gridWidth, int gridHeight)
@@ -4221,6 +4247,7 @@ public sealed partial class MainForm
         _bindingBattlefieldControlPanel = true;
         try
         {
+            SetBattlefieldConsolePlacementControlsEnabled(true);
             RemoveBattlefieldBatchMixedComboItems();
             _battlefieldHiddenCheckBox.ThreeState = false;
             _battlefieldFactionAllyRadio.Checked = unit.Faction == "我军";
@@ -4250,6 +4277,7 @@ public sealed partial class MainForm
         try
         {
             RemoveBattlefieldBatchMixedComboItems();
+            SetBattlefieldConsolePlacementControlsEnabled(true);
             var anchor = units[0];
             var writableStatusUnits = units.Where(BattlefieldUnitStatusWriteService.IsWritableStatusTarget).ToList();
             var statusAnchor = writableStatusUnits.FirstOrDefault() ?? anchor;
@@ -4680,6 +4708,19 @@ public sealed partial class MainForm
         _battlefieldConsoleAssistCombo.Enabled = enabled;
         _battlefieldConsoleJobCombo.Enabled = enabled;
         _battlefieldConsoleAbilityGrid.Enabled = enabled;
+    }
+
+    private void SetBattlefieldConsolePlacementControlsEnabled(bool enabled)
+    {
+        _battlefieldFactionAllyRadio.Enabled = enabled;
+        _battlefieldFactionFriendRadio.Enabled = enabled;
+        _battlefieldFactionEnemyRadio.Enabled = enabled;
+        _battlefieldHiddenCheckBox.Enabled = enabled;
+        _battlefieldLevelOffsetInput.Enabled = enabled;
+        _battlefieldLevelModeCombo.Enabled = enabled;
+        _battlefieldAiModeCombo.Enabled = enabled;
+        _battlefieldDirectionCombo.Enabled = enabled;
+        _battlefieldRemovePlacedUnitButton.Enabled = enabled;
     }
 
     private string BuildBattlefieldDataDefaultsText(BattlefieldUnitDataDefaults defaults)
@@ -5634,19 +5675,28 @@ public sealed partial class MainForm
     {
         var list = rows.ToList();
         var selectedPersonId = _selectedBattlefieldPaletteItem?.PersonId;
-        _battlefieldUnitListBox.DataSource = null;
-        _battlefieldUnitListBox.DataSource = new BindingList<BattlefieldUnitPaletteItem>(list);
-        _battlefieldUnitListBox.DisplayMember = nameof(BattlefieldUnitPaletteItem.DisplayText);
-        if (list.Count == 0)
+        _bindingBattlefieldUnitPalette = true;
+        try
         {
-            RefreshBattlefieldPaletteUnitPreview(null);
-            return;
+            _battlefieldUnitListBox.DataSource = null;
+            _battlefieldUnitListBox.DataSource = new BindingList<BattlefieldUnitPaletteItem>(list);
+            _battlefieldUnitListBox.DisplayMember = nameof(BattlefieldUnitPaletteItem.DisplayText);
+            if (list.Count == 0)
+            {
+                RefreshBattlefieldPaletteUnitPreview(null);
+                return;
+            }
+
+            var selectedIndex = selectedPersonId.HasValue
+                ? list.FindIndex(item => item.PersonId == selectedPersonId.Value)
+                : 0;
+            _battlefieldUnitListBox.SelectedIndex = Math.Max(0, selectedIndex);
+        }
+        finally
+        {
+            _bindingBattlefieldUnitPalette = false;
         }
 
-        var selectedIndex = selectedPersonId.HasValue
-            ? list.FindIndex(item => item.PersonId == selectedPersonId.Value)
-            : 0;
-        _battlefieldUnitListBox.SelectedIndex = Math.Max(0, selectedIndex);
         RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
     }
 
@@ -5668,7 +5718,88 @@ public sealed partial class MainForm
 
     private void ShowSelectedBattlefieldPaletteUnit()
     {
-        RefreshBattlefieldPaletteUnitPreview(_battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem);
+        var item = _battlefieldUnitListBox.SelectedItem as BattlefieldUnitPaletteItem;
+        RefreshBattlefieldPaletteUnitPreview(item);
+        if (_bindingBattlefieldUnitPalette || item == null)
+        {
+            return;
+        }
+
+        if (!TryCommitPendingBattlefieldConsoleChanges())
+        {
+            return;
+        }
+
+        ShowBattlefieldPaletteConsolePreview(item);
+    }
+
+    private void ShowBattlefieldPaletteConsolePreview(BattlefieldUnitPaletteItem item)
+    {
+        _selectedBattlefieldPlacedUnit = null;
+        _editingBattlefieldPlacedUnit = null;
+        _currentBattlefieldConsoleStatusDraft = null;
+        _currentBattlefieldConsoleDataDefaults = null;
+        ClearBattlefieldConsoleDirty();
+
+        var defaults = BuildBattlefieldPaletteDataDefaults(item);
+        _currentBattlefieldConsoleDataDefaults = defaults;
+
+        _bindingBattlefieldControlPanel = true;
+        try
+        {
+            RemoveBattlefieldBatchMixedComboItems();
+            _battlefieldHiddenCheckBox.ThreeState = false;
+            _battlefieldFactionAllyRadio.Checked = true;
+            _battlefieldHiddenCheckBox.Checked = false;
+            _battlefieldLevelOffsetInput.Value = 0;
+            SelectComboText(_battlefieldLevelModeCombo, "初级");
+            SelectComboText(_battlefieldAiModeCombo, "被动");
+            SelectComboText(_battlefieldDirectionCombo, "下");
+
+            var draft = new BattlefieldUnitStatusDraft
+            {
+                PersonId = defaults.PersonId,
+                PersonName = defaults.PersonName,
+                DataDefaults = defaults
+            };
+            PopulateBattlefieldConsoleStatusEditors(draft, defaults);
+            SetBattlefieldConsolePlacementControlsEnabled(false);
+            SetBattlefieldConsoleStatusControlsEnabled(false);
+        }
+        finally
+        {
+            _bindingBattlefieldControlPanel = false;
+        }
+
+        _battlefieldDataDefaultsBox.Text = BuildBattlefieldDataDefaultsText(defaults);
+        _battlefieldConsoleStatusPreviewBox.Text = defaults.Found
+            ? "角色列表只读预览：显示 Data.e5 默认装备、兵种与五维；未绑定 S 剧本出场槽。"
+            : $"角色列表只读预览：{defaults.Source}";
+        var summary =
+            $"角色默认预览：{item.PersonId} {item.Name}  职业={item.JobId?.ToString(CultureInfo.InvariantCulture) ?? "?"} {item.JobName}  R={item.RImageId}  S={item.SImageId}";
+        SetBattlefieldConsolePreview(summary);
+        SetStatus("战场控制台：已切换到角色列表只读预览。");
+    }
+
+    private BattlefieldUnitDataDefaults BuildBattlefieldPaletteDataDefaults(BattlefieldUnitPaletteItem item)
+    {
+        if (_project != null)
+        {
+            return new BattlefieldUnitDataDefaultService().LoadPersonDefaults(_project, _tables, item.PersonId);
+        }
+
+        var jobNames = item.JobId.HasValue
+            ? new Dictionary<int, string> { [item.JobId.Value] = string.IsNullOrWhiteSpace(item.JobName) ? $"兵种{item.JobId.Value}" : item.JobName }
+            : new Dictionary<int, string>();
+        return new BattlefieldUnitDataDefaults
+        {
+            PersonId = item.PersonId,
+            PersonName = string.IsNullOrWhiteSpace(item.Name) ? $"人物{item.PersonId}" : item.Name,
+            Found = false,
+            Source = "项目未加载，无法读取 Data.e5 默认值。",
+            JobId = item.JobId,
+            JobNames = jobNames
+        };
     }
 
     private void RefreshBattlefieldPaletteUnitPreview(BattlefieldUnitPaletteItem? item)
@@ -5917,6 +6048,7 @@ public sealed partial class MainForm
         {
             _selectedBattlefieldScriptCommandRow = itemRow.NodeType == "Command候选" ? itemRow : null;
             _selectedBattlefieldScriptTextEntry = null;
+            UpdateBattlefieldTextWrapLimitControl(itemData.Command);
             _battlefieldScriptTextBox.Clear();
             BindBattlefieldScriptParameterRows(itemData.Command != null
                 ? BuildBattlefieldLegacyScriptParameterRows(itemData.Command)
@@ -5926,6 +6058,8 @@ public sealed partial class MainForm
                 ? BuildLegacyScriptRowDetail(itemRow, itemData.Command)
                 : BuildBattlefieldScriptRowDetailWithPreview(itemRow);
             SetBattlefieldScriptPreview(itemRow, itemData.Command);
+            UpdateBattlefieldScriptImagePreview(itemRow);
+            LoadBattlefieldInlineLegacyScriptDialogForSelection();
             return;
         }
 
@@ -5933,10 +6067,16 @@ public sealed partial class MainForm
         {
             _selectedBattlefieldScriptTextEntry = text;
             _selectedBattlefieldScriptCommandRow = null;
+            UpdateBattlefieldTextWrapLimitControlForTextEntry(text);
             _battlefieldScriptTextBox.Text = text.Text;
             BindBattlefieldScriptParameterRows(Array.Empty<ScenarioCommandParameterRow>());
             _battlefieldScriptDetailBox.Text = BuildBattlefieldScriptTextDetail(text);
             UpdateBattlefieldScriptTextCapacityLabel();
+            SetBattlefieldScriptTextPreview(text);
+            ClearBattlefieldScriptImagePreview();
+            _battlefieldInlineDialogHost.ClearDialog("文本参数请通过所属命令的旧版 Dialog 修改。");
+            _applyBattlefieldScriptParameterButton.Enabled = false;
+            _resetBattlefieldInlineDialogButton.Enabled = false;
             return;
         }
 
@@ -5944,6 +6084,11 @@ public sealed partial class MainForm
         {
             _selectedBattlefieldScriptCommandRow = row.NodeType == "Command候选" ? row : null;
             _selectedBattlefieldScriptTextEntry = null;
+            UpdateBattlefieldTextWrapLimitControl(
+                _selectedBattlefieldScriptCommandRow != null &&
+                _battlefieldScriptCommandByKey.TryGetValue(BuildLegacyCommandKey(row), out var command)
+                    ? command
+                    : null);
             _battlefieldScriptTextBox.Clear();
             BindBattlefieldScriptParameterRows(row.NodeType == "Command候选"
                 ? BuildBattlefieldScriptParameterRows(row)
@@ -5951,10 +6096,16 @@ public sealed partial class MainForm
             UpdateBattlefieldScriptTextCapacityLabel();
             _battlefieldScriptDetailBox.Text = BuildBattlefieldScriptRowDetailWithPreview(row);
             SetBattlefieldScriptPreview(row);
+            UpdateBattlefieldScriptImagePreview(row);
+            LoadBattlefieldInlineLegacyScriptDialogForSelection();
             return;
         }
 
         ClearBattlefieldScriptTextSelection();
+        ClearBattlefieldScriptImagePreview();
+        _battlefieldInlineDialogHost.ClearDialog("请选择左侧 S 剧本命令。");
+        _applyBattlefieldScriptParameterButton.Enabled = false;
+        _resetBattlefieldInlineDialogButton.Enabled = false;
     }
 
     private string BuildBattlefieldScriptTextDetail(ScenarioTextEntry text)
@@ -5974,20 +6125,54 @@ public sealed partial class MainForm
 
     private void SetBattlefieldOverviewPreview(string text)
     {
-        _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Overview;
+        _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Script;
+        ApplyBattlefieldRightPreviewMode();
         _battlefieldInfoBox.Text = text;
+        _battlefieldScriptDetailBox.Text = text;
+        ClearBattlefieldScriptImagePreview();
+        _battlefieldInlineDialogHost.ClearDialog("请选择左侧 S 剧本命令。");
+        _applyBattlefieldScriptParameterButton.Enabled = false;
+        _resetBattlefieldInlineDialogButton.Enabled = false;
+        UpdateBattlefieldTextWrapLimitControl(null);
     }
 
     private void SetBattlefieldScriptPreview(ScenarioStructureRow row, LegacyScenarioCommandNode? command = null, string? prefix = null)
     {
         _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Script;
-        _battlefieldInfoBox.Text = BuildBattlefieldRightScriptPreview(row, command, prefix);
+        ApplyBattlefieldRightPreviewMode();
+        _battlefieldScriptDetailBox.Text = BuildBattlefieldRightScriptPreview(row, command, prefix);
+        _battlefieldInfoBox.Text = _battlefieldScriptDetailBox.Text;
+    }
+
+    private void SetBattlefieldScriptTextPreview(ScenarioTextEntry text, string? prefix = null)
+    {
+        _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Script;
+        ApplyBattlefieldRightPreviewMode();
+        _battlefieldScriptDetailBox.Text = BuildBattlefieldRightScriptTextPreview(text, prefix);
+        _battlefieldInfoBox.Text = _battlefieldScriptDetailBox.Text;
     }
 
     private void SetBattlefieldConsolePreview(string text)
     {
         _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Console;
+        ApplyBattlefieldRightPreviewMode();
         _battlefieldInfoBox.Text = text;
+        _battlefieldConsoleSummaryLabel.Text = BuildBattlefieldConsoleSummary(text);
+    }
+
+    private void ApplyBattlefieldRightPreviewMode()
+    {
+        var showConsole = _battlefieldRightPreviewMode == BattlefieldRightPreviewMode.Console;
+        _battlefieldConsolePreviewPanel.Visible = showConsole;
+        _battlefieldScriptPreviewPanel.Visible = !showConsole;
+        if (showConsole)
+        {
+            _battlefieldConsolePreviewPanel.BringToFront();
+        }
+        else
+        {
+            _battlefieldScriptPreviewPanel.BringToFront();
+        }
     }
 
     internal string BattlefieldRightPreviewModeForSmoke => _battlefieldRightPreviewMode.ToString();
@@ -5995,8 +6180,194 @@ public sealed partial class MainForm
     internal void ShowBattlefieldScriptPreviewForSmoke(ScenarioStructureRow row, LegacyScenarioCommandNode? command)
         => SetBattlefieldScriptPreview(row, command);
 
+    internal void ShowBattlefieldScriptTextPreviewForSmoke(ScenarioTextEntry text)
+        => SetBattlefieldScriptTextPreview(text);
+
     internal void ShowBattlefieldConsolePreviewForSmoke(string text)
         => SetBattlefieldConsolePreview(text);
+
+    internal void ShowBattlefieldPaletteConsolePreviewForSmoke(BattlefieldUnitPaletteItem item)
+        => ShowBattlefieldPaletteConsolePreview(item);
+
+    private void ClearBattlefieldScriptImagePreview()
+    {
+        SetPictureBoxImage(_battlefieldScriptImagePreviewBox, null);
+        _battlefieldScriptImagePreviewInfoBox.Text = "无图片预览";
+    }
+
+    private void UpdateBattlefieldScriptImagePreview(ScenarioStructureRow row)
+    {
+        if (_battlefieldScriptImagePreviewBox.Parent == null || !_battlefieldScriptImagePreviewBox.Visible)
+        {
+            ClearBattlefieldScriptImagePreview();
+            return;
+        }
+
+        if (_project == null || row.NodeType != "Command候选")
+        {
+            ClearBattlefieldScriptImagePreview();
+            return;
+        }
+
+        if (!TryResolveScriptImagePreview(row, out var resourceName, out var scriptImageNumber, out var title))
+        {
+            ClearBattlefieldScriptImagePreview();
+            return;
+        }
+
+        var resource = _imageResourceCatalogService.FindCatalogItem(_project, resourceName);
+        if (resource == null || !resource.Exists || !resource.SupportsPreview)
+        {
+            SetPictureBoxImage(_battlefieldScriptImagePreviewBox, null);
+            _battlefieldScriptImagePreviewInfoBox.Text =
+                $"{title} {scriptImageNumber}\r\n" +
+                $"资源：{resourceName}\r\n" +
+                "未找到可预览资源。";
+            return;
+        }
+
+        if (!TryGetScriptImagePreviewEntry(resource, scriptImageNumber, out var entry, out var resolveNote))
+        {
+            SetPictureBoxImage(_battlefieldScriptImagePreviewBox, null);
+            _battlefieldScriptImagePreviewInfoBox.Text =
+                $"{title} {scriptImageNumber}\r\n" +
+                $"资源：{resource.FileName}\r\n" +
+                resolveNote;
+            return;
+        }
+
+        try
+        {
+            var width = Math.Max(260, _battlefieldScriptImagePreviewBox.ClientSize.Width);
+            var height = Math.Max(180, _battlefieldScriptImagePreviewBox.ClientSize.Height);
+            var preview = _imageResourceCatalogService.RenderEntryPreview(_project, entry, width, height);
+            SetPictureBoxImage(_battlefieldScriptImagePreviewBox, preview);
+            _battlefieldScriptImagePreviewInfoBox.Text =
+                $"{title} {scriptImageNumber}\r\n" +
+                $"资源：{entry.FileName} #{entry.ImageNumber}\r\n" +
+                $"{resolveNote}\r\n" +
+                $"{entry.Kind}  {entry.DecodedLength:N0}B";
+        }
+        catch (Exception ex)
+        {
+            SetPictureBoxImage(_battlefieldScriptImagePreviewBox, null);
+            _battlefieldScriptImagePreviewInfoBox.Text =
+                $"{title} {scriptImageNumber}\r\n" +
+                $"资源：{resource.FileName}\r\n" +
+                "预览失败：" + ex.Message;
+        }
+    }
+
+    private void LoadBattlefieldInlineLegacyScriptDialogForSelection()
+    {
+        _applyBattlefieldScriptParameterButton.Enabled = false;
+        _resetBattlefieldInlineDialogButton.Enabled = false;
+
+        if (!TryGetSelectedBattlefieldLegacyItemData(out var itemData) || itemData.Command == null)
+        {
+            _battlefieldInlineDialogHost.ClearDialog("请选择左侧 S 剧本命令。");
+            UpdateBattlefieldTextWrapLimitControl(null);
+            return;
+        }
+
+        UpdateBattlefieldTextWrapLimitControl(itemData.Command);
+        if (!LegacyCommandEditDispatcher.CanEdit(itemData.Id))
+        {
+            _battlefieldInlineDialogHost.ClearDialog("该命令在旧版源码中没有修改窗口。");
+            return;
+        }
+
+        if (!TryValidateBattlefieldLegacyDialogCommand(itemData.Command, out var validationError))
+        {
+            _battlefieldInlineDialogHost.ClearDialog(validationError);
+            return;
+        }
+
+        var dialogName = LegacyCommandEditDispatcher.GetDialogName(itemData.Id);
+        if (!LegacyMfcDialogCatalog.TryGet(dialogName, out var spec))
+        {
+            _battlefieldInlineDialogHost.ClearDialog("该旧版 Dialog 尚未迁移为 MFC 控件。");
+            return;
+        }
+
+        var dialogDataSources = LegacyMfcDialogDataSources.Create(_project, _tables);
+        var precedingSameCommandCount = CountPrecedingSameLegacyCommands(_currentBattlefieldLegacyScriptDocument, itemData.Command);
+        _battlefieldInlineDialogHost.LoadDialog(
+            itemData,
+            spec,
+            dialogDataSources,
+            _currentBattlefieldLegacyScriptDocument?.CommandCount ?? 0,
+            precedingSameCommandCount,
+            includeDialogButtons: false);
+        _battlefieldInlineDialogHost.ConfigureTextWrapping(
+            BuildLegacyTextWrapOptions(itemData),
+            result => ShowLegacyTextWrapResult(_battlefieldInlineDialogHost, _battlefieldScriptTextWrapLimitInput, result));
+        _applyBattlefieldScriptParameterButton.Enabled = true;
+        _resetBattlefieldInlineDialogButton.Enabled = true;
+    }
+
+    private void ApplyBattlefieldInlineLegacyScriptDialog()
+    {
+        if (!TryGetSelectedBattlefieldLegacyItemData(out var itemData) || itemData.Command == null)
+        {
+            MessageBox.Show(this, "请先在左侧 S 剧本树中选择一条命令。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            MessageBox.Show(this, "当前 S 剧本尚未读取为旧版完整树，无法应用内嵌修改。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var command = itemData.Command;
+        var oldSummary = BuildLegacyScriptParameterPreview(command);
+        var beforeCommand = CaptureLegacyItemDataCommandSnapshot(itemData);
+        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        var preferredParameterIndex = GetSelectedBattlefieldScriptParameterRow()?.Index;
+        var preferredTargetKey = ResolveBattlefieldLegacyEditPreferredTargetKey(command, null, preferredParameterIndex);
+
+        _battlefieldInlineDialogHost.ConfigureTextWrapping(BuildLegacyTextWrapOptions(itemData));
+        var error = _battlefieldInlineDialogHost.CommitToTarget();
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            MessageBox.Show(this, error, "参数值无效", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        CopyLegacyItemDataToCommand(itemData);
+        var changed = LegacyItemDataCommandChanged(itemData, beforeCommand);
+        if (!changed)
+        {
+            SetStatus($"战场制作内嵌修改：{command.CommandIdHex} {command.CommandName} 未检测到改动");
+            LoadBattlefieldInlineLegacyScriptDialogForSelection();
+            return;
+        }
+
+        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+        if (!RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.Battlefield, command, preferredParameterIndex))
+        {
+            RefreshBattlefieldLegacyScriptView(command, preferredParameterIndex);
+        }
+
+        RefreshBattlefieldDocumentFromLegacyScript(preferredTargetKey);
+        _saveBattlefieldScriptStructureButton.Enabled = true;
+        LoadBattlefieldInlineLegacyScriptDialogForSelection();
+        SetStatus($"战场制作内嵌修改：{command.CommandIdHex} {command.CommandName}，{oldSummary} -> {BuildLegacyScriptParameterPreview(command)}，需完整保存S剧本");
+    }
+
+    private string BuildBattlefieldRightScriptTextPreview(ScenarioTextEntry text, string? prefix)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(prefix))
+        {
+            parts.Add(prefix.TrimEnd());
+        }
+
+        parts.Add("S 剧本文本预览：");
+        parts.Add(BuildBattlefieldScriptTextDetail(text));
+        return string.Join("\r\n\r\n", parts);
+    }
 
     private string BuildBattlefieldRightScriptPreview(ScenarioStructureRow row, LegacyScenarioCommandNode? command, string? prefix)
     {
@@ -6041,8 +6412,38 @@ public sealed partial class MainForm
             parts.Add(BuildBattlefieldScriptPreviewText(mapPreview));
         }
 
-        parts.Add("说明：点击左侧 S 剧本树时保持指令预览；点击中间候选或地图单位后切换到战场控制台预览。");
         return string.Join("\r\n\r\n", parts);
+    }
+
+    private static string BuildBattlefieldConsoleSummary(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n')
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0)
+            .ToList();
+        if (lines.Count == 0)
+        {
+            return "战场控制台";
+        }
+
+        var selectedIndex = lines.FindIndex(line =>
+            line.StartsWith("当前", StringComparison.Ordinal) ||
+            line.StartsWith("角色", StringComparison.Ordinal) ||
+            line.StartsWith("已", StringComparison.Ordinal) ||
+            line.StartsWith("战场控制台", StringComparison.Ordinal));
+        if (selectedIndex < 0)
+        {
+            selectedIndex = 0;
+        }
+
+        var summary = lines[selectedIndex];
+        if (summary.EndsWith("：", StringComparison.Ordinal) && selectedIndex + 1 < lines.Count)
+        {
+            summary += " " + lines[selectedIndex + 1];
+        }
+
+        return summary.Length <= 120 ? summary : summary[..117] + "...";
     }
 
     private string BuildBattlefieldScriptRowDetail(ScenarioStructureRow row)
@@ -6651,7 +7052,14 @@ public sealed partial class MainForm
         _editingBattlefieldLegacyCommandDialog = true;
         try
         {
-            edited = LegacyCommandEditDispatcher.Edit(this, itemData, commandTitle, _currentBattlefieldLegacyScriptDocument?.CommandCount ?? 0, precedingSameCommandCount, dialogDataSources);
+            edited = LegacyCommandEditDispatcher.Edit(
+                this,
+                itemData,
+                commandTitle,
+                _currentBattlefieldLegacyScriptDocument?.CommandCount ?? 0,
+                precedingSameCommandCount,
+                dialogDataSources,
+                BuildLegacyTextWrapOptions(command));
         }
         catch (Exception ex)
         {
@@ -6688,6 +7096,11 @@ public sealed partial class MainForm
 
     private bool ValidateBattlefieldLegacyDialogCommand(LegacyScenarioCommandNode command)
     {
+        if (TryValidateBattlefieldLegacyDialogCommand(command, out _))
+        {
+            return true;
+        }
+
         if (command.CommandId is not (0x46 or 0x47))
         {
             return true;
@@ -6714,6 +7127,41 @@ public sealed partial class MainForm
             }
 
             MessageBox.Show(this, $"当前命令参数槽 {i} 不是 16 位数值，无法作为旧版 Dialog_70 出场设定编辑。", "参数类型异常", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryValidateBattlefieldLegacyDialogCommand(LegacyScenarioCommandNode command, out string message)
+    {
+        message = string.Empty;
+        if (command.CommandId is not (0x46 or 0x47))
+        {
+            return true;
+        }
+
+        var definition = BattlefieldDeploymentRecordDefinition.FromCommandId(command.CommandId);
+        if (definition == null)
+        {
+            return true;
+        }
+
+        var expectedCount = definition.RecordCount * definition.GroupSize;
+        if (command.Parameters.Count < expectedCount)
+        {
+            message = $"当前命令只有 {command.Parameters.Count} 个参数槽，预期 {expectedCount} 个槽，无法载入旧版 Dialog_70。";
+            return false;
+        }
+
+        for (var i = 0; i < expectedCount; i++)
+        {
+            if (command.Parameters[i].Kind == LegacyScenarioParameterKind.Word16)
+            {
+                continue;
+            }
+
+            message = $"当前命令参数槽 {i} 不是 16 位数值，无法作为旧版 Dialog_70 出场设定编辑。";
             return false;
         }
 
@@ -7043,6 +7491,7 @@ public sealed partial class MainForm
     {
         _selectedBattlefieldScriptTextEntry = null;
         _selectedBattlefieldScriptCommandRow = null;
+        UpdateBattlefieldTextWrapLimitControl(null);
         _battlefieldScriptTextBox.Clear();
         BindBattlefieldScriptParameterRows(Array.Empty<ScenarioCommandParameterRow>());
         UpdateBattlefieldScriptTextCapacityLabel();
@@ -7100,6 +7549,7 @@ public sealed partial class MainForm
             return;
         }
 
+        ApplyBattlefieldScriptTextEditorWrapping();
         var newText = BattlefieldEditorService.NormalizeText(_battlefieldScriptTextBox.Text);
         if (newText.Contains('\0'))
         {

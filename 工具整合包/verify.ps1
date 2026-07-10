@@ -369,6 +369,10 @@ Invoke-Step "R/S read smoke" {
     Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--rs-smoke")
 }
 
+Invoke-Step "Role text unsaved sync smoke" {
+    Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--role-text-unsaved-sync-smoke")
+}
+
 Invoke-Step "Legacy MFC dialog smoke" {
     Invoke-External -FilePath dotnet -Arguments @($smokeDll, "--legacy-mfc-dialog-smoke")
 }
