@@ -16,7 +16,10 @@ public sealed class ImageAssignmentImportPreviewRenderer
     public Bitmap RenderCurrentTarget(CczProject project, ImageAssignmentImportPreviewItem item)
         => RenderCurrentTarget(project, item, DefaultPreviewSize);
 
-    public Bitmap RenderCurrentTarget(CczProject project, ImageAssignmentImportPreviewItem item, Size targetSize)
+    public Bitmap RenderCurrentTarget(
+        CczProject project,
+        ImageAssignmentImportPreviewItem item,
+        Size targetSize)
     {
         targetSize = NormalizeTargetSize(targetSize);
         try
@@ -45,7 +48,9 @@ public sealed class ImageAssignmentImportPreviewRenderer
     public Bitmap RenderOutputPreview(ImageAssignmentImportPreviewItem item)
         => RenderOutputPreview(item, DefaultPreviewSize);
 
-    public Bitmap RenderOutputPreview(ImageAssignmentImportPreviewItem item, Size targetSize)
+    public Bitmap RenderOutputPreview(
+        ImageAssignmentImportPreviewItem item,
+        Size targetSize)
     {
         targetSize = NormalizeTargetSize(targetSize);
         try
@@ -72,7 +77,11 @@ public sealed class ImageAssignmentImportPreviewRenderer
     public Bitmap RenderStripContactSheet(Bitmap strip, int frameWidth, int frameHeight)
         => RenderStripContactSheet(strip, frameWidth, frameHeight, DefaultPreviewSize);
 
-    public Bitmap RenderStripContactSheet(Bitmap strip, int frameWidth, int frameHeight, Size targetSize)
+    public Bitmap RenderStripContactSheet(
+        Bitmap strip,
+        int frameWidth,
+        int frameHeight,
+        Size targetSize)
     {
         targetSize = NormalizeTargetSize(targetSize);
         frameWidth = Math.Max(1, frameWidth);
@@ -125,7 +134,10 @@ public sealed class ImageAssignmentImportPreviewRenderer
         return bitmap;
     }
 
-    private Bitmap RenderImageForItem(Bitmap image, ImageAssignmentImportPreviewItem item, Size targetSize)
+    private Bitmap RenderImageForItem(
+        Bitmap image,
+        ImageAssignmentImportPreviewItem item,
+        Size targetSize)
     {
         if (item.Kind.Equals("Face", StringComparison.OrdinalIgnoreCase))
         {
@@ -244,7 +256,12 @@ public sealed class ImageAssignmentImportPreviewRenderer
         {
             using var stream = new MemoryStream(bytes);
             using var image = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: true);
-            return new Bitmap(image);
+            var bitmap = new Bitmap(image.Width, image.Height, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.Clear(Color.Transparent);
+            graphics.CompositingMode = CompositingMode.SourceCopy;
+            graphics.DrawImage(image, new Rectangle(Point.Empty, bitmap.Size));
+            return bitmap;
         }
         catch
         {

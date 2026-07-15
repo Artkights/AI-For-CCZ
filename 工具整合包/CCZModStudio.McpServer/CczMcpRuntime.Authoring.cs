@@ -290,27 +290,29 @@ public sealed partial class CczMcpRuntime
 
     public object ReadTableSchema(string? gameRoot, string tableName)
     {
-        var project = LoadProject(gameRoot);
-        var tables = LoadTables(project);
-        var table = FindTable(project, tables, tableName);
-        var read = _tableReader.Read(project, table, tables);
+        try
+        {
+            var project = LoadProject(gameRoot);
+            var tables = LoadTables(project);
+            var table = FindTable(project, tables, tableName);
+            var read = _tableReader.Read(project, table, tables);
         var columns = read.Data.Columns.Cast<DataColumn>()
             .Select(column =>
             {
                 var field = column.ExtendedProperties["FieldDefinition"] as HexFieldDefinition;
-                return new
+                return new TableSchemaColumnPayload
                 {
-                    column.ColumnName,
+                    ColumnName = column.ColumnName,
                     DataType = column.DataType.Name,
                     IsSyntheticId = column.ColumnName.Equals("ID", StringComparison.OrdinalIgnoreCase),
                     Writable = IsWritableDataColumn(column),
                     ReadOnlyReason = BuildReadOnlyReason(column),
-                    Field = field == null ? null : new
+                    Field = field == null ? null : new TableSchemaFieldPayload
                     {
                         Kind = field.Kind.ToString(),
-                        field.Size,
-                        field.ConsumesBytes,
-                        field.VisibleByDefault,
+                        Size = field.Size,
+                        ConsumesBytes = field.ConsumesBytes,
+                        VisibleByDefault = field.VisibleByDefault,
                         Annotation = _fieldAnnotationService.BuildFieldAnnotation(table, field),
                         ShortAnnotation = _fieldAnnotationService.BuildShortFieldAnnotation(table, field),
                         RiskReason = _fieldAnnotationService.GetRiskReason(table, field)
@@ -318,8 +320,8 @@ public sealed partial class CczMcpRuntime
                 };
             })
             .ToArray();
-        return new
-        {
+            return new
+            {
             project.GameRoot,
             table.TableName,
             table.FileName,
@@ -337,7 +339,40 @@ public sealed partial class CczMcpRuntime
                 DerivedColumns = "Columns without FieldDefinition or with FieldDefinition.ConsumesBytes=false are display-only unless HexTableWriter has an explicit derived encoder.",
                 CsvImport = "CSV import only applies columns that exist and consume bytes; unsupported/display columns are skipped."
             }
-        };
+            };
+        }
+        catch (Exception ex)
+        {
+            return new
+            {
+                Error = "ReadTableSchemaFailed",
+                Message = ex.Message,
+                ExceptionType = ex.GetType().FullName,
+                RequestedTable = tableName,
+                RequestedGameRoot = gameRoot ?? string.Empty
+            };
+        }
+    }
+
+    private sealed class TableSchemaColumnPayload
+    {
+        public string ColumnName { get; init; } = string.Empty;
+        public string DataType { get; init; } = string.Empty;
+        public bool IsSyntheticId { get; init; }
+        public bool Writable { get; init; }
+        public string ReadOnlyReason { get; init; } = string.Empty;
+        public TableSchemaFieldPayload? Field { get; init; }
+    }
+
+    private sealed class TableSchemaFieldPayload
+    {
+        public string Kind { get; init; } = string.Empty;
+        public int Size { get; init; }
+        public bool ConsumesBytes { get; init; }
+        public bool VisibleByDefault { get; init; }
+        public string Annotation { get; init; } = string.Empty;
+        public string ShortAnnotation { get; init; } = string.Empty;
+        public string RiskReason { get; init; } = string.Empty;
     }
 
     public object ReadTableDerivedDisplay(string? gameRoot, string tableName, List<int>? rowIds, int limit)
@@ -464,9 +499,11 @@ public sealed partial class CczMcpRuntime
             .Take(NormalizeLimit(limit, 100, 1000))
             .Select(row => BuildRoleTextPayload(project, row, build))
             .ToArray();
+        var quoteLayout = _roleQuoteMappingService.ResolveLayout(project);
         return new
         {
             project.GameRoot,
+            QuoteLayout = quoteLayout.ToDiagnosticPayload(),
             Tables = new
             {
                 Biography = build.Biography.Table.TableName,
@@ -487,9 +524,11 @@ public sealed partial class CczMcpRuntime
         var roleBuild = BuildRoleEditorTables(project, tables);
         var textBuild = BuildRoleTextTables(project, tables);
         var changes = ApplyRoleTextUpdates(project, roleBuild, textBuild, updates, mutate: false);
+        var quoteLayout = _roleQuoteMappingService.ResolveLayout(project);
         return new
         {
             project.GameRoot,
+            QuoteLayout = quoteLayout.ToDiagnosticPayload(),
             Preview = changes,
             BackupPaths = Array.Empty<string>(),
             ChangedBytes = 0,
@@ -521,12 +560,14 @@ public sealed partial class CczMcpRuntime
         if (textBuild.Critical.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, textBuild.Critical.Table, textBuild.Critical.Data));
         if (textBuild.Retreat.Data.GetChanges() != null) saves.Add(_tableWriter.Save(project, textBuild.Retreat.Table, textBuild.Retreat.Data));
 
+        var quoteLayout = _roleQuoteMappingService.ResolveLayout(project);
         return new
         {
             project.GameRoot,
+            QuoteLayout = quoteLayout.ToDiagnosticPayload(),
             Result = changes,
             Saves = saves.Select(BuildTableSavePayload),
-            SpecialSaves = specialSaves.Select(save => new { save.FilePath, save.BackupPath, save.ReportJsonPath, save.ChangedBytes }),
+            SpecialSaves = specialSaves.Select(save => new { save.FilePath, save.BackupPath, save.ReportJsonPath, save.ChangedBytes, save.Version, OffsetHex = $"0x{save.Offset:X}", save.EvidenceStatus, save.ExpectedOldBytesHex }),
             BackupPaths = saves.Select(save => save.BackupPath).Concat(specialSaves.Select(save => save.BackupPath)).ToArray(),
             ChangedBytes = saves.Sum(save => save.ChangedBytes) + specialSaves.Sum(save => save.ChangedBytes),
             RereadOk = true,
@@ -1171,9 +1212,10 @@ public sealed partial class CczMcpRuntime
 
     private RoleTextBuild BuildRoleTextTables(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var biography = _tableReader.Read(project, FindTable(project, tables, "6.5-0-1 人物列传"), tables);
-        var critical = _tableReader.Read(project, FindTable(project, tables, "6.5-0-2 暴击台词"), tables);
-        var retreat = _tableReader.Read(project, FindTable(project, tables, "6.5-0-3 撤退台词"), tables);
+        var hints = new CczEngineProfileService().Detect(project).TableHints;
+        var biography = _tableReader.Read(project, FindTable(project, tables, hints.BiographyTable), tables);
+        var critical = _tableReader.Read(project, FindTable(project, tables, hints.CriticalQuoteTable), tables);
+        var retreat = _tableReader.Read(project, FindTable(project, tables, hints.RetreatQuoteTable), tables);
         EnsureReadableTable(biography);
         EnsureReadableTable(critical);
         EnsureReadableTable(retreat);

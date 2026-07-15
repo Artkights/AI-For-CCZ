@@ -14,6 +14,8 @@ public sealed class MapResourceItem
     public string FormatHint { get; init; } = string.Empty;
     public string Annotation { get; init; } = string.Empty;
     public string SourceKind { get; init; } = "JpegMap";
+    public string SlotStateText { get; init; } = string.Empty;
+    public string SlotStateDetail { get; init; } = string.Empty;
     public int Width { get; init; }
     public int Height { get; init; }
     public int GridWidthOverride { get; init; }
@@ -22,4 +24,5 @@ public sealed class MapResourceItem
     public int GridHeight => GridHeightOverride > 0 ? GridHeightOverride : Height > 0 && Height % MapTilePixelSize == 0 ? Height / MapTilePixelSize : 0;
     public int GridCellCount => GridWidth > 0 && GridHeight > 0 ? GridWidth * GridHeight : 0;
     public string Path { get; init; } = string.Empty;
+    public string DisplayName => string.IsNullOrWhiteSpace(SlotStateText) ? Name : $"{Name}  [{SlotStateText}]";
 }

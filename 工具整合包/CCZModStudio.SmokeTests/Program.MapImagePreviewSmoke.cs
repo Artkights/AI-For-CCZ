@@ -32,7 +32,7 @@ internal partial class Program
         }
 
         var beforeTargetHash = WriteOperationReportService.ComputeSha256(File.ReadAllBytes(targetPath));
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         var backupCountBefore = Directory.Exists(backupRoot)
             ? Directory.EnumerateFiles(backupRoot, "*", SearchOption.TopDirectoryOnly).Count()
             : 0;

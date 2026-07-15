@@ -8,6 +8,14 @@ public static class PortableInstallPaths
 
     public static string LauncherRoot => EnsureTrailingSlash(ResolveLauncherRoot());
 
+    public static string LogRoot => Path.Combine(LauncherRoot, "log");
+
+    public static string CacheRoot => Path.Combine(LauncherRoot, "cache");
+
+    public static string ConfigRoot => Path.Combine(LauncherRoot, "config");
+
+    public static string BackupSettingsPath => Path.Combine(ConfigRoot, "backup-settings.json");
+
     public static string ConfigTableRoot => Path.Combine(RuntimeRoot, "ConfigTable");
 
     public static string LegacyResourcesRoot => Path.Combine(RuntimeRoot, "LegacyResources");
@@ -49,9 +57,12 @@ public static class PortableInstallPaths
     }
 
     private static string ResolveLauncherRoot()
+        => ResolveLauncherRoot(AppContext.BaseDirectory, Environment.ProcessPath);
+
+    internal static string ResolveLauncherRoot(string runtimeDirectory, string? processPath)
     {
-        var processDirectory = Path.GetDirectoryName(Environment.ProcessPath);
-        var runtimeDirectory = Path.GetFullPath(AppContext.BaseDirectory);
+        runtimeDirectory = Path.GetFullPath(runtimeDirectory);
+        var processDirectory = Path.GetDirectoryName(processPath);
         var current = Path.GetFullPath(string.IsNullOrWhiteSpace(processDirectory) ? runtimeDirectory : processDirectory);
         if (!LooksLikeLauncherRoot(current) &&
             !Path.GetFileName(current).Equals("net", StringComparison.OrdinalIgnoreCase))

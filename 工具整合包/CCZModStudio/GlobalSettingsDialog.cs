@@ -327,6 +327,8 @@ public sealed class GlobalSettingsDialog : Form
         _jobSeriesGrid.DataSource = _document.JobSeriesNames;
         _detailedJobGrid.DataSource = _document.DetailedJobNames;
         _titleBox.Text = _document.GameTitle.Title;
+        _titleBox.ReadOnly = !_document.GameTitle.CanEdit;
+        _saveTitleButton.Enabled = _document.GameTitle.CanEdit;
         _cmfCandidateGrid.DataSource = ToCmfCandidateGrid(_document.CmfCandidates);
         _cmfDesignerFieldGrid.DataSource = ToCmfDesignerFieldGrid(_document.CmfDesignerFields);
         _evidenceGrid.DataSource = ToEvidenceGrid(_document.Evidence);
@@ -364,7 +366,7 @@ public sealed class GlobalSettingsDialog : Form
             if (saveGameTitle)
             {
                 _document.GameTitle.Title = _titleBox.Text;
-                _ = EncodingService.EncodeFixedString(_document.GameTitle.Title, _document.GameTitle.CapacityBytes);
+                _service.ValidateGameTitleUpdate(_document.GameTitle, _document.GameTitle.Title);
             }
 
             var result = _service.Save(_project, _tables, _document, saveJobSeries, saveDetailedJobs, saveGameTitle);
@@ -642,7 +644,16 @@ public sealed class GlobalSettingsDialog : Form
     {
         if (_document == null) return;
         var count = EncodingService.GetGbkByteCount(_titleBox.Text);
-        _titleCapacityLabel.Text = $"GBK 容量：{count}/{_document.GameTitle.CapacityBytes} 字节    位置：{_document.GameTitle.FileName}@{HexDisplayFormatter.FormatOffset(_document.GameTitle.Offset)}";
+        if (!_document.GameTitle.CanEdit)
+        {
+            _titleCapacityLabel.Text = "游戏标题不可编辑：" + _document.GameTitle.Diagnostic;
+            _titleCapacityLabel.ForeColor = Color.DarkRed;
+            return;
+        }
+
+        _titleCapacityLabel.Text = $"版本：{_document.GameTitle.EngineVersion} / {_document.GameTitle.LayoutKey}    " +
+                                   $"GBK 容量：{count}/{_document.GameTitle.CapacityBytes} 字节    " +
+                                   $"位置：{_document.GameTitle.FileName}@{HexDisplayFormatter.FormatOffset(_document.GameTitle.Offset)}";
         _titleCapacityLabel.ForeColor = count > _document.GameTitle.CapacityBytes ? Color.DarkRed : SystemColors.ControlText;
     }
 

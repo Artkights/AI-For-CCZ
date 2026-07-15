@@ -5,16 +5,23 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Version>7.0.0</Version>
+    <AssemblyVersion>7.0.0.0</AssemblyVersion>
+    <FileVersion>7.0.0.0</FileVersion>
+    <InformationalVersion>7.0.0+open-authoring-v7</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="..\CCZModStudio\Core\**\*.cs" LinkBase="Core" />
+    <Compile Remove="..\CCZModStudio\Core\PixelEditResourceGroupWriteService.cs" />
     <Compile Include="..\CCZModStudio\Formats\**\*.cs" LinkBase="Formats" />
     <Compile Include="..\CCZModStudio\Models\**\*.cs" LinkBase="Models" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Iced" Version="1.21.0" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.8" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
 

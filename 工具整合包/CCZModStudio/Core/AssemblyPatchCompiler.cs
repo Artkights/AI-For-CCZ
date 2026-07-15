@@ -43,17 +43,57 @@ public sealed partial class AssemblyPatchCompiler
         if (!allocation.Success || allocation.Allocation == null)
         {
             result.Warnings.Add(allocation.Reason);
-            result.Summary = "Assembly patch preview failed: " + allocation.Reason;
+            result.Summary = "汇编补丁预览失败：" + allocation.Reason;
             return result;
         }
 
         var caveAddress = allocation.Allocation.StartVirtualAddress;
-        var source = BuildSource(draft, caveAddress);
+        var hookSafety = new HookSafetyAnalyzer().Analyze(project, draft, caveAddress);
+        result.HookSafety = hookSafety;
+        if (!hookSafety.IsSafe)
+        {
+            result.Warnings.AddRange(hookSafety.Warnings);
+            result.Summary = "汇编补丁预览失败：" + hookSafety.Summary;
+            return result;
+        }
+
+        // HookSafetyAnalyzer may widen the overwrite window to full instructions.
+        // Synchronize the old-byte lock and all downstream return/manifest fields.
+        draft.OverwriteLength = hookSafety.RequiredOverwriteLength;
+        draft.ExpectedOldBytesHex = hookSafety.CurrentBytesHex;
+        draft.ReturnAddress = hookSafety.ReturnAddress;
+        draft.ReturnAddressHex = $"0x{hookSafety.ReturnAddress:X8}";
+
+        var source = BuildSource(draft, caveAddress, hookSafety.RelocatedOriginalBytes);
         var codeBytes = CompileSource(source, caveAddress);
         if (codeBytes.Length > allocation.Allocation.Length)
         {
             result.Warnings.Add($"Compiled code is {codeBytes.Length} bytes but allocated cave length is {allocation.Allocation.Length} bytes.");
-            result.Summary = "Assembly patch preview failed: compiled code does not fit.";
+            result.Summary = "汇编补丁预览失败：编译后的代码超过已分配代码洞。";
+            return result;
+        }
+
+        var executableCodeBytes = SliceExecutableCode(codeBytes, draft.Metadata.GetValueOrDefault("EmbeddedDataMagic"));
+        var compiledWarnings = ValidateCompiledControlFlow(executableCodeBytes, caveAddress, hookSafety.ReturnAddress, profile);
+        if (draft.Metadata.TryGetValue("SemanticProgramJson", out var semanticJson) && !string.IsNullOrWhiteSpace(semanticJson))
+        {
+            try
+            {
+                var program = System.Text.Json.JsonSerializer.Deserialize<SemanticEffectProgram>(semanticJson)
+                              ?? throw new InvalidOperationException("语义程序为空。");
+                var contract = new HookExecutionContractService().Read(project, program.HookContractId);
+                var semanticValidation = new SemanticPatchValidator().ValidateCompiled(executableCodeBytes, caveAddress, contract, hookSafety.ReturnAddress);
+                if (!semanticValidation.IsValid) compiledWarnings.AddRange(semanticValidation.WarningsZh);
+            }
+            catch (Exception ex)
+            {
+                compiledWarnings.Add("语义补丁编译后验证失败：" + ex.Message);
+            }
+        }
+        if (compiledWarnings.Count > 0)
+        {
+            result.Warnings.AddRange(compiledWarnings);
+            result.Summary = "汇编补丁预览失败：编译后的控制流校验未通过。";
             return result;
         }
 
@@ -67,7 +107,7 @@ public sealed partial class AssemblyPatchCompiler
         catch (Exception ex)
         {
             result.Warnings.Add(ex.Message);
-            result.Summary = "Assembly patch preview failed: patch segment overlap.";
+            result.Summary = "汇编补丁预览失败：写入段发生重叠。";
             return result;
         }
 
@@ -80,7 +120,9 @@ public sealed partial class AssemblyPatchCompiler
         result.Warnings.AddRange(patchPreview.Warnings);
         result.CanApply = patchPreview.CanApply;
         package.Metadata["AssemblyPatchPreviewPassed"] = result.CanApply ? "true" : "false";
-        result.Summary = $"Assembly patch preview: canApply={result.CanApply}, cave=0x{caveAddress:X8}, codeBytes={codeBytes.Length}, warnings={result.Warnings.Count}.";
+        if (result.CanApply)
+            new LockedEffectWriteReceiptService().Issue(project, package, "assembly-patch");
+        result.Summary = $"汇编补丁预览：可写入={(result.CanApply ? "是" : "否")}，代码洞=0x{caveAddress:X8}，代码长度={codeBytes.Length} 字节，警告={result.Warnings.Count} 条。";
         return result;
     }
 
@@ -89,7 +131,7 @@ public sealed partial class AssemblyPatchCompiler
         if (!compiledPackage.Metadata.TryGetValue("AssemblyPatchPreviewPassed", out var passed) ||
             !passed.Equals("true", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Assembly patch package was not produced by a successful preview_assembly_patch run.");
+            throw new InvalidOperationException("汇编补丁包不是由成功的汇编预览生成的。");
         }
 
         var currentProfile = new EnginePatchProfileService().Build(project);
@@ -98,16 +140,10 @@ public sealed partial class AssemblyPatchCompiler
             !expectedSha256.Equals(currentProfile.ExeSha256, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                $"Assembly patch engine SHA lock failed. Expected {expectedSha256}, actual {currentProfile.ExeSha256}.");
+                $"汇编补丁的 EXE 摘要锁校验失败。预期 {expectedSha256}，实际 {currentProfile.ExeSha256}。");
         }
 
         var effectPackageService = new EffectPackageService();
-        var preview = effectPackageService.PreviewPatch(project, compiledPackage);
-        if (!preview.CanApply)
-        {
-            throw new InvalidOperationException("Assembly patch package no longer previews cleanly: " + string.Join("; ", preview.Warnings));
-        }
-
         var apply = effectPackageService.ApplyPatch(project, compiledPackage);
         return new AssemblyPatchApplyResult
         {
@@ -340,10 +376,10 @@ public sealed partial class AssemblyPatchCompiler
             PackageId = $"assembly-patch-{draft.EffectId}-{DateTime.Now:yyyyMMddHHmmssfff}",
             Domain = "patch",
             EffectId = draft.EffectId,
-            Name = string.IsNullOrWhiteSpace(draft.HookPoint) ? "Assembly patch" : draft.HookPoint,
+            Name = string.IsNullOrWhiteSpace(draft.HookPoint) ? "汇编补丁" : draft.HookPoint,
             Description = string.IsNullOrWhiteSpace(draft.Prompt) ? "Generated assembly patch." : draft.Prompt,
             SourcePrompt = draft.Prompt,
-            BackupNote = "Assembly patch generated through preview_assembly_patch; restore through manifest backup if needed.",
+            BackupNote = "汇编补丁由预览流程生成；需要恢复时使用 manifest 记录的备份。",
             Metadata =
             {
                 ["AssemblyPatch"] = "true",
@@ -360,6 +396,12 @@ public sealed partial class AssemblyPatchCompiler
                 ["OverwriteLength"] = draft.OverwriteLength.ToString(CultureInfo.InvariantCulture),
                 ["RequiredCodeCaveBytes"] = draft.RequiredCodeCaveBytes.ToString(CultureInfo.InvariantCulture),
                 ["RegisterStrategy"] = draft.RegisterStrategy,
+                ["HookContractId"] = draft.HookContractId,
+                ["OriginalInstructionPolicy"] = draft.OriginalInstructionPolicy,
+                ["OriginalInstructionPlacement"] = draft.OriginalInstructionPlacement,
+                ["PreserveFlags"] = draft.PreserveFlags ? "true" : "false",
+                ["ExpectedStackDelta"] = draft.ExpectedStackDelta.ToString(CultureInfo.InvariantCulture),
+                ["RequiredSymbols"] = string.Join("; ", draft.RequiredSymbols),
                 ["Dependencies"] = string.Join("; ", draft.Dependencies),
                 ["Risks"] = string.Join("; ", draft.Risks),
                 ["DynamicValidationPlan"] = string.Join("; ", draft.DynamicValidationPlan)
@@ -384,7 +426,7 @@ public sealed partial class AssemblyPatchCompiler
             AssemblySourceHash = sourceHash,
             AllocatedRange = $"{allocation.StartVirtualAddressHex}-{allocation.EndVirtualAddressHex}",
             EngineProfileSha256 = profile.ExeSha256,
-            Comment = "Assembly patch hook jump."
+            Comment = "汇编补丁入口跳转段。"
         });
 
         package.PatchSegments.Add(new EffectPatchSegment
@@ -400,24 +442,84 @@ public sealed partial class AssemblyPatchCompiler
             AssemblySourceHash = sourceHash,
             AllocatedRange = $"{allocation.StartVirtualAddressHex}-{allocation.EndVirtualAddressHex}",
             EngineProfileSha256 = profile.ExeSha256,
-            Comment = "Assembly patch compiled code cave body."
+            Comment = "汇编补丁代码洞主体。"
         });
 
         return package;
     }
 
-    private static string BuildSource(AssemblyPatchDraft draft, uint caveAddress)
+    private static string BuildSource(AssemblyPatchDraft draft, uint caveAddress, byte[] relocatedOriginalBytes)
     {
         var returnAddress = draft.ReturnAddress == 0 ? checked(draft.HookAddress + (uint)draft.OverwriteLength) : draft.ReturnAddress;
-        return (draft.AssemblySource ?? string.Empty)
+        var source = (draft.AssemblySource ?? string.Empty)
             .Replace("{return}", $"0x{returnAddress:X8}", StringComparison.OrdinalIgnoreCase)
             .Replace("{hook}", $"0x{draft.HookAddress:X8}", StringComparison.OrdinalIgnoreCase)
             .Replace("{cave}", $"0x{caveAddress:X8}", StringComparison.OrdinalIgnoreCase);
+        if (relocatedOriginalBytes.Length == 0) return source.Replace("{original}", string.Empty, StringComparison.OrdinalIgnoreCase);
+        var original = "db " + string.Join(", ", relocatedOriginalBytes.Select(value => $"0x{value:X2}"));
+        if (source.Contains("{original}", StringComparison.OrdinalIgnoreCase))
+        {
+            return source.Replace("{original}", original, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return original + "\n" + source;
     }
 
     private static byte[] CompileSource(string source, uint origin)
     {
         return CompileWithNasm(source, origin);
+    }
+
+    private static byte[] SliceExecutableCode(byte[] bytes, string? magic)
+    {
+        if (string.IsNullOrWhiteSpace(magic)) return bytes;
+        var marker = Encoding.ASCII.GetBytes(magic);
+        for (var index = 0; index <= bytes.Length - marker.Length; index++)
+        {
+            if (bytes.AsSpan(index, marker.Length).SequenceEqual(marker))
+                return bytes[..index];
+        }
+        return bytes;
+    }
+
+    private static List<string> ValidateCompiledControlFlow(
+        byte[] codeBytes,
+        uint caveAddress,
+        uint returnAddress,
+        EnginePatchProfile profile)
+    {
+        var warnings = new List<string>();
+        var instructions = new X86InstructionScanner().DecodeBlock(codeBytes, caveAddress, "compiled-cave");
+        var caveEnd = checked(caveAddress + (uint)codeBytes.Length);
+        var allowedTargets = new HashSet<uint> { returnAddress };
+        foreach (var value in profile.PublicFunctions.Values)
+        {
+            if (TryParseUInt(value, out var address)) allowedTargets.Add(address);
+        }
+
+        foreach (var instruction in instructions)
+        {
+            if (instruction.IsReturn)
+            {
+                warnings.Add($"代码洞 0x{instruction.Address:X8} 包含 ret；注入代码必须显式跳回 HookContract 返回地址。");
+                continue;
+            }
+
+            if (!instruction.BranchTarget.HasValue) continue;
+            var target = instruction.BranchTarget.Value;
+            var insideCave = target >= caveAddress && target < caveEnd;
+            if (!insideCave && !allowedTargets.Contains(target))
+            {
+                warnings.Add($"代码洞 0x{instruction.Address:X8} 的 {instruction.Mnemonic} 指向未登记地址 0x{target:X8}；请先加入当前引擎符号/Hook 契约。" );
+            }
+        }
+
+        if (!instructions.Any(instruction => instruction.IsDirectJump && instruction.BranchTarget == returnAddress))
+        {
+            warnings.Add($"代码洞没有显式跳回 0x{returnAddress:X8}。" );
+        }
+
+        return warnings;
     }
 
     private static bool TryCompileTinyAssembler(string source, uint origin, out byte[] bytes)

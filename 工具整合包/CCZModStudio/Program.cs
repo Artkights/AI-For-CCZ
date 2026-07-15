@@ -1,3 +1,5 @@
+using CCZModStudio.Core;
+
 namespace CCZModStudio;
 
 static class Program
@@ -9,6 +11,8 @@ static class Program
         {
             return;
         }
+
+        if (ActiveReleaseStartupService.TryRedirectToActive(args)) return;
 
         ApplicationErrorService.RegisterWinFormsHandlers();
         ApplicationConfiguration.Initialize();

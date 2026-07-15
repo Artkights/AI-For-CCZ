@@ -646,10 +646,89 @@ public sealed class DllBitmapIconCodecService
     private static byte[] EncodeForTarget(Bitmap source, DllBitmapResourceRecord target)
         => target.BitCount switch
         {
-            32 => Encode32BppTopFirstDib(source),
-            8 => Encode8BppBottomUpDib(source, target),
-            _ => Encode24BppBottomUpDib(source)
+            32 => Encode32BppPreservingDib(source, target),
+            24 => Encode24BppPreservingDib(source, target),
+            8 => Encode8BppPreservingDib(source, target),
+            _ => throw new InvalidOperationException(
+                $"RT_BITMAP ID={target.Id} LANG={target.LanguageId} is {target.BitCount}bpp; pixel editing supports only uncompressed 8/24/32bpp DIB resources.")
         };
+
+    private static byte[] Encode8BppPreservingDib(Bitmap source, DllBitmapResourceRecord target)
+    {
+        if (!TryReadDibInfo(target.DibBytes, out var info) || info.BitCount != 8 ||
+            source.Width != info.Width || source.Height != info.Height)
+            throw new InvalidOperationException("The target 8bpp DIB layout does not match the editable icon.");
+        var palette = ReadDibPalette(target.DibBytes);
+        if (palette.Length < 2) throw new InvalidOperationException("The target 8bpp DIB has no usable palette.");
+        using var original = DecodeStorageDib(target.DibBytes)
+                             ?? throw new InvalidOperationException("The target 8bpp DIB cannot be decoded.");
+        var output = target.DibBytes.ToArray();
+        for (var y = 0; y < info.Height; y++)
+        for (var x = 0; x < info.Width; x++)
+        {
+            var color = source.GetPixel(x, y);
+            if (PixelsEquivalent(color, original.Bitmap.GetPixel(x, y))) continue;
+            var storedY = ResolveStoredY(info, y);
+            output[info.PixelOffset + storedY * info.Stride + x] =
+                IsTransparent(color) || HasSameRgb(color, palette[0])
+                    ? (byte)0
+                    : FindNearestPaletteIndex(Color.FromArgb(255, color.R, color.G, color.B), palette);
+        }
+        return output;
+    }
+
+    private static byte[] Encode24BppPreservingDib(Bitmap source, DllBitmapResourceRecord target)
+    {
+        if (!TryReadDibInfo(target.DibBytes, out var info) || info.BitCount != 24 ||
+            source.Width != info.Width || source.Height != info.Height)
+            throw new InvalidOperationException("The target 24bpp DIB layout does not match the editable icon.");
+        using var original = DecodeStorageDib(target.DibBytes)
+                             ?? throw new InvalidOperationException("The target 24bpp DIB cannot be decoded.");
+        var output = target.DibBytes.ToArray();
+        for (var y = 0; y < info.Height; y++)
+        for (var x = 0; x < info.Width; x++)
+        {
+            var color = source.GetPixel(x, y);
+            if (PixelsEquivalent(color, original.Bitmap.GetPixel(x, y))) continue;
+            if (IsTransparent(color)) color = DllTransparentKey;
+            var offset = info.PixelOffset + ResolveStoredY(info, y) * info.Stride + x * 3;
+            output[offset] = color.B;
+            output[offset + 1] = color.G;
+            output[offset + 2] = color.R;
+        }
+        return output;
+    }
+
+    private static byte[] Encode32BppPreservingDib(Bitmap source, DllBitmapResourceRecord target)
+    {
+        if (!TryReadDibInfo(target.DibBytes, out var info) || info.BitCount != 32 ||
+            source.Width != info.Width || source.Height != info.Height)
+            throw new InvalidOperationException("The target 32bpp DIB layout does not match the editable icon.");
+        using var original = DecodeStorageDib(target.DibBytes)
+                             ?? throw new InvalidOperationException("The target 32bpp DIB cannot be decoded.");
+        var output = target.DibBytes.ToArray();
+        for (var y = 0; y < info.Height; y++)
+        for (var x = 0; x < info.Width; x++)
+        {
+            var color = source.GetPixel(x, y);
+            if (PixelsEquivalent(color, original.Bitmap.GetPixel(x, y))) continue;
+            var offset = info.PixelOffset + ResolveStoredY(info, y) * info.Stride + x * 4;
+            output[offset] = color.B;
+            output[offset + 1] = color.G;
+            output[offset + 2] = color.R;
+            output[offset + 3] = color.A;
+        }
+        return output;
+    }
+
+    private static int ResolveStoredY(DllBitmapDibInfo info, int y)
+        => ResolveDibRowOrder(info.SignedHeight, info.BitCount) == DllBitmapDibRowOrder.StandardBottomUp &&
+           info.SignedHeight > 0
+            ? info.Height - 1 - y
+            : y;
+
+    private static bool PixelsEquivalent(Color left, Color right)
+        => left.ToArgb() == right.ToArgb() || (left.A == 0 && right.A == 0);
 
     private static byte[] Encode8BppBottomUpDib(Bitmap source, DllBitmapResourceRecord target)
     {

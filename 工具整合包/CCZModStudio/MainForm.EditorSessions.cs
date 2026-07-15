@@ -409,6 +409,7 @@ public sealed partial class MainForm
     private async Task SaveCurrentBattlefieldSessionSilentlyAsync()
     {
         if (_project == null || _currentBattlefieldDocument == null) return;
+        if (!TryCommitPendingBattlefieldConsoleChangesForSave()) return;
         CommitBattlefieldScriptTextEditorToCurrentEntry();
         var textDirty = IsBattlefieldTitleConditionsDirty(_currentBattlefieldDocument, _battlefieldTitleBox.Text, _battlefieldConditionsBox.Text);
         var scriptTextDirty = HasChangedScenarioTextEntries(_currentBattlefieldScriptTextEntries);

@@ -8,7 +8,11 @@ public sealed class CustomBeautifyFilterDialog : Form
 {
     private readonly Bitmap _previewSource;
     private readonly System.Windows.Forms.Timer _previewTimer = new() { Interval = 180 };
-    private readonly PictureBox _previewBox = new();
+    private readonly AspectRatioPictureBox _previewBox = new()
+    {
+        InterpolationMode = InterpolationMode.HighQualityBicubic,
+        PixelOffsetMode = PixelOffsetMode.HighQuality
+    };
     private readonly Label _previewLabel = new();
     private readonly Button _photoColorButton = new();
     private readonly Button _loadGlobalButton = new();
@@ -33,7 +37,7 @@ public sealed class CustomBeautifyFilterDialog : Form
         Text = "自定义美化滤镜";
         StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = false;
-        MaximizeBox = false;
+        MaximizeBox = true;
         FormBorderStyle = FormBorderStyle.Sizable;
         Width = 920;
         Height = 640;
@@ -178,7 +182,6 @@ public sealed class CustomBeautifyFilterDialog : Form
         _previewLabel.AutoSize = true;
         _previewLabel.Padding = new Padding(0, 0, 0, 6);
         _previewBox.Dock = DockStyle.Fill;
-        _previewBox.SizeMode = PictureBoxSizeMode.Zoom;
         _previewBox.BorderStyle = BorderStyle.FixedSingle;
         _previewBox.BackColor = Color.FromArgb(32, 32, 32);
         panel.Controls.Add(_previewLabel, 0, 0);
@@ -303,32 +306,17 @@ public sealed class CustomBeautifyFilterDialog : Form
     {
         try
         {
-            using var filtered = new TerrainMapBeautifyService().ApplyCustomFilterPreview(_previewSource, Settings, Strength);
-            var next = BuildPreviewBitmap(filtered, Math.Max(1, _previewBox.ClientSize.Width), Math.Max(1, _previewBox.ClientSize.Height));
+            var next = new TerrainMapBeautifyService().ApplyCustomFilterPreview(_previewSource, Settings, Strength);
             var old = _previewBitmap;
             _previewBitmap = next;
-            _previewBox.Image = null;
             _previewBox.Image = _previewBitmap;
+            _previewBox.Invalidate();
             old?.Dispose();
         }
         catch (Exception ex)
         {
             _previewLabel.Text = "预览失败：" + ex.Message;
         }
-    }
-
-    private static Bitmap BuildPreviewBitmap(Image image, int width, int height)
-    {
-        var bitmap = new Bitmap(width, height);
-        using var g = Graphics.FromImage(bitmap);
-        g.Clear(Color.FromArgb(36, 36, 36));
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        var scale = Math.Min(width / (double)Math.Max(1, image.Width), height / (double)Math.Max(1, image.Height));
-        var targetWidth = Math.Max(1, (int)Math.Round(image.Width * scale));
-        var targetHeight = Math.Max(1, (int)Math.Round(image.Height * scale));
-        var target = new Rectangle((width - targetWidth) / 2, (height - targetHeight) / 2, targetWidth, targetHeight);
-        g.DrawImage(image, target, new Rectangle(0, 0, image.Width, image.Height), GraphicsUnit.Pixel);
-        return bitmap;
     }
 
     private static int FloatToByte(float value)

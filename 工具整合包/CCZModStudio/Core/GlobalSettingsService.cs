@@ -7,10 +7,6 @@ namespace CCZModStudio.Core;
 
 public sealed class GlobalSettingsService
 {
-    private const long GameTitleOffset = 0x8D3C4;
-    private const int GameTitleCapacityBytes = 32;
-    private const string GameTitleSource = "本地 6.5 Ekd5.exe 样本：GBK 文本“【三国志曹操传 加强版】”位于 0x8D3C4，32 字节定长区。";
-
     private static readonly IReadOnlyList<GlobalNumericSettingDefinition> NumericSettingDefinitions =
     [
         PendingDefinition("AbilityDisplay", "能力显示（单数/双数）", "单数", GlobalNumericValueKind.BooleanRadio, "旧形象指定器 Form8 全局设置页标签已静态确认；当前缺少官方输出 diff 或 6.5 可靠偏移。"),
@@ -172,6 +168,7 @@ public sealed class GlobalSettingsService
     private readonly WriteOperationReportService _reportService = new();
     private readonly CczEngineProfileService _engineProfileService = new();
     private readonly CmfDerivedCapabilityService _cmfDerivedCapabilityService = new();
+    private readonly GameTitleLayoutResolver _gameTitleLayoutResolver = new();
 
     public GlobalSettingsDocument Load(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
@@ -204,6 +201,12 @@ public sealed class GlobalSettingsService
 
     public IReadOnlyList<GlobalNumericSettingDefinition> GetNumericDefinitions()
         => NumericSettingDefinitions;
+
+    public void ValidateGameTitleUpdate(GlobalTitleSetting setting, string title)
+    {
+        EnsureGameTitleEditable(setting);
+        _ = EncodingService.EncodeFixedString(title, setting.CapacityBytes);
+    }
 
     public IReadOnlyList<object> PreviewNumericSettings(GlobalSettingsDocument document, IReadOnlyDictionary<string, int> updates)
         => PreviewNumericSettings(null, document, updates);
@@ -403,7 +406,7 @@ public sealed class GlobalSettingsService
 
         if (saveGameTitle)
         {
-            var save = SaveGameTitle(project, document.GameTitle.Title);
+            var save = SaveGameTitle(project, document.GameTitle);
             changedBytes += save.ChangedBytes;
             backups.Add(save.BackupPath);
             if (!string.IsNullOrWhiteSpace(save.ReportJsonPath)) reports.Add(save.ReportJsonPath);
@@ -449,6 +452,10 @@ public sealed class GlobalSettingsService
         if (verifyGameTitle)
         {
             var reread = ReadGameTitle(project);
+            if (!reread.CanRead || !reread.CanEdit)
+            {
+                throw new InvalidOperationException($"游戏标题保存后布局复核失败：{reread.Diagnostic}");
+            }
             if (!string.Equals(reread.Title, document.GameTitle.Title, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"游戏标题复读失败：expected={document.GameTitle.Title} actual={reread.Title}");
@@ -474,45 +481,46 @@ public sealed class GlobalSettingsService
     }
 
     private GlobalTitleSetting ReadGameTitle(CczProject project)
+        => _gameTitleLayoutResolver.Resolve(project);
+
+    private TableSaveResult SaveGameTitle(CczProject project, GlobalTitleSetting loadedTitle)
     {
-        var filePath = project.ResolveGameFile("Ekd5.exe");
-        if (!File.Exists(filePath))
-        {
-            throw new FileNotFoundException("全局设定找不到 Ekd5.exe。", filePath);
-        }
+        EnsureGameTitleEditable(loadedTitle);
+        var title = loadedTitle.Title;
+        _ = EncodingService.EncodeFixedString(title, loadedTitle.CapacityBytes);
 
-        var data = File.ReadAllBytes(filePath);
-        if (data.Length < GameTitleOffset + GameTitleCapacityBytes)
-        {
-            throw new InvalidOperationException($"Ekd5.exe 长度不足，无法读取游戏标题 {HexDisplayFormatter.FormatOffset(GameTitleOffset)}。");
-        }
-
-        var bytes = new byte[GameTitleCapacityBytes];
-        Buffer.BlockCopy(data, checked((int)GameTitleOffset), bytes, 0, bytes.Length);
-        return new GlobalTitleSetting
-        {
-            Title = EncodingService.DecodeFixedString(bytes),
-            CapacityBytes = GameTitleCapacityBytes,
-            FileName = "Ekd5.exe",
-            Offset = GameTitleOffset,
-            Source = GameTitleSource,
-            Status = "已验证：本地 6.5 样本文本定位"
-        };
-    }
-
-    private TableSaveResult SaveGameTitle(CczProject project, string title)
-    {
-        ProjectVersionGuardService.EnsureCoreFileCompatibleForWrite(project, "Ekd5.exe");
-        _ = EncodingService.EncodeFixedString(title, GameTitleCapacityBytes);
-
-        var filePath = project.ResolveGameFile("Ekd5.exe");
-        var backupPath = CreateBeforeSaveBackup(project, filePath);
+        var filePath = project.ResolveGameFile(loadedTitle.FileName);
         var original = File.ReadAllBytes(filePath);
-        var output = (byte[])original.Clone();
-        var encoded = EncodingService.EncodeFixedString(title, GameTitleCapacityBytes);
-        var offset = checked((int)GameTitleOffset);
-        var oldBytes = new byte[GameTitleCapacityBytes];
+        var offset = checked((int)loadedTitle.Offset);
+        var oldBytes = new byte[loadedTitle.CapacityBytes];
         Buffer.BlockCopy(original, offset, oldBytes, 0, oldBytes.Length);
+        if (!Convert.ToHexString(oldBytes).Equals(loadedTitle.OriginalBytesHex, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("游戏标题区域在加载后已被其他程序修改；为避免覆盖外部改动，未创建备份、未写入文件，请重新读取项目后再保存。");
+        }
+
+        var currentTitle = _gameTitleLayoutResolver.Resolve(project);
+        EnsureGameTitleEditable(currentTitle);
+        if (!string.Equals(currentTitle.LayoutKey, loadedTitle.LayoutKey, StringComparison.Ordinal) ||
+            !string.Equals(currentTitle.EngineVersion, loadedTitle.EngineVersion, StringComparison.OrdinalIgnoreCase) ||
+            currentTitle.Offset != loadedTitle.Offset ||
+            currentTitle.VirtualAddress != loadedTitle.VirtualAddress ||
+            currentTitle.CapacityBytes != loadedTitle.CapacityBytes)
+        {
+            throw new InvalidOperationException(
+                $"游戏标题布局在加载后发生变化：loaded={loadedTitle.LayoutKey}@{HexDisplayFormatter.FormatOffset(loadedTitle.Offset)}/{loadedTitle.CapacityBytes}B，" +
+                $"current={currentTitle.LayoutKey}@{HexDisplayFormatter.FormatOffset(currentTitle.Offset)}/{currentTitle.CapacityBytes}B。请重新读取项目后再保存。");
+        }
+
+        if (!string.Equals(currentTitle.OriginalBytesHex, loadedTitle.OriginalBytesHex, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("游戏标题区域在加载后已被其他程序修改；为避免覆盖外部改动，请重新读取项目后再保存。");
+        }
+
+        ProjectVersionGuardService.EnsureCoreFileCompatibleForWrite(project, loadedTitle.FileName);
+        var backupPath = CreateBeforeSaveBackup(project, filePath);
+        var output = (byte[])original.Clone();
+        var encoded = EncodingService.EncodeFixedString(title, loadedTitle.CapacityBytes);
         Buffer.BlockCopy(encoded, 0, output, offset, encoded.Length);
 
         var changedBytes = 0;
@@ -533,7 +541,7 @@ public sealed class GlobalSettingsService
             BeforeSha256 = WriteOperationReportService.ComputeSha256(original),
             AfterSha256 = WriteOperationReportService.ComputeSha256(output),
             ChangedBytes = changedBytes,
-            Summary = $"保存全局设定“游戏标题”，目标 Ekd5.exe@{HexDisplayFormatter.FormatOffset(GameTitleOffset)}，字节改动 {changedBytes:N0}。",
+            Summary = $"保存全局设定“游戏标题”，目标 {loadedTitle.FileName}@{HexDisplayFormatter.FormatOffset(loadedTitle.Offset)}，版本 {loadedTitle.EngineVersion}，字节改动 {changedBytes:N0}。",
             SafetyNotes = project.IsTestCopy
                 ? "该报告由测试副本写入流程自动生成。"
                 : "保存前已备份 Ekd5.exe；如需回退，请使用备份文件手动恢复。",
@@ -544,19 +552,23 @@ public sealed class GlobalSettingsService
                     Category = "全局设定",
                     TableName = "游戏标题",
                     ColumnName = "游戏标题",
-                    OffsetHex = HexDisplayFormatter.FormatOffset(GameTitleOffset),
-                    ByteLength = GameTitleCapacityBytes,
+                    OffsetHex = HexDisplayFormatter.FormatOffset(loadedTitle.Offset),
+                    ByteLength = loadedTitle.CapacityBytes,
                     OldValue = EncodingService.DecodeFixedString(oldBytes),
                     NewValue = title,
-                    Annotation = "修改旧形象指定器全局设定中的游戏标题文本。"
+                    Annotation = $"按 {loadedTitle.LayoutKey} 修改游戏标题文本。"
                 }
             },
             Metadata =
             {
                 ["Field"] = "GameTitle",
-                ["Offset"] = HexDisplayFormatter.FormatOffset(GameTitleOffset),
-                ["CapacityBytes"] = GameTitleCapacityBytes.ToString(CultureInfo.InvariantCulture),
-                ["Evidence"] = GameTitleSource
+                ["EngineVersion"] = loadedTitle.EngineVersion,
+                ["LayoutKey"] = loadedTitle.LayoutKey,
+                ["Offset"] = HexDisplayFormatter.FormatOffset(loadedTitle.Offset),
+                ["VirtualAddress"] = $"0x{loadedTitle.VirtualAddress:X8}",
+                ["CapacityBytes"] = loadedTitle.CapacityBytes.ToString(CultureInfo.InvariantCulture),
+                ["Evidence"] = loadedTitle.Source,
+                ["LoadedExeSha256"] = loadedTitle.ExeSha256AtLoad
             }
         };
         var reportPath = _reportService.WriteJsonReport(report, backupPath);
@@ -568,17 +580,17 @@ public sealed class GlobalSettingsService
                 Id = -1,
                 Enabled = true,
                 TableName = "全局设定-游戏标题",
-                FileName = "Ekd5.exe",
-                DataPos = GameTitleOffset,
+                FileName = loadedTitle.FileName,
+                DataPos = loadedTitle.Offset,
                 RowCount = 1,
-                RowSize = GameTitleCapacityBytes,
+                RowSize = loadedTitle.CapacityBytes,
                 Columns = ["游戏标题"],
-                ByteSizes = [GameTitleCapacityBytes],
+                ByteSizes = [loadedTitle.CapacityBytes],
                 IndexTable = string.Empty,
                 BeginId = 0,
                 OnMem = false,
                 ReadOnly = false,
-                Version = "6.5",
+                Version = loadedTitle.EngineVersion,
                 Fields = []
             },
             FilePath = filePath,
@@ -623,11 +635,13 @@ public sealed class GlobalSettingsService
             Area = "标题设置",
             Item = "游戏标题修改",
             Target = title.FileName,
-            OffsetText = HexDisplayFormatter.FormatOffset(title.Offset),
-            LengthText = $"{title.CapacityBytes}B",
+            OffsetText = title.CanRead ? HexDisplayFormatter.FormatOffset(title.Offset) : "不可用",
+            LengthText = title.CanRead ? $"{title.CapacityBytes}B" : "不可用",
             Status = title.Status,
             Source = title.Source,
-            Note = "定长 GBK 文本，保存前校验字节容量。"
+            Note = title.CanEdit
+                ? $"{title.EngineVersion} / {title.LayoutKey}；定长 GBK 文本，保存前校验版本布局、原始字节和容量。"
+                : title.Diagnostic
         };
 
         foreach (var setting in NumericSettingDefinitions)
@@ -1015,6 +1029,15 @@ public sealed class GlobalSettingsService
         };
     }
 
+    private static void EnsureGameTitleEditable(GlobalTitleSetting title)
+    {
+        if (!title.CanRead || !title.CanEdit || title.CapacityBytes <= 0 || string.IsNullOrWhiteSpace(title.LayoutKey))
+        {
+            throw new InvalidOperationException("当前项目不支持安全读写游戏标题：" +
+                                                (string.IsNullOrWhiteSpace(title.Diagnostic) ? title.Status : title.Diagnostic));
+        }
+    }
+
     private static int DecodeNumericValue(GlobalNumericValueKind valueKind, byte[] bytes)
         => valueKind switch
         {
@@ -1098,7 +1121,7 @@ public sealed class GlobalSettingsService
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var backupPath = Path.Combine(backupRoot, $"{stamp}_{Path.GetFileName(filePath)}");

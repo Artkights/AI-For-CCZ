@@ -45,6 +45,7 @@ internal partial class Program
         AssertEqual("Dialog_33.IDC_COMBO1", string.Join(",", sortedCombos), "CBS_SORT combo controls");
 
         var dataSources = LegacyMfcDialogDataSources.Create(project, tables);
+        RunLegacyPersonComboLookupSmoke(dataSources);
         AssertEqual("0:普通", dataSources.GestureLabel(0), "Dialog_52 gesture preview label 0");
         AssertEqual("1:下跪", dataSources.GestureLabel(1), "Dialog_52 gesture preview label 1");
         AssertEqual("19:变量", dataSources.GestureLabel(19), "Dialog_52 gesture preview label 19");
@@ -59,6 +60,107 @@ internal partial class Program
         RunLegacyScenarioCommandDisplaySmoke(dataSources);
 
         Console.WriteLine($"LEGACY_MFC_DIALOG_SMOKE_OK oldCommands={oldDispatchMap.Count} dialogs={resourceSpecs.Count} templates={templates.Count} sortedCombos={string.Join("/", sortedCombos)}");
+    }
+
+    private static void RunLegacyPersonComboLookupSmoke(LegacyMfcDialogDataSources dataSources)
+    {
+        var dialog46 = OpenLegacyMfcDialog(
+            "Dialog_70",
+            70,
+            Enumerable.Repeat(0, 11 * 20).ToArray(),
+            string.Empty,
+            dataSources);
+        var person = (LegacyPersonComboBox)dialog46.Session.ComboBox("IDC_COMBO1");
+        var target = (LegacyPersonComboBox)dialog46.Session.ComboBox("IDC_COMBO13");
+        AssertEqual(LegacyPersonComboKind.Person2, person.PersonKind, "Dialog_70 primary person numeric lookup kind");
+        AssertEqual(LegacyPersonComboKind.Person2, target.PersonKind, "Dialog_70 target person numeric lookup kind");
+        AssertEqual(1, person.ItemPopulationCount, "Dialog_70 primary person list initially populated once");
+        AssertEqual(1, target.ItemPopulationCount, "Dialog_70 target person list initially populated once");
+
+        var now = DateTime.UtcNow;
+        AssertTrue(person.ProcessLookupDigit('1', now), "person numeric lookup accepts first digit");
+        AssertTrue(person.ProcessLookupDigit('2', now.AddMilliseconds(100)), "person numeric lookup accepts second digit");
+        AssertTrue(person.ProcessLookupDigit('3', now.AddMilliseconds(200)), "person numeric lookup accepts third digit");
+        AssertEqual(123, person.SelectedIndex, "person numeric lookup 123 selects role 123");
+        AssertEqual("123", person.LookupBuffer, "person numeric lookup keeps multi-digit buffer");
+
+        AssertTrue(person.ProcessLookupBackspace(now.AddMilliseconds(300)), "person numeric lookup backspace is handled");
+        AssertEqual(12, person.SelectedIndex, "person numeric lookup backspace returns to role 12");
+        AssertEqual("12", person.LookupBuffer, "person numeric lookup backspace updates buffer");
+        person.ResetLookup();
+        var mainKey1 = new KeyEventArgs(Keys.D1);
+        var mainKey2 = new KeyEventArgs(Keys.D2);
+        var mainKey3 = new KeyEventArgs(Keys.D3);
+        InvokePrivate(person, "OnKeyDown", mainKey1);
+        InvokePrivate(person, "OnKeyDown", mainKey2);
+        InvokePrivate(person, "OnKeyDown", mainKey3);
+        AssertTrue(
+            mainKey1.Handled && mainKey1.SuppressKeyPress &&
+            mainKey2.Handled && mainKey2.SuppressKeyPress &&
+            mainKey3.Handled && mainKey3.SuppressKeyPress,
+            "main keyboard digits suppress native single-character ComboBox lookup");
+        AssertEqual(123, person.SelectedIndex, "main keyboard lookup 123 selects role 123");
+        AssertEqual("123", person.LookupBuffer, "main keyboard lookup keeps multi-digit buffer");
+        person.ResetLookup();
+        AssertTrue(person.ProcessLookupKey(Keys.NumPad1, now), "person numeric lookup accepts numpad digit 1");
+        AssertTrue(person.ProcessLookupKey(Keys.NumPad2, now.AddMilliseconds(100)), "person numeric lookup accepts numpad digit 2");
+        AssertTrue(person.ProcessLookupKey(Keys.NumPad3, now.AddMilliseconds(200)), "person numeric lookup accepts numpad digit 3");
+        AssertEqual(123, person.SelectedIndex, "person numpad lookup 123 selects role 123");
+        person.ProcessLookupDigit('4', now.AddSeconds(2));
+        AssertEqual(4, person.SelectedIndex, "person numeric lookup timeout starts a fresh number");
+        person.ProcessLookupDigit('2', now.AddSeconds(2.1));
+        InvokePrivate(person, "OnKeyDown", new KeyEventArgs(Keys.Escape));
+        AssertEqual(string.Empty, person.LookupBuffer, "Escape clears person numeric lookup buffer");
+        person.ProcessLookupDigit('3', now.AddSeconds(2.2));
+        InvokePrivate(person, "OnKeyDown", new KeyEventArgs(Keys.Down));
+        AssertEqual(string.Empty, person.LookupBuffer, "direction key clears person numeric lookup buffer");
+        person.ProcessLookupDigit('4', now.AddSeconds(2.3));
+        InvokePrivate(person, "OnDropDown", EventArgs.Empty);
+        AssertEqual(string.Empty, person.LookupBuffer, "opening dropdown clears person numeric lookup buffer");
+        person.ProcessLookupDigit('5', now.AddSeconds(2.4));
+        InvokePrivate(person, "OnLeave", EventArgs.Empty);
+        AssertEqual(string.Empty, person.LookupBuffer, "focus loss clears person numeric lookup buffer");
+        person.ResetLookup();
+        var previous = person.SelectedIndex;
+        person.ProcessLookupDigit('9', now);
+        person.ProcessLookupDigit('9', now.AddMilliseconds(50));
+        person.ProcessLookupDigit('9', now.AddMilliseconds(100));
+        person.ProcessLookupDigit('9', now.AddMilliseconds(150));
+        person.ProcessLookupDigit('9', now.AddMilliseconds(200));
+        AssertTrue(person.SelectedIndex >= 0, "invalid person lookup never creates an unselected script value");
+        AssertTrue(person.SelectedIndex != previous || person.LookupBuffer == "9", "invalid accumulated lookup restarts from the latest digit");
+
+        dialog46.Session.ListBox("IDC_LIST1").SelectedIndex = 1;
+        AssertEqual(1, person.ItemPopulationCount, "Dialog_70 row switch reuses primary Person2 items");
+        AssertEqual(1, target.ItemPopulationCount, "Dialog_70 row switch reuses target Person2 items");
+
+        var dialog6 = OpenLegacyMfcDialog(
+            "Dialog_6",
+            0x4A,
+            Enumerable.Repeat(0, 11).ToArray(),
+            string.Empty,
+            dataSources);
+        var person1 = (LegacyPersonComboBox)dialog6.Session.ComboBox("IDC_COMBO1");
+        AssertEqual(LegacyPersonComboKind.Person1, person1.PersonKind, "Dialog_6 Person1 numeric lookup kind");
+        person1.ProcessLookupDigit('1', now);
+        person1.ProcessLookupDigit('2', now.AddMilliseconds(100));
+        person1.ProcessLookupDigit('3', now.AddMilliseconds(200));
+        AssertEqual(123, person1.SelectedIndex, "Person1 numeric lookup selects the displayed role number");
+        CommitLegacyMfcDialog(dialog6);
+        AssertEqual(LegacyMfcDialogDataSources.Per1ListToCode(123), dialog6.Item.IntData[1], "Person1 numeric lookup preserves Per1 encoding");
+
+        var dialog78 = OpenLegacyMfcDialog(
+            "Dialog_78",
+            78,
+            [1, 5, 2, 3, 4, 5, 2, 3, 0, 7, 8],
+            string.Empty,
+            dataSources);
+        var directIndexPerson = (LegacyPersonComboBox)dialog78.Session.ComboBox("IDC_COMBO9");
+        directIndexPerson.ProcessLookupDigit('3', now);
+        directIndexPerson.ProcessLookupDigit('2', now.AddMilliseconds(100));
+        directIndexPerson.ProcessLookupDigit('1', now.AddMilliseconds(200));
+        CommitLegacyMfcDialog(dialog78);
+        AssertEqual(321, dialog78.Item.IntData[8], "direct-index target person keeps list-index commit semantics");
     }
 
     private static void RunLegacyScenarioCommandDisplaySmoke(LegacyMfcDialogDataSources dataSources)
@@ -650,10 +752,8 @@ internal partial class Program
                     AcceptsReturn = controlSpec.Multiline,
                     WordWrap = controlSpec.Multiline
                 },
-                LegacyMfcControlKind.ComboBox => new ComboBox
+                LegacyMfcControlKind.ComboBox => new LegacyPersonComboBox
                 {
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    IntegralHeight = false,
                     Sorted = controlSpec.Sorted
                 },
                 LegacyMfcControlKind.CheckBox => new CheckBox { Text = controlSpec.Text },

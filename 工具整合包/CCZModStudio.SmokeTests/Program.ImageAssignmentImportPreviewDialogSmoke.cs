@@ -96,10 +96,26 @@ internal partial class Program
                     throw new InvalidOperationException($"Preview dialog has invalid client size: {dialog.ClientSize}.");
                 }
 
+                if (Math.Abs(dialog.Font.SizeInPoints - ImportExportDialogLayout.FontSize) > 0.01F ||
+                    dialog.AutoScaleMode != AutoScaleMode.Dpi ||
+                    !dialog.AutoScroll)
+                {
+                    throw new InvalidOperationException(
+                        $"Preview dialog import/export layout mismatch: font={dialog.Font.SizeInPoints} autoscale={dialog.AutoScaleMode} autoscroll={dialog.AutoScroll}.");
+                }
+
                 var currentBox = GetPreviewDialogPictureBox(dialog, "_currentBox");
                 var outputBox = GetPreviewDialogPictureBox(dialog, "_outputBox");
                 AssertPreviewBoxImageFillsClient(currentBox, "_currentBox");
                 AssertPreviewBoxImageFillsClient(outputBox, "_outputBox");
+
+                dialog.ClientSize = new Size(980, 660);
+                dialog.PerformLayout();
+                dialog.ClientSize = new Size(1260, 780);
+                dialog.PerformLayout();
+                DrainImageAssignmentImportPreviewDialogEvents();
+                AssertPreviewBoxImageFillsClient(currentBox, "_currentBox resized");
+                AssertPreviewBoxImageFillsClient(outputBox, "_outputBox resized");
 
                 dialog.Close();
                 Console.WriteLine("IMAGE_ASSIGNMENT_IMPORT_PREVIEW_DIALOG_SMOKE_OK");

@@ -9,37 +9,9 @@ public sealed class TerrainMapBeautifyService
 {
     public Bitmap Beautify(MapWorkbenchDraft draft, Bitmap baseTerrain)
     {
-        var output = new Bitmap(baseTerrain);
-        if (!draft.BeautifyGeneratedMap ||
-            draft.BeautifyStrength <= 0 ||
-            draft.TerrainCells.Length != draft.CellCount ||
-            draft.GridWidth <= 0 ||
-            draft.GridHeight <= 0)
-        {
-            return output;
-        }
-
-        var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
-        var radius = Math.Clamp(draft.FeatherRadius <= 0 ? 8 : draft.FeatherRadius, 1, Math.Max(1, tileSize / 2));
-        var strength = Math.Clamp(draft.BeautifyStrength, 1, 3);
-
-        var width = output.Width;
-        var height = output.Height;
-        var pixels = BitmapBuffer.FromBitmap(output);
-        try
-        {
-            var source = new byte[pixels.Bytes.Length];
-            Buffer.BlockCopy(pixels.Bytes, 0, source, 0, source.Length);
-
-            ApplyPhotoshopStyleTerrainFeather(draft, source, pixels.Bytes, width, height, tileSize, radius, strength);
-            ApplyRegionColorUnifyAndNoise(draft, pixels.Bytes, width, height, tileSize, strength);
-            pixels.CopyBack();
-            return output;
-        }
-        finally
-        {
-            pixels.Dispose();
-        }
+        // Geometry feathering is retired. Terrain transitions are produced by the
+        // deterministic synthesis pipeline before objects are composited.
+        return new Bitmap(baseTerrain);
     }
 
     public Bitmap ApplyFilter(

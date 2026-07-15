@@ -32,6 +32,25 @@ public sealed class PeAddressMapper
         throw new InvalidOperationException($"无法将虚拟地址 0x{virtualAddress:X} 映射到文件偏移。 ");
     }
 
+    public uint FileOffsetToVirtualAddress(long fileOffset)
+    {
+        if (fileOffset < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fileOffset));
+        }
+
+        foreach (var section in _sections)
+        {
+            if (fileOffset >= section.RawPointer && fileOffset < section.RawPointer + section.RawSize)
+            {
+                var delta = checked((uint)(fileOffset - section.RawPointer));
+                return checked(ImageBase + section.VirtualAddress + delta);
+            }
+        }
+
+        throw new InvalidOperationException($"无法将文件偏移 0x{fileOffset:X} 映射到虚拟地址。 ");
+    }
+
     private void Read(string exePath)
     {
         using var stream = File.OpenRead(exePath);

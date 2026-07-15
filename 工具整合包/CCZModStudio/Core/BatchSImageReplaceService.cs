@@ -18,6 +18,9 @@ public sealed class BatchSImageReplaceService
     private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
     private readonly SImageMaterialLayoutResolver _layoutResolver = new();
+    private E5ArchiveSetTransaction? _transaction;
+
+    private E5ArchiveSetTransaction Transaction => _transaction ??= new E5ArchiveSetTransaction(_replace);
 
     public SImageBatchMaterialScanSummary ScanMaterialRoot(string materialRoot)
     {
@@ -149,9 +152,9 @@ public sealed class BatchSImageReplaceService
                         SpcEncode = encodes.Spc
                     });
 
-                    movRequests.Add(BuildRequest(stageTarget.ImageNumber, encodes.Mov, usage, stageTarget.DisplayName, "mov"));
-                    atkRequests.Add(BuildRequest(stageTarget.ImageNumber, encodes.Atk, usage, stageTarget.DisplayName, "atk"));
-                    spcRequests.Add(BuildRequest(stageTarget.ImageNumber, encodes.Spc, usage, stageTarget.DisplayName, "spc"));
+                    movRequests.Add(BuildRequest(project, "Unit_mov.e5", stageTarget.StageSlot, stageTarget.ImageNumber, encodes.Mov, usage, stageTarget.DisplayName, "mov"));
+                    atkRequests.Add(BuildRequest(project, "Unit_atk.e5", stageTarget.StageSlot, stageTarget.ImageNumber, encodes.Atk, usage, stageTarget.DisplayName, "atk"));
+                    spcRequests.Add(BuildRequest(project, "Unit_spc.e5", stageTarget.StageSlot, stageTarget.ImageNumber, encodes.Spc, usage, stageTarget.DisplayName, "spc"));
                 }
             }
         }
@@ -205,12 +208,20 @@ public sealed class BatchSImageReplaceService
             throw new InvalidOperationException("Batch S image import has no writable items.");
         }
 
-        var writeResults = new Dictionary<string, E5ImageBatchReplaceResult>(StringComparer.OrdinalIgnoreCase);
-        foreach (var plan in BuildGroupedRequests(preview.Items).Where(plan => plan.Requests.Count > 0))
-        {
-            var targetPath = CharacterImageResourceService.ResolveGameFile(project, plan.FileName);
-            writeResults[plan.FileName] = _replace.ReplaceBatch(project, targetPath, plan.Requests);
-        }
+        var grouped = BuildGroupedRequests(project, preview.Items)
+            .Where(plan => plan.Requests.Count > 0)
+            .ToArray();
+        var transaction = Transaction.Execute(project, grouped.Select(plan => new E5ArchiveMutationPlan(
+            CharacterImageResourceService.ResolveGameFile(project, plan.FileName),
+            plan.Requests,
+            $"batch S {plan.FileName}")));
+        var resultByPath = transaction.Files.ToDictionary(
+            result => Path.GetFullPath(result.TargetPath),
+            StringComparer.OrdinalIgnoreCase);
+        var writeResults = grouped.ToDictionary(
+            plan => plan.FileName,
+            plan => resultByPath[Path.GetFullPath(CharacterImageResourceService.ResolveGameFile(project, plan.FileName))],
+            StringComparer.OrdinalIgnoreCase);
 
         var payload = new BatchSImageReplaceResult
         {
@@ -472,6 +483,7 @@ public sealed class BatchSImageReplaceService
     }
 
     private static IReadOnlyList<(string FileName, IReadOnlyList<E5ImageBatchReplaceRequest> Requests)> BuildGroupedRequests(
+        CczProject project,
         IReadOnlyList<BatchSImageReplaceItemPreview> items)
     {
         var mov = new List<E5ImageBatchReplaceRequest>();
@@ -480,9 +492,9 @@ public sealed class BatchSImageReplaceService
         foreach (var item in items)
         {
             var usage = new BatchSImageUsage(item.SImageId, item.JobId, item.FactionSlot);
-            mov.Add(BuildRequest(item.ImageNumber, item.MovEncode, usage, item.StageName, "mov"));
-            atk.Add(BuildRequest(item.ImageNumber, item.AtkEncode, usage, item.StageName, "atk"));
-            spc.Add(BuildRequest(item.ImageNumber, item.SpcEncode, usage, item.StageName, "spc"));
+            mov.Add(BuildRequest(project, "Unit_mov.e5", item.StageSlot, item.ImageNumber, item.MovEncode, usage, item.StageName, "mov"));
+            atk.Add(BuildRequest(project, "Unit_atk.e5", item.StageSlot, item.ImageNumber, item.AtkEncode, usage, item.StageName, "atk"));
+            spc.Add(BuildRequest(project, "Unit_spc.e5", item.StageSlot, item.ImageNumber, item.SpcEncode, usage, item.StageName, "spc"));
         }
 
         return new[]
@@ -553,6 +565,9 @@ public sealed class BatchSImageReplaceService
     }
 
     private static E5ImageBatchReplaceRequest BuildRequest(
+        CczProject project,
+        string targetFileName,
+        int stageSlot,
         int imageNumber,
         E5TrueColorEncodeResult encode,
         BatchSImageUsage usage,
@@ -564,7 +579,15 @@ public sealed class BatchSImageReplaceService
             SourceBytes = encode.ImageBytes,
             SourceBytesAreRaw = false,
             SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
-            OperationKind = $"batch S{usage.SImageId} {stageName} {actionName}"
+            OperationKind = $"batch S{usage.SImageId} {stageName} {actionName}",
+            CharacterTarget = CharacterImageTargetResolver.ResolveS(
+                project,
+                usage.SImageId,
+                usage.JobId,
+                usage.FactionSlot,
+                stageSlot,
+                targetFileName,
+                actionName)
         };
 
     private static IReadOnlyList<int> NormalizeRequestedStageSlots(IReadOnlyList<int> stageSlots)
@@ -608,7 +631,7 @@ public sealed class BatchSImageReplaceService
 
     private static string WriteAggregateReport(CczProject project, BatchSImageReplaceResult result)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchSImageTrueColorReplaceReport.json");

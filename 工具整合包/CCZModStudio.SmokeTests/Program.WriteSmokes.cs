@@ -367,6 +367,10 @@ internal partial class Program
             defaults.JobId,
             defaults.Abilities.ToDictionary(pair => pair.Key, pair => (Operation: 0, Value: (int?)pair.Value)));
         AssertBattlefieldConsoleDelta(noChange, expectDelta: false, "Data defaults should not create script overrides.");
+        if (noChange.LevelBonus.HasValue || noChange.JobLevel.HasValue || noChange.AiPolicy.HasValue)
+        {
+            throw new InvalidOperationException("Equipment/job/ability delta leaked unchanged deployment fields.");
+        }
 
         var diff = service.BuildDeltaDraftFromEffectiveValues(
             baseDraft,
@@ -383,6 +387,10 @@ internal partial class Program
                     ? (Operation: 0, Value: (int?)90)
                     : (Operation: 0, Value: (int?)pair.Value)));
         AssertBattlefieldConsoleDelta(diff, expectDelta: true, "Changed values should create script overrides.");
+        if (diff.LevelBonus.HasValue || diff.JobLevel.HasValue || diff.AiPolicy.HasValue)
+        {
+            throw new InvalidOperationException("Changed equipment/job/ability delta leaked deployment fields.");
+        }
         if (diff.RemoveEquipmentOverride ||
             diff.RemoveJobOverride ||
             diff.RemoveAbilityOverrides.Count != 0 ||

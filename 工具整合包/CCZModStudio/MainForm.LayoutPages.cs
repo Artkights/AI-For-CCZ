@@ -153,6 +153,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerGridHeightInput.Width = 58;
         _mapMakerGridWidthInput.Margin = new Padding(3);
         _mapMakerGridHeightInput.Margin = new Padding(3);
+        _mapMakerResizeButton.Text = "调整尺寸";
+        ConfigureToolbarButton(_mapMakerResizeButton, 88);
+        _mapMakerResizeButton.Enabled = false;
         _mapMakerBrushModeCombo.Visible = false;
         _mapMakerSelectMaterialRootButton.Visible = false;
         _mapFitButton.Text = "适应窗口";
@@ -221,6 +224,14 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerTerrainOpacityLabel.Visible = false;
         _mapMakerTerrainPresetCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _mapMakerTerrainPresetCombo.Width = 170;
+        _mapMakerTerrainToolCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mapMakerTerrainToolCombo.Width = 112;
+        _mapMakerTerrainToolCombo.Items.AddRange(new object[] { "铅笔", "恢复", "连通填充", "矩形", "线段", "吸管" });
+        _mapMakerTerrainToolCombo.SelectedIndex = 0;
+        _mapMakerTerrainBrushSizeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _mapMakerTerrainBrushSizeCombo.Width = 72;
+        _mapMakerTerrainBrushSizeCombo.Items.AddRange(new object[] { "1 格", "3 格", "5 格" });
+        _mapMakerTerrainBrushSizeCombo.SelectedIndex = 0;
         _mapMakerTerrainBrushInput.Minimum = 0;
         _mapMakerTerrainBrushInput.Maximum = 255;
         _mapMakerTerrainBrushInput.Width = 62;
@@ -267,7 +278,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerPublishTerrainButton.Text = "高级：仅地形";
         ConfigureToolbarButton(_mapMakerPublishTerrainButton, 118);
         _mapMakerPublishTerrainButton.Enabled = false;
-        _mapMakerPublishAllButton.Text = "一键发布";
+        _mapMakerPublishAllButton.Text = "发布地图";
         ConfigureToolbarButton(_mapMakerPublishAllButton, 88);
         _mapMakerPublishAllButton.Enabled = false;
         AddToolbarRow(mapToolbar, 0,
@@ -278,6 +289,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _mapMakerGridWidthInput,
             CreateToolbarLabel("x", 0),
             _mapMakerGridHeightInput,
+            _mapMakerResizeButton,
             _mapMakerSaveDraftButton,
             _mapMakerExportPairButton,
             _mapMakerImportPairButton,
@@ -439,6 +451,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _mapMakerTerrainPresetCombo.Visible = true;
         _mapMakerTerrainBrushInput.Visible = true;
         _mapMakerSaveTerrainButton.Visible = true;
+        terrainBrushPanel.Controls.Add(_mapMakerTerrainToolCombo);
+        terrainBrushPanel.Controls.Add(_mapMakerTerrainBrushSizeCombo);
         terrainBrushPanel.Controls.Add(_mapMakerTerrainPresetCombo);
         terrainBrushPanel.Controls.Add(_mapMakerTerrainBrushInput);
         terrainBrushPanel.Controls.Add(_mapMakerSaveTerrainButton);
@@ -448,14 +462,14 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             Dock = DockStyle.Fill,
             AutoSize = true,
             Padding = new Padding(0, 6, 0, 6),
-            Text = "Terrain mode paints Hexzmap cells only. Use Generate to synthesize the visual map."
+            Text = "当前页只修改草稿中的地形格；保存草稿不会写入 Hexzmap.e5，发布前会单独显示差异与绑定证据。"
         };
         _mapMakerTerrainGenerationInfoBox.Dock = DockStyle.Fill;
         _mapMakerTerrainGenerationInfoBox.Multiline = true;
         _mapMakerTerrainGenerationInfoBox.ReadOnly = true;
         _mapMakerTerrainGenerationInfoBox.ScrollBars = ScrollBars.Vertical;
         _mapMakerTerrainGenerationInfoBox.WordWrap = true;
-        _mapMakerTerrainGenerationInfoBox.Text = "Terrain generation diagnostics will appear after sampling or generation.";
+        _mapMakerTerrainGenerationInfoBox.Text = "完成快速预览或最终生成后，这里会显示素材缺失、对象保留、回退格、耗时和渲染指纹。";
 
         terrainGenerationPanel.Controls.Add(terrainViewPanel, 0, 0);
         terrainGenerationPanel.Controls.Add(terrainBrushPanel, 0, 1);
@@ -473,8 +487,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
 
         _mapWorkbenchModeTabs.Dock = DockStyle.Fill;
         _mapWorkbenchModeTabs.TabPages.Clear();
-        var materialPaintPage = new TabPage("\u7d20\u6750\u7ed8\u5236");
-        var terrainGeneratePage = new TabPage("\u5730\u5f62\u751f\u6210");
+        var materialPaintPage = new TabPage("\u5730\u5f62\u7f16\u8f91");
+        var terrainGeneratePage = new TabPage("\u89c6\u89c9\u91cd\u7ed8");
         materialPaintPage.Controls.Add(mapEditorSplit);
         terrainGeneratePage.Controls.Add(terrainGenerateSplit);
         _mapWorkbenchModeTabs.TabPages.Add(materialPaintPage);
@@ -784,6 +798,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _redoItemEditorButton.Text = "前进";
         ConfigureToolbarButton(_redoItemEditorButton, 72);
         _redoItemEditorButton.Enabled = false;
+        _queryItemIconButton.Text = "\u67e5\u8be2\u5b9d\u7269\u56fe\u6807";
+        ConfigureToolbarButton(_queryItemIconButton, 118);
+        _queryItemIconButton.Enabled = false;
         _batchImportItemIconButton.Text = "\u6279\u91cf\u5bfc\u5165\u56fe\u6807";
         ConfigureToolbarButton(_batchImportItemIconButton, 118);
         _batchImportItemIconButton.Enabled = false;
@@ -811,6 +828,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _undoItemEditorButton,
             _redoItemEditorButton);
         AddToolbarRow(toolbar, 1,
+            _queryItemIconButton,
             _batchImportItemIconButton,
             _editItemIconButton,
             _exportItemIconBmpButton,
@@ -1104,11 +1122,20 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _replaceJobSImageButton.Text = "一键替换兵种形象";
         ConfigureToolbarButton(_replaceJobSImageButton, 142);
         _replaceJobSImageButton.Enabled = false;
-        _batchReplaceJobSImageButton.Text = "批量导入S形象";
-        ConfigureToolbarButton(_batchReplaceJobSImageButton, 118);
+        _playJobSImageButton.Text = "播放S";
+        ConfigureToolbarButton(_playJobSImageButton, 78);
+        _playJobSImageButton.Enabled = false;
+        _viewJobSSingleFramesButton.Text = "查看单帧S";
+        ConfigureToolbarButton(_viewJobSSingleFramesButton, 104);
+        _viewJobSSingleFramesButton.Enabled = false;
+        _editJobSImagePixelsButton.Text = "像素编辑兵种S";
+        ConfigureToolbarButton(_editJobSImagePixelsButton, 128);
+        _editJobSImagePixelsButton.Enabled = false;
+        _batchReplaceJobSImageButton.Text = "批量导入兵种S";
+        ConfigureToolbarButton(_batchReplaceJobSImageButton, 132);
         _batchReplaceJobSImageButton.Enabled = false;
-        _exportJobSImageBmpButton.Text = "\u5bfc\u51faS BMP";
-        ConfigureToolbarButton(_exportJobSImageBmpButton, 88);
+        _exportJobSImageBmpButton.Text = "导出兵种S";
+        ConfigureToolbarButton(_exportJobSImageBmpButton, 104);
         _exportJobSImageBmpButton.Enabled = false;
         _openJobSeriesTableButton.Text = "通用兵种系表";
         ConfigureToolbarButton(_openJobSeriesTableButton, 118);
@@ -1143,6 +1170,9 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _saveJobEditorButton,
             _editAccessoryJobGroupsButton,
             _replaceJobSImageButton,
+            _playJobSImageButton,
+            _viewJobSSingleFramesButton,
+            _editJobSImagePixelsButton,
             _batchReplaceJobSImageButton,
             _exportJobSImageBmpButton,
             _openJobEffectTableButton);
@@ -1941,6 +1971,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldMapZoomLabel.Padding = new Padding(8, 4, 0, 0);
         _battlefieldMapZoomResetButton.Text = "1:1";
         ConfigureToolbarButton(_battlefieldMapZoomResetButton, 56);
+        _viewBattlefieldSingleFramesButton.Text = "查看全部S帧";
+        ConfigureToolbarButton(_viewBattlefieldSingleFramesButton, 108);
         _battlefieldDeploymentPreviewFilterCombo.DropDownStyle = ComboBoxStyle.DropDownList;
         _battlefieldDeploymentPreviewFilterCombo.Items.AddRange(new object[] { "初始部署", "全部部署记录", "隐藏与援军", "当前选中命令" });
         _battlefieldDeploymentPreviewFilterCombo.SelectedIndex = 0;
@@ -1950,30 +1982,30 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldMapHintLabel.Text = "地图：拖动左侧角色到格子；可右键选中已摆放单位并调整。";
         _battlefieldMapHintLabel.AutoSize = true;
         _battlefieldMapHintLabel.Padding = new Padding(0, 4, 0, 0);
-        _battlefieldMapHintLabel.Visible = false;
-        battlefieldMapHintPanel.Controls.AddRange(new Control[] { _battlefieldMapZoomLabel, _battlefieldMapZoomResetButton, _battlefieldDeploymentPreviewFilterCombo, _markBattlefieldCommand25Button });
+        _battlefieldMapHintLabel.Visible = true;
+        battlefieldMapHintPanel.Controls.AddRange(new Control[]
+        {
+            _battlefieldMapZoomLabel,
+            _battlefieldMapZoomResetButton,
+            _viewBattlefieldSingleFramesButton,
+            _battlefieldDeploymentPreviewFilterCombo,
+            _markBattlefieldCommand25Button,
+            _battlefieldMapHintLabel
+        });
         mapLayout.Controls.Add(battlefieldMapHintPanel, 0, 1);
 
         var controlOptionsPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
-            RowCount = 5,
+            RowCount = 4,
             ColumnCount = 1,
             Padding = new Padding(8)
         };
-        controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
         controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32));
         controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 36));
         controlOptionsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
-        _battlefieldConsoleSummaryLabel.AutoSize = true;
-        _battlefieldConsoleSummaryLabel.Dock = DockStyle.Top;
-        _battlefieldConsoleSummaryLabel.Padding = new Padding(0, 0, 0, 4);
-        _battlefieldConsoleSummaryLabel.Text = "未选中战场单位。";
-        _battlefieldConsoleSummaryLabel.Visible = true;
-        controlOptionsPanel.Controls.Add(_battlefieldConsoleSummaryLabel, 0, 0);
 
         var placementPanel = new TableLayoutPanel
         {
@@ -2015,7 +2047,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldDirectionCombo.Items.AddRange(new object[] { "上", "右", "下", "左" });
         _battlefieldDirectionCombo.SelectedIndex = 2;
         AddBattlefieldConsoleField(placementPanel, 5, "方向", _battlefieldDirectionCombo);
-        controlOptionsPanel.Controls.Add(placementPanel, 0, 1);
+        controlOptionsPanel.Controls.Add(placementPanel, 0, 0);
 
         var equipmentPanel = new TableLayoutPanel
         {
@@ -2037,7 +2069,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         AddBattlefieldConsoleField(equipmentPanel, 3, "防具等级", _battlefieldConsoleArmorLevelInput);
         AddBattlefieldConsoleField(equipmentPanel, 4, "辅助", _battlefieldConsoleAssistCombo);
         AddBattlefieldConsoleField(equipmentPanel, 5, "兵种", _battlefieldConsoleJobCombo);
-        controlOptionsPanel.Controls.Add(equipmentPanel, 0, 2);
+        controlOptionsPanel.Controls.Add(equipmentPanel, 0, 1);
 
         _battlefieldConsoleAbilityGrid.Dock = DockStyle.Fill;
         _battlefieldConsoleAbilityGrid.Margin = new Padding(0, 0, 0, 6);
@@ -2048,7 +2080,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _battlefieldConsoleAbilityGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _battlefieldConsoleAbilityGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _battlefieldConsoleAbilityGrid.MultiSelect = false;
-        controlOptionsPanel.Controls.Add(_battlefieldConsoleAbilityGrid, 0, 3);
+        controlOptionsPanel.Controls.Add(_battlefieldConsoleAbilityGrid, 0, 2);
 
         var consoleInfoPanel = new TableLayoutPanel
         {
@@ -2075,6 +2107,31 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         consoleInfoPanel.Controls.Add(_battlefieldConsoleStatusPreviewBox, 1, 0);
         consoleInfoPanel.Visible = false;
 
+        var unsyncedDraftActionPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            Margin = Padding.Empty
+        };
+        _battlefieldRetryUnsyncedDraftButton.Text = "重试同步";
+        _battlefieldRestoreScriptValuesButton.Text = "恢复脚本值";
+        _battlefieldDetachUnsyncedDraftButton.Text = "保留草稿并解除绑定";
+        ConfigureToolbarButton(_battlefieldRetryUnsyncedDraftButton, 92);
+        ConfigureToolbarButton(_battlefieldRestoreScriptValuesButton, 104);
+        ConfigureToolbarButton(_battlefieldDetachUnsyncedDraftButton, 156);
+        _battlefieldRetryUnsyncedDraftButton.Visible = false;
+        _battlefieldRestoreScriptValuesButton.Visible = false;
+        _battlefieldDetachUnsyncedDraftButton.Visible = false;
+        unsyncedDraftActionPanel.Controls.AddRange(new Control[]
+        {
+            _battlefieldRetryUnsyncedDraftButton,
+            _battlefieldRestoreScriptValuesButton,
+            _battlefieldDetachUnsyncedDraftButton
+        });
+
         _battlefieldRemovePlacedUnitButton.Text = "移除选中";
         _battlefieldRemovePlacedUnitButton.AutoSize = true;
         _battlefieldRemovePlacedUnitButton.Dock = DockStyle.Fill;
@@ -2085,15 +2142,17 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3
+            RowCount = 4
         };
         actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         actionPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         actionPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        actionPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         actionPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
         actionPanel.Controls.Add(_battlefieldRemovePlacedUnitButton, 0, 1);
+        actionPanel.Controls.Add(unsyncedDraftActionPanel, 0, 2);
         _battlefieldClearPlacedUnitsButton.Visible = false;
-        controlOptionsPanel.Controls.Add(actionPanel, 0, 4);
+        controlOptionsPanel.Controls.Add(actionPanel, 0, 3);
 
         var unitTabs = new TabControl { Dock = DockStyle.Fill };
         var unitPage = new TabPage("候选");
@@ -2414,6 +2473,13 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         leftTabs.TabPages.Add(scriptPage);
         leftTabs.TabPages.Add(searchPage);
         leftTabs.TabPages.Add(commandPage);
+        leftTabs.Selected += (_, e) =>
+        {
+            if (ReferenceEquals(e.TabPage, commandPage))
+            {
+                ScheduleSelectedRSceneCandidateScroll();
+            }
+        };
         AddCollapsibleSplitPanel(mainSplit, 1, "R剧本", leftTabs, "BuildRSceneEditorPage.ScriptScene.Script");
 
         var actorPanel = new TableLayoutPanel
@@ -2480,6 +2546,8 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
         _rSceneZoomLabel.Margin = new Padding(3);
         _rSceneZoomResetButton.Text = "1:1";
         ConfigureToolbarButton(_rSceneZoomResetButton, 56);
+        _viewRSceneSingleFramesButton.Text = "查看全部R帧";
+        ConfigureToolbarButton(_viewRSceneSingleFramesButton, 108);
         _rScenePreviewLockButton.Text = "锁定预览";
         ConfigureToolbarButton(_rScenePreviewLockButton, 88);
         _rScenePreviewLockButton.Enabled = false;
@@ -2496,6 +2564,7 @@ Github源码链接：https://github.com/Artkights/AI-For-CCZ.git
             _rSceneDialoguePreviewCheckBox,
             _rSceneZoomLabel,
             _rSceneZoomResetButton,
+            _viewRSceneSingleFramesButton,
             _rScenePreviewLockButton);
         AddToolbarRow(canvasToolbar, 1, _rSceneCanvasHintLabel);
         canvasLayout.Controls.Add(canvasToolbar, 0, 0);

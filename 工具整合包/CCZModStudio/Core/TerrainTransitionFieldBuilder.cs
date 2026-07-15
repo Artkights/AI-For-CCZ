@@ -27,7 +27,7 @@ internal sealed class TerrainTransitionFieldBuilder
             var x = index % draft.GridWidth;
             var y = index / draft.GridWidth;
             var terrain = draft.TerrainCells[index];
-            if (!CanParticipateInGlobalTransition(terrain))
+            if (!CanParticipateInGlobalTransition(profile, terrain))
             {
                 continue;
             }
@@ -159,7 +159,7 @@ internal sealed class TerrainTransitionFieldBuilder
         if (neighborX < 0 || neighborX >= draft.GridWidth) return;
         var currentIndex = cellY * draft.GridWidth + cellX;
         var neighborIndex = cellY * draft.GridWidth + neighborX;
-        if (!CanBlendTerrains(draft.TerrainCells[currentIndex], draft.TerrainCells[neighborIndex])) return;
+        if (!CanBlendTerrains(profile, draft.TerrainCells[currentIndex], draft.TerrainCells[neighborIndex])) return;
 
         var borderX = dx < 0 ? cellX * tileSize : (cellX + 1) * tileSize;
         var boundaryKey = Math.Min(currentIndex, neighborIndex) * 397 ^ Math.Max(currentIndex, neighborIndex);
@@ -199,7 +199,7 @@ internal sealed class TerrainTransitionFieldBuilder
         if (neighborY < 0 || neighborY >= draft.GridHeight) return;
         var currentIndex = cellY * draft.GridWidth + cellX;
         var neighborIndex = neighborY * draft.GridWidth + cellX;
-        if (!CanBlendTerrains(draft.TerrainCells[currentIndex], draft.TerrainCells[neighborIndex])) return;
+        if (!CanBlendTerrains(profile, draft.TerrainCells[currentIndex], draft.TerrainCells[neighborIndex])) return;
 
         var borderY = dy < 0 ? cellY * tileSize : (cellY + 1) * tileSize;
         var boundaryKey = Math.Min(currentIndex, neighborIndex) * 397 ^ Math.Max(currentIndex, neighborIndex);
@@ -217,15 +217,15 @@ internal sealed class TerrainTransitionFieldBuilder
         AddCandidate(firstOffset, secondOffset, secondWeight, distance, ref candidateCount, ref best);
     }
 
-    private static bool CanBlendTerrains(byte first, byte second)
+    private static bool CanBlendTerrains(TerrainVisualProfile profile, byte first, byte second)
     {
         if (first == second) return false;
-        return CanParticipateInGlobalTransition(first) && CanParticipateInGlobalTransition(second);
+        return CanParticipateInGlobalTransition(profile, first) && CanParticipateInGlobalTransition(profile, second);
     }
 
-    private static bool CanParticipateInGlobalTransition(byte terrain)
+    private static bool CanParticipateInGlobalTransition(TerrainVisualProfile profile, byte terrain)
     {
-        var kind = TerrainVisualSurfaceClassifier.Classify(terrain);
+        var kind = TerrainVisualSurfaceClassifier.Classify(profile, terrain);
         return kind is not TerrainVisualSurfaceKind.StructureTerrain
             and not TerrainVisualSurfaceKind.BuildingOverlay;
     }

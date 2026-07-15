@@ -5,12 +5,8 @@ namespace CCZModStudio.Core;
 
 public sealed class Qinger66DiagnosticsService
 {
-    private static readonly string[] CoreTableNames =
+    private static readonly string[] OtherCoreTableNames =
     [
-        "6.5-0 人物",
-        "6.5-0-1 人物列传",
-        "6.5-0-2 暴击台词",
-        "6.5-0-3 撤退台词",
         "6.5-0-4 R形象",
         "6.5-0-5 S形象",
         "6.5-1 物品（0-103）",
@@ -39,8 +35,15 @@ public sealed class Qinger66DiagnosticsService
     public Qinger66Diagnostics Build(CczProject project, CczEngineProfile engine, IReadOnlyList<HexTableDefinition> tables, HexTableReader reader)
     {
         var applies = IsQinger66Candidate(project, engine);
+        var coreTableNames = new[]
+        {
+            engine.TableHints.PersonTable,
+            engine.TableHints.BiographyTable,
+            engine.TableHints.CriticalQuoteTable,
+            engine.TableHints.RetreatQuoteTable
+        }.Concat(OtherCoreTableNames);
         var tableDiagnostics = applies
-            ? CoreTableNames.Select(name => BuildTableDiagnostic(project, tables, reader, name)).ToArray()
+            ? coreTableNames.Select(name => BuildTableDiagnostic(project, tables, reader, name)).ToArray()
             : Array.Empty<Qinger66TableDiagnostic>();
         var resources = applies
             ? Ccz66RevisedLayout.RequiredE5Resources.Select(path => BuildResourceDiagnostic(project, path, "6.6-required-resource", RequiredResourceUsage.GetValueOrDefault(path, string.Empty))).ToArray()
@@ -51,6 +54,7 @@ public sealed class Qinger66DiagnosticsService
         var itemAudit = applies
             ? new Qinger66ItemAuditService().Build(project, engine, tables).Summary
             : new Qinger66ItemAuditSummary();
+        var quoteLayout = applies ? new RoleQuoteLayoutService().Resolve(project) : null;
         var obsoleteWarnings = applies
             ? obsolete.Select(item => $"{item.RelativePath}: ObsoleteRuntimeResource in 6.6; use E5/Item.e5 or E5/Mtem.e5 where applicable.").ToArray()
             : Array.Empty<string>();
@@ -66,6 +70,15 @@ public sealed class Qinger66DiagnosticsService
 
             warnings.AddRange(resources.Where(item => !item.Exists).Select(item => $"Missing 6.6 resource: {item.RelativePath}."));
             warnings.AddRange(itemAudit.Warnings);
+            if (quoteLayout != null)
+            {
+                warnings.Add("Role quote layout: " + RoleQuoteLayoutService.BuildSummary(quoteLayout));
+                if (!string.IsNullOrWhiteSpace(quoteLayout.Warning)) warnings.Add(quoteLayout.Warning);
+                if (quoteLayout.Legacy66RetreatRegionMayContainText)
+                {
+                    warnings.Add("Legacy Imsg.e5 @ 0x6B788 contains text-like data, but it is diagnostic evidence only; active 6.6 retreat quotes remain at 0x78050.");
+                }
+            }
 
             if (tableDiagnostics.Any(item => item.IsCrossVersionFallback))
             {
@@ -89,6 +102,7 @@ public sealed class Qinger66DiagnosticsService
             IsCrossVersionFallback = tableDiagnostics.Any(item => item.IsCrossVersionFallback),
             TableStatusSummary = BuildSummary(tableDiagnostics),
             ItemAuditSummary = itemAudit,
+            QuoteLayout = quoteLayout?.ToDiagnosticPayload(),
             Tables = tableDiagnostics,
             RequiredResources = resources,
             ObsoleteRuntimeFiles = obsolete,

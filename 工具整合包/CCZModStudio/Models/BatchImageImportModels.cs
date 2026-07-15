@@ -357,7 +357,9 @@ public sealed class BatchStrategyIconImportResult : BatchStrategyIconImportPrevi
 public sealed class BatchJobSImageReplaceItemPreview
 {
     public int JobId { get; init; }
+    public int FactionSlot { get; init; }
     public string MaterialFolder { get; init; } = string.Empty;
+    public bool UsesLegacyFlatLayout { get; init; }
     public JobSImageReplacePreviewResult Preview { get; init; } = new();
 }
 
@@ -374,7 +376,9 @@ public class BatchJobSImageReplacePreviewResult
 public sealed class BatchJobSImageReplaceItemResult
 {
     public int JobId { get; init; }
+    public int FactionSlot { get; init; }
     public string MaterialFolder { get; init; } = string.Empty;
+    public bool UsesLegacyFlatLayout { get; init; }
     public JobSImageReplaceResult Result { get; init; } = new();
 }
 

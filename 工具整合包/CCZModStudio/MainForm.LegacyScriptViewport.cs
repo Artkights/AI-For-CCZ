@@ -346,12 +346,6 @@ public sealed partial class MainForm
             return;
         }
 
-        try
-        {
-            grid.FirstDisplayedScrollingRowIndex = target;
-        }
-        catch (InvalidOperationException)
-        {
-        }
+        TryScrollGridRowIntoView(grid, target);
     }
 }

@@ -10,10 +10,10 @@ public sealed class MapCanvasComposeService
     private readonly MaterialDrivenTerrainService _materialDrivenService = new();
 
     public Bitmap ComposeFinal(MapWorkbenchDraft draft)
-        => Compose(draft, Array.Empty<MaterialAsset>(), showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: true);
+        => Compose(draft, Array.Empty<MaterialAsset>(), showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: draft.BeautifyGeneratedMap);
 
     public Bitmap ComposeFinal(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
-        => Compose(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: true);
+        => Compose(draft, materials, showTerrain: false, showGrid: false, terrainOpacityPercent: 0, checkerboardBlank: false, beautifyGeneratedMap: draft.BeautifyGeneratedMap);
 
     public Bitmap ComposePreview(MapWorkbenchDraft draft, bool showTerrain, bool showGrid, int terrainOpacityPercent)
         => Compose(draft, Array.Empty<MaterialAsset>(), showTerrain, showGrid, terrainOpacityPercent, checkerboardBlank: true, beautifyGeneratedMap: draft.BeautifyGeneratedMap);
@@ -74,26 +74,34 @@ public sealed class MapCanvasComposeService
             throw new InvalidOperationException("Map draft grid size is invalid.");
         }
 
-        draft.TerrainCells = _materialDrivenService.DeriveTerrainCells(draft, materials);
-        using var visual = _materialDrivenService.ComposeVisualMap(draft, materials, checkerboardBlank, beautifyGeneratedMap);
-        var bitmap = new Bitmap(visual.Width, visual.Height, PixelFormat.Format32bppArgb);
-        using var g = Graphics.FromImage(bitmap);
-        g.SmoothingMode = SmoothingMode.None;
-        g.InterpolationMode = InterpolationMode.NearestNeighbor;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(visual, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
-
-        if (showTerrain && draft.TerrainCells.Length == draft.GridWidth * draft.GridHeight)
+        var originalTerrainCells = draft.TerrainCells;
+        try
         {
-            DrawTerrain(g, draft, bitmap.Width, bitmap.Height, terrainOpacityPercent);
-        }
+            draft.TerrainCells = _materialDrivenService.DeriveTerrainCells(draft, materials);
+            using var visual = _materialDrivenService.ComposeVisualMap(draft, materials, checkerboardBlank, beautifyGeneratedMap);
+            var bitmap = new Bitmap(visual.Width, visual.Height, PixelFormat.Format32bppArgb);
+            using var g = Graphics.FromImage(bitmap);
+            g.SmoothingMode = SmoothingMode.None;
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawImage(visual, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
 
-        if (showGrid)
+            if (showTerrain && draft.TerrainCells.Length == draft.GridWidth * draft.GridHeight)
+            {
+                DrawTerrain(g, draft, bitmap.Width, bitmap.Height, terrainOpacityPercent);
+            }
+
+            if (showGrid)
+            {
+                DrawGrid(g, draft.GridWidth, draft.GridHeight, bitmap.Width, bitmap.Height);
+            }
+
+            return bitmap;
+        }
+        finally
         {
-            DrawGrid(g, draft.GridWidth, draft.GridHeight, bitmap.Width, bitmap.Height);
+            draft.TerrainCells = originalTerrainCells;
         }
-
-        return bitmap;
     }
 
     private static void DrawTerrain(Graphics g, MapWorkbenchDraft draft, int pixelWidth, int pixelHeight, int opacityPercent)

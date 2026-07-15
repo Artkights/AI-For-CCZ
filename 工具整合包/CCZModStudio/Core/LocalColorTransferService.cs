@@ -15,15 +15,17 @@ internal sealed class LocalColorTransferService
         Bitmap? baseImage,
         MapWorkbenchDraft draft,
         TerrainVisualProfile profile,
-        IReadOnlySet<int> indexes)
+        IReadOnlySet<int> indexes,
+        CancellationToken cancellationToken = default)
     {
         if (baseImage == null || indexes.Count == 0 || profile.LocalColorTransferStrength <= 0f)
         {
             return 0;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
-        var contextIndexes = BuildContextIndexes(draft, indexes, Math.Clamp(profile.StyleContextRadiusCells, 1, 8));
+        var contextIndexes = BuildContextIndexes(draft, indexes, Math.Clamp(profile.StyleContextRadiusCells, 1, 8), cancellationToken);
         var objectFootprints = BuildObjectFootprints(draft, tileSize, profile);
         var targetSampleIndexes = contextIndexes
             .Where(index => !indexes.Contains(index))
@@ -47,9 +49,11 @@ internal sealed class LocalColorTransferService
         var changed = 0;
         foreach (var index in indexes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var rect = GetTileRectangle(draft, index, tileSize);
             for (var y = rect.Top; y < rect.Bottom && y < output.Height; y++)
             {
+                if ((y & 7) == 0) cancellationToken.ThrowIfCancellationRequested();
                 for (var x = rect.Left; x < rect.Right && x < output.Width; x++)
                 {
                     var pixel = y * outputBuffer.Width + x;
@@ -100,11 +104,12 @@ internal sealed class LocalColorTransferService
         }
     }
 
-    private static HashSet<int> BuildContextIndexes(MapWorkbenchDraft draft, IReadOnlySet<int> indexes, int radius)
+    private static HashSet<int> BuildContextIndexes(MapWorkbenchDraft draft, IReadOnlySet<int> indexes, int radius, CancellationToken cancellationToken)
     {
         var result = new HashSet<int>();
         foreach (var index in indexes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var x = index % draft.GridWidth;
             var y = index / draft.GridWidth;
             for (var dy = -radius; dy <= radius; dy++)

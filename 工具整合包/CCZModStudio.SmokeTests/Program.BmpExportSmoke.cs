@@ -107,12 +107,13 @@ internal partial class Program
         });
 
         AssertExported(result, 3, "single job S");
-        AssertBmpDimensions(Path.Combine(output, "mov.bmp"), 48, 528);
-        AssertBmpDimensions(Path.Combine(output, "atk.bmp"), 64, 768);
-        AssertBmpDimensions(Path.Combine(output, "spc.bmp"), 48, 240);
-        raw.EncodeFile(project, Path.Combine(output, "mov.bmp"), E5RawImageCodec.UnitMovSpec, strictHeight: true);
-        raw.EncodeFile(project, Path.Combine(output, "atk.bmp"), E5RawImageCodec.UnitAtkSpec, strictHeight: true);
-        raw.EncodeFile(project, Path.Combine(output, "spc.bmp"), E5RawImageCodec.UnitSpcSpec, strictHeight: true);
+        var singleFactionFolder = Path.Combine(output, "Job0", "Faction1");
+        AssertBmpDimensions(Path.Combine(singleFactionFolder, "mov.bmp"), 48, 528);
+        AssertBmpDimensions(Path.Combine(singleFactionFolder, "atk.bmp"), 64, 768);
+        AssertBmpDimensions(Path.Combine(singleFactionFolder, "spc.bmp"), 48, 240);
+        raw.EncodeFile(project, Path.Combine(singleFactionFolder, "mov.bmp"), E5RawImageCodec.UnitMovSpec, strictHeight: true);
+        raw.EncodeFile(project, Path.Combine(singleFactionFolder, "atk.bmp"), E5RawImageCodec.UnitAtkSpec, strictHeight: true);
+        raw.EncodeFile(project, Path.Combine(singleFactionFolder, "spc.bmp"), E5RawImageCodec.UnitSpcSpec, strictHeight: true);
 
         var batchOutput = Path.Combine(smokeRoot, "batch_job_s");
         var batchResult = service.Export(project, new BmpExportRequest
@@ -120,15 +121,57 @@ internal partial class Program
             Kind = BmpExportKind.JobSImage,
             OutputRoot = batchOutput,
             SingleMode = false,
+            FactionSlots = new[] { 1, 3 },
             Targets = new[]
             {
                 new BmpExportTarget { RowId = 0, DisplayName = "Job0", FieldValue = 0, JobId = 0 },
                 new BmpExportTarget { RowId = 1, DisplayName = "Job1", FieldValue = 0, JobId = 1 }
             }
         });
-        AssertExported(batchResult, 6, "batch job S");
-        AssertBmpDimensions(Path.Combine(batchOutput, "Job0", "mov.bmp"), 48, 528);
-        AssertBmpDimensions(Path.Combine(batchOutput, "Job1", "spc.bmp"), 48, 240);
+        AssertExported(batchResult, 12, "batch job S multi-faction");
+        AssertBmpDimensions(Path.Combine(batchOutput, "Job0", "Faction1", "mov.bmp"), 48, 528);
+        AssertBmpDimensions(Path.Combine(batchOutput, "Job0", "Faction3", "atk.bmp"), 64, 768);
+        AssertBmpDimensions(Path.Combine(batchOutput, "Job1", "Faction1", "spc.bmp"), 48, 240);
+        AssertBmpDimensions(Path.Combine(batchOutput, "Job1", "Faction3", "spc.bmp"), 48, 240);
+        var expectedImageNumbers = new[] { 1, 3, 4, 6 };
+        if (!batchResult.Files.Select(file => file.ImageNumber).Distinct().OrderBy(number => number).SequenceEqual(expectedImageNumbers.Cast<int?>()))
+        {
+            throw new InvalidOperationException(
+                "Batch job S multi-faction export mapped unexpected Unit image numbers: " +
+                string.Join(",", batchResult.Files.Select(file => file.ImageNumber).Distinct().OrderBy(number => number)));
+        }
+
+        var existingSkipped = service.Export(project, new BmpExportRequest
+        {
+            Kind = BmpExportKind.JobSImage,
+            OutputRoot = batchOutput,
+            SingleMode = false,
+            FactionSlots = new[] { 1, 3 },
+            Targets = new[]
+            {
+                new BmpExportTarget { RowId = 0, DisplayName = "Job0", FieldValue = 0, JobId = 0 },
+                new BmpExportTarget { RowId = 1, DisplayName = "Job1", FieldValue = 0, JobId = 1 }
+            }
+        });
+        if (existingSkipped.Files.Count != 0 || existingSkipped.SkippedItems.Count != 12)
+        {
+            throw new InvalidOperationException("Job S export should skip all existing BMP files when overwrite is disabled.");
+        }
+
+        var existingOverwritten = service.Export(project, new BmpExportRequest
+        {
+            Kind = BmpExportKind.JobSImage,
+            OutputRoot = batchOutput,
+            SingleMode = false,
+            OverwriteExisting = true,
+            FactionSlots = new[] { 1, 3 },
+            Targets = new[]
+            {
+                new BmpExportTarget { RowId = 0, DisplayName = "Job0", FieldValue = 0, JobId = 0 },
+                new BmpExportTarget { RowId = 1, DisplayName = "Job1", FieldValue = 0, JobId = 1 }
+            }
+        });
+        AssertExported(existingOverwritten, 12, "batch job S overwrite");
     }
 
     private static void RunRExportSmoke(CczProject project, BmpImageExportService service, E5RawImageCodec raw, string smokeRoot)

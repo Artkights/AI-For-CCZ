@@ -12,7 +12,8 @@ internal sealed class TerrainInteriorSeamBlender
         MapWorkbenchDraft draft,
         TerrainVisualProfile profile,
         int index,
-        TerrainVisualRegionPlan? region)
+        TerrainVisualRegionPlan? region,
+        CancellationToken cancellationToken = default)
     {
         if (!profile.UseInteriorSeamBlend ||
             region == null ||
@@ -30,13 +31,13 @@ internal sealed class TerrainInteriorSeamBlender
         if (leftTile != null && leftTile.Width == currentTile.Width && leftTile.Height == currentTile.Height)
         {
             using var left = FastBitmapBuffer.FromBitmap(leftTile);
-            changed += BlendLeft(current, left, seam, jitter, profile.Seed, index, region.TerrainId);
+            changed += BlendLeft(current, left, seam, jitter, profile.Seed, index, region.TerrainId, cancellationToken);
         }
 
         if (topTile != null && topTile.Width == currentTile.Width && topTile.Height == currentTile.Height)
         {
             using var top = FastBitmapBuffer.FromBitmap(topTile);
-            changed += BlendTop(current, top, seam, jitter, profile.Seed, index, region.TerrainId);
+            changed += BlendTop(current, top, seam, jitter, profile.Seed, index, region.TerrainId, cancellationToken);
         }
 
         if (changed > 0)
@@ -47,11 +48,12 @@ internal sealed class TerrainInteriorSeamBlender
         return changed;
     }
 
-    private static int BlendLeft(FastBitmapBuffer current, FastBitmapBuffer left, int seam, int jitter, string seed, int index, byte terrainId)
+    private static int BlendLeft(FastBitmapBuffer current, FastBitmapBuffer left, int seam, int jitter, string seed, int index, byte terrainId, CancellationToken cancellationToken)
     {
         var changed = 0;
         for (var y = 0; y < current.Height; y++)
         {
+            if ((y & 7) == 0) cancellationToken.ThrowIfCancellationRequested();
             var localSeam = ComputeLocalSeam(seam, jitter, seed, index, terrainId, y, 0xA24BAED5u);
             for (var x = 0; x < localSeam; x++)
             {
@@ -68,11 +70,12 @@ internal sealed class TerrainInteriorSeamBlender
         return changed;
     }
 
-    private static int BlendTop(FastBitmapBuffer current, FastBitmapBuffer top, int seam, int jitter, string seed, int index, byte terrainId)
+    private static int BlendTop(FastBitmapBuffer current, FastBitmapBuffer top, int seam, int jitter, string seed, int index, byte terrainId, CancellationToken cancellationToken)
     {
         var changed = 0;
         for (var x = 0; x < current.Width; x++)
         {
+            if ((x & 7) == 0) cancellationToken.ThrowIfCancellationRequested();
             var localSeam = ComputeLocalSeam(seam, jitter, seed, index, terrainId, x, 0xC2B2AE35u);
             for (var y = 0; y < localSeam; y++)
             {

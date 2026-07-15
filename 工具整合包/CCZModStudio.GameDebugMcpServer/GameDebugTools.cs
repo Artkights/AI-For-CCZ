@@ -7,6 +7,80 @@ namespace CCZModStudio.GameDebugMcpServer;
 public sealed class GameDebugTools(GameDebugRuntime runtime)
 {
     [McpServerTool]
+    [Description("在签名验证副本中创建 V3 行为契约验证会话。")]
+    public object start_effect_validation(
+        string contract_id,
+        string contract_hash,
+        string contract_code_identity_hash,
+        string profile_id,
+        string normalized_profile_identity,
+        int effect_id = 1,
+        string? game_root = null)
+        => runtime.CreateEffectProbeSession(contract_id, contract_hash, effect_id, game_root,
+            contract_code_identity_hash, profile_id, normalized_profile_identity);
+
+    [McpServerTool]
+    [Description("推进 V3 验证到指定场景批次；自动场景未命中时返回该批次的用户触发说明。")]
+    public object advance_effect_validation(
+        string session_path,
+        int batch_index,
+        string host_name = "127.0.0.1",
+        int port = 27042,
+        bool clear_hardware_first = true)
+        => runtime.RunEffectProbeBatch(session_path, batch_index, host_name, port, clear_hardware_first);
+
+    [McpServerTool]
+    [Description("读取 V3 验证已完成场景、剩余场景和是否可以签发。")]
+    public object read_effect_validation_progress(string session_path)
+        => runtime.ReadEffectProbeProgress(session_path);
+
+    [McpServerTool]
+    [Description("清除并复核全部探针，签发绑定原项目、沙箱、代码身份、边界和关系语义的 V3 证据包。")]
+    public object finalize_effect_validation_v3(
+        string session_path,
+        int process_id,
+        string debugger_version = "x32dbg-mcp",
+        string host_name = "127.0.0.1",
+        int port = 27042)
+        => runtime.FinalizeEffectEvidenceBundleV3(session_path, process_id, debugger_version, host_name, port);
+
+    [McpServerTool]
+    [Description("创建当前 6.5 基底临时副本的特效动态验证会话和可直接执行的 x32dbg 批次。")]
+    public object create_effect_probe_session(
+        string contract_id,
+        string contract_hash,
+        int effect_id = 1,
+        string? game_root = null,
+        [Description("Hook、相关函数和控制流字节对应的契约代码身份 SHA-256。")]
+        string? contract_code_identity_hash = null,
+        [Description("统一引擎特效档案 ID。")]
+        string? profile_id = null,
+        [Description("排除已登记数据字段后的规范化 EXE 身份 SHA-256。")]
+        string? normalized_profile_identity = null)
+        => runtime.CreateEffectProbeSession(contract_id, contract_hash, effect_id, game_root,
+            contract_code_identity_hash, profile_id, normalized_profile_identity);
+
+    [McpServerTool]
+    [Description("应用特效动态验证会话中的一个断点批次。")]
+    public object run_effect_probe_batch(string session_path, int batch_index, string host_name = "127.0.0.1", int port = 27042, bool clear_hardware_first = true)
+        => runtime.RunEffectProbeBatch(session_path, batch_index, host_name, port, clear_hardware_first);
+
+    [McpServerTool]
+    [Description("在 x32dbg 暂停于目标断点时，采集一个特效验证场景的寄存器、栈、反汇编、原生表和战斗状态。")]
+    public object capture_effect_probe_scenario(string session_path, string scenario_id, string host_name = "127.0.0.1", int port = 27042)
+        => runtime.CaptureEffectProbeScenario(session_path, scenario_id, host_name, port);
+
+    [McpServerTool]
+    [Description("读取特效动态验证四类场景的采集进度。")]
+    public object read_effect_probe_progress(string session_path)
+        => runtime.ReadEffectProbeProgress(session_path);
+
+    [McpServerTool]
+    [Description("核对调试进程和原始采集文件，并用当前 Windows 用户密钥签发可信特效证据包。")]
+    public object finalize_effect_evidence_bundle(string session_path, int process_id, string debugger_version = "x32dbg-mcp")
+        => runtime.FinalizeEffectEvidenceBundle(session_path, process_id, debugger_version);
+
+    [McpServerTool]
     [Description("Start or attach the 6.5 Ekd5.exe debug session through x32dbg, verify the target hash, and wait for the x64dbg MCP bridge.")]
     public object debug_session_start(
         [Description("Optional game root. Defaults to CCZGAME_DEBUG_GAME_ROOT, CCZMODSTUDIO_GAME_ROOT, or auto-detection.")]

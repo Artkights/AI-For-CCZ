@@ -29,6 +29,9 @@ internal partial class Program
             AssertTrue(actualRootEntries.Contains(expected), "GUI package root contains " + expected);
         }
 
+        AssertTrue(!actualRootEntries.Contains("log"), "clean GUI package root does not precreate log");
+        AssertTrue(!actualRootEntries.Contains("cache"), "clean GUI package root does not precreate cache");
+
         var usageGuidePath = Path.Combine(publishRoot, "普罗工具整合包使用说明.md");
         var usageGuideMarkdown = File.ReadAllText(usageGuidePath, System.Text.Encoding.UTF8);
         foreach (var heading in new[] { "## 通用操作", "## 角色设定", "## 兵种设定", "## 图片设定", "## 地图编辑", "## 写回与备份边界" })

@@ -25,7 +25,8 @@ public sealed class MapPairImportExportService
         HexzmapProbeResult hexzmapProbe,
         HexzmapBlockInfo block,
         IReadOnlyList<MaterialAsset> materials,
-        string outputFolder)
+        string outputFolder,
+        Bitmap? confirmedRender = null)
     {
         if (project == null) throw new ArgumentNullException(nameof(project));
         if (draft == null) throw new ArgumentNullException(nameof(draft));
@@ -60,7 +61,14 @@ public sealed class MapPairImportExportService
         Directory.CreateDirectory(outputFolder);
         var jpegPath = Path.Combine(outputFolder, mapId + ".JPG");
         var bmpPath = Path.Combine(outputFolder, mapId + ".BMP");
-        _mapCanvasPublishService.ExportJpeg(draft, materials, jpegPath);
+        if (confirmedRender != null)
+        {
+            _mapCanvasPublishService.ExportJpeg(confirmedRender, jpegPath);
+        }
+        else
+        {
+            _mapCanvasPublishService.ExportJpeg(draft, materials, jpegPath);
+        }
         _terrainBmpCodec.Encode(block, prefix, draft.TerrainCells, bmpPath);
 
         using var verifyImage = Image.FromFile(jpegPath);

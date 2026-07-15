@@ -17,6 +17,7 @@ namespace CCZModStudio;
 public sealed partial class MainForm
 {
     internal static Action<LegacyScenarioCommandNode>? BattlefieldScriptCommandEditInterceptForSmoke { get; set; }
+    internal static Action<string>? BattlefieldConsoleCommitStageInterceptForSmoke { get; set; }
 
     [Flags]
     private enum BattlefieldConsoleDirtyKind
@@ -50,6 +51,60 @@ public sealed partial class MainForm
         Overview,
         Script,
         Console
+    }
+
+    private enum BattlefieldConsoleCommitStatus
+    {
+        Committed,
+        NoChanges,
+        DraftOnly,
+        ValidationFailed,
+        WriteFailedRolledBack,
+        BatchWriteFailedRolledBack,
+        CommitInProgress
+    }
+
+    private sealed record BattlefieldConsoleCommitResult(
+        BattlefieldConsoleCommitStatus Status,
+        string Message,
+        string TargetKey,
+        BattlefieldConsoleDirtyKind DirtyKind,
+        bool AllowsNavigation,
+        bool RetainsDraft,
+        string? LogPath = null,
+        Control? FocusTarget = null)
+    {
+        public bool Success => AllowsNavigation;
+    }
+
+    private enum BattlefieldConsoleDeltaBuildStatus
+    {
+        Ready,
+        NoChanges,
+        DraftOnly,
+        ValidationFailed
+    }
+
+    private sealed record BattlefieldConsoleDeltaBuildResult(
+        BattlefieldConsoleDeltaBuildStatus Status,
+        BattlefieldUnitStatusDraft? Delta,
+        string Message,
+        Control? FocusTarget = null);
+
+    private sealed class BattlefieldUnsyncedDraftState
+    {
+        public bool IsBatch { get; init; }
+        public string ScenarioFileName { get; init; } = string.Empty;
+        public string Stage { get; init; } = string.Empty;
+        public string ErrorMessage { get; init; } = string.Empty;
+        public string LogPath { get; init; } = string.Empty;
+        public BattlefieldConsoleDirtyKind DirtyKind { get; init; }
+        public List<string> TargetKeys { get; init; } = [];
+        public List<BattlefieldPlacedUnit> BeforeUnits { get; init; } = [];
+        public List<BattlefieldPlacedUnit> DraftUnits { get; init; } = [];
+        public List<BattlefieldPlacedUnit> OldPlacements { get; init; } = [];
+        public List<BattlefieldUnitStatusDraft> StatusDeltas { get; init; } = [];
+        public List<string> Failures { get; init; } = [];
     }
 
     private readonly record struct BattlefieldScriptCommandTargetKey(
@@ -882,7 +937,10 @@ public sealed partial class MainForm
 
         if (found == null) return false;
 
-        _battlefieldScriptTree.SelectedNode = found;
+        using (SuppressBattlefieldScriptSelectionCommit())
+        {
+            _battlefieldScriptTree.SelectedNode = found;
+        }
         if (ensureVisible)
         {
             found.EnsureVisible();
@@ -909,7 +967,6 @@ public sealed partial class MainForm
     {
         var previousPreviewMode = _battlefieldRightPreviewMode;
         var previousPreviewText = _battlefieldInfoBox.Text;
-        var previousSummaryText = _battlefieldConsoleSummaryLabel.Text;
         foreach (DataGridViewRow gridRow in _battlefieldUnitGrid.Rows)
         {
             if (gridRow.DataBoundItem is not BattlefieldUnitCandidate candidate ||
@@ -929,7 +986,6 @@ public sealed partial class MainForm
             {
                 _battlefieldRightPreviewMode = previousPreviewMode;
                 _battlefieldInfoBox.Text = previousPreviewText;
-                _battlefieldConsoleSummaryLabel.Text = previousSummaryText;
                 ApplyBattlefieldRightPreviewMode();
             }
 
@@ -989,7 +1045,7 @@ public sealed partial class MainForm
             if (slot != null)
             {
                 ClearBattlefieldPlacedUnitSelection();
-                RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+                RefreshBattlefieldMapDynamicPreview();
                 _battlefieldInfoBox.Text =
                     BuildBattlefieldInfo(_currentBattlefieldDocument) +
                     $"\r\n\r\n我军候选出战位：#{slot.DisplayOrder}  坐标=({slot.GridX},{slot.GridY})  {(slot.IsForced ? "强制出战" : "候选")}\r\n" +
@@ -1007,7 +1063,8 @@ public sealed partial class MainForm
             if (e.Button == MouseButtons.Left)
             {
                 ClearBattlefieldPlacedUnitSelection();
-                RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+                _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+                RefreshBattlefieldMapDynamicPreview();
             }
             SetStatus($"战场布阵：({x},{y}) 没有已摆放单位。");
             return;
@@ -1278,6 +1335,9 @@ public sealed partial class MainForm
     }
 
     private void ContinueBattlefieldPlacedUnitInteraction(MouseEventArgs e)
+        => ContinueBattlefieldPlacedUnitInteraction(e, null);
+
+    private void ContinueBattlefieldPlacedUnitInteraction(MouseEventArgs e, Point? mappedGrid)
     {
         if (_battlefieldBatchSelecting)
         {
@@ -1287,16 +1347,22 @@ public sealed partial class MainForm
 
         if (_draggingBattlefieldPlacedUnit == null || _battlefieldPlacedUnitDragStart == null) return;
         if ((e.Button & (MouseButtons.Left | MouseButtons.Right)) == 0) return;
-        if (!TryMapPreviewPointToGrid(e.Location, out var x, out var y)) return;
+        int x;
+        int y;
+        if (mappedGrid.HasValue)
+        {
+            x = mappedGrid.Value.X;
+            y = mappedGrid.Value.Y;
+        }
+        else if (!TryMapPreviewPointToGrid(e.Location, out x, out y))
+        {
+            return;
+        }
         if (_draggingBattlefieldPlacedUnit.GridX == x && _draggingBattlefieldPlacedUnit.GridY == y) return;
 
         _draggingBattlefieldPlacedUnit.GridX = x;
         _draggingBattlefieldPlacedUnit.GridY = y;
         _battlefieldPlacedUnitDragMoved = true;
-        if (_currentBattlefieldDocument != null)
-        {
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
-        }
         SetStatus($"战场布阵：拖劀{_draggingBattlefieldPlacedUnit.Name} -> ({x},{y})");
     }
 
@@ -1331,6 +1397,7 @@ public sealed partial class MainForm
 
         if (!moved)
         {
+            TryCommitPendingBattlefieldConsoleChanges(finalizeBatchTransaction: false);
             return;
         }
 
@@ -1344,8 +1411,12 @@ public sealed partial class MainForm
             unit.GridY = oldGrid.Y;
             if (_currentBattlefieldDocument != null)
             {
-                RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+                var dirtyRegion = UnionBattlefieldDirtyRegion(
+                    GetBattlefieldMapGridClientRectangle(oldGrid),
+                    GetBattlefieldMapGridClientRectangle(new Point(occupied.GridX, occupied.GridY)));
+                InvalidateBattlefieldMapDynamicRegion(dirtyRegion);
             }
+            TryCommitPendingBattlefieldConsoleChanges(finalizeBatchTransaction: false);
             SetStatus($"战场布阵：目标格 ({occupied.GridX},{occupied.GridY}) 已有 {occupied.Name}，已取消移动。");
             return;
         }
@@ -1353,10 +1424,21 @@ public sealed partial class MainForm
         unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
             unit.PlacementNote,
             $"地图拖拽：({oldGrid.X},{oldGrid.Y}) -> ({unit.GridX},{unit.GridY})。");
-        var synced = ApplyBattlefieldPlacementToCurrentScript(unit, "地图拖动");
+        if (!_battlefieldConsoleDirty)
+        {
+            var beforeMove = CloneBattlefieldPlacedUnit(unit);
+            beforeMove.GridX = oldGrid.X;
+            beforeMove.GridY = oldGrid.Y;
+            _battlefieldConsoleBeforeEditSnapshot = beforeMove;
+        }
+        MarkBattlefieldConsoleDirty(BattlefieldConsoleDirtyKind.Placement);
+        var synced = TryCommitPendingBattlefieldConsoleChanges(finalizeBatchTransaction: false) &&
+                     _currentBattlefieldLegacyScriptDocument != null &&
+                     BattlefieldDeploymentWriteService.IsScriptPlacementWritable(unit);
         if (_currentBattlefieldDocument != null)
         {
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+            _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+            RefreshBattlefieldMapDynamicPreview();
             _battlefieldInfoBox.Text =
                 BuildBattlefieldInfo(_currentBattlefieldDocument) +
                 $"\r\n\r\n已移动地图单位：\r\n" +
@@ -1377,6 +1459,7 @@ public sealed partial class MainForm
 
     private void SelectBattlefieldPlacedUnit(BattlefieldPlacedUnit unit, bool enterEdit, bool updatePreview = true)
     {
+        var oldSelected = _selectedBattlefieldPlacedUnit;
         if (_selectedBattlefieldPlacedUnit != null &&
             !ReferenceEquals(_selectedBattlefieldPlacedUnit, unit))
         {
@@ -1396,7 +1479,15 @@ public sealed partial class MainForm
         }
         SyncBattlefieldControlPanelFromPlacedUnit(unit);
         SelectBattlefieldUnitCandidateGridRow(unit.TargetKey, updatePreview);
-        RenderBattlefieldMapPreview(document, GetSelectedBattlefieldUnitCandidate());
+        _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+        var dirtyRegion = GetBattlefieldMapGridClientRectangle(new Point(unit.GridX, unit.GridY));
+        if (oldSelected != null && !ReferenceEquals(oldSelected, unit))
+        {
+            dirtyRegion = UnionBattlefieldDirtyRegion(
+                dirtyRegion,
+                GetBattlefieldMapGridClientRectangle(new Point(oldSelected.GridX, oldSelected.GridY)));
+        }
+        InvalidateBattlefieldMapDynamicRegion(dirtyRegion);
         if (updatePreview)
         {
             SetBattlefieldConsolePreview(
@@ -1525,7 +1616,7 @@ public sealed partial class MainForm
             ClearBattlefieldBatchEditingState(syncControls: true);
             if (_currentBattlefieldDocument != null)
             {
-                RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+                RefreshBattlefieldMapDynamicPreview();
             }
             SetStatus($"战场批量编辑：矩形 ({minX},{minY})-({maxX},{maxY}) 内没有已摆放单位。");
             return;
@@ -1536,6 +1627,7 @@ public sealed partial class MainForm
 
     private void ClearBattlefieldBatchEditingState(bool syncControls)
     {
+        _ = FinalizeBattlefieldBatchTransaction();
         _batchEditingBattlefieldTargetKeys.Clear();
         _battlefieldBatchSelecting = false;
         _battlefieldBatchSelectionStartGrid = null;
@@ -1550,7 +1642,6 @@ public sealed partial class MainForm
             else
             {
                 _battlefieldHiddenCheckBox.ThreeState = false;
-                _battlefieldConsoleSummaryLabel.Text = "未选中战场单位。";
             }
         }
     }
@@ -1581,14 +1672,14 @@ public sealed partial class MainForm
         _battlefieldPlacedUnitDragStart = null;
         _battlefieldPlacedUnitDragMoved = false;
         SyncBattlefieldControlPanelFromBatchUnits(units);
-        SelectBattlefieldUnitCandidateGridRow(units[0].TargetKey);
+        SelectBattlefieldUnitCandidateGridRow(units[0].TargetKey, updatePreview: false);
         if (_currentBattlefieldDocument != null)
         {
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
-            _battlefieldInfoBox.Text =
+            RefreshBattlefieldMapDynamicPreview();
+            SetBattlefieldConsolePreview(
                 BuildBattlefieldInfo(_currentBattlefieldDocument) +
                 "\r\n\r\n" +
-                BuildBattlefieldBatchSummaryText(units);
+                BuildBattlefieldBatchSummaryText(units));
         }
         SetStatus($"战场批量编辑：已框选 {units.Count} 个单位，修改右侧控制台字段会立即应用到这些单位。");
     }
@@ -1654,7 +1745,7 @@ public sealed partial class MainForm
         {
             ClearBattlefieldCommand25Markers();
             RefreshBattlefieldMapDynamicPreview();
-            _battlefieldMapHintLabel.Text = "指定地点测试预览：已取消。";
+            SetBattlefieldMapHint("指定地点测试预览：已取消。");
             SetStatus("战场制作：已取消指定地点测试预览");
             return;
         }
@@ -1697,9 +1788,9 @@ public sealed partial class MainForm
         _battlefieldCommand25Markers.AddRange(markers);
         _battlefieldCommand25PreviewEnabled = true;
         RefreshBattlefieldMapDynamicPreview();
-        _battlefieldMapHintLabel.Text = markers.Count == 0
+        SetBattlefieldMapHint(markers.Count == 0
             ? "指定地点测试预览：当前剧本没有可标记的坐标。"
-            : $"指定地点测试预览：已标记 {markers.Count} 个坐标；点击标记可跳到第一条对应指令。";
+            : $"指定地点测试预览：已标记 {markers.Count} 个坐标；点击标记可跳到第一条对应指令。");
         SetStatus($"战场制作：指定地点测试预览已显示 {markers.Count} 个坐标");
     }
 
@@ -1785,7 +1876,8 @@ public sealed partial class MainForm
         if (_bindingBattlefieldUnits) return;
         if (_currentBattlefieldDocument == null) return;
         var candidate = GetSelectedBattlefieldUnitCandidate();
-        RenderBattlefieldMapPreview(_currentBattlefieldDocument, candidate);
+        _battlefieldMapPreviewSelectedUnit = candidate;
+        RefreshBattlefieldMapDynamicPreview();
         if (candidate == null) return;
 
         var numberText = candidate.BattlefieldNumber.HasValue
@@ -1841,11 +1933,12 @@ public sealed partial class MainForm
 
     private void RenderBattlefieldMapPreview(BattlefieldEditorDocument document, BattlefieldUnitCandidate? selectedUnit = null)
     {
-        ClearBattlefieldMapPreviewImages();
-        var mapId = BuildBattlefieldMapId(document.Scenario);
+        var mapReference = document.MapReference;
+        var mapId = mapReference.MapId;
         if (string.IsNullOrWhiteSpace(mapId))
         {
-            _battlefieldMapHintLabel.Text = "地图预览：当前关卡编号无法匹配 Map/Mxxx.jpg。";
+            ClearBattlefieldMapPreviewImages();
+            SetBattlefieldMapHint(mapReference, "当前剧本无法解析有效地图号。");
             return;
         }
 
@@ -1853,15 +1946,36 @@ public sealed partial class MainForm
         {
             var map = FindBattlefieldMapResourceByMapId(mapId);
             var block = _currentHexzmapProbe?.Blocks.FirstOrDefault(x => x.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase));
+            var mapIdentity = BuildBattlefieldMapResourceIdentity(map);
+            var hexzmapIdentity = BuildBattlefieldHexzmapIdentity(block);
+            var slotIdentity = BuildBattlefieldStaticSlotIdentity();
+            if (_battlefieldMapStaticPreviewImage != null &&
+                _battlefieldMapStaticMapId.Equals(mapId, StringComparison.OrdinalIgnoreCase) &&
+                _battlefieldMapStaticResourceIdentity.Equals(mapIdentity, StringComparison.Ordinal) &&
+                _battlefieldMapStaticHexzmapIdentity.Equals(hexzmapIdentity, StringComparison.Ordinal) &&
+                _battlefieldMapStaticSlotIdentity.Equals(slotIdentity, StringComparison.Ordinal))
+            {
+                _battlefieldMapPreviewSelectedUnit = selectedUnit;
+                SetPictureBoxImage(_battlefieldMapPreviewBox, _battlefieldMapStaticPreviewImage);
+                ApplyBattlefieldMapZoom();
+                RefreshBattlefieldMapDynamicPreview();
+                return;
+            }
+
+            using var operation = PerformanceMetrics.Begin("Battlefield.StaticMap.Build");
+            ClearBattlefieldMapPreviewImages();
             if (_currentHexzmapProbe != null && block != null)
             {
+                using var decodeOperation = PerformanceMetrics.Begin("Battlefield.Hexzmap.Decode");
                 var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
                 if (cells.Length == block.BytesRead)
                 {
+                    _battlefieldMapTerrainCells = cells;
+                    _battlefieldMapTerrainGridSize = (block.Width, block.Height);
                     var preview = map != null && File.Exists(map.Path) && !map.SourceKind.Equals("LegacyHmRaw", StringComparison.OrdinalIgnoreCase)
                         ? _hexzmapTerrainRenderService.RenderOverlay(cells, block.Width, block.Height, map.Path, 45)
                         : RenderHexzmapCells(cells, block.Width, block.Height);
-                    SetBattlefieldMapPreviewImage(preview, selectedUnit, map);
+                    SetBattlefieldMapPreviewImage(preview, selectedUnit, map, mapReference, mapIdentity, hexzmapIdentity, slotIdentity);
                     return;
                 }
             }
@@ -1869,16 +1983,16 @@ public sealed partial class MainForm
             if (map != null && File.Exists(map.Path))
             {
                 using var image = RenderBattlefieldBaseMap(map);
-                SetBattlefieldMapPreviewImage(new Bitmap(image), selectedUnit, map);
+                SetBattlefieldMapPreviewImage(new Bitmap(image), selectedUnit, map, mapReference, mapIdentity, hexzmapIdentity, slotIdentity);
                 return;
             }
 
-            _battlefieldMapHintLabel.Text = $"地图预览：未找到 {mapId} 对应的 Map/Mxxx.jpg 或 Hexzmap 地形块。";
+            SetBattlefieldMapHint(mapReference, "未找到对应的 Map/Mxxx.jpg 或 Hexzmap 地形块。");
         }
         catch (Exception ex)
         {
             ClearBattlefieldMapPreviewImages();
-            _battlefieldMapHintLabel.Text = "地图预览生成失败：" + ex.Message;
+            SetBattlefieldMapHint(mapReference, "预览生成失败：" + ex.Message);
             System.Diagnostics.Debug.WriteLine("战场制作地图预览失败：" + ex);
         }
     }
@@ -1891,24 +2005,6 @@ public sealed partial class MainForm
         }
 
         return Image.FromFile(map.Path);
-    }
-
-    private static string BuildBattlefieldMapId(ScenarioFileInfo scenario)
-    {
-        if (!string.IsNullOrWhiteSpace(scenario.Id) &&
-            int.TryParse(scenario.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
-        {
-            return "M" + id.ToString("000", CultureInfo.InvariantCulture);
-        }
-
-        var digits = new string((scenario.FileName ?? string.Empty).Where(char.IsDigit).ToArray());
-        if (digits.Length == 0 ||
-            !int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out id))
-        {
-            return string.Empty;
-        }
-
-        return "M" + id.ToString("000", CultureInfo.InvariantCulture);
     }
 
     private MapResourceItem? FindBattlefieldMapResourceByMapId(string mapId)
@@ -1925,14 +2021,18 @@ public sealed partial class MainForm
     private bool HasBattlefieldMapResource(BattlefieldEditorDocument? document)
     {
         if (document == null) return false;
-        var mapId = BuildBattlefieldMapId(document.Scenario);
+        var mapId = document.MapReference.MapId;
         return !string.IsNullOrWhiteSpace(mapId) && FindBattlefieldMapResourceByMapId(mapId) != null;
     }
 
-    private void SetBattlefieldMapPreviewImage(Image image, BattlefieldUnitCandidate? selectedUnit)
-        => SetBattlefieldMapPreviewImage(image, selectedUnit, null);
-
-    private void SetBattlefieldMapPreviewImage(Image image, BattlefieldUnitCandidate? selectedUnit, MapResourceItem? map)
+    private void SetBattlefieldMapPreviewImage(
+        Image image,
+        BattlefieldUnitCandidate? selectedUnit,
+        MapResourceItem? map,
+        BattlefieldMapReference mapReference,
+        string mapIdentity,
+        string hexzmapIdentity,
+        string slotIdentity)
     {
         _battlefieldMapPreviewSelectedUnit = selectedUnit;
         var (gridWidth, gridHeight) = map != null && map.GridWidth > 0 && map.GridHeight > 0
@@ -1951,18 +2051,18 @@ public sealed partial class MainForm
         {
             if (_battlefieldManualMarkerX < gridWidth && _battlefieldManualMarkerY < gridHeight)
             {
-                _battlefieldMapHintLabel.Text = $"地图点选记录：{selectedUnit.Category} {selectedUnit.SourceCommand} -> 坐标 ({_battlefieldManualMarkerX},{_battlefieldManualMarkerY})。";
+                SetBattlefieldMapHint(mapReference, $"地图点选记录：{selectedUnit.Category} {selectedUnit.SourceCommand} -> 坐标 ({_battlefieldManualMarkerX},{_battlefieldManualMarkerY})。");
             }
         }
         else if (selectedUnit != null && BattlefieldEditorService.TryExtractFirstCoordinate(selectedUnit, out var gridX, out var gridY))
         {
             if (gridX >= 0 && gridX < gridWidth && gridY >= 0 && gridY < gridHeight)
             {
-                _battlefieldMapHintLabel.Text = $"地图标记：{selectedUnit.Category} {selectedUnit.SourceCommand} -> 坐标 ({gridX},{gridY})。";
+                SetBattlefieldMapHint(mapReference, $"地图标记：{selectedUnit.Category} {selectedUnit.SourceCommand} -> 坐标 ({gridX},{gridY})。");
             }
             else
             {
-                _battlefieldMapHintLabel.Text = $"地图标记：解析到坐标 ({gridX},{gridY})，但超出当前地图格数范围，未绘制。";
+                SetBattlefieldMapHint(mapReference, $"地图标记：解析到坐标 ({gridX},{gridY})，但超出当前地图格数范围，未绘制。");
             }
         }
         else
@@ -1970,7 +2070,7 @@ public sealed partial class MainForm
             var allySlotText = _battlefieldAllyDeploymentSlots.Count == 0
                 ? string.Empty
                 : $"；我军候选出战位 {_battlefieldAllyDeploymentSlots.Count} 个（强制 {_battlefieldAllyDeploymentSlots.Count(slot => slot.IsForced)} 个）";
-            _battlefieldMapHintLabel.Text = $"地图：{gridWidth}x{gridHeight} 格，已摆放 {_battlefieldPlacedUnits.Count} 个单位{allySlotText}。";
+            SetBattlefieldMapHint(mapReference, $"{gridWidth}x{gridHeight} 格，已摆放 {_battlefieldPlacedUnits.Count} 个单位{allySlotText}。");
         }
 
         _battlefieldMapStaticPreviewImage = image as Bitmap ?? new Bitmap(image);
@@ -1980,6 +2080,12 @@ public sealed partial class MainForm
         }
 
         _battlefieldMapStaticGridSize = (gridWidth, gridHeight);
+        _battlefieldMapStaticMapId = mapReference.MapId;
+        _battlefieldMapStaticResourceIdentity = mapIdentity;
+        _battlefieldMapStaticHexzmapIdentity = hexzmapIdentity;
+        _battlefieldMapStaticSlotIdentity = slotIdentity;
+        SetPictureBoxImage(_battlefieldMapPreviewBox, _battlefieldMapStaticPreviewImage);
+        ApplyBattlefieldMapZoom();
         RefreshBattlefieldMapDynamicPreview();
     }
 
@@ -1991,37 +2097,76 @@ public sealed partial class MainForm
             ApplyBattlefieldMapZoom();
             return;
         }
+        PerformanceMetrics.Increment("Battlefield.DynamicOverlay.Invalidate");
+        _battlefieldMapPreviewBox.Invalidate();
+    }
 
-        Bitmap image;
+    private void InvalidateBattlefieldMapDynamicRegion(Rectangle dirtyRegion)
+    {
+        if (_battlefieldMapStaticPreviewImage == null || dirtyRegion.IsEmpty) return;
+        PerformanceMetrics.Increment("Battlefield.DynamicOverlay.Invalidate");
+        _battlefieldMapPreviewBox.Invalidate(dirtyRegion);
+    }
+
+    private Rectangle GetBattlefieldMapGridClientRectangle(Point grid)
+        => GetBattlefieldMapGridRangeClientRectangle(grid, grid);
+
+    private Rectangle GetBattlefieldMapGridRangeClientRectangle(Point first, Point second)
+    {
+        var (gridWidth, gridHeight) = _battlefieldMapStaticGridSize;
+        if (gridWidth <= 0 || gridHeight <= 0 ||
+            _battlefieldMapPreviewBox.ClientSize.Width <= 0 ||
+            _battlefieldMapPreviewBox.ClientSize.Height <= 0)
+        {
+            return Rectangle.Empty;
+        }
+
+        var minX = Math.Clamp(Math.Min(first.X, second.X), 0, gridWidth - 1);
+        var maxX = Math.Clamp(Math.Max(first.X, second.X), 0, gridWidth - 1);
+        var minY = Math.Clamp(Math.Min(first.Y, second.Y), 0, gridHeight - 1);
+        var maxY = Math.Clamp(Math.Max(first.Y, second.Y), 0, gridHeight - 1);
+        var clientWidth = _battlefieldMapPreviewBox.ClientSize.Width;
+        var clientHeight = _battlefieldMapPreviewBox.ClientSize.Height;
+        var left = (int)Math.Floor(minX * clientWidth / (double)gridWidth);
+        var top = (int)Math.Floor(minY * clientHeight / (double)gridHeight);
+        var right = (int)Math.Ceiling((maxX + 1) * clientWidth / (double)gridWidth);
+        var bottom = (int)Math.Ceiling((maxY + 1) * clientHeight / (double)gridHeight);
+        var rect = Rectangle.FromLTRB(left, top, right, bottom);
+        rect.Inflate(6, 6);
+        return Rectangle.Intersect(_battlefieldMapPreviewBox.ClientRectangle, rect);
+    }
+
+    private static Rectangle UnionBattlefieldDirtyRegion(Rectangle current, Rectangle addition)
+        => current.IsEmpty ? addition : addition.IsEmpty ? current : Rectangle.Union(current, addition);
+
+    private void PaintBattlefieldMapDynamicOverlay(PaintEventArgs e)
+    {
+        if (_battlefieldMapStaticPreviewImage == null) return;
+        var (gridWidth, gridHeight) = _battlefieldMapStaticGridSize;
+        if (gridWidth <= 0 || gridHeight <= 0) return;
+
+        using var operation = PerformanceMetrics.Begin("Battlefield.DynamicOverlay.Paint");
+        var imageSize = _battlefieldMapStaticPreviewImage.Size;
+        if (imageSize.Width <= 0 || imageSize.Height <= 0) return;
+
+        var state = e.Graphics.Save();
         try
         {
-            image = new Bitmap(_battlefieldMapStaticPreviewImage.Width, _battlefieldMapStaticPreviewImage.Height, PixelFormat.Format32bppArgb);
+            e.Graphics.ScaleTransform(
+                _battlefieldMapPreviewBox.ClientSize.Width / (float)imageSize.Width,
+                _battlefieldMapPreviewBox.ClientSize.Height / (float)imageSize.Height);
+            DrawBattlefieldForcedAllyDeploymentUnits(e.Graphics, imageSize, gridWidth, gridHeight);
+            DrawBattlefieldPlacedUnits(e.Graphics, imageSize, gridWidth, gridHeight);
+            DrawBattlefieldAllyDeploymentOrderBadges(e.Graphics, imageSize, gridWidth, gridHeight);
+            DrawBattlefieldSelectedCoordinateMarker(e.Graphics, imageSize, gridWidth, gridHeight);
+            DrawBattlefieldCommand25Markers(e.Graphics, imageSize, gridWidth, gridHeight);
+            DrawBattlefieldHoverCell(e.Graphics, imageSize, gridWidth, gridHeight);
+            DrawBattlefieldBatchSelectionOverlay(e.Graphics, imageSize, gridWidth, gridHeight);
         }
-        catch (Exception ex) when (ex is ArgumentException or ObjectDisposedException)
+        finally
         {
-            ClearBattlefieldMapPreviewImages();
-            ApplicationErrorService.Report(ex, "Battlefield map dynamic preview source", notify: false);
-            return;
+            e.Graphics.Restore(state);
         }
-        using (var graphics = Graphics.FromImage(image))
-        {
-            graphics.DrawImageUnscaled(_battlefieldMapStaticPreviewImage, 0, 0);
-        }
-
-        var (gridWidth, gridHeight) = _battlefieldMapStaticGridSize;
-        if (gridWidth > 0 && gridHeight > 0)
-        {
-            DrawBattlefieldForcedAllyDeploymentUnits(image, gridWidth, gridHeight);
-            DrawBattlefieldPlacedUnits(image, gridWidth, gridHeight);
-            DrawBattlefieldAllyDeploymentOrderBadges(image, gridWidth, gridHeight);
-            DrawBattlefieldSelectedCoordinateMarker(image, gridWidth, gridHeight);
-            DrawBattlefieldCommand25Markers(image, gridWidth, gridHeight);
-            DrawBattlefieldHoverCell(image, gridWidth, gridHeight);
-            DrawBattlefieldBatchSelectionOverlay(image, gridWidth, gridHeight);
-        }
-
-        SetPictureBoxImage(_battlefieldMapPreviewBox, image);
-        ApplyBattlefieldMapZoom();
     }
 
     private void UpdateBattlefieldMapHover(Point location)
@@ -2043,58 +2188,141 @@ public sealed partial class MainForm
         RefreshBattlefieldMapDynamicPreview();
     }
 
+    private void HandleBattlefieldMapMouseMove(MouseEventArgs e)
+    {
+        using var operation = PerformanceMetrics.Begin("Battlefield.MouseMove");
+        if (!TryMapPreviewPointToGrid(e.Location, out var x, out var y))
+        {
+            ClearBattlefieldMapHover();
+            return;
+        }
+
+        var dirtyRegion = Rectangle.Empty;
+        var oldHover = _battlefieldHoverGridX >= 0 && _battlefieldHoverGridY >= 0
+            ? new Point(_battlefieldHoverGridX, _battlefieldHoverGridY)
+            : (Point?)null;
+        var changed = !oldHover.HasValue || oldHover.Value.X != x || oldHover.Value.Y != y;
+        if (changed)
+        {
+            if (oldHover.HasValue)
+            {
+                dirtyRegion = UnionBattlefieldDirtyRegion(dirtyRegion, GetBattlefieldMapGridClientRectangle(oldHover.Value));
+            }
+            _battlefieldHoverGridX = x;
+            _battlefieldHoverGridY = y;
+            UpdateBattlefieldMapHoverLabel();
+            dirtyRegion = UnionBattlefieldDirtyRegion(dirtyRegion, GetBattlefieldMapGridClientRectangle(new Point(x, y)));
+        }
+
+        if (_battlefieldBatchSelecting)
+        {
+            var oldEnd = _battlefieldBatchSelectionEndGrid;
+            if (!_battlefieldBatchSelectionEndGrid.HasValue ||
+                _battlefieldBatchSelectionEndGrid.Value.X != x ||
+                _battlefieldBatchSelectionEndGrid.Value.Y != y)
+            {
+                _battlefieldBatchSelectionEndGrid = new Point(x, y);
+                changed = true;
+                if (_battlefieldBatchSelectionStartGrid.HasValue)
+                {
+                    if (oldEnd.HasValue)
+                    {
+                        dirtyRegion = UnionBattlefieldDirtyRegion(
+                            dirtyRegion,
+                            GetBattlefieldMapGridRangeClientRectangle(_battlefieldBatchSelectionStartGrid.Value, oldEnd.Value));
+                    }
+                    dirtyRegion = UnionBattlefieldDirtyRegion(
+                        dirtyRegion,
+                        GetBattlefieldMapGridRangeClientRectangle(_battlefieldBatchSelectionStartGrid.Value, new Point(x, y)));
+                }
+            }
+            if (changed)
+            {
+                InvalidateBattlefieldMapDynamicRegion(dirtyRegion);
+            }
+            return;
+        }
+
+        var oldGrid = _draggingBattlefieldPlacedUnit == null
+            ? (Point?)null
+            : new Point(_draggingBattlefieldPlacedUnit.GridX, _draggingBattlefieldPlacedUnit.GridY);
+        ContinueBattlefieldPlacedUnitInteraction(e, new Point(x, y));
+        changed |= oldGrid.HasValue && _draggingBattlefieldPlacedUnit != null &&
+                   (oldGrid.Value.X != _draggingBattlefieldPlacedUnit.GridX ||
+                    oldGrid.Value.Y != _draggingBattlefieldPlacedUnit.GridY);
+        if (oldGrid.HasValue && _draggingBattlefieldPlacedUnit != null &&
+            (oldGrid.Value.X != _draggingBattlefieldPlacedUnit.GridX ||
+             oldGrid.Value.Y != _draggingBattlefieldPlacedUnit.GridY))
+        {
+            dirtyRegion = UnionBattlefieldDirtyRegion(dirtyRegion, GetBattlefieldMapGridClientRectangle(oldGrid.Value));
+            dirtyRegion = UnionBattlefieldDirtyRegion(
+                dirtyRegion,
+                GetBattlefieldMapGridClientRectangle(new Point(_draggingBattlefieldPlacedUnit.GridX, _draggingBattlefieldPlacedUnit.GridY)));
+        }
+        if (changed)
+        {
+            InvalidateBattlefieldMapDynamicRegion(dirtyRegion);
+        }
+    }
+
     private void ClearBattlefieldMapHover()
     {
         if (_battlefieldHoverGridX < 0 && _battlefieldHoverGridY < 0)
         {
-            _battlefieldMapHintLabel.Text = "地形＀    坐标＀";
+            SetBattlefieldMapHint(string.Empty);
             return;
         }
 
+        var oldHover = new Point(_battlefieldHoverGridX, _battlefieldHoverGridY);
         _battlefieldHoverGridX = -1;
         _battlefieldHoverGridY = -1;
-        _battlefieldMapHintLabel.Text = "地形＀    坐标＀";
-        RefreshBattlefieldMapDynamicPreview();
+        SetBattlefieldMapHint(string.Empty);
+        InvalidateBattlefieldMapDynamicRegion(GetBattlefieldMapGridClientRectangle(oldHover));
     }
 
     private void UpdateBattlefieldMapHoverLabel()
     {
         if (_battlefieldHoverGridX < 0 || _battlefieldHoverGridY < 0)
         {
-            _battlefieldMapHintLabel.Text = "地形＀    坐标＀";
+            SetBattlefieldMapHint(string.Empty);
             return;
         }
 
         var terrain = TryGetBattlefieldHoverTerrain(_battlefieldHoverGridX, _battlefieldHoverGridY, out var text)
             ? text
             : "未知";
-        _battlefieldMapHintLabel.Text = $"地形：{terrain}    坐标＀{_battlefieldHoverGridX}, {_battlefieldHoverGridY})";
+        SetBattlefieldMapHint($"地形：{terrain} · 坐标：({_battlefieldHoverGridX}, {_battlefieldHoverGridY})");
+    }
+
+    private void SetBattlefieldMapHint(string detail)
+        => SetBattlefieldMapHint(_currentBattlefieldDocument?.MapReference, detail);
+
+    private void SetBattlefieldMapHint(BattlefieldMapReference? mapReference, string detail)
+    {
+        var source = mapReference?.DisplayText ?? BattlefieldMapReference.Unresolved.DisplayText;
+        _battlefieldMapHintLabel.Text = string.IsNullOrWhiteSpace(detail)
+            ? source
+            : source + " · " + detail;
     }
 
     private bool TryGetBattlefieldHoverTerrain(int x, int y, out string terrain)
     {
         terrain = string.Empty;
-        if (_currentBattlefieldDocument == null || _currentHexzmapProbe == null) return false;
-        var mapId = BuildBattlefieldMapId(_currentBattlefieldDocument.Scenario);
-        if (string.IsNullOrWhiteSpace(mapId)) return false;
-        var block = _currentHexzmapProbe.Blocks.FirstOrDefault(item => item.MapId.Equals(mapId, StringComparison.OrdinalIgnoreCase));
-        if (block == null || x < 0 || y < 0 || x >= block.Width || y >= block.Height) return false;
-
-        var cells = _hexzmapProbeReader.GetBlockCells(_currentHexzmapProbe, block);
-        var index = y * block.Width + x;
-        if (index < 0 || index >= cells.Length) return false;
-        terrain = FormatTerrainValue(cells[index]);
+        var (width, height) = _battlefieldMapTerrainGridSize;
+        if (_battlefieldMapTerrainCells.Length == 0 || x < 0 || y < 0 || x >= width || y >= height) return false;
+        var index = y * width + x;
+        if (index < 0 || index >= _battlefieldMapTerrainCells.Length) return false;
+        terrain = FormatTerrainValue(_battlefieldMapTerrainCells[index]);
         return true;
     }
 
-    private void DrawBattlefieldHoverCell(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldHoverCell(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         if (_battlefieldHoverGridX < 0 || _battlefieldHoverGridY < 0) return;
         if (_battlefieldHoverGridX >= gridWidth || _battlefieldHoverGridY >= gridHeight) return;
 
-        using var graphics = Graphics.FromImage(image);
-        var cellWidth = image.Width / (float)gridWidth;
-        var cellHeight = image.Height / (float)gridHeight;
+        var cellWidth = imageSize.Width / (float)gridWidth;
+        var cellHeight = imageSize.Height / (float)gridHeight;
         var rect = new RectangleF(
             _battlefieldHoverGridX * cellWidth,
             _battlefieldHoverGridY * cellHeight,
@@ -2110,15 +2338,60 @@ public sealed partial class MainForm
 
     private void ClearBattlefieldMapPreviewImages()
     {
-        SetPictureBoxImage(_battlefieldMapPreviewBox, null);
-        _battlefieldMapStaticPreviewImage?.Dispose();
+        // SetPictureBoxImage owns and disposes the image previously assigned to the box.
+        // Clear the cache reference first so the same bitmap is never disposed twice.
         _battlefieldMapStaticPreviewImage = null;
+        SetPictureBoxImage(_battlefieldMapPreviewBox, null);
         _battlefieldMapStaticGridSize = default;
+        _battlefieldMapStaticMapId = string.Empty;
+        _battlefieldMapStaticResourceIdentity = string.Empty;
+        _battlefieldMapStaticHexzmapIdentity = string.Empty;
+        _battlefieldMapStaticSlotIdentity = string.Empty;
+        _battlefieldMapTerrainCells = Array.Empty<byte>();
+        _battlefieldMapTerrainGridSize = default;
         _battlefieldMapPreviewSelectedUnit = null;
         _battlefieldHoverGridX = -1;
         _battlefieldHoverGridY = -1;
         ApplyBattlefieldMapZoom();
     }
+
+    private void InvalidateBattlefieldStaticMapCache(bool rebuildCurrentPreview)
+    {
+        ClearBattlefieldMapPreviewImages();
+        if (rebuildCurrentPreview && _currentBattlefieldDocument != null && !IsDisposed)
+        {
+            RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+        }
+    }
+
+    private static string BuildBattlefieldMapResourceIdentity(MapResourceItem? map)
+    {
+        if (map == null) return string.Empty;
+        var lastWriteTicks = File.Exists(map.Path) ? File.GetLastWriteTimeUtc(map.Path).Ticks : 0L;
+        var length = File.Exists(map.Path) ? new FileInfo(map.Path).Length : -1L;
+        return string.Join("|", map.Path, map.SourceKind, map.GridWidth, map.GridHeight, lastWriteTicks, length);
+    }
+
+    private string BuildBattlefieldHexzmapIdentity(HexzmapBlockInfo? block)
+    {
+        if (_currentHexzmapProbe == null || block == null) return string.Empty;
+        var lastWriteTicks = File.Exists(_currentHexzmapProbe.Path)
+            ? File.GetLastWriteTimeUtc(_currentHexzmapProbe.Path).Ticks
+            : 0L;
+        var length = File.Exists(_currentHexzmapProbe.Path)
+            ? new FileInfo(_currentHexzmapProbe.Path).Length
+            : -1L;
+        return string.Join("|", _currentHexzmapProbe.Path, block.Index, block.Width, block.Height, block.BytesRead, lastWriteTicks, length);
+    }
+
+    private string BuildBattlefieldStaticSlotIdentity()
+        => string.Join(
+            ";",
+            _battlefieldAllyDeploymentSlots
+                .OrderBy(slot => slot.Order)
+                .ThenBy(slot => slot.GridY)
+                .ThenBy(slot => slot.GridX)
+                .Select(slot => string.Join(",", slot.Order, slot.GridX, slot.GridY, slot.IsForced, slot.PersonId)));
 
     private void HandleBattlefieldMapMouseWheel(MouseEventArgs e)
     {
@@ -2216,12 +2489,11 @@ public sealed partial class MainForm
         }
     }
 
-    private void DrawBattlefieldPlacedUnits(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldPlacedUnits(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         if (_project == null || gridWidth <= 0 || gridHeight <= 0) return;
-        using var graphics = Graphics.FromImage(image);
-        var cellWidth = image.Width / (float)gridWidth;
-        var cellHeight = image.Height / (float)gridHeight;
+        var cellWidth = imageSize.Width / (float)gridWidth;
+        var cellHeight = imageSize.Height / (float)gridHeight;
 
         foreach (var unit in _battlefieldPlacedUnits)
         {
@@ -2316,13 +2588,12 @@ public sealed partial class MainForm
         graphics.DrawRectangle(borderPen, markerRect.X, markerRect.Y, markerRect.Width, markerRect.Height);
     }
 
-    private void DrawBattlefieldForcedAllyDeploymentUnits(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldForcedAllyDeploymentUnits(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         if (_project == null || _battlefieldAllyDeploymentSlots.Count == 0 || gridWidth <= 0 || gridHeight <= 0) return;
 
-        using var graphics = Graphics.FromImage(image);
-        var cellWidth = image.Width / (float)gridWidth;
-        var cellHeight = image.Height / (float)gridHeight;
+        var cellWidth = imageSize.Width / (float)gridWidth;
+        var cellHeight = imageSize.Height / (float)gridHeight;
         var placedAllyPersonIds = _battlefieldPlacedUnits
             .Where(unit => unit.PersonId >= 0 && unit.Faction.Equals("我军", StringComparison.Ordinal))
             .Select(unit => unit.PersonId)
@@ -2367,13 +2638,12 @@ public sealed partial class MainForm
         }
     }
 
-    private void DrawBattlefieldAllyDeploymentOrderBadges(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldAllyDeploymentOrderBadges(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         if (_battlefieldAllyDeploymentSlots.Count == 0 || gridWidth <= 0 || gridHeight <= 0) return;
 
-        using var graphics = Graphics.FromImage(image);
-        var cellWidth = image.Width / (float)gridWidth;
-        var cellHeight = image.Height / (float)gridHeight;
+        var cellWidth = imageSize.Width / (float)gridWidth;
+        var cellHeight = imageSize.Height / (float)gridHeight;
         foreach (var slot in _battlefieldAllyDeploymentSlots.OrderBy(slot => slot.Order).ThenBy(slot => slot.GridY).ThenBy(slot => slot.GridX))
         {
             if (slot.GridX < 0 || slot.GridX >= gridWidth || slot.GridY < 0 || slot.GridY >= gridHeight) continue;
@@ -2501,6 +2771,7 @@ public sealed partial class MainForm
     private void AdvanceBattlefieldUnitAnimation()
     {
         if (_project == null || !IsBattlefieldEditorTabActive()) return;
+        if (_draggingBattlefieldPlacedUnit != null || _battlefieldBatchSelecting) return;
         var hasPalettePreview = _battlefieldUnitListBox.SelectedItem is BattlefieldUnitPaletteItem;
         var hasMapUnits = _currentBattlefieldDocument != null &&
                           (_battlefieldPlacedUnits.Count > 0 || _battlefieldAllyDeploymentSlots.Any(slot => slot.IsForced));
@@ -2518,7 +2789,20 @@ public sealed partial class MainForm
             {
                 if (_battlefieldMapStaticPreviewImage != null)
                 {
-                    RefreshBattlefieldMapDynamicPreview();
+                    var dirtyRegion = Rectangle.Empty;
+                    foreach (var unit in _battlefieldPlacedUnits)
+                    {
+                        dirtyRegion = UnionBattlefieldDirtyRegion(
+                            dirtyRegion,
+                            GetBattlefieldMapGridClientRectangle(new Point(unit.GridX, unit.GridY)));
+                    }
+                    foreach (var slot in _battlefieldAllyDeploymentSlots.Where(slot => slot.IsForced))
+                    {
+                        dirtyRegion = UnionBattlefieldDirtyRegion(
+                            dirtyRegion,
+                            GetBattlefieldMapGridClientRectangle(new Point(slot.GridX, slot.GridY)));
+                    }
+                    InvalidateBattlefieldMapDynamicRegion(dirtyRegion);
                 }
                 else
                 {
@@ -2680,13 +2964,40 @@ public sealed partial class MainForm
         _battlefieldPlacedUnitDragStart = null;
         _battlefieldPlacedUnitDragMoved = false;
         SyncBattlefieldControlPanelFromPlacedUnit(placed);
-        var synced = ApplyBattlefieldPlacementToCurrentScript(placed, "拖放");
-        RenderBattlefieldMapPreview(_currentBattlefieldDocument);
+        _battlefieldMapPreviewSelectedUnit = null;
+        RefreshBattlefieldMapDynamicPreview();
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
+        SetStatus($"战场布阵：{item.DisplayText} -> ({x},{y})，地图已更新，正在同步左侧 S 剧本树...");
+        _pendingBattlefieldDropSynchronizations.Add(placed);
+        BeginInvoke(new Action(() => SynchronizeBattlefieldDropAfterPaint(placed, item.DisplayText)));
+    }
+
+    private void SynchronizeBattlefieldDropAfterPaint(BattlefieldPlacedUnit placed, string displayText)
+    {
+        if (!_pendingBattlefieldDropSynchronizations.Remove(placed)) return;
+        if (IsDisposed || !_battlefieldPlacedUnits.Contains(placed)) return;
+        var synced = ApplyBattlefieldPlacementToCurrentScript(placed, "拖放");
         SetStatus(synced
-            ? $"战场布阵：{item.DisplayText} -> ({x},{y})，已写入左侧 S 剧本树，尚未完整保存。"
-            : $"战场布阵：{item.DisplayText} -> ({x},{y})；未找到可用的 46/47/4B 出场设置槽，左右指令不改，需保存为布阵草稿。");
+            ? $"战场布阵：{displayText} 已写入左侧 S 剧本树，尚未完整保存。"
+            : $"战场布阵：{displayText} 未找到可用的 46/47/4B 出场设置槽，需保存为布阵草稿。");
+    }
+
+    private void FlushPendingBattlefieldDropSynchronizations()
+    {
+        if (_flushingBattlefieldDropSynchronizations || _pendingBattlefieldDropSynchronizations.Count == 0) return;
+        _flushingBattlefieldDropSynchronizations = true;
+        try
+        {
+            foreach (var placed in _pendingBattlefieldDropSynchronizations.ToArray())
+            {
+                SynchronizeBattlefieldDropAfterPaint(placed, placed.Name);
+            }
+        }
+        finally
+        {
+            _flushingBattlefieldDropSynchronizations = false;
+        }
     }
 
     private string BuildBattlefieldPlacementNote(BattlefieldUnitPaletteItem item, int x, int y)
@@ -3256,8 +3567,11 @@ public sealed partial class MainForm
             return;
         }
         if (_selectedBattlefieldPlacedUnit == null) return;
-        UpdateSelectedBattlefieldPlacedUnitFromConsoleControls();
         MarkBattlefieldConsoleDirty(BattlefieldConsoleDirtyKind.Placement);
+        UpdateSelectedBattlefieldPlacedUnitFromConsoleControls();
+        InvalidateBattlefieldMapDynamicRegion(
+            GetBattlefieldMapGridClientRectangle(
+                new Point(_selectedBattlefieldPlacedUnit.GridX, _selectedBattlefieldPlacedUnit.GridY)));
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
     }
@@ -3277,16 +3591,24 @@ public sealed partial class MainForm
     private void MarkBattlefieldConsoleDirty(BattlefieldConsoleDirtyKind kind)
     {
         if (_selectedBattlefieldPlacedUnit == null) return;
+        if (!_battlefieldConsoleDirty)
+        {
+            _battlefieldConsoleBeforeEditSnapshot = CloneBattlefieldPlacedUnit(_selectedBattlefieldPlacedUnit);
+        }
         _battlefieldConsoleDirty = true;
         _battlefieldConsoleDirtyTargetKey = _selectedBattlefieldPlacedUnit.TargetKey;
         _battlefieldConsoleDirtyKind |= kind;
     }
 
-    private void ClearBattlefieldConsoleDirty()
+    private void ClearBattlefieldConsoleDirty(bool clearBeforeEditSnapshot = true)
     {
         _battlefieldConsoleDirty = false;
         _battlefieldConsoleDirtyTargetKey = string.Empty;
         _battlefieldConsoleDirtyKind = BattlefieldConsoleDirtyKind.None;
+        if (clearBeforeEditSnapshot)
+        {
+            _battlefieldConsoleBeforeEditSnapshot = null;
+        }
     }
 
     private void UpdateSelectedBattlefieldPlacedUnitFromConsoleControls()
@@ -3307,7 +3629,7 @@ public sealed partial class MainForm
         }
     }
 
-    private void DrawBattlefieldBatchSelectionOverlay(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldBatchSelectionOverlay(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         if (!_battlefieldBatchSelecting ||
             !_battlefieldBatchSelectionStartGrid.HasValue ||
@@ -3324,15 +3646,14 @@ public sealed partial class MainForm
         var maxX = Math.Clamp(Math.Max(start.X, end.X), 0, gridWidth - 1);
         var minY = Math.Clamp(Math.Min(start.Y, end.Y), 0, gridHeight - 1);
         var maxY = Math.Clamp(Math.Max(start.Y, end.Y), 0, gridHeight - 1);
-        var cellWidth = image.Width / (float)gridWidth;
-        var cellHeight = image.Height / (float)gridHeight;
+        var cellWidth = imageSize.Width / (float)gridWidth;
+        var cellHeight = imageSize.Height / (float)gridHeight;
         var rect = new RectangleF(
             minX * cellWidth,
             minY * cellHeight,
             (maxX - minX + 1) * cellWidth,
             (maxY - minY + 1) * cellHeight);
 
-        using var graphics = Graphics.FromImage(image);
         using var fill = new SolidBrush(Color.FromArgb(55, Color.Cyan));
         using var border = new Pen(Color.FromArgb(230, Color.Cyan), 3);
         using var inner = new Pen(Color.FromArgb(210, Color.Black), 1);
@@ -3365,12 +3686,12 @@ public sealed partial class MainForm
 
     private void QueueBattlefieldConsoleCommitWhenFocusLeaves()
     {
-        if (!_battlefieldConsoleDirty || IsDisposed) return;
+        if ((!_battlefieldConsoleDirty && _battlefieldBatchTransactionBeforeEdit == null) || IsDisposed) return;
         BeginInvoke(new Action(() =>
         {
             if (!BattlefieldConsoleContainsFocus())
             {
-                TryCommitPendingBattlefieldConsoleChanges();
+                TryCommitPendingBattlefieldConsoleChanges(finalizeBatchTransaction: true);
             }
         }));
     }
@@ -3430,6 +3751,8 @@ public sealed partial class MainForm
             return;
         }
 
+        EnsureBattlefieldBatchTransaction(units);
+
         var changedUnits = new List<BattlefieldPlacedUnit>();
         var oldFactionSnapshots = new List<BattlefieldPlacedUnit>();
         var failures = new List<string>();
@@ -3454,7 +3777,7 @@ public sealed partial class MainForm
         var wroteStatus = false;
         if (changedUnits.Count > 0)
         {
-            if (field is BattlefieldBatchEditField.LevelOffset or BattlefieldBatchEditField.LevelMode or BattlefieldBatchEditField.AiMode)
+            if (field is BattlefieldBatchEditField.LevelOffset or BattlefieldBatchEditField.LevelMode)
             {
                 wroteStatus = ApplyBattlefieldBatchDeploymentStatusFields(changedUnits, field, failures);
             }
@@ -3660,7 +3983,7 @@ public sealed partial class MainForm
             }
 
             RestoreBattlefieldFactionSelection(oldFaction);
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument);
+            RefreshBattlefieldMapDynamicPreview();
             SetStatus("战场控制台：阵营迁移失败：" + ex.Message);
         }
     }
@@ -3786,7 +4109,15 @@ public sealed partial class MainForm
             return false;
         }
 
-        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        EnsureBattlefieldBatchTransaction(units);
+        foreach (var unit in writable)
+        {
+            _battlefieldBatchTransactionTargetKeys.Add(unit.TargetKey);
+        }
+        if (oldFactionSnapshots is { Count: > 0 })
+        {
+            _battlefieldBatchTransactionOldPlacements.AddRange(oldFactionSnapshots.Select(CloneBattlefieldPlacedUnit));
+        }
         BattlefieldDeploymentWriteResult result;
         try
         {
@@ -3799,13 +4130,19 @@ public sealed partial class MainForm
                 }
                 catch (Exception ex)
                 {
-                    failures.Add("批量阵营迁移旧槽清理失败：" + ex.Message);
+                    _battlefieldBatchTransactionFailed = true;
+                    var failure = "批量阵营迁移旧槽清理失败：" + ex.Message;
+                    failures.Add(failure);
+                    _battlefieldBatchTransactionFailures.Add(failure);
                 }
             }
         }
         catch (Exception ex)
         {
-            failures.Add("批量出场字段写入失败：" + ex.Message);
+            _battlefieldBatchTransactionFailed = true;
+            var failure = "批量出场字段写入失败：" + ex.Message;
+            failures.Add(failure);
+            _battlefieldBatchTransactionFailures.Add(failure);
             return false;
         }
 
@@ -3815,16 +4152,17 @@ public sealed partial class MainForm
             return false;
         }
 
-        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
         foreach (var unit in writable)
         {
-            ClearBattlefieldInstructionPreviewForTarget(unit.TargetKey);
-            RefreshBattlefieldInstructionPreviewBindings(unit.TargetKey);
+            MarkBattlefieldBatchTransactionChanged(unit.TargetKey);
         }
-
-        RefreshBattlefieldLegacyScriptView(FindBattlefieldDeploymentSourceCommand(writable[0].TargetKey));
-        MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
-        UpdateBattlefieldDeploymentWriteButton();
+        if (oldFactionSnapshots is { Count: > 0 })
+        {
+            foreach (var oldSnapshot in oldFactionSnapshots)
+            {
+                MarkBattlefieldBatchTransactionChanged(oldSnapshot.TargetKey);
+            }
+        }
         failures.AddRange(result.SkippedReasons.Take(8));
         return true;
     }
@@ -3850,7 +4188,11 @@ public sealed partial class MainForm
             return false;
         }
 
-        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        EnsureBattlefieldBatchTransaction(units);
+        foreach (var unit in writable)
+        {
+            _battlefieldBatchTransactionTargetKeys.Add(unit.TargetKey);
+        }
         var changed = 0;
         foreach (var unit in writable)
         {
@@ -3862,6 +4204,11 @@ public sealed partial class MainForm
                     _currentBattlefieldLegacyScriptDocument,
                     _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
                     unit);
+                if (draft.PersonId != 0 && draft.PersonId != unit.PersonId)
+                {
+                    throw new InvalidOperationException(
+                        $"绑定的出场记录人物已变化：地图草稿人物={unit.PersonId}，当前 S 剧本 Record 人物={draft.PersonId}。禁止批量覆盖其他人物。");
+                }
                 draft.Weapon = null;
                 draft.WeaponLevel = null;
                 draft.Armor = null;
@@ -3910,21 +4257,22 @@ public sealed partial class MainForm
                 }
 
                 if (!shouldWrite) continue;
+                _battlefieldBatchTransactionStatusDeltas.Add(CloneBattlefieldUnitStatusDelta(draft));
                 _battlefieldUnitStatusWriteService.Apply(_project, _currentBattlefieldLegacyScriptDocument, draft);
                 changed++;
             }
             catch (Exception ex)
             {
-                failures.Add($"{unit.Name}({unit.GridX},{unit.GridY})：{ex.Message}");
+                _battlefieldBatchTransactionFailed = true;
+                var failure = $"{unit.Name}({unit.GridX},{unit.GridY})：{ex.Message}";
+                failures.Add(failure);
+                _battlefieldBatchTransactionFailures.Add(failure);
             }
         }
 
         if (changed == 0) return false;
 
-        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
-        RefreshBattlefieldLegacyScriptView(FindBattlefieldDeploymentSourceCommand(writable[0].TargetKey));
-        MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
-        UpdateBattlefieldDeploymentWriteButton();
+        foreach (var unit in writable) MarkBattlefieldBatchTransactionChanged(unit.TargetKey);
         return true;
     }
 
@@ -3947,7 +4295,11 @@ public sealed partial class MainForm
             return;
         }
 
-        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(LegacyScriptEditorScope.Battlefield, _currentBattlefieldLegacyScriptDocument);
+        EnsureBattlefieldBatchTransaction(units);
+        foreach (var unit in writable)
+        {
+            _battlefieldBatchTransactionTargetKeys.Add(unit.TargetKey);
+        }
         var changed = 0;
         foreach (var unit in writable)
         {
@@ -3959,21 +4311,22 @@ public sealed partial class MainForm
                     continue;
                 }
 
+                _battlefieldBatchTransactionStatusDeltas.Add(CloneBattlefieldUnitStatusDelta(delta));
                 _battlefieldUnitStatusWriteService.Apply(_project, _currentBattlefieldLegacyScriptDocument, delta);
                 changed++;
             }
             catch (Exception ex)
             {
-                failures.Add($"{unit.Name}({unit.GridX},{unit.GridY})：{ex.Message}");
+                _battlefieldBatchTransactionFailed = true;
+                var failure = $"{unit.Name}({unit.GridX},{unit.GridY})：{ex.Message}";
+                failures.Add(failure);
+                _battlefieldBatchTransactionFailures.Add(failure);
             }
         }
 
         if (changed > 0)
         {
-            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
-            RefreshBattlefieldLegacyScriptView(FindBattlefieldDeploymentSourceCommand(writable[0].TargetKey));
-            MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
-            UpdateBattlefieldDeploymentWriteButton();
+            foreach (var unit in writable) MarkBattlefieldBatchTransactionChanged(unit.TargetKey);
         }
 
         RefreshBattlefieldBatchAfterApply(units, changed, changed > 0, failures, $"批量{FormatBattlefieldBatchFieldName(field)}");
@@ -3992,6 +4345,11 @@ public sealed partial class MainForm
             _currentBattlefieldLegacyScriptDocument,
             _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
             unit);
+        if (current.PersonId != 0 && current.PersonId != unit.PersonId)
+        {
+            throw new InvalidOperationException(
+                $"绑定的出场记录人物已变化：地图草稿人物={unit.PersonId}，当前 S 剧本 Record 人物={current.PersonId}。禁止批量覆盖其他人物。");
+        }
         var dataDefaults = current.DataDefaults;
         if (dataDefaults == null || !dataDefaults.Found)
         {
@@ -4131,6 +4489,180 @@ public sealed partial class MainForm
     private static bool IsBattlefieldBatchMixedComboSelection(ComboBox combo)
         => string.Equals(combo.SelectedItem?.ToString(), "多值", StringComparison.Ordinal);
 
+    private void EnsureBattlefieldBatchTransaction(IEnumerable<BattlefieldPlacedUnit>? beforeUnits = null)
+    {
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            return;
+        }
+
+        if (_battlefieldBatchTransactionBeforeEdit != null)
+        {
+            // Some status controls start their change event after the editor has already
+            // opened the batch transaction. Fill the map snapshot once when the concrete
+            // targets become available so a later rollback can still restore every unit.
+            if (_battlefieldBatchTransactionBeforeUnits.Count == 0 && beforeUnits != null)
+            {
+                _battlefieldBatchTransactionBeforeUnits.AddRange(beforeUnits.Select(CloneBattlefieldPlacedUnit));
+            }
+            return;
+        }
+
+        _battlefieldBatchTransactionBeforeEdit = CaptureLegacyScenarioHistorySnapshot(
+            LegacyScriptEditorScope.Battlefield,
+            _currentBattlefieldLegacyScriptDocument);
+        _battlefieldBatchTransactionTargetKeys.Clear();
+        _battlefieldBatchTransactionDirty = false;
+        _battlefieldBatchTransactionFailed = false;
+        _battlefieldBatchTransactionStatusDeltas.Clear();
+        _battlefieldBatchTransactionOldPlacements.Clear();
+        _battlefieldBatchTransactionFailures.Clear();
+        _battlefieldBatchTransactionBeforeUnits.Clear();
+        if (beforeUnits != null)
+        {
+            _battlefieldBatchTransactionBeforeUnits.AddRange(beforeUnits.Select(CloneBattlefieldPlacedUnit));
+        }
+    }
+
+    private void MarkBattlefieldBatchTransactionChanged(string targetKey)
+    {
+        if (_battlefieldBatchTransactionBeforeEdit == null) return;
+        _battlefieldBatchTransactionDirty = true;
+        if (!string.IsNullOrWhiteSpace(targetKey))
+        {
+            _battlefieldBatchTransactionTargetKeys.Add(targetKey);
+        }
+    }
+
+    private bool FinalizeBattlefieldBatchTransaction()
+    {
+        var beforeEdit = _battlefieldBatchTransactionBeforeEdit;
+        if (beforeEdit == null) return true;
+
+        var targetKeys = _battlefieldBatchTransactionTargetKeys.ToArray();
+        var dirty = _battlefieldBatchTransactionDirty;
+        var failed = _battlefieldBatchTransactionFailed;
+        var beforeUnits = _battlefieldBatchTransactionBeforeUnits.Select(CloneBattlefieldPlacedUnit).ToList();
+        var statusDeltas = _battlefieldBatchTransactionStatusDeltas.Select(CloneBattlefieldUnitStatusDelta).ToList();
+        var oldPlacements = _battlefieldBatchTransactionOldPlacements.Select(CloneBattlefieldPlacedUnit).ToList();
+        var failures = _battlefieldBatchTransactionFailures.ToList();
+        var draftUnits = targetKeys
+            .Select(targetKey => _battlefieldPlacedUnits.FirstOrDefault(unit => unit.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase)))
+            .Where(unit => unit != null)
+            .Select(unit => CloneBattlefieldPlacedUnit(unit!))
+            .ToList();
+
+        // Clear the session before refreshing the tree. Tree selection events can re-enter
+        // battlefield commit paths and must not finalize the same transaction twice.
+        _battlefieldBatchTransactionBeforeEdit = null;
+        _battlefieldBatchTransactionTargetKeys.Clear();
+        _battlefieldBatchTransactionDirty = false;
+        _battlefieldBatchTransactionFailed = false;
+        _battlefieldBatchTransactionBeforeUnits.Clear();
+        _battlefieldBatchTransactionStatusDeltas.Clear();
+        _battlefieldBatchTransactionOldPlacements.Clear();
+        _battlefieldBatchTransactionFailures.Clear();
+
+        using var operation = PerformanceMetrics.Begin("Battlefield.Batch.Transaction");
+        if (failed)
+        {
+            var restored = CloneLegacyScenarioDocument(beforeEdit.Document);
+            SetCurrentLegacyScriptDocument(LegacyScriptEditorScope.Battlefield, restored);
+            var preferredSelection = FindLegacyScenarioHistorySelection(restored, beforeEdit);
+            using (SuppressBattlefieldScriptSelectionCommit())
+            {
+                RefreshBattlefieldLegacyScriptView(preferredSelection);
+            }
+            foreach (var targetKey in targetKeys)
+            {
+                ClearBattlefieldInstructionPreviewForTarget(targetKey);
+                RefreshBattlefieldInstructionPreviewBindings(targetKey);
+            }
+
+            _saveBattlefieldUnitReviewsButton.Enabled = true;
+            UpdateBattlefieldDeploymentWriteButton();
+            if (beforeUnits.Count == 0)
+            {
+                beforeUnits = draftUnits.Select(CloneBattlefieldPlacedUnit).ToList();
+            }
+            _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+            RefreshBattlefieldMapDynamicPreview();
+            var reason = failures.Count == 0
+                ? "批量事务中至少一个目标写回失败。"
+                : string.Join("；", failures.Take(8));
+            var representative = draftUnits.FirstOrDefault() ?? new BattlefieldPlacedUnit
+            {
+                TargetKey = targetKeys.FirstOrDefault() ?? string.Empty,
+                Name = "批量目标"
+            };
+            var contextual = BuildBattlefieldConsoleCommitException(
+                new InvalidOperationException(reason),
+                representative,
+                BattlefieldConsoleDirtyKind.Mixed,
+                "FinalizeBatch",
+                rollbackSucceeded: true,
+                isBatch: true);
+            var report = ApplicationErrorService.Report(contextual, "Battlefield batch console transaction", notify: false);
+            _battlefieldUnsyncedDraftState = new BattlefieldUnsyncedDraftState
+            {
+                IsBatch = true,
+                ScenarioFileName = _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
+                Stage = "FinalizeBatch",
+                ErrorMessage = reason,
+                LogPath = report.LogPath,
+                DirtyKind = BattlefieldConsoleDirtyKind.Mixed,
+                TargetKeys = targetKeys.ToList(),
+                BeforeUnits = beforeUnits,
+                DraftUnits = draftUnits,
+                OldPlacements = oldPlacements,
+                StatusDeltas = statusDeltas,
+                Failures = failures
+            };
+            UpdateBattlefieldUnsyncedDraftActions();
+            if (_currentBattlefieldDocument != null)
+            {
+                _battlefieldInfoBox.Text = BuildBattlefieldInfo(_currentBattlefieldDocument) +
+                    "\r\n\r\n批量编辑写回失败：S 剧本树已完整回滚；地图与控制台中的修改保留为未同步草稿，可再次尝试写回。";
+            }
+            SetStatus("战场批量编辑：写回失败，S 剧本树已恢复到本次编辑前；地图与控制台值保留为未同步草稿。日志：" + report.LogPath);
+            return false;
+        }
+
+        if (!dirty)
+        {
+            return true;
+        }
+
+        PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+        _battlefieldUnsyncedDraftState = null;
+        UpdateBattlefieldUnsyncedDraftActions();
+        var changed = targetKeys
+            .Select(FindBattlefieldDeploymentSourceCommand)
+            .FirstOrDefault(command => command != null);
+
+        // A batch can touch many commands. Rebuild the left tree once at the transaction
+        // boundary instead of rebuilding metadata once for every edited unit or field.
+        RefreshBattlefieldLegacyScriptView(changed);
+        foreach (var targetKey in targetKeys)
+        {
+            ClearBattlefieldInstructionPreviewForTarget(targetKey);
+            RefreshBattlefieldInstructionPreviewBindings(targetKey);
+        }
+
+        MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+        _saveBattlefieldUnitReviewsButton.Enabled = true;
+        UpdateBattlefieldDeploymentWriteButton();
+        var activeUnits = GetBattlefieldBatchEditingUnits().ToList();
+        if (activeUnits.Count > 0)
+        {
+            SyncBattlefieldControlPanelFromBatchUnits(activeUnits);
+        }
+        _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+        RefreshBattlefieldMapDynamicPreview();
+        SetStatus($"战场批量编辑：已合并提交 {targetKeys.Length} 个目标，本次控制台会话只生成一个撤销步骤，尚未完整保存到文件。");
+        return true;
+    }
+
     private void RefreshBattlefieldBatchAfterApply(
         IReadOnlyList<BattlefieldPlacedUnit> originalUnits,
         int changedCount,
@@ -4157,7 +4689,8 @@ public sealed partial class MainForm
 
         if (_currentBattlefieldDocument != null)
         {
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+            _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+            RefreshBattlefieldMapDynamicPreview();
             _battlefieldInfoBox.Text =
                 BuildBattlefieldInfo(_currentBattlefieldDocument) +
                 "\r\n\r\n" +
@@ -4302,7 +4835,6 @@ public sealed partial class MainForm
 
             LoadBattlefieldConsoleStatusFromPlacedUnit(statusAnchor);
             var statusMixedText = BuildBattlefieldBatchStatusMixedText(units, writableStatusUnits);
-            _battlefieldConsoleSummaryLabel.Text = BuildBattlefieldBatchSummaryText(units);
             _battlefieldConsoleStatusPreviewBox.Text =
                 writableStatusUnits.Count == 0
                     ? "批量编辑：框选中没有可写 Scene1 46/47 状态单位；装备、兵种、五维不会写入。"
@@ -4638,8 +5170,6 @@ public sealed partial class MainForm
     {
         _currentBattlefieldConsoleStatusDraft = null;
         _currentBattlefieldConsoleDataDefaults = null;
-        _battlefieldConsoleSummaryLabel.Text =
-            $"{unit.PersonId} {unit.Name}  阵营={unit.Faction}  坐标=({unit.GridX},{unit.GridY})\r\n绑定：{unit.TargetKey}";
         _battlefieldDataDefaultsBox.Text = "Data.e5 默认值：未读取。";
         _battlefieldConsoleStatusPreviewBox.Text = "脚本覆盖摘要：当前单位没有可编辑的 Scene1 46/47 状态绑定。";
         SetBattlefieldConsoleStatusControlsEnabled(false);
@@ -4935,58 +5465,646 @@ public sealed partial class MainForm
         return string.Join("\r\n", parts);
     }
 
-    private bool TryCommitPendingBattlefieldConsoleChanges()
+    private bool TryCommitPendingBattlefieldConsoleChanges(bool finalizeBatchTransaction = true)
+        => TryCommitPendingBattlefieldConsoleChangesResult(finalizeBatchTransaction).Success;
+
+    private bool TryCommitPendingBattlefieldConsoleChangesForSave(bool finalizeBatchTransaction = true)
     {
-        if (!_battlefieldConsoleDirty || _battlefieldConsoleCommitInProgress || _bindingBattlefieldControlPanel) return true;
-        if (_selectedBattlefieldPlacedUnit == null)
+        var result = TryCommitPendingBattlefieldConsoleChangesResult(finalizeBatchTransaction);
+        if (result.Status == BattlefieldConsoleCommitStatus.DraftOnly)
         {
-            ClearBattlefieldConsoleDirty();
-            return true;
+            MessageBox.Show(
+                this,
+                "当前角色只保留为项目侧布阵草稿，尚未绑定可写 46/47/4B S 剧本记录。请先保存布阵草稿或为其绑定出场槽，再执行 S 剧本写回。",
+                "存在本地布阵草稿",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return false;
+        }
+        return BattlefieldConsoleCommitAllowsSave(result);
+    }
+
+    private bool BattlefieldConsoleCommitAllowsSave(BattlefieldConsoleCommitResult result)
+        => result.Status != BattlefieldConsoleCommitStatus.DraftOnly && result.Success;
+
+    private BattlefieldConsoleCommitResult TryCommitPendingBattlefieldConsoleChangesResult(bool finalizeBatchTransaction = true)
+    {
+        _battlefieldConsoleCommitAttemptCountForSmoke++;
+        FlushPendingBattlefieldDropSynchronizations();
+        if (_battlefieldConsoleCommitInProgress)
+        {
+            return BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.CommitInProgress,
+                "战场控制台正在提交，请等待当前事务完成。",
+                _battlefieldConsoleDirtyTargetKey,
+                _battlefieldConsoleDirtyKind,
+                allowsNavigation: false,
+                retainsDraft: _battlefieldConsoleDirty);
         }
 
-        var targetKey = string.IsNullOrWhiteSpace(_battlefieldConsoleDirtyTargetKey)
-            ? _selectedBattlefieldPlacedUnit.TargetKey
-            : _battlefieldConsoleDirtyTargetKey;
-        if (!_selectedBattlefieldPlacedUnit.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase))
+        if (_bindingBattlefieldControlPanel)
         {
-            ClearBattlefieldConsoleDirty();
-            return true;
+            return BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.NoChanges,
+                "战场控制台正在绑定界面，没有待提交的用户编辑。",
+                _battlefieldConsoleDirtyTargetKey,
+                _battlefieldConsoleDirtyKind,
+                allowsNavigation: true,
+                retainsDraft: false);
         }
 
-        _battlefieldConsoleCommitInProgress = true;
+        if (_battlefieldUnsyncedDraftState != null &&
+            !_battlefieldConsoleDirty &&
+            _battlefieldBatchTransactionBeforeEdit == null)
+        {
+            return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                _battlefieldUnsyncedDraftState.IsBatch
+                    ? BattlefieldConsoleCommitStatus.BatchWriteFailedRolledBack
+                    : BattlefieldConsoleCommitStatus.WriteFailedRolledBack,
+                "战场控制台：仍有写回失败的未同步草稿。请使用“重试同步”“恢复脚本值”或“保留草稿并解除绑定”处理后再继续修改 S 剧本。",
+                string.Join(";", _battlefieldUnsyncedDraftState.TargetKeys),
+                _battlefieldUnsyncedDraftState.DirtyKind,
+                allowsNavigation: false,
+                retainsDraft: true,
+                _battlefieldUnsyncedDraftState.LogPath));
+        }
+
+        if (!_battlefieldConsoleDirty)
+        {
+            if (finalizeBatchTransaction && !FinalizeBattlefieldBatchTransaction())
+            {
+                return BuildBattlefieldConsoleCommitResult(
+                    BattlefieldConsoleCommitStatus.BatchWriteFailedRolledBack,
+                    _battlefieldUnsyncedDraftState?.ErrorMessage ?? "战场批量编辑写回失败，S 剧本树已回滚。",
+                    string.Join(";", _battlefieldUnsyncedDraftState?.TargetKeys ?? []),
+                    BattlefieldConsoleDirtyKind.Mixed,
+                    allowsNavigation: false,
+                    retainsDraft: true,
+                    _battlefieldUnsyncedDraftState?.LogPath);
+            }
+
+            return BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.NoChanges,
+                "战场控制台没有待提交编辑。",
+                string.Empty,
+                BattlefieldConsoleDirtyKind.None,
+                allowsNavigation: true,
+                retainsDraft: false);
+        }
+
+        var targetKey = _battlefieldConsoleDirtyTargetKey;
+        var unit = _battlefieldPlacedUnits.FirstOrDefault(candidate =>
+            candidate.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+        if (unit == null)
+        {
+            return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.ValidationFailed,
+                $"战场控制台：待提交目标已不存在，不能静默丢弃编辑。目标={targetKey}",
+                targetKey,
+                _battlefieldConsoleDirtyKind,
+                allowsNavigation: false,
+                retainsDraft: true));
+        }
+
+        if (_selectedBattlefieldPlacedUnit == null ||
+            !ReferenceEquals(_selectedBattlefieldPlacedUnit, unit))
+        {
+            return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.ValidationFailed,
+                $"战场控制台：当前选择与待提交目标不一致，已保留未同步草稿。请重新选择 {unit.Name} 后重试。",
+                targetKey,
+                _battlefieldConsoleDirtyKind,
+                allowsNavigation: false,
+                retainsDraft: true));
+        }
+
         var dirtyKind = _battlefieldConsoleDirtyKind;
-        var committed = false;
+        UpdateSelectedBattlefieldPlacedUnitFromConsoleControls();
+        if (_currentBattlefieldLegacyScriptDocument == null)
+        {
+            ClearBattlefieldConsoleDirty();
+            return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.DraftOnly,
+                $"战场控制台：当前未加载可写 S 剧本完整树，{unit.Name} 的修改保留为项目侧布阵草稿。",
+                targetKey,
+                dirtyKind,
+                allowsNavigation: true,
+                retainsDraft: true));
+        }
+        var canWritePlacement = BattlefieldDeploymentWriteService.IsScriptPlacementWritable(unit);
+        var canWriteStatus = BattlefieldUnitStatusWriteService.IsWritableStatusTarget(unit);
+        if (!canWritePlacement && !canWriteStatus)
+        {
+            ClearBattlefieldConsoleDirty();
+            _battlefieldUnsyncedDraftState = null;
+            UpdateBattlefieldUnsyncedDraftActions();
+            return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.DraftOnly,
+                $"战场控制台：{unit.Name} 没有可写 46/47/4B 绑定，当前值保留为项目侧布阵草稿。",
+                targetKey,
+                dirtyKind,
+                allowsNavigation: true,
+                retainsDraft: true));
+        }
+
+        BattlefieldUnitStatusDraft? statusDelta = null;
+        var stage = "BuildDelta";
         try
         {
-            UpdateSelectedBattlefieldPlacedUnitFromConsoleControls();
-            if ((dirtyKind & BattlefieldConsoleDirtyKind.Placement) != 0)
+            if (canWriteStatus && (dirtyKind & BattlefieldConsoleDirtyKind.Placement) != 0)
             {
-                committed |= CommitBattlefieldConsolePlacementChanges(_selectedBattlefieldPlacedUnit);
+                if (_battlefieldConsoleBeforeEditSnapshot == null ||
+                    BattlefieldStatusDeploymentFieldsDiffer(_battlefieldConsoleBeforeEditSnapshot, unit))
+                {
+                    statusDelta = BuildBattlefieldConsoleDeploymentDelta(unit);
+                }
             }
 
-            if ((dirtyKind & (BattlefieldConsoleDirtyKind.Equipment | BattlefieldConsoleDirtyKind.RuntimeAbility)) != 0)
+            if (canWriteStatus &&
+                (dirtyKind & (BattlefieldConsoleDirtyKind.Equipment | BattlefieldConsoleDirtyKind.RuntimeAbility)) != 0)
             {
-                committed |= CommitBattlefieldConsoleStatusChanges();
+                var statusBuild = BuildBattlefieldConsolePendingDelta(unit);
+                if (statusBuild.Status == BattlefieldConsoleDeltaBuildStatus.ValidationFailed)
+                {
+                    return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                        BattlefieldConsoleCommitStatus.ValidationFailed,
+                        statusBuild.Message,
+                        targetKey,
+                        dirtyKind,
+                        allowsNavigation: false,
+                        retainsDraft: true,
+                        focusTarget: statusBuild.FocusTarget));
+                }
+
+                if (statusBuild.Status == BattlefieldConsoleDeltaBuildStatus.Ready && statusBuild.Delta != null)
+                {
+                    statusDelta = MergeBattlefieldConsoleStatusDeltas(statusDelta, statusBuild.Delta);
+                }
             }
 
-            ClearBattlefieldConsoleDirty();
-            if (!committed)
+            var applyPlacement = canWritePlacement &&
+                                 (dirtyKind & BattlefieldConsoleDirtyKind.Placement) != 0 &&
+                                 (_battlefieldConsoleBeforeEditSnapshot == null ||
+                                  BattlefieldDeploymentOwnedFieldsDiffer(_battlefieldConsoleBeforeEditSnapshot, unit));
+            var hasStatusChanges = statusDelta != null && BattlefieldConsoleDeltaHasChanges(statusDelta);
+            if (!applyPlacement && !hasStatusChanges)
             {
-                SetStatus("\u6218\u573a\u63a7\u5236\u53f0\uff1a\u5f53\u524d\u63a7\u5236\u53f0\u503c\u672a\u4ea7\u751f\u5b9e\u9645\u5199\u5165\u53d8\u5316\u3002");
+                ClearBattlefieldConsoleDirty();
+                _battlefieldUnsyncedDraftState = null;
+                UpdateBattlefieldUnsyncedDraftActions();
+                return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                    BattlefieldConsoleCommitStatus.NoChanges,
+                    "战场控制台：当前值与 S 剧本及 Data 有效值一致，没有需要写入的变化。",
+                    targetKey,
+                    dirtyKind,
+                    allowsNavigation: true,
+                    retainsDraft: false));
             }
-            return true;
+
+            LegacyScenarioHistorySnapshot? beforeEdit = null;
+            if (_currentBattlefieldLegacyScriptDocument != null)
+            {
+                beforeEdit = CaptureLegacyScenarioHistorySnapshot(
+                    LegacyScriptEditorScope.Battlefield,
+                    _currentBattlefieldLegacyScriptDocument);
+            }
+
+            _battlefieldConsoleCommitInProgress = true;
+            try
+            {
+                using var operation = PerformanceMetrics.Begin("Battlefield.Console.Transaction");
+                stage = applyPlacement ? "ApplyPlacement" : "ApplyStatus";
+                var committed = CommitBattlefieldConsoleTransaction(unit, statusDelta, applyPlacement, ref stage);
+                if (committed && beforeEdit != null)
+                {
+                    PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+                    MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+                }
+
+                ClearBattlefieldConsoleDirty();
+                _battlefieldUnsyncedDraftState = null;
+                UpdateBattlefieldUnsyncedDraftActions();
+
+                if (finalizeBatchTransaction && !FinalizeBattlefieldBatchTransaction())
+                {
+                    return BuildBattlefieldConsoleCommitResult(
+                        BattlefieldConsoleCommitStatus.BatchWriteFailedRolledBack,
+                        _battlefieldUnsyncedDraftState?.ErrorMessage ?? "战场批量编辑写回失败，S 剧本树已回滚。",
+                        targetKey,
+                        dirtyKind,
+                        allowsNavigation: false,
+                        retainsDraft: true,
+                        _battlefieldUnsyncedDraftState?.LogPath);
+                }
+
+                return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                    committed ? BattlefieldConsoleCommitStatus.Committed : BattlefieldConsoleCommitStatus.NoChanges,
+                    committed
+                        ? "战场控制台：本次焦点会话的变更已合并写入左侧 S 剧本树，尚未完整保存。"
+                        : "战场控制台：当前值没有产生实际写入变化。",
+                    targetKey,
+                    dirtyKind,
+                    allowsNavigation: true,
+                    retainsDraft: false));
+            }
+            catch (Exception ex)
+            {
+                var rollbackSucceeded = false;
+                if (beforeEdit != null)
+                {
+                    try
+                    {
+                        var restored = CloneLegacyScenarioDocument(beforeEdit.Document);
+                        SetCurrentLegacyScriptDocument(LegacyScriptEditorScope.Battlefield, restored);
+                        var preferredSelection = FindLegacyScenarioHistorySelection(restored, beforeEdit);
+                        using (SuppressBattlefieldScriptSelectionCommit())
+                        {
+                            RefreshBattlefieldLegacyScriptView(preferredSelection);
+                        }
+                        rollbackSucceeded = true;
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        ex = new AggregateException(ex, rollbackException);
+                    }
+                }
+
+                var contextual = BuildBattlefieldConsoleCommitException(ex, unit, dirtyKind, stage, rollbackSucceeded, isBatch: false);
+                var report = ApplicationErrorService.Report(contextual, "Battlefield console transaction", notify: false);
+                _battlefieldUnsyncedDraftState = new BattlefieldUnsyncedDraftState
+                {
+                    ScenarioFileName = _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
+                    Stage = stage,
+                    ErrorMessage = ex.GetBaseException().Message,
+                    LogPath = report.LogPath,
+                    DirtyKind = dirtyKind,
+                    TargetKeys = [targetKey],
+                    BeforeUnits = _battlefieldConsoleBeforeEditSnapshot == null ? [] : [CloneBattlefieldPlacedUnit(_battlefieldConsoleBeforeEditSnapshot)],
+                    DraftUnits = [CloneBattlefieldPlacedUnit(unit)],
+                    StatusDeltas = statusDelta == null ? [] : [CloneBattlefieldUnitStatusDelta(statusDelta)]
+                };
+                UpdateBattlefieldUnsyncedDraftActions();
+                return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                    BattlefieldConsoleCommitStatus.WriteFailedRolledBack,
+                    BuildBattlefieldConsoleFailureMessage(unit, stage, ex.GetBaseException().Message, report.LogPath, rollbackSucceeded),
+                    targetKey,
+                    dirtyKind,
+                    allowsNavigation: false,
+                    retainsDraft: true,
+                    report.LogPath));
+            }
+            finally
+            {
+                _battlefieldConsoleCommitInProgress = false;
+            }
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("Commit battlefield console changes failed: " + ex);
-            SetStatus("\u6218\u573a\u63a7\u5236\u53f0\uff1a\u5ef6\u8fdf\u63d0\u4ea4\u5931\u8d25\uff1a" + ex.Message);
-            return false;
-        }
-        finally
-        {
-            _battlefieldConsoleCommitInProgress = false;
+            var contextual = BuildBattlefieldConsoleCommitException(ex, unit, dirtyKind, stage, rollbackSucceeded: true, isBatch: false);
+            var report = ApplicationErrorService.Report(contextual, "Battlefield console delta validation", notify: false);
+            return ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.ValidationFailed,
+                $"战场控制台：无法构建待提交差异：{ex.Message}\r\n日志：{report.LogPath}",
+                targetKey,
+                dirtyKind,
+                allowsNavigation: false,
+                retainsDraft: true,
+                report.LogPath));
         }
     }
+
+    private BattlefieldConsoleCommitResult BuildBattlefieldConsoleCommitResult(
+        BattlefieldConsoleCommitStatus status,
+        string message,
+        string targetKey,
+        BattlefieldConsoleDirtyKind dirtyKind,
+        bool allowsNavigation,
+        bool retainsDraft,
+        string? logPath = null,
+        Control? focusTarget = null)
+        => new(status, message, targetKey, dirtyKind, allowsNavigation, retainsDraft, logPath, focusTarget);
+
+    private BattlefieldConsoleCommitResult ShowBattlefieldConsoleCommitResult(BattlefieldConsoleCommitResult result)
+    {
+        SetStatus(result.Message.Replace("\r\n", " "));
+        if (result.Status is BattlefieldConsoleCommitStatus.ValidationFailed or
+            BattlefieldConsoleCommitStatus.WriteFailedRolledBack or
+            BattlefieldConsoleCommitStatus.BatchWriteFailedRolledBack)
+        {
+            _battlefieldConsoleStatusPreviewBox.Text = result.Message;
+        }
+
+        if (result.FocusTarget != null && result.FocusTarget.CanFocus)
+        {
+            BeginInvoke(new Action(() => result.FocusTarget.Focus()));
+        }
+
+        return result;
+    }
+
+    private IDisposable SuppressBattlefieldScriptSelectionCommit()
+    {
+        var previous = _suppressBattlefieldScriptSelectionCommit;
+        _suppressBattlefieldScriptSelectionCommit = true;
+        return new BattlefieldSelectionCommitScope(() => _suppressBattlefieldScriptSelectionCommit = previous);
+    }
+
+    private sealed class BattlefieldSelectionCommitScope(Action dispose) : IDisposable
+    {
+        private Action? _dispose = dispose;
+        public void Dispose() => Interlocked.Exchange(ref _dispose, null)?.Invoke();
+    }
+
+    private Exception BuildBattlefieldConsoleCommitException(
+        Exception exception,
+        BattlefieldPlacedUnit unit,
+        BattlefieldConsoleDirtyKind dirtyKind,
+        string stage,
+        bool rollbackSucceeded,
+        bool isBatch)
+    {
+        var scenario = _currentBattlefieldDocument?.Scenario.FileName ?? "<none>";
+        var message =
+            $"Battlefield console transaction failed. " +
+            $"scenario={scenario}; target={unit.TargetKey}; person={unit.PersonId}; " +
+            $"grid=({unit.GridX},{unit.GridY}); mode={(isBatch ? "batch" : "single")}; " +
+            $"dirty={dirtyKind}; stage={stage}; rollbackSucceeded={rollbackSucceeded}.";
+        return new InvalidOperationException(message, exception);
+    }
+
+    private static string BuildBattlefieldConsoleFailureMessage(
+        BattlefieldPlacedUnit unit,
+        string stage,
+        string reason,
+        string logPath,
+        bool rollbackSucceeded)
+    {
+        var rollback = rollbackSucceeded
+            ? "S 剧本树已恢复到本次编辑前。"
+            : "S 剧本树回滚也发生异常，请不要保存并查看日志。";
+        var log = string.IsNullOrWhiteSpace(logPath) ? "日志写入失败。" : "日志：" + logPath;
+        return
+            $"战场控制台：写回失败。\r\n" +
+            $"目标：{unit.Name}({unit.PersonId})，{unit.TargetKey}\r\n" +
+            $"阶段：{stage}\r\n" +
+            $"原因：{reason}\r\n" +
+            $"{rollback}\r\n" +
+            $"地图和控制台值已保留为未同步草稿，可重试同步或恢复脚本值。\r\n" +
+            log;
+    }
+
+    private void UpdateBattlefieldUnsyncedDraftActions()
+    {
+        var visible = _battlefieldUnsyncedDraftState != null;
+        _battlefieldRetryUnsyncedDraftButton.Visible = visible;
+        _battlefieldRestoreScriptValuesButton.Visible = visible;
+        _battlefieldDetachUnsyncedDraftButton.Visible = visible;
+        _battlefieldRetryUnsyncedDraftButton.Enabled = visible && !_battlefieldConsoleCommitInProgress;
+        _battlefieldRestoreScriptValuesButton.Enabled = visible && !_battlefieldConsoleCommitInProgress;
+        _battlefieldDetachUnsyncedDraftButton.Enabled = visible && !_battlefieldConsoleCommitInProgress;
+    }
+
+    private void RetryBattlefieldUnsyncedDraft()
+    {
+        var state = _battlefieldUnsyncedDraftState;
+        if (state == null) return;
+        if (state.IsBatch)
+        {
+            RetryBattlefieldBatchUnsyncedDraft(state);
+            return;
+        }
+
+        var targetKey = state.TargetKeys.FirstOrDefault() ?? string.Empty;
+        var unit = _battlefieldPlacedUnits.FirstOrDefault(candidate =>
+            candidate.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+        if (unit == null)
+        {
+            SetStatus("战场控制台：未同步草稿目标已不存在，不能重试。可选择解除脚本绑定后保留为本地草稿。");
+            return;
+        }
+
+        _selectedBattlefieldPlacedUnit = unit;
+        _battlefieldConsoleDirty = true;
+        _battlefieldConsoleDirtyTargetKey = unit.TargetKey;
+        _battlefieldConsoleDirtyKind = state.DirtyKind;
+        _battlefieldConsoleBeforeEditSnapshot = state.BeforeUnits.FirstOrDefault() is { } before
+            ? CloneBattlefieldPlacedUnit(before)
+            : null;
+        var result = TryCommitPendingBattlefieldConsoleChangesResult(finalizeBatchTransaction: true);
+        if (result.Success)
+        {
+            SetStatus("战场控制台：未同步草稿已重试成功，尚未完整保存到文件。");
+        }
+    }
+
+    private void RetryBattlefieldBatchUnsyncedDraft(BattlefieldUnsyncedDraftState state)
+    {
+        if (_project == null || _currentBattlefieldLegacyScriptDocument == null)
+        {
+            SetStatus("战场批量编辑：当前没有可写 S 剧本树，不能重试未同步草稿。");
+            return;
+        }
+
+        var units = state.TargetKeys
+            .Select(targetKey => _battlefieldPlacedUnits.FirstOrDefault(unit =>
+                unit.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase)))
+            .Where(unit => unit != null)
+            .Cast<BattlefieldPlacedUnit>()
+            .ToList();
+        if (units.Count != state.TargetKeys.Count)
+        {
+            SetStatus("战场批量编辑：部分未同步目标已不存在，不能进行整批重试。可恢复脚本值或解除绑定。");
+            return;
+        }
+
+        var beforeEdit = CaptureLegacyScenarioHistorySnapshot(
+            LegacyScriptEditorScope.Battlefield,
+            _currentBattlefieldLegacyScriptDocument);
+        try
+        {
+            var writablePlacements = units.Where(BattlefieldDeploymentWriteService.IsScriptPlacementWritable).ToList();
+            if (writablePlacements.Count > 0)
+            {
+                _battlefieldDeploymentWriteService.ApplyScriptPlacements(
+                    _currentBattlefieldLegacyScriptDocument,
+                    writablePlacements);
+            }
+            if (state.OldPlacements.Count > 0)
+            {
+                _battlefieldDeploymentWriteService.ClearFriendEnemyScriptPlacements(
+                    _currentBattlefieldLegacyScriptDocument,
+                    state.OldPlacements);
+            }
+            foreach (var delta in state.StatusDeltas)
+            {
+                if (BattlefieldConsoleDeltaHasChanges(delta))
+                {
+                    _battlefieldUnitStatusWriteService.Apply(
+                        _project,
+                        _currentBattlefieldLegacyScriptDocument,
+                        CloneBattlefieldUnitStatusDelta(delta));
+                }
+            }
+
+            PushLegacyScenarioUndoSnapshot(LegacyScriptEditorScope.Battlefield, beforeEdit);
+            MarkLegacyScriptStructureDirty(LegacyScriptEditorScope.Battlefield);
+            var changed = units.Select(unit => FindBattlefieldDeploymentSourceCommand(unit.TargetKey)).FirstOrDefault(command => command != null);
+            using (SuppressBattlefieldScriptSelectionCommit())
+            {
+                RefreshBattlefieldLegacyScriptView(changed);
+            }
+            _battlefieldUnsyncedDraftState = null;
+            UpdateBattlefieldUnsyncedDraftActions();
+            RefreshBattlefieldMapDynamicPreview();
+            SetStatus($"战场批量编辑：未同步草稿已整批重试成功，共 {units.Count} 个目标，尚未完整保存到文件。");
+        }
+        catch (Exception ex)
+        {
+            var restored = CloneLegacyScenarioDocument(beforeEdit.Document);
+            SetCurrentLegacyScriptDocument(LegacyScriptEditorScope.Battlefield, restored);
+            using (SuppressBattlefieldScriptSelectionCommit())
+            {
+                RefreshBattlefieldLegacyScriptView(FindLegacyScenarioHistorySelection(restored, beforeEdit));
+            }
+            var representative = units.FirstOrDefault() ?? new BattlefieldPlacedUnit { Name = "批量目标" };
+            var contextual = BuildBattlefieldConsoleCommitException(
+                ex,
+                representative,
+                state.DirtyKind,
+                "RetryBatch",
+                rollbackSucceeded: true,
+                isBatch: true);
+            var report = ApplicationErrorService.Report(contextual, "Battlefield batch retry", notify: false);
+            state.Failures.Add(ex.Message);
+            _battlefieldConsoleStatusPreviewBox.Text =
+                $"战场批量编辑：重试失败，S 剧本树已再次回滚。\r\n原因：{ex.Message}\r\n日志：{report.LogPath}";
+            SetStatus("战场批量编辑：重试失败，S 剧本树已再次回滚。" + ex.Message);
+        }
+    }
+
+    private void RestoreBattlefieldUnsyncedDraftFromScript()
+    {
+        var state = _battlefieldUnsyncedDraftState;
+        if (state == null) return;
+        var answer = MessageBox.Show(
+            this,
+            "将放弃当前未同步地图/控制台值，并从已回滚的 S 剧本树重新读取这些单位。是否继续？",
+            "恢复脚本值",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (answer != DialogResult.Yes) return;
+
+        DiscardBattlefieldUnsyncedDraftFromScript();
+        SetStatus("战场控制台：已放弃未同步草稿并恢复脚本事务前的地图/控制台值。");
+    }
+
+    private void DiscardBattlefieldUnsyncedDraftFromScript()
+    {
+        var state = _battlefieldUnsyncedDraftState;
+        if (state == null) return;
+
+        foreach (var targetKey in state.TargetKeys)
+        {
+            var draft = _battlefieldPlacedUnits.FirstOrDefault(unit =>
+                unit.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+            var source = state.BeforeUnits.FirstOrDefault(unit =>
+                unit.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+            if (draft == null || source == null) continue;
+            CopyBattlefieldPlacedUnitValues(source, draft, includeTargetKey: true);
+        }
+
+        ClearBattlefieldConsoleDirty();
+        _battlefieldUnsyncedDraftState = null;
+        UpdateBattlefieldUnsyncedDraftActions();
+        if (_selectedBattlefieldPlacedUnit != null)
+        {
+            SyncBattlefieldControlPanelFromPlacedUnit(_selectedBattlefieldPlacedUnit);
+        }
+        RefreshBattlefieldMapDynamicPreview();
+    }
+
+    private void DetachBattlefieldUnsyncedDraftFromScript()
+    {
+        var state = _battlefieldUnsyncedDraftState;
+        if (state == null) return;
+        var answer = MessageBox.Show(
+            this,
+            "将保留当前地图位置和属性，但解除这些草稿与失效 S 剧本记录的绑定。之后不会自动写入原记录。是否继续？",
+            "保留本地草稿并解除绑定",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+        if (answer != DialogResult.Yes) return;
+
+        DetachBattlefieldUnsyncedDraftFromScriptCore();
+        SetStatus("战场控制台：未同步值已保留为项目侧草稿，并解除失效 S 剧本绑定。");
+    }
+
+    private void DetachBattlefieldUnsyncedDraftFromScriptCore()
+    {
+        var state = _battlefieldUnsyncedDraftState;
+        if (state == null) return;
+
+        foreach (var targetKey in state.TargetKeys)
+        {
+            var unit = _battlefieldPlacedUnits.FirstOrDefault(candidate =>
+                candidate.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+            if (unit == null) continue;
+            unit.TargetKey = $"Placement#{state.ScenarioFileName}#{unit.GridX},{unit.GridY}#{unit.PersonId}#{Guid.NewGuid():N}";
+            unit.Source = "未同步本地草稿(已解除脚本绑定)";
+            unit.PlacementNote = BattlefieldUnitReviewService.AppendReviewLine(
+                unit.PlacementNote,
+                "写回失败后由用户确认解除失效 S 剧本绑定，保留为项目侧布阵草稿。");
+        }
+
+        ClearBattlefieldConsoleDirty();
+        _battlefieldUnsyncedDraftState = null;
+        UpdateBattlefieldUnsyncedDraftActions();
+        _saveBattlefieldUnitReviewsButton.Enabled = true;
+        RefreshBattlefieldMapDynamicPreview();
+    }
+
+    private static void CopyBattlefieldPlacedUnitValues(
+        BattlefieldPlacedUnit source,
+        BattlefieldPlacedUnit target,
+        bool includeTargetKey)
+    {
+        if (includeTargetKey) target.TargetKey = source.TargetKey;
+        target.PersonId = source.PersonId;
+        target.PersonRawCode = source.PersonRawCode;
+        target.Name = source.Name;
+        target.JobId = source.JobId;
+        target.JobName = source.JobName;
+        target.SImageId = source.SImageId;
+        target.RImageId = source.RImageId;
+        target.Faction = source.Faction;
+        target.LevelOffset = source.LevelOffset;
+        target.LevelMode = source.LevelMode;
+        target.AiMode = source.AiMode;
+        target.Hidden = source.Hidden;
+        target.Reinforcement = source.Reinforcement;
+        target.Direction = source.Direction;
+        target.GridX = source.GridX;
+        target.GridY = source.GridY;
+        target.Source = source.Source;
+        target.PlacementNote = source.PlacementNote;
+    }
+
+    private static bool BattlefieldDeploymentOwnedFieldsDiffer(
+        BattlefieldPlacedUnit before,
+        BattlefieldPlacedUnit current)
+        => before.PersonId != current.PersonId ||
+           before.PersonRawCode != current.PersonRawCode ||
+           before.GridX != current.GridX ||
+           before.GridY != current.GridY ||
+           before.Hidden != current.Hidden ||
+           !before.AiMode.Equals(current.AiMode, StringComparison.Ordinal) ||
+           !before.Direction.Equals(current.Direction, StringComparison.Ordinal);
+
+    private static bool BattlefieldStatusDeploymentFieldsDiffer(
+        BattlefieldPlacedUnit before,
+        BattlefieldPlacedUnit current)
+        => before.LevelOffset != current.LevelOffset ||
+           !before.LevelMode.Equals(current.LevelMode, StringComparison.Ordinal);
 
     private bool CommitBattlefieldConsolePlacementChanges(BattlefieldPlacedUnit unit)
     {
@@ -4994,7 +6112,8 @@ public sealed partial class MainForm
         var wrotePlacement = ApplyBattlefieldPlacementToCurrentScript(unit, "\u63a7\u5236\u53f0\u5ef6\u8fdf\u63d0\u4ea4");
         if (_currentBattlefieldDocument != null)
         {
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+            _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+            RefreshBattlefieldMapDynamicPreview();
         }
 
         _saveBattlefieldUnitReviewsButton.Enabled = true;
@@ -5002,24 +6121,51 @@ public sealed partial class MainForm
         return wroteStatus || wrotePlacement;
     }
 
-    private BattlefieldUnitStatusDraft? BuildBattlefieldConsolePendingDelta()
+    private BattlefieldConsoleDeltaBuildResult BuildBattlefieldConsolePendingDelta(BattlefieldPlacedUnit unit)
     {
         if (_project == null ||
-            _selectedBattlefieldPlacedUnit == null ||
             _currentBattlefieldLegacyScriptDocument == null ||
             _currentBattlefieldConsoleStatusDraft == null ||
             _currentBattlefieldConsoleDataDefaults == null)
         {
-            return null;
+            return new BattlefieldConsoleDeltaBuildResult(
+                BattlefieldConsoleDeltaBuildStatus.ValidationFailed,
+                null,
+                "战场控制台：当前项目、S 剧本或状态上下文不可用，已保留待提交编辑。");
+        }
+
+        if (!BattlefieldUnitStatusWriteService.IsWritableStatusTarget(unit))
+        {
+            return new BattlefieldConsoleDeltaBuildResult(
+                BattlefieldConsoleDeltaBuildStatus.DraftOnly,
+                null,
+                "战场控制台：当前单位不是可写 Scene1 46/47 状态目标，状态值仅保留为草稿。");
+        }
+
+        if (!_currentBattlefieldConsoleStatusDraft.TargetKey.Equals(unit.TargetKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return new BattlefieldConsoleDeltaBuildResult(
+                BattlefieldConsoleDeltaBuildStatus.ValidationFailed,
+                null,
+                $"战场控制台：状态编辑绑定已过期，草稿目标={_currentBattlefieldConsoleStatusDraft.TargetKey}，当前目标={unit.TargetKey}。请重新选择该单位后重试。");
         }
 
         if (!_currentBattlefieldConsoleDataDefaults.Found)
         {
-            SetStatus("\u6218\u573a\u63a7\u5236\u53f0\uff1aData.e5 \u9ed8\u8ba4\u503c\u672a\u8bfb\u5230\uff0c\u4e0d\u80fd\u8ba1\u7b97\u5dee\u5f02\u5199\u56de\u3002");
-            return null;
+            return new BattlefieldConsoleDeltaBuildResult(
+                BattlefieldConsoleDeltaBuildStatus.ValidationFailed,
+                null,
+                "战场控制台：Data.e5 默认值未读到，不能安全计算装备、兵种和能力差异，已保留待提交编辑。");
         }
 
-        _battlefieldConsoleAbilityGrid.EndEdit();
+        if (!_battlefieldConsoleAbilityGrid.EndEdit())
+        {
+            return new BattlefieldConsoleDeltaBuildResult(
+                BattlefieldConsoleDeltaBuildStatus.ValidationFailed,
+                null,
+                "战场控制台：五维表格仍有未完成编辑，请先完成当前单元格输入。",
+                _battlefieldConsoleAbilityGrid);
+        }
         var boundary = ItemCategoryBoundaryService.Resolve(_project);
         var abilities = new Dictionary<int, (int Operation, int? Value)>();
         foreach (DataGridViewRow gridRow in _battlefieldConsoleAbilityGrid.Rows)
@@ -5030,15 +6176,24 @@ public sealed partial class MainForm
             {
                 if (!int.TryParse(row.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
                 {
-                    SetStatus($"\u6218\u573a\u63a7\u5236\u53f0\uff1a{row.Name} \u5fc5\u987b\u662f\u6574\u6570\u3002");
-                    return null;
+                    var rowIndex = gridRow.Index;
+                    if (rowIndex >= 0 && _battlefieldConsoleAbilityGrid.Columns.Count > 2)
+                    {
+                        _battlefieldConsoleAbilityGrid.CurrentCell = _battlefieldConsoleAbilityGrid.Rows[rowIndex].Cells[2];
+                        _battlefieldConsoleAbilityGrid.Rows[rowIndex].DefaultCellStyle.BackColor = Color.MistyRose;
+                    }
+                    return new BattlefieldConsoleDeltaBuildResult(
+                        BattlefieldConsoleDeltaBuildStatus.ValidationFailed,
+                        null,
+                        $"战场控制台：{row.Name} 必须是整数，当前输入“{row.Value}”未提交。",
+                        _battlefieldConsoleAbilityGrid);
                 }
                 value = parsed;
             }
             abilities[row.AbilityId] = (ConsoleTextToOperation(row.Operation), value);
         }
 
-        return _battlefieldUnitStatusWriteService.BuildDeltaDraftFromEffectiveValues(
+        var delta = _battlefieldUnitStatusWriteService.BuildDeltaDraftFromEffectiveValues(
             _currentBattlefieldConsoleStatusDraft,
             _currentBattlefieldConsoleDataDefaults,
             boundary,
@@ -5049,13 +6204,34 @@ public sealed partial class MainForm
             GetSelectedEquipmentLookupValue(_battlefieldConsoleAssistCombo, _currentBattlefieldConsoleDataDefaults.AssistId),
             GetSelectedLookupValue(_battlefieldConsoleJobCombo),
             abilities);
+        return new BattlefieldConsoleDeltaBuildResult(
+            BattlefieldConsoleDeltaHasChanges(delta)
+                ? BattlefieldConsoleDeltaBuildStatus.Ready
+                : BattlefieldConsoleDeltaBuildStatus.NoChanges,
+            delta,
+            BattlefieldConsoleDeltaHasChanges(delta)
+                ? "战场控制台状态差异已生成。"
+                : "战场控制台状态值没有变化。");
     }
 
     private bool CommitBattlefieldConsoleStatusChanges()
     {
         if (_project == null || _currentBattlefieldLegacyScriptDocument == null) return false;
-        var delta = BuildBattlefieldConsolePendingDelta();
-        if (delta == null) return false;
+        if (_selectedBattlefieldPlacedUnit == null) return false;
+        var build = BuildBattlefieldConsolePendingDelta(_selectedBattlefieldPlacedUnit);
+        var delta = build.Delta;
+        if (delta == null)
+        {
+            ShowBattlefieldConsoleCommitResult(BuildBattlefieldConsoleCommitResult(
+                BattlefieldConsoleCommitStatus.ValidationFailed,
+                build.Message,
+                _selectedBattlefieldPlacedUnit.TargetKey,
+                BattlefieldConsoleDirtyKind.Equipment | BattlefieldConsoleDirtyKind.RuntimeAbility,
+                allowsNavigation: false,
+                retainsDraft: true,
+                focusTarget: build.FocusTarget));
+            return false;
+        }
         if (!BattlefieldConsoleDeltaHasChanges(delta))
         {
             _battlefieldConsoleStatusPreviewBox.Text = "\u6218\u573a\u63a7\u5236\u53f0\uff1a\u5f53\u524d\u503c\u5df2\u4e0e Scene1/Data \u6709\u6548\u503c\u4e00\u81f4\u3002";
@@ -5194,7 +6370,10 @@ public sealed partial class MainForm
     }
 
     private static bool BattlefieldConsoleDeltaHasChanges(BattlefieldUnitStatusDraft draft)
-        => draft.RemoveEquipmentOverride ||
+        => draft.LevelBonus.HasValue ||
+           draft.JobLevel.HasValue ||
+           draft.AiPolicy.HasValue ||
+           draft.RemoveEquipmentOverride ||
            draft.RemoveJobOverride ||
            draft.RemoveAbilityOverrides.Count > 0 ||
            draft.Weapon.HasValue ||
@@ -5204,6 +6383,84 @@ public sealed partial class MainForm
            draft.Assist.HasValue ||
            draft.JobId.HasValue ||
            draft.Abilities.Any(ability => ability.Value.HasValue);
+
+    private static BattlefieldUnitStatusDraft MergeBattlefieldConsoleStatusDeltas(
+        BattlefieldUnitStatusDraft? deployment,
+        BattlefieldUnitStatusDraft status)
+    {
+        if (deployment == null) return status;
+        deployment.Weapon = status.Weapon;
+        deployment.WeaponLevel = status.WeaponLevel;
+        deployment.Armor = status.Armor;
+        deployment.ArmorLevel = status.ArmorLevel;
+        deployment.Assist = status.Assist;
+        deployment.JobId = status.JobId;
+        deployment.RemoveEquipmentOverride = status.RemoveEquipmentOverride;
+        deployment.RemoveJobOverride = status.RemoveJobOverride;
+        deployment.RemoveAbilityOverrides.Clear();
+        deployment.RemoveAbilityOverrides.AddRange(status.RemoveAbilityOverrides);
+        deployment.Abilities.Clear();
+        foreach (var ability in status.Abilities)
+        {
+            deployment.Abilities.Add(new BattlefieldUnitAbilityDraft
+            {
+                AbilityId = ability.AbilityId,
+                Name = ability.Name,
+                Operation = ability.Operation,
+                Value = ability.Value,
+                HasCommand = ability.HasCommand,
+                DataDefaultValue = ability.DataDefaultValue,
+                RemoveOverride = ability.RemoveOverride
+            });
+        }
+        return deployment;
+    }
+
+    private static BattlefieldUnitStatusDraft CloneBattlefieldUnitStatusDelta(BattlefieldUnitStatusDraft source)
+    {
+        var clone = new BattlefieldUnitStatusDraft
+        {
+            TargetKey = source.TargetKey,
+            ScenarioFileName = source.ScenarioFileName,
+            PersonId = source.PersonId,
+            PersonName = source.PersonName,
+            CommandId = source.CommandId,
+            RecordIndex = source.RecordIndex,
+            LevelBonus = source.LevelBonus,
+            JobLevel = source.JobLevel,
+            AiPolicy = source.AiPolicy,
+            Weapon = source.Weapon,
+            WeaponLevel = source.WeaponLevel,
+            Armor = source.Armor,
+            ArmorLevel = source.ArmorLevel,
+            Assist = source.Assist,
+            JobId = source.JobId,
+            HasEquipmentCommand = source.HasEquipmentCommand,
+            HasJobCommand = source.HasJobCommand,
+            DataDefaults = source.DataDefaults,
+            RemoveEquipmentOverride = source.RemoveEquipmentOverride,
+            RemoveJobOverride = source.RemoveJobOverride,
+            EquipmentBoundarySummary = source.EquipmentBoundarySummary,
+            SourceSummary = source.SourceSummary,
+            CommandPreview = source.CommandPreview
+        };
+        clone.RemoveAbilityOverrides.AddRange(source.RemoveAbilityOverrides);
+        clone.Abilities.Clear();
+        foreach (var ability in source.Abilities)
+        {
+            clone.Abilities.Add(new BattlefieldUnitAbilityDraft
+            {
+                AbilityId = ability.AbilityId,
+                Name = ability.Name,
+                Operation = ability.Operation,
+                Value = ability.Value,
+                HasCommand = ability.HasCommand,
+                DataDefaultValue = ability.DataDefaultValue,
+                RemoveOverride = ability.RemoveOverride
+            });
+        }
+        return clone;
+    }
 
     private sealed class BattlefieldConsoleAbilityRow
     {
@@ -5237,7 +6494,8 @@ public sealed partial class MainForm
         var scriptCleared = ClearBattlefieldFriendEnemyPlacementsFromCurrentScript(new[] { selected }, "移除摆放");
         if (_currentBattlefieldDocument != null)
         {
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument);
+            _battlefieldMapPreviewSelectedUnit = null;
+            RefreshBattlefieldMapDynamicPreview();
         }
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
@@ -5273,7 +6531,8 @@ public sealed partial class MainForm
             BindBattlefieldUnitCandidates(GetBattlefieldUnitCandidatesForDisplay());
             BindBattlefieldCommandCandidates(GetBattlefieldCommandCandidatesForDisplay());
             RefreshBattlefieldScriptPreviewTree();
-            RenderBattlefieldMapPreview(_currentBattlefieldDocument);
+            _battlefieldMapPreviewSelectedUnit = null;
+            RefreshBattlefieldMapDynamicPreview();
         }
         _saveBattlefieldUnitReviewsButton.Enabled = true;
         UpdateBattlefieldDeploymentWriteButton();
@@ -5495,6 +6754,139 @@ public sealed partial class MainForm
         }
     }
 
+    private bool CommitBattlefieldConsoleTransaction(
+        BattlefieldPlacedUnit unit,
+        BattlefieldUnitStatusDraft? statusDelta,
+        bool applyPlacement,
+        ref string stage)
+    {
+        if (_project == null || _currentBattlefieldLegacyScriptDocument == null) return false;
+
+        var wrotePlacement = false;
+        BattlefieldUnitStatusWriteResult? statusResult = null;
+        if (applyPlacement)
+        {
+            stage = "ApplyPlacement";
+            BattlefieldConsoleCommitStageInterceptForSmoke?.Invoke(stage);
+            if (BattlefieldUnitStatusWriteService.IsWritableStatusTarget(unit))
+            {
+                var bound = _battlefieldUnitStatusWriteService.LoadDraft(
+                    _currentBattlefieldLegacyScriptDocument,
+                    _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
+                    unit);
+                if (bound.PersonId != 0 && bound.PersonId != unit.PersonId)
+                {
+                    throw new InvalidOperationException(
+                        $"绑定的出场记录人物已变化：地图草稿人物={unit.PersonId}，当前 S 剧本 Record 人物={bound.PersonId}。禁止覆盖其他人物。");
+                }
+            }
+            else if (TryGetBattlefieldDeploymentRecordState(unit.TargetKey) is { } boundState &&
+                     boundState.CommandId != 0x4B &&
+                     boundState.PersonId >= 0 &&
+                     boundState.PersonId != unit.PersonId)
+            {
+                throw new InvalidOperationException(
+                    $"绑定的出场记录人物已变化：地图草稿人物={unit.PersonId}，当前 S 剧本 Record 人物={boundState.PersonId}。禁止覆盖其他人物。");
+            }
+            var placementResult = _battlefieldDeploymentWriteService.ApplyScriptPlacements(
+                _currentBattlefieldLegacyScriptDocument,
+                new[] { unit });
+            wrotePlacement = placementResult.Changes.Count > 0;
+        }
+
+        if (statusDelta != null && BattlefieldConsoleDeltaHasChanges(statusDelta))
+        {
+            stage = "ApplyStatus";
+            BattlefieldConsoleCommitStageInterceptForSmoke?.Invoke(stage);
+            statusResult = _battlefieldUnitStatusWriteService.Apply(
+                _project,
+                _currentBattlefieldLegacyScriptDocument,
+                statusDelta);
+        }
+
+        var committed = wrotePlacement || statusResult != null;
+        if (!committed) return false;
+
+        var changed = statusDelta == null
+            ? FindBattlefieldDeploymentSourceCommand(unit.TargetKey)
+            : FindBattlefieldUnitStatusWritebackBlock(statusDelta) ?? FindBattlefieldDeploymentSourceCommand(unit.TargetKey);
+        stage = "RefreshTree";
+        if (changed != null && !RefreshLegacyEditorCommandInPlace(LegacyScriptEditorScope.Battlefield, changed))
+        {
+            using (SuppressBattlefieldScriptSelectionCommit())
+            {
+                RefreshBattlefieldLegacyScriptView(changed);
+            }
+        }
+
+        ClearBattlefieldInstructionPreviewForTarget(unit.TargetKey);
+        RefreshBattlefieldInstructionPreviewBindings(unit.TargetKey);
+        UpdateBattlefieldDeploymentWriteButton();
+        if (statusDelta != null)
+        {
+            ReloadBattlefieldConsoleStatusAfterScriptChange(statusDelta.TargetKey);
+        }
+        if (statusResult != null)
+        {
+            _battlefieldConsoleStatusPreviewBox.Text = BuildBattlefieldUnitStatusWriteDetail(statusResult);
+        }
+        _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+        RefreshBattlefieldMapDynamicPreview();
+        _saveBattlefieldUnitReviewsButton.Enabled = true;
+        stage = "Complete";
+        return true;
+    }
+
+    private BattlefieldDeploymentRecordState? TryGetBattlefieldDeploymentRecordState(string targetKey)
+    {
+        if (_currentBattlefieldDocument == null || _currentBattlefieldLegacyScriptDocument == null) return null;
+        var rebuilt = BattlefieldEditorService.RebuildFromLegacyDocument(
+            _currentBattlefieldDocument,
+            _currentBattlefieldLegacyScriptDocument,
+            _project,
+            _tables);
+        return rebuilt.DeploymentRecords.FirstOrDefault(state =>
+            state.TargetKey.Equals(targetKey, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private BattlefieldUnitStatusDraft? BuildBattlefieldConsoleDeploymentDelta(BattlefieldPlacedUnit unit)
+    {
+        if (_project == null || _currentBattlefieldLegacyScriptDocument == null) return null;
+        var draft = _battlefieldUnitStatusWriteService.LoadDraft(
+            _project,
+            _tables,
+            _currentBattlefieldLegacyScriptDocument,
+            _currentBattlefieldDocument?.Scenario.FileName ?? string.Empty,
+            unit);
+        if (draft.PersonId != 0 && draft.PersonId != unit.PersonId)
+        {
+            throw new InvalidOperationException(
+                $"绑定的出场记录人物已变化：地图草稿人物={unit.PersonId}，当前 S 剧本 Record 人物={draft.PersonId}。请重新读取或解除失效绑定，禁止覆盖其他人物。");
+        }
+        var requestedLevelBonus = unit.LevelOffset;
+        var requestedJobLevel = MapBattlefieldJobLevel(unit.LevelMode);
+        draft.LevelBonus = draft.LevelBonus == requestedLevelBonus ? null : requestedLevelBonus;
+        draft.JobLevel = draft.JobLevel == requestedJobLevel ? null : requestedJobLevel;
+        // AI/direction/hidden belong to BattlefieldDeploymentWriteService.
+        draft.AiPolicy = null;
+        draft.Weapon = null;
+        draft.WeaponLevel = null;
+        draft.Armor = null;
+        draft.ArmorLevel = null;
+        draft.Assist = null;
+        draft.JobId = null;
+        draft.RemoveEquipmentOverride = false;
+        draft.RemoveJobOverride = false;
+        draft.RemoveAbilityOverrides.Clear();
+        foreach (var ability in draft.Abilities)
+        {
+            ability.Value = null;
+            ability.Operation = null;
+            ability.RemoveOverride = false;
+        }
+        return draft;
+    }
+
     private void ResetBattlefieldDeploymentPreviewFilter()
     {
         if (_battlefieldDeploymentPreviewFilterCombo.Items.Count > 0)
@@ -5528,7 +6920,8 @@ public sealed partial class MainForm
         }
 
         MergeBattlefieldScriptPlacements(_currentBattlefieldDocument);
-        RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+        _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+        RefreshBattlefieldMapDynamicPreview();
     }
 
     private static bool ShouldMergeBattlefieldDeploymentRecord(
@@ -6157,7 +7550,6 @@ public sealed partial class MainForm
         _battlefieldRightPreviewMode = BattlefieldRightPreviewMode.Console;
         ApplyBattlefieldRightPreviewMode();
         _battlefieldInfoBox.Text = text;
-        _battlefieldConsoleSummaryLabel.Text = BuildBattlefieldConsoleSummary(text);
     }
 
     private void ApplyBattlefieldRightPreviewMode()
@@ -6413,37 +7805,6 @@ public sealed partial class MainForm
         }
 
         return string.Join("\r\n\r\n", parts);
-    }
-
-    private static string BuildBattlefieldConsoleSummary(string text)
-    {
-        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n')
-            .Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => line.Length > 0)
-            .ToList();
-        if (lines.Count == 0)
-        {
-            return "战场控制台";
-        }
-
-        var selectedIndex = lines.FindIndex(line =>
-            line.StartsWith("当前", StringComparison.Ordinal) ||
-            line.StartsWith("角色", StringComparison.Ordinal) ||
-            line.StartsWith("已", StringComparison.Ordinal) ||
-            line.StartsWith("战场控制台", StringComparison.Ordinal));
-        if (selectedIndex < 0)
-        {
-            selectedIndex = 0;
-        }
-
-        var summary = lines[selectedIndex];
-        if (summary.EndsWith("：", StringComparison.Ordinal) && selectedIndex + 1 < lines.Count)
-        {
-            summary += " " + lines[selectedIndex + 1];
-        }
-
-        return summary.Length <= 120 ? summary : summary[..117] + "...";
     }
 
     private string BuildBattlefieldScriptRowDetail(ScenarioStructureRow row)
@@ -6829,9 +8190,9 @@ public sealed partial class MainForm
             return;
         }
 
-        if (_battlefieldConsoleDirty && !TryCommitPendingBattlefieldConsoleChanges())
+        var result = TryCommitPendingBattlefieldConsoleChangesResult();
+        if (!result.AllowsNavigation)
         {
-            SetStatus("战场制作：请先修正右侧控制台未保存字段，再双击修改 S 剧本命令。");
             return;
         }
 
@@ -6842,11 +8203,31 @@ public sealed partial class MainForm
     {
         if (e.Button != MouseButtons.Left) return;
 
-        _battlefieldScriptTree.SelectedNode = e.Node;
-        if (!TryCommitPendingBattlefieldConsoleChanges())
+        if (ReferenceEquals(_battlefieldScriptSelectionBlockedNode, e.Node))
         {
-            SetStatus("Battlefield script: fix pending console edits before editing S script commands.");
+            _battlefieldScriptSelectionBlockedNode = null;
             return;
+        }
+
+        if (!ReferenceEquals(_battlefieldScriptTree.SelectedNode, e.Node))
+        {
+            // Normally WinForms selects the node before raising NodeMouseDoubleClick.
+            // Keep direct/test/keyboard invocations compatible without re-entering the
+            // commit gate or committing a second time.
+            using (SuppressBattlefieldScriptSelectionCommit())
+            {
+                _battlefieldScriptTree.SelectedNode = e.Node;
+            }
+        }
+
+        var selectionGateAlreadyRan =
+            ReferenceEquals(_battlefieldScriptSelectionCommitSatisfiedNode, e.Node) &&
+            DateTime.UtcNow - _battlefieldScriptSelectionCommitUtc <= TimeSpan.FromSeconds(3);
+        _battlefieldScriptSelectionCommitSatisfiedNode = null;
+        if (!selectionGateAlreadyRan)
+        {
+            var result = TryCommitPendingBattlefieldConsoleChangesResult();
+            if (!result.AllowsNavigation) return;
         }
 
         ShowSelectedBattlefieldScriptNode();
@@ -7330,7 +8711,8 @@ public sealed partial class MainForm
                 ClearBattlefieldPlacedUnitSelection();
             }
         }
-        RenderBattlefieldMapPreview(_currentBattlefieldDocument, GetSelectedBattlefieldUnitCandidate());
+        _battlefieldMapPreviewSelectedUnit = GetSelectedBattlefieldUnitCandidate();
+        RefreshBattlefieldMapDynamicPreview();
         UpdateBattlefieldDeploymentWriteButton();
         _battlefieldInfoBox.Text = BuildBattlefieldInfo(_currentBattlefieldDocument) +
                                    "\r\n\r\nS 剧本旧版修改已同步到右侧候选与地图预览；点击“完整保存S剧本”前尚未写入原文件。";
@@ -7403,19 +8785,22 @@ public sealed partial class MainForm
             ? viewportSnapshot ?? CaptureLegacyScriptViewport(LegacyScriptEditorScope.Battlefield)
             : null;
         var selectionRestored = false;
-        _bindingBattlefieldScriptEditor = true;
-        try
+        using (SuppressBattlefieldScriptSelectionCommit())
         {
-            _battlefieldScriptCommandByKey.Clear();
-            _battlefieldScriptTextByOffset.Clear();
-            _battlefieldScriptTextEntryByOffset.Clear();
-            _currentBattlefieldScriptStructure = BuildBattlefieldLegacyScriptStructureResult(_currentBattlefieldLegacyScriptDocument);
-            _currentBattlefieldScriptTextEntries = BuildBattlefieldLegacyScriptTextEntries(_currentBattlefieldLegacyScriptDocument);
-            BuildBattlefieldScriptTree(_currentBattlefieldScriptStructure, _currentBattlefieldScriptTextEntries);
-        }
-        finally
-        {
-            _bindingBattlefieldScriptEditor = false;
+            _bindingBattlefieldScriptEditor = true;
+            try
+            {
+                _battlefieldScriptCommandByKey.Clear();
+                _battlefieldScriptTextByOffset.Clear();
+                _battlefieldScriptTextEntryByOffset.Clear();
+                _currentBattlefieldScriptStructure = BuildBattlefieldLegacyScriptStructureResult(_currentBattlefieldLegacyScriptDocument);
+                _currentBattlefieldScriptTextEntries = BuildBattlefieldLegacyScriptTextEntries(_currentBattlefieldLegacyScriptDocument);
+                BuildBattlefieldScriptTree(_currentBattlefieldScriptStructure, _currentBattlefieldScriptTextEntries);
+            }
+            finally
+            {
+                _bindingBattlefieldScriptEditor = false;
+            }
         }
 
         if (preferredSelection != null && TrySelectBattlefieldLegacyScriptCommand(preferredSelection, ensureVisible: !preserveViewport))
@@ -7531,6 +8916,7 @@ public sealed partial class MainForm
 
     private async Task SaveSelectedBattlefieldScriptTextAsync()
     {
+        if (!TryCommitPendingBattlefieldConsoleChangesForSave()) return;
         if (_project == null || _currentBattlefieldDocument == null)
         {
             MessageBox.Show(this, "请先读取一个战场关卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -7654,6 +9040,7 @@ public sealed partial class MainForm
 
     private async Task SaveCurrentBattlefieldLegacyScriptStructureAsync()
     {
+        if (!TryCommitPendingBattlefieldConsoleChangesForSave()) return;
         if (_project == null || _currentBattlefieldDocument == null || _currentBattlefieldLegacyScriptDocument == null)
         {
             MessageBox.Show(this, "当前关卡没有进入旧版完整树模式，无法完整保存 S 剧本。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -7801,12 +9188,11 @@ public sealed partial class MainForm
     private void ClearBattlefieldScriptSearch()
         => ClearLegacyScriptSearch(LegacyScriptEditorScope.Battlefield);
 
-    private void DrawBattlefieldCoordinateMarker(Image image, int gridX, int gridY, int gridWidth, int gridHeight, Color markerColor, string label)
+    private void DrawBattlefieldCoordinateMarker(Graphics graphics, Size imageSize, int gridX, int gridY, int gridWidth, int gridHeight, Color markerColor, string label)
     {
         if (gridWidth <= 0 || gridHeight <= 0) return;
-        using var graphics = Graphics.FromImage(image);
-        var cellWidth = image.Width / (float)gridWidth;
-        var cellHeight = image.Height / (float)gridHeight;
+        var cellWidth = imageSize.Width / (float)gridWidth;
+        var cellHeight = imageSize.Height / (float)gridHeight;
         var centerX = gridX * cellWidth + cellWidth / 2;
         var centerY = gridY * cellHeight + cellHeight / 2;
         var radius = Math.Max(8f, Math.Min(cellWidth, cellHeight) * 0.42f);
@@ -7819,7 +9205,7 @@ public sealed partial class MainForm
         graphics.DrawString($"{label}:{gridX},{gridY}", Font, Brushes.White, centerX + radius + 2, centerY - radius);
     }
 
-    private void DrawBattlefieldCommand25Markers(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldCommand25Markers(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         if (_battlefieldCommand25Markers.Count == 0 || gridWidth <= 0 || gridHeight <= 0) return;
 
@@ -7827,7 +9213,7 @@ public sealed partial class MainForm
         {
             if (marker.GridX < 0 || marker.GridX >= gridWidth || marker.GridY < 0 || marker.GridY >= gridHeight) continue;
             var label = marker.Count > 1 ? "25x" + marker.Count.ToString(CultureInfo.InvariantCulture) : "25";
-            DrawBattlefieldCoordinateMarker(image, marker.GridX, marker.GridY, gridWidth, gridHeight, Color.MediumVioletRed, label);
+            DrawBattlefieldCoordinateMarker(graphics, imageSize, marker.GridX, marker.GridY, gridWidth, gridHeight, Color.MediumVioletRed, label);
         }
     }
 
@@ -7868,7 +9254,7 @@ public sealed partial class MainForm
             row.CommandId == command.CommandId &&
             HexDisplayFormatter.EqualsText(row.OffsetHex, HexDisplayFormatter.FormatOffset(command.FileOffset)));
 
-    private void DrawBattlefieldSelectedCoordinateMarker(Image image, int gridWidth, int gridHeight)
+    private void DrawBattlefieldSelectedCoordinateMarker(Graphics graphics, Size imageSize, int gridWidth, int gridHeight)
     {
         var selectedUnit = _battlefieldMapPreviewSelectedUnit;
         if (selectedUnit == null || gridWidth <= 0 || gridHeight <= 0) return;
@@ -7879,7 +9265,7 @@ public sealed partial class MainForm
         {
             if (_battlefieldManualMarkerX < gridWidth && _battlefieldManualMarkerY < gridHeight)
             {
-                DrawBattlefieldCoordinateMarker(image, _battlefieldManualMarkerX, _battlefieldManualMarkerY, gridWidth, gridHeight, Color.DeepSkyBlue, "点选");
+                DrawBattlefieldCoordinateMarker(graphics, imageSize, _battlefieldManualMarkerX, _battlefieldManualMarkerY, gridWidth, gridHeight, Color.DeepSkyBlue, "点选");
             }
 
             return;
@@ -7888,7 +9274,7 @@ public sealed partial class MainForm
         if (!BattlefieldEditorService.TryExtractFirstCoordinate(selectedUnit, out var gridX, out var gridY)) return;
         if (gridX < 0 || gridX >= gridWidth || gridY < 0 || gridY >= gridHeight) return;
 
-        DrawBattlefieldCoordinateMarker(image, gridX, gridY, gridWidth, gridHeight, Color.Red, "候选");
+        DrawBattlefieldCoordinateMarker(graphics, imageSize, gridX, gridY, gridWidth, gridHeight, Color.Red, "候选");
     }
 
     private void UpdateBattlefieldCapacityLabels()
@@ -7935,6 +9321,7 @@ public sealed partial class MainForm
             $"{document.Summary}\r\n" +
             $"标题：{BattlefieldEditorService.FormatCapacity(document.TitleEntry, _battlefieldTitleBox.Text)}\r\n" +
             $"胜负条件：{BattlefieldEditorService.FormatCapacity(document.ConditionEntry, _battlefieldConditionsBox.Text)}\r\n" +
+            $"地图引用：{document.MapReference.DisplayText}\r\n" +
             $"出场/坐标候选：{document.UnitCandidates.Count} 条；战场命令定位：{document.CommandCandidates.Count} 条。\r\n" +
             $"地图预览单位：{_battlefieldPlacedUnits.Count} 个；我军候选出战位：{_battlefieldAllyDeploymentSlots.Count} 个（强制 {_battlefieldAllyDeploymentSlots.Count(slot => slot.IsForced)} 个）。\r\n" +
             $"说明：{document.Annotation}";
@@ -7942,6 +9329,7 @@ public sealed partial class MainForm
 
     private void SaveBattlefieldUnitReviews()
     {
+        if (!TryCommitPendingBattlefieldConsoleChanges()) return;
         if (_project == null || _currentBattlefieldDocument == null)
         {
             MessageBox.Show(this, "请先读取一个战场关卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -7968,6 +9356,7 @@ public sealed partial class MainForm
 
     private async Task WriteBattlefieldDeploymentAsync()
     {
+        if (!TryCommitPendingBattlefieldConsoleChangesForSave()) return;
         if (_project == null || _currentBattlefieldDocument == null)
         {
             MessageBox.Show(this, "请先读取一个战场关卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -8090,6 +9479,7 @@ public sealed partial class MainForm
 
     private void SaveBattlefieldTexts()
     {
+        if (!TryCommitPendingBattlefieldConsoleChanges()) return;
         if (_project == null || _currentBattlefieldDocument == null)
         {
             MessageBox.Show(this, "请先读取一个战场关卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -8231,11 +9621,11 @@ public sealed partial class MainForm
         var document = _currentBattlefieldDocument;
         if (document == null) return;
 
-        var mapId = BuildBattlefieldMapId(document.Scenario);
+        var mapId = document.MapReference.MapId;
         var map = string.IsNullOrWhiteSpace(mapId) ? null : FindBattlefieldMapResourceByMapId(mapId);
         if (map == null)
         {
-            MessageBox.Show(this, "当前关卡没有可跳转的 Map/Mxxx.jpg 地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, document.MapReference.DisplayText + "：没有可跳转的 Map/Mxxx.jpg 地图图片。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 

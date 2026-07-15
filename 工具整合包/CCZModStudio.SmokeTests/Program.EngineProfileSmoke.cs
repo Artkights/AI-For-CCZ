@@ -99,7 +99,48 @@ internal partial class Program
         AssertEngineProfileEqual(0x1C, profile63.LegacyRuntimeLayout?.CharacterMaxHpOffset, "6.3 max HP offset");
         AssertEngineProfileEqual(1, profile63.LegacyRuntimeLayout?.CharacterMaxMpByteWidth, "6.3 max MP width");
 
+        RunEngineProfileCacheSmoke();
+
         Console.WriteLine("ENGINE_PROFILE_SMOKE_OK");
+    }
+
+    static void RunEngineProfileCacheSmoke()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "CCZModStudio_EngineProfileCache_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(root, "Ekd5.exe"), new byte[4096]);
+            File.WriteAllBytes(Path.Combine(root, "Data.e5"), [1]);
+            File.WriteAllBytes(Path.Combine(root, "Imsg.e5"), [2]);
+            File.WriteAllBytes(Path.Combine(root, "Star.e5"), [3]);
+            var project = new ProjectDetector().CreateProjectFromGameRoot(root);
+            CczEngineProfileService.ClearCache();
+            PerformanceMetrics.Reset();
+            var profiles = Enumerable.Range(0, 50)
+                .AsParallel()
+                .Select(_ => new CczEngineProfileService().Detect(project))
+                .ToArray();
+            var snapshot = PerformanceMetrics.GetSnapshot();
+            var hashCount = snapshot.Counters.GetValueOrDefault("ExecutableAnalysis.HashCount");
+            AssertEngineProfileEqual(1L, hashCount, "concurrent shared EXE hash count");
+            AssertEngineProfileEqual(0L, snapshot.Counters.GetValueOrDefault("EngineProfile.ExeHashCount"), "engine profile must not hash independently");
+
+            profiles[0].Warnings.Add("caller mutation");
+            var clean = new CczEngineProfileService().Detect(project);
+            if (clean.Warnings.Contains("caller mutation", StringComparer.Ordinal))
+                throw new InvalidOperationException("Engine profile cache returned a shared mutable warnings list.");
+
+            CczEngineProfileService.Invalidate(Path.Combine(root, "Ekd5.exe"));
+            _ = new CczEngineProfileService().Detect(project);
+            snapshot = PerformanceMetrics.GetSnapshot();
+            AssertEngineProfileEqual(2L, snapshot.Counters.GetValueOrDefault("ExecutableAnalysis.HashCount"), "shared hash count after explicit invalidation");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+            CczEngineProfileService.ClearCache();
+        }
     }
 
     static void AssertEngineProfileEqual<T>(T expected, T actual, string label)

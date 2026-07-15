@@ -44,6 +44,9 @@ public sealed class InjectedEffectDiscoveryReport
     public bool IsKnownEngine { get; set; }
     public List<InjectedEffectCandidate> Candidates { get; set; } = [];
     public List<InjectedEffectHookCandidate> HookCandidates { get; set; } = [];
+    public List<InjectedEffectDiagnostic> Diagnostics { get; set; } = [];
+    public Dictionary<string, int> DiagnosticCounts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<InjectedEffectDiagnosticSummary> DiagnosticSummaries { get; set; } = [];
     public List<string> Warnings { get; set; } = [];
     public string Summary { get; set; } = string.Empty;
 }
@@ -52,6 +55,7 @@ public sealed class InjectedEffectCandidate
 {
     public string AddressHex { get; set; } = string.Empty;
     public uint Address { get; set; }
+    public uint? ConsumerFunctionAddress { get; set; }
     public string Type { get; set; } = string.Empty;
     public string PatternKind { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
@@ -63,6 +67,7 @@ public sealed class InjectedEffectCandidate
     public string CodeCave { get; set; } = string.Empty;
     public uint? JumpOutAddress { get; set; }
     public uint? CodeCaveEntryAddress { get; set; }
+    public uint? WrapperEntryAddress { get; set; }
     public uint? GuardStartAddress { get; set; }
     public uint? FeatureStartAddress { get; set; }
     public uint? ReturnAddress { get; set; }
@@ -76,9 +81,18 @@ public sealed class InjectedEffectCandidate
     public string Source { get; set; } = string.Empty;
     public string PatchCategory { get; set; } = string.Empty;
     public string StructureDiagnosis { get; set; } = string.Empty;
+    public int DetectionScore { get; set; }
+    public string DetectionLevel { get; set; } = string.Empty;
+    public string NormalizedSignatureId { get; set; } = string.Empty;
+    public string RelocationEvidence { get; set; } = string.Empty;
+    public List<string> MatchedAnchors { get; set; } = [];
+    public List<string> MissingAnchors { get; set; } = [];
+    public List<string> FailureReasons { get; set; } = [];
+    public InstalledEffectEvidenceDecision InstallationEvidence { get; set; } = new();
     public List<InjectedEffectParameterSlot> ParameterSlots { get; set; } = [];
     public List<InjectedEffectCheckGroup> CheckGroups { get; set; } = [];
     public List<InjectedEffectModuleInfo> Modules { get; set; } = [];
+    public ContextPointerInference PointerInference { get; set; } = new();
 }
 
 public sealed class InjectedEffectParameterSlot
@@ -91,6 +105,12 @@ public sealed class InjectedEffectParameterSlot
     public int? Value { get; set; }
     public string ValueText => Value.HasValue ? $"0x{Value.Value:X2} / {Value.Value}" : string.Empty;
     public int ByteLength { get; set; }
+    public uint? DefinitionInstructionAddress { get; set; }
+    public int? OperandFileOffset { get; set; }
+    public int? OperandOffset { get; set; }
+    public string SourceKind { get; set; } = string.Empty;
+    public bool IsDirectlyPatchable { get; set; }
+    public List<string> DefinitionChain { get; set; } = [];
     public string SourceComment { get; set; } = string.Empty;
     public string Editability { get; set; } = string.Empty;
     public string SafeRangeDescription { get; set; } = string.Empty;
@@ -131,4 +151,24 @@ public sealed class InjectedEffectHookCandidate
     public string Classification { get; set; } = string.Empty;
     public string Risk { get; set; } = string.Empty;
     public string Evidence { get; set; } = string.Empty;
+}
+
+public sealed class InjectedEffectDiagnostic
+{
+    public string Category { get; set; } = string.Empty;
+    public string AddressHex { get; set; } = string.Empty;
+    public uint? Address { get; set; }
+    public string TargetHex { get; set; } = string.Empty;
+    public uint? Target { get; set; }
+    public string Summary { get; set; } = string.Empty;
+    public string Evidence { get; set; } = string.Empty;
+}
+
+public sealed class InjectedEffectDiagnosticSummary
+{
+    public string Category { get; set; } = string.Empty;
+    public int Count { get; set; }
+    public string Meaning { get; set; } = string.Empty;
+    public string RecommendedAction { get; set; } = string.Empty;
+    public List<string> SampleAddresses { get; set; } = [];
 }

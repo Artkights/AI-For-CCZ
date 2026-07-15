@@ -150,6 +150,12 @@ public sealed class AssemblyPatchDraft
     public uint ReturnAddress { get; set; }
     public string ReturnAddressHex { get; set; } = string.Empty;
     public string AssemblySource { get; set; } = string.Empty;
+    public string HookContractId { get; set; } = string.Empty;
+    public string OriginalInstructionPolicy { get; set; } = string.Empty;
+    public string OriginalInstructionPlacement { get; set; } = OriginalInstructionPlacements.AfterBody;
+    public bool PreserveFlags { get; set; }
+    public int ExpectedStackDelta { get; set; }
+    public List<string> RequiredSymbols { get; set; } = [];
     public int RequiredCodeCaveBytes { get; set; }
     public string RegisterStrategy { get; set; } = "Use eax/ecx/edx only; preserve ebx/esi/edi/ebp.";
     public List<string> Dependencies { get; set; } = [];
@@ -170,6 +176,7 @@ public sealed class AssemblyPatchPreviewResult
     public byte[] HookBytes { get; set; } = [];
     public string DisassemblyPreview { get; set; } = string.Empty;
     public EffectPatchPreviewResult PatchPreview { get; set; } = new();
+    public HookSafetyAnalysisResult HookSafety { get; set; } = new();
 }
 
 public sealed class AssemblyPatchApplyResult

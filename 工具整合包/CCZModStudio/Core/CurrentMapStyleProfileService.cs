@@ -75,17 +75,25 @@ public sealed class CurrentMapStyleProfileService
                     changedTerrainCells);
                 var isContaminated = contaminationReason.Length > 0;
                 var samplePath = string.Empty;
-                if (!isContaminated && writeSamples && !string.IsNullOrWhiteSpace(sampleRoot))
+                if (!isContaminated && !string.IsNullOrWhiteSpace(sampleRoot))
                 {
                     var terrainDir = Path.Combine(
                         sampleRoot,
                         "terrain_" + terrainGroup.Key.ToString("D2", System.Globalization.CultureInfo.InvariantCulture),
                         isBoundary ? "boundary" : "pure");
-                    Directory.CreateDirectory(terrainDir);
-                    samplePath = Path.Combine(
+                    var candidateSamplePath = Path.Combine(
                         terrainDir,
                         $"{index.ToString("D4", System.Globalization.CultureInfo.InvariantCulture)}.png");
-                    tile.Save(samplePath, ImageFormat.Png);
+                    if (writeSamples)
+                    {
+                        Directory.CreateDirectory(terrainDir);
+                        tile.Save(candidateSamplePath, ImageFormat.Png);
+                        samplePath = candidateSamplePath;
+                    }
+                    else if (File.Exists(candidateSamplePath))
+                    {
+                        samplePath = candidateSamplePath;
+                    }
                 }
 
                 var sample = new CurrentMapStyleTileSample

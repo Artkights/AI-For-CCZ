@@ -6,14 +6,18 @@ namespace CCZModStudio.Core;
 
 public sealed class RoleQuoteMappingService
 {
-    public const int RetreatQuoteCount = 49;
-    public const int CriticalSpecialQuoteCount = 21;
+    public const int RetreatQuoteCount = RoleQuoteLayoutService.RetreatTextCount;
+    public const int CriticalSpecialQuoteCount = RoleQuoteLayoutService.SpecialCriticalMappingCount;
     public const int CriticalSpecialEmptyRoleId = 1024;
     public const int CriticalGenericStartId = 21;
     public const int CriticalGenericGroupSize = 3;
     public const int CriticalGenericTypeCount = 26;
-    public const int CriticalSpecialRoleTableOffset = 0x89C30;
+    [Obsolete("Use RoleQuoteLayoutService.Resolve(project).SpecialCriticalMapping.Offset.")]
+    public const int CriticalSpecialRoleTableOffset = (int)RoleQuoteLayoutService.SpecialCriticalMappingOffset;
     private readonly WriteOperationReportService _reportService = new();
+    private readonly RoleQuoteLayoutService _layoutService = new();
+
+    public RoleQuoteLayout ResolveLayout(CczProject project) => _layoutService.Resolve(project);
 
     public RoleRetreatQuoteMapping ResolveRetreatQuote(DataRow roleRow, DataTable retreatQuotes)
     {
@@ -109,37 +113,48 @@ public sealed class RoleQuoteMappingService
         }
 
         ProjectVersionGuardService.EnsureCoreFileCompatibleForWrite(project, "Ekd5.exe");
-
-        var exePath = project.ResolveGameFile("Ekd5.exe");
+        var layout = ResolveLayout(project);
+        var mapping = layout.SpecialCriticalMapping;
+        var exePath = project.ResolveGameFile(mapping.FileName);
         if (!File.Exists(exePath))
         {
             throw new FileNotFoundException("找不到 Ekd5.exe，无法保存特殊暴击人物表。", exePath);
         }
 
         var original = File.ReadAllBytes(exePath);
-        var requiredLength = CriticalSpecialRoleTableOffset + CriticalSpecialQuoteCount * 4;
+        var offset = checked((int)mapping.Offset);
+        var requiredLength = checked(offset + mapping.EntryCount * mapping.EntrySize);
         if (original.Length < requiredLength)
         {
-            throw new InvalidOperationException($"Ekd5.exe 长度不足，无法写入 0x{CriticalSpecialRoleTableOffset:X} 的特殊暴击人物表。");
+            throw new InvalidOperationException($"Ekd5.exe 长度不足，无法写入 {mapping.OffsetHex} 的特殊暴击人物表。");
         }
 
-        var oldRoleIds = ReadSpecialCriticalRoleIdsFromBytes(original);
+        var oldRoleIds = ReadSpecialCriticalRoleIdsFromBytes(original, offset, mapping.EntryCount);
         if (oldRoleIds.SequenceEqual(newRoleIds))
         {
             return null;
+        }
+
+        if (!mapping.CanWrite)
+        {
+            throw new InvalidOperationException(
+                $"特殊暴击人物表不可写：版本={layout.Version}，状态={mapping.Status}，" +
+                $"位置={mapping.FileName} @ {mapping.OffsetHex}。证据：{mapping.Evidence}");
         }
 
         var output = (byte[])original.Clone();
         using (var stream = new MemoryStream(output, writable: true))
         using (var writer = new BinaryWriter(stream))
         {
-            stream.Position = CriticalSpecialRoleTableOffset;
+            stream.Position = offset;
             foreach (var roleId in newRoleIds)
             {
                 writer.Write(roleId);
             }
         }
 
+        AssertOnlyRangeChanged(original, output, offset, mapping.EntryCount * mapping.EntrySize);
+        var expectedOldBytesHex = Convert.ToHexString(original.AsSpan(offset, mapping.EntryCount * mapping.EntrySize));
         var backupPath = CreateBeforeSaveBackup(project, exePath);
         File.WriteAllBytes(exePath, output);
 
@@ -150,13 +165,17 @@ public sealed class RoleQuoteMappingService
         }
 
         var changedBytes = CountDifferences(original, output);
-        var reportPath = WriteSpecialCriticalSlotsReport(project, exePath, backupPath, original, output, oldRoleIds, newRoleIds, changedBytes);
+        var reportPath = WriteSpecialCriticalSlotsReport(project, layout, exePath, backupPath, original, output, oldRoleIds, newRoleIds, changedBytes, expectedOldBytesHex);
         return new RoleCriticalSpecialSlotsSaveResult
         {
             FilePath = exePath,
             BackupPath = backupPath,
             ReportJsonPath = reportPath,
             ChangedBytes = changedBytes,
+            Version = layout.Version,
+            Offset = mapping.Offset,
+            EvidenceStatus = mapping.Status.ToString(),
+            ExpectedOldBytesHex = expectedOldBytesHex,
             OldRoleIds = oldRoleIds,
             NewRoleIds = newRoleIds.ToArray()
         };
@@ -165,65 +184,42 @@ public sealed class RoleQuoteMappingService
     public int? FindSpecialCriticalQuoteId(CczProject project, int roleId)
     {
         if (roleId < 0) return null;
-        var exePath = project.ResolveGameFile("Ekd5.exe");
+        var mapping = ResolveLayout(project).SpecialCriticalMapping;
+        if (mapping.Status == RoleQuoteLayoutEvidenceStatus.Unsupported) return null;
+        var exePath = project.ResolveGameFile(mapping.FileName);
         if (!File.Exists(exePath)) return null;
 
         try
         {
             using var stream = File.OpenRead(exePath);
-            if (stream.Length < CriticalSpecialRoleTableOffset + CriticalSpecialQuoteCount * 4L)
-            {
-                return null;
-            }
-
+            if (stream.Length < mapping.EndOffsetExclusive) return null;
             using var reader = new BinaryReader(stream);
-            stream.Position = CriticalSpecialRoleTableOffset;
-            for (var quoteId = 0; quoteId < CriticalSpecialQuoteCount; quoteId++)
+            stream.Position = mapping.Offset;
+            for (var quoteId = 0; quoteId < mapping.EntryCount; quoteId++)
             {
-                var specialRoleId = reader.ReadInt32();
-                if (specialRoleId == roleId)
-                {
-                    return quoteId;
-                }
+                if (reader.ReadInt32() == roleId) return quoteId;
             }
         }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
 
         return null;
     }
 
     public IReadOnlyList<int> ReadSpecialCriticalRoleIds(CczProject project)
     {
-        var exePath = project.ResolveGameFile("Ekd5.exe");
+        var mapping = ResolveLayout(project).SpecialCriticalMapping;
+        if (mapping.Status == RoleQuoteLayoutEvidenceStatus.Unsupported) return Array.Empty<int>();
+        var exePath = project.ResolveGameFile(mapping.FileName);
         if (!File.Exists(exePath)) return Array.Empty<int>();
 
         try
         {
-            using var stream = File.OpenRead(exePath);
-            if (stream.Length < CriticalSpecialRoleTableOffset + CriticalSpecialQuoteCount * 4L)
-            {
-                return Array.Empty<int>();
-            }
-
-            using var memory = new MemoryStream();
-            stream.CopyTo(memory);
-            return ReadSpecialCriticalRoleIdsFromBytes(memory.ToArray());
+            var bytes = File.ReadAllBytes(exePath);
+            return ReadSpecialCriticalRoleIdsFromBytes(bytes, checked((int)mapping.Offset), mapping.EntryCount);
         }
-        catch (IOException)
-        {
-            return Array.Empty<int>();
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Array.Empty<int>();
-        }
+        catch (IOException) { return Array.Empty<int>(); }
+        catch (UnauthorizedAccessException) { return Array.Empty<int>(); }
     }
 
     private RoleCriticalQuoteMapping ResolveSpecialCriticalQuoteSelection(int roleId, int fieldValue, DataTable criticalQuotes, int specialQuoteId)
@@ -269,18 +265,18 @@ public sealed class RoleQuoteMappingService
                 : $"暴击台词：当前选择普通类型 {genericType}；保存后人物表暴击台词字段写为 {genericType}，引擎通常在行 #{firstId}..#{firstId + 2} 中随机显示。");
     }
 
-    private static IReadOnlyList<int> ReadSpecialCriticalRoleIdsFromBytes(byte[] bytes)
+    private static IReadOnlyList<int> ReadSpecialCriticalRoleIdsFromBytes(byte[] bytes, int offset, int count)
     {
-        if (bytes.Length < CriticalSpecialRoleTableOffset + CriticalSpecialQuoteCount * 4)
+        if (bytes.Length < offset + count * sizeof(int))
         {
             return Array.Empty<int>();
         }
 
         using var stream = new MemoryStream(bytes);
         using var reader = new BinaryReader(stream);
-        stream.Position = CriticalSpecialRoleTableOffset;
-        var ids = new List<int>(CriticalSpecialQuoteCount);
-        for (var i = 0; i < CriticalSpecialQuoteCount; i++)
+        stream.Position = offset;
+        var ids = new List<int>(count);
+        for (var i = 0; i < count; i++)
         {
             ids.Add(reader.ReadInt32());
         }
@@ -290,14 +286,17 @@ public sealed class RoleQuoteMappingService
 
     private string WriteSpecialCriticalSlotsReport(
         CczProject project,
+        RoleQuoteLayout layout,
         string exePath,
         string backupPath,
         byte[] original,
         byte[] output,
         IReadOnlyList<int> oldRoleIds,
         IReadOnlyList<int> newRoleIds,
-        int changedBytes)
+        int changedBytes,
+        string expectedOldBytesHex)
     {
+        var mapping = layout.SpecialCriticalMapping;
         var targetRelative = WriteOperationReportService.ToProjectRelativePath(project, exePath);
         var report = new WriteOperationReport
         {
@@ -311,8 +310,8 @@ public sealed class RoleQuoteMappingService
             AfterSha256 = WriteOperationReportService.ComputeSha256(output),
             ChangedBytes = changedBytes,
             Summary = $"写入 Ekd5.exe 特殊暴击人物表 21 个 Int32，实际变化 {changedBytes:N0} 字节。",
-            SafetyNotes = "该写入只覆盖 0x89C30 起 84 字节，不插入、不删除、不扩展 EXE；保存后已复读 21 个人物 ID。",
-            FormatCheckSummary = $"特殊暴击人物表偏移 0x{CriticalSpecialRoleTableOffset:X}，长度 {CriticalSpecialQuoteCount * 4} 字节。",
+            SafetyNotes = $"该写入只覆盖 {mapping.OffsetHex} 起 {mapping.ByteLength} 字节，不插入、不删除、不扩展 EXE；保存后已复读 {mapping.EntryCount} 个人物 ID。",
+            FormatCheckSummary = $"版本 {layout.Version}；特殊暴击人物表偏移 {mapping.OffsetHex}，长度 {mapping.ByteLength} 字节；证据状态 {mapping.Status}。",
             RiskSummary = "特殊暴击人物表决定暴击台词 #0..#20 的人物归属；如分配错误，可用写入前备份恢复 Ekd5.exe。",
             Changes = oldRoleIds.Select((oldId, index) => new WriteOperationChange
             {
@@ -320,7 +319,7 @@ public sealed class RoleQuoteMappingService
                 TableName = targetRelative,
                 RowIndex = index,
                 ColumnName = $"特殊槽 #{index}",
-                OffsetHex = $"0x{CriticalSpecialRoleTableOffset + index * 4:X}",
+                OffsetHex = $"0x{mapping.Offset + index * mapping.EntrySize:X}",
                 ByteLength = 4,
                 OldValue = oldId.ToString(CultureInfo.InvariantCulture),
                 NewValue = newRoleIds[index].ToString(CultureInfo.InvariantCulture),
@@ -330,9 +329,13 @@ public sealed class RoleQuoteMappingService
             }).ToList(),
             Metadata =
             {
-                ["SpecialCriticalOffset"] = $"0x{CriticalSpecialRoleTableOffset:X}",
-                ["SpecialCriticalSlotCount"] = CriticalSpecialQuoteCount.ToString(CultureInfo.InvariantCulture),
-                ["EmptyRoleId"] = CriticalSpecialEmptyRoleId.ToString(CultureInfo.InvariantCulture)
+                ["EngineVersion"] = layout.Version,
+                ["SpecialCriticalOffset"] = mapping.OffsetHex,
+                ["SpecialCriticalSlotCount"] = mapping.EntryCount.ToString(CultureInfo.InvariantCulture),
+                ["EmptyRoleId"] = CriticalSpecialEmptyRoleId.ToString(CultureInfo.InvariantCulture),
+                ["EvidenceStatus"] = mapping.Status.ToString(),
+                ["Evidence"] = mapping.Evidence,
+                ["ExpectedOldBytesHex"] = expectedOldBytesHex
             }
         };
 
@@ -357,7 +360,7 @@ public sealed class RoleQuoteMappingService
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var backupPath = Path.Combine(backupRoot, $"{stamp}_{Path.GetFileName(filePath)}");
@@ -375,6 +378,16 @@ public sealed class RoleQuoteMappingService
         }
 
         return count;
+    }
+
+    private static void AssertOnlyRangeChanged(byte[] before, byte[] after, int offset, int length)
+    {
+        if (before.Length != after.Length) throw new InvalidOperationException("特殊暴击人物表写入不得改变 EXE 长度。");
+        for (var i = 0; i < before.Length; i++)
+        {
+            if (before[i] == after[i] || (i >= offset && i < offset + length)) continue;
+            throw new InvalidOperationException($"检测到目标区间外字节变化：0x{i:X}，已取消写入。");
+        }
     }
 }
 
@@ -405,6 +418,10 @@ public sealed class RoleCriticalSpecialSlotsSaveResult
 {
     public required string FilePath { get; init; }
     public int ChangedBytes { get; init; }
+    public string Version { get; init; } = string.Empty;
+    public long Offset { get; init; }
+    public string EvidenceStatus { get; init; } = string.Empty;
+    public string ExpectedOldBytesHex { get; init; } = string.Empty;
     public required string BackupPath { get; init; }
     public string ReportJsonPath { get; init; } = string.Empty;
     public IReadOnlyList<int> OldRoleIds { get; init; } = Array.Empty<int>();

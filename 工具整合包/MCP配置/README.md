@@ -16,8 +16,10 @@
 在仓库根目录运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置\generate-mcp-config.ps1" -Build
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\工具整合包\MCP配置\generate-mcp-config.ps1" -GameRoot ".\基底\加强版6.5未加密版" -Build
 ```
+
+生成配置默认包含 `cczmodstudio` 和独立的 `cczgame_debug`；如只需要 authoring MCP，可显式追加 `-SkipGameDebug`。`x64dbg`/npx bridge 仍保持显式 opt-in。
 
 如果要固定到其他游戏目录：
 
@@ -188,7 +190,7 @@ Claude Desktop 可使用同形态 JSON：
 
 ## 可用工具分组
 
-- 权威能力清单：`read_mcp_capability_manifest`。当客户端 UI 截断 `tools/list` 时，以该 manifest 的 `ToolCount`、`Groups`、`Aliases` 和 `Tools` 为准；当前 authoring MCP 校验口径为 206 个工具，且 manifest 数量必须与 `tools/list` 完全一致。
+- 权威能力清单：`read_mcp_capability_manifest`。当客户端 UI 截断 `tools/list` 时，以该 manifest 的 `ToolCount`、`Groups`、`Aliases` 和 `Tools` 为准；manifest 数量必须与 `tools/list` 完全一致。2026-07-10 本机校验结果为 authoring 220 个工具，后续不应把该数字写成固定协议约束。
 - 项目识别：`detect_project`
 - 数据表/CSV/schema：`list_tables`、`read_table`、`write_table_rows`、`read_table_schema`、`read_table_derived_display`、`export_table_csv`、`preview_import_table_csv`、`apply_import_table_csv`
 - 角色编辑组合视图：`read_role_editor`、`preview_write_roles`、`write_roles`、`read_role_texts`、`preview_write_role_texts`、`write_role_texts`

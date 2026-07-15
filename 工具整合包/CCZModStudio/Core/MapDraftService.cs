@@ -107,8 +107,10 @@ public sealed class MapDraftService
 
         try
         {
-            var draft = JsonSerializer.Deserialize<MapWorkbenchDraft>(File.ReadAllText(path, Encoding.UTF8), JsonOptions)
+            var json = File.ReadAllText(path, Encoding.UTF8);
+            var draft = JsonSerializer.Deserialize<MapWorkbenchDraft>(json, JsonOptions)
                         ?? throw new InvalidOperationException("Map workbench draft is empty: " + path);
+            if (!JsonContainsSchemaVersion(json)) draft.SchemaVersion = 1;
             return NormalizeDraft(draft);
         }
         catch (JsonException ex)
@@ -148,7 +150,9 @@ public sealed class MapDraftService
         {
             try
             {
-                var draft = JsonSerializer.Deserialize<MapWorkbenchDraft>(File.ReadAllText(path, Encoding.UTF8), JsonOptions);
+                var json = File.ReadAllText(path, Encoding.UTF8);
+                var draft = JsonSerializer.Deserialize<MapWorkbenchDraft>(json, JsonOptions);
+                if (draft != null && !JsonContainsSchemaVersion(json)) draft.SchemaVersion = 1;
                 if (draft != null) drafts.Add(NormalizeDraft(draft));
             }
             catch
@@ -242,7 +246,7 @@ public sealed class MapDraftService
         return string.IsNullOrWhiteSpace(materialRoot) ? relativePath : Path.Combine(materialRoot, relativePath);
     }
 
-    private string GetDraftPath(CczProject project, string draftId)
+    public string GetDraftPath(CczProject project, string draftId)
         => GetDraftPath(GetNotesRoot(project), project.Name, draftId);
 
     private string GetDraftPath(string notesRoot, string profileName, string draftId)
@@ -250,6 +254,7 @@ public sealed class MapDraftService
 
     private static MapWorkbenchDraft NormalizeDraft(MapWorkbenchDraft draft)
     {
+        var sourceSchemaVersion = draft.SchemaVersion;
         if (string.IsNullOrWhiteSpace(draft.DraftId)) draft.DraftId = Guid.NewGuid().ToString("N");
         draft.GridWidth = Math.Max(1, draft.GridWidth);
         draft.GridHeight = Math.Max(1, draft.GridHeight);
@@ -281,6 +286,19 @@ public sealed class MapDraftService
         draft.FeatherRadius = Math.Clamp(draft.FeatherRadius, 0, MapResourceItem.MapTilePixelSize / 2);
         draft.BeautifyFilterProfile = NormalizeBeautifyFilterProfile(draft.BeautifyFilterProfile);
         draft.CustomBeautifyFilter = NormalizeCustomBeautifyFilter(draft.CustomBeautifyFilter);
+        draft.TerrainRenderSettings = NormalizeTerrainRenderSettings(
+            draft.TerrainRenderSettings,
+            sourceSchemaVersion,
+            draft.BeautifyGeneratedMap,
+            draft.BeautifyFilterProfile,
+            draft.TerrainVisualProfile.Seed);
+        draft.SchemaVersion = 2;
+        if (draft.HexzmapBinding != null)
+        {
+            draft.HexzmapBinding.MapId = draft.HexzmapBinding.MapId?.Trim() ?? string.Empty;
+            draft.HexzmapBinding.Evidence = draft.HexzmapBinding.Evidence?.Trim() ?? string.Empty;
+            draft.HexzmapBinding.Confidence = Math.Clamp(draft.HexzmapBinding.Confidence, 0f, 1f);
+        }
         draft.BoundMapId = draft.BoundMapId?.Trim() ?? string.Empty;
         draft.BaseLayerPath = draft.BaseLayerPath?.Trim() ?? string.Empty;
         draft.MaterialRoot = draft.MaterialRoot?.Trim() ?? string.Empty;
@@ -288,6 +306,73 @@ public sealed class MapDraftService
         draft.UpdatedAtText = draft.UpdatedAtText?.Trim() ?? string.Empty;
         return draft;
     }
+
+    private static bool JsonContainsSchemaVersion(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                   document.RootElement.TryGetProperty(nameof(MapWorkbenchDraft.SchemaVersion), out _);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static TerrainRenderSettings NormalizeTerrainRenderSettings(
+        TerrainRenderSettings? settings,
+        int sourceSchemaVersion,
+        bool legacyBeautifyEnabled,
+        string legacyFilterProfile,
+        string legacySeed)
+    {
+        settings ??= new TerrainRenderSettings();
+        settings.StylePackId = settings.StylePackId?.Trim() ?? string.Empty;
+        settings.Seed = string.IsNullOrWhiteSpace(settings.Seed)
+            ? string.IsNullOrWhiteSpace(legacySeed) ? "default" : legacySeed.Trim()
+            : settings.Seed.Trim();
+        settings.ToneProfile = NormalizeToneProfile(settings.ToneProfile);
+        settings.ToneAmount = Math.Clamp(settings.ToneAmount, 0f, 1f);
+        settings.LastConfirmedFinalFingerprint = settings.LastConfirmedFinalFingerprint?.Trim() ?? string.Empty;
+
+        if (!Enum.IsDefined(settings.StyleSelectionMode)) settings.StyleSelectionMode = TerrainStyleSelectionMode.Automatic;
+        if (!Enum.IsDefined(settings.PreviewQuality)) settings.PreviewQuality = TerrainRenderQuality.Draft;
+        if (!Enum.IsDefined(settings.FinalQuality)) settings.FinalQuality = TerrainRenderQuality.Final;
+        if (!Enum.IsDefined(settings.ObjectPolicy)) settings.ObjectPolicy = TerrainObjectPolicy.PreserveOriginal;
+
+        // Legacy drafts only migrate an explicitly enabled color treatment. Full redraw remains opt-in.
+        if (sourceSchemaVersion < 2 && legacyBeautifyEnabled && settings.ToneAmount <= 0f)
+        {
+            settings.ToneProfile = LegacyFilterToToneProfile(legacyFilterProfile);
+            settings.ToneAmount = 1f;
+        }
+
+        return settings;
+    }
+
+    private static string NormalizeToneProfile(string? value)
+        => value?.Trim() switch
+        {
+            TerrainToneProfiles.Night => TerrainToneProfiles.Night,
+            TerrainToneProfiles.Autumn => TerrainToneProfiles.Autumn,
+            TerrainToneProfiles.Winter => TerrainToneProfiles.Winter,
+            TerrainToneProfiles.WarmSun => TerrainToneProfiles.WarmSun,
+            TerrainToneProfiles.Custom => TerrainToneProfiles.Custom,
+            _ => TerrainToneProfiles.Neutral
+        };
+
+    private static string LegacyFilterToToneProfile(string? value)
+        => value switch
+        {
+            TerrainBeautifyFilterProfiles.Night => TerrainToneProfiles.Night,
+            TerrainBeautifyFilterProfiles.Autumn => TerrainToneProfiles.Autumn,
+            TerrainBeautifyFilterProfiles.Winter => TerrainToneProfiles.Winter,
+            TerrainBeautifyFilterProfiles.WarmSun => TerrainToneProfiles.WarmSun,
+            TerrainBeautifyFilterProfiles.Custom => TerrainToneProfiles.Custom,
+            _ => TerrainToneProfiles.Neutral
+        };
 
     private static TerrainVisualProfile NormalizeTerrainVisualProfile(TerrainVisualProfile? profile)
     {
@@ -335,6 +420,12 @@ public sealed class MapDraftService
                 TerrainId = item.TerrainId,
                 MaterialRelativePath = item.MaterialRelativePath.Trim()
             })
+            .ToList();
+        profile.SurfaceOverrides ??= new List<TerrainSurfaceOverride>();
+        profile.SurfaceOverrides = profile.SurfaceOverrides
+            .Where(item => Enum.IsDefined(item.SurfaceKind))
+            .GroupBy(item => item.TerrainId)
+            .Select(group => group.Last().Clone())
             .ToList();
         return profile;
     }

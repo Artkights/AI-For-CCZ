@@ -24,8 +24,15 @@ public sealed class BattleUnitRow
     [JsonPropertyName("unit_index")]
     public int UnitIndex { get; init; }
 
+    [JsonPropertyName("data_id")]
+    public int DataId { get; init; }
+
+    [JsonPropertyName("display_id")]
+    public int DisplayId { get; init; }
+
+    [Obsolete("Use DataId. The compatibility field is scheduled for removal after one release.")]
     [JsonPropertyName("data_id_byte")]
-    public int DataIdByte { get; init; }
+    public int DataIdByte => DataId;
 
     [JsonPropertyName("side")]
     public int Side { get; init; }
@@ -122,6 +129,9 @@ public sealed class BattleCombatContextSnapshot
 
     [JsonPropertyName("attacker_unit_ptr")]
     public string AttackerUnitPtr { get; init; } = string.Empty;
+
+    [JsonPropertyName("attacker_runtime_character_ptr")]
+    public string AttackerRuntimeCharacterPtr { get; init; } = string.Empty;
 
     [JsonPropertyName("attacker_side")]
     public int? AttackerSide { get; init; }

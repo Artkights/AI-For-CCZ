@@ -175,6 +175,32 @@ public sealed class CharacterImageResourceService
         return CharacterImageLayoutService.GetAvailableSImageStageSlots(layout, sImageId);
     }
 
+    public static SImagePreviewStageResolution ResolveSPreviewStage(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int factionSlot,
+        int requestedStageSlot)
+    {
+        requestedStageSlot = Math.Clamp(requestedStageSlot, 1, 3);
+        var mapping = ResolveSUnitImageMapping(project, sImageId, jobId, factionSlot);
+        var availableStages = GetAvailableSImageStageSlots(project, sImageId);
+        var oneStageFallback = availableStages.Count == 1 && requestedStageSlot != 1;
+        var effectiveStageSlot = oneStageFallback ? 1 : requestedStageSlot;
+        var target = ResolveSImageStageTargets(
+                project,
+                mapping,
+                new[] { effectiveStageSlot },
+                defaultAllStages: false)
+            .FirstOrDefault();
+        return new SImagePreviewStageResolution(
+            requestedStageSlot,
+            effectiveStageSlot,
+            oneStageFallback,
+            mapping,
+            target);
+    }
+
     public static string BuildSImageStageText(int stageSlot)
         => stageSlot switch
         {
@@ -290,3 +316,15 @@ public sealed record SUnitImageMapping(
     IReadOnlyList<int> ImageNumbers,
     string ShortText,
     string Detail);
+
+public sealed record SImagePreviewStageResolution(
+    int RequestedStageSlot,
+    int EffectiveStageSlot,
+    bool IsOneStageFallback,
+    SUnitImageMapping Mapping,
+    SImageStageTarget? Target)
+{
+    public string FallbackDetail => IsOneStageFallback
+        ? $"请求{CharacterImageResourceService.BuildSImageStageText(RequestedStageSlot)}，实际使用{CharacterImageResourceService.BuildSImageStageText(EffectiveStageSlot)}。"
+        : string.Empty;
+}

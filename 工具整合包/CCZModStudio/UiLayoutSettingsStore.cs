@@ -8,6 +8,7 @@ public sealed class UiLayoutSettings
     public int Version { get; set; } = UiLayoutSettingsStore.Version;
     public Dictionary<string, double> SplitRatios { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> TextWrapLimits { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Values { get; set; } = new(StringComparer.Ordinal);
     public int WindowLeft { get; set; }
     public int WindowTop { get; set; }
     public int WindowWidth { get; set; }
@@ -18,6 +19,7 @@ public sealed class UiLayoutSettings
 public static class UiLayoutSettingsStore
 {
     public const int Version = 2;
+    private const string ObsoleteRsBoundaryKey = "RsPreview.ShowFrameBoundaries";
 
     private const string FileName = "ui-layout.json";
     private const string PathOverrideEnvironmentVariable = "CCZMODSTUDIO_UI_LAYOUT_PATH";
@@ -101,6 +103,14 @@ public static class UiLayoutSettingsStore
                 target.TextWrapLimits[NormalizeKey(pair.Key)] = pair.Value;
             }
 
+            foreach (var pair in settings.Values)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key)) continue;
+                if (pair.Key.Equals(ObsoleteRsBoundaryKey, StringComparison.Ordinal)) continue;
+                target.Values[NormalizeKey(pair.Key)] = pair.Value ?? string.Empty;
+            }
+            target.Values.Remove(ObsoleteRsBoundaryKey);
+
             var path = GetPath();
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, JsonSerializer.Serialize(target, JsonOptions), Encoding.UTF8);
@@ -124,6 +134,13 @@ public static class UiLayoutSettingsStore
         var settings = Load();
         var normalizedKey = NormalizeKey(key);
         settings.TextWrapLimits[normalizedKey] = Math.Max(0, value);
+        Save(settings, splitKeysToPersist: Array.Empty<string>(), updateWindow: false);
+    }
+
+    public static void SaveValue(string key, string value)
+    {
+        var settings = Load();
+        settings.Values[NormalizeKey(key)] = value ?? string.Empty;
         Save(settings, splitKeysToPersist: Array.Empty<string>(), updateWindow: false);
     }
 
@@ -187,17 +204,36 @@ public static class UiLayoutSettingsStore
         if (settings.TextWrapLimits == null)
         {
             settings.TextWrapLimits = new Dictionary<string, int>(StringComparer.Ordinal);
-            return;
         }
-
-        var textWrapLimits = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var pair in settings.TextWrapLimits)
+        else
         {
-            if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0) continue;
-            textWrapLimits[NormalizeKey(pair.Key)] = pair.Value;
+            var textWrapLimits = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var pair in settings.TextWrapLimits)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value < 0) continue;
+                textWrapLimits[NormalizeKey(pair.Key)] = pair.Value;
+            }
+
+            settings.TextWrapLimits = textWrapLimits;
         }
 
-        settings.TextWrapLimits = textWrapLimits;
+        if (settings.Values == null)
+        {
+            settings.Values = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+        else
+        {
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var pair in settings.Values)
+            {
+                if (string.IsNullOrWhiteSpace(pair.Key)) continue;
+                var key = NormalizeKey(pair.Key);
+                if (key.Equals(ObsoleteRsBoundaryKey, StringComparison.Ordinal)) continue;
+                values[key] = pair.Value ?? string.Empty;
+            }
+
+            settings.Values = values;
+        }
     }
 
     private static bool IsValidRatio(double ratio)

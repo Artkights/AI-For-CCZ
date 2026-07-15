@@ -175,6 +175,30 @@ internal partial class Program
             : 0;
         var row0Name = Convert.ToString(imageAssignments.Rows[0]["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
         var previewService = new ImageAssignmentPreviewService();
+        using (var rCatalog = new RsSingleFrameCatalogService().BuildR(project, row0R, row0Name))
+        {
+            if (rCatalog.Frames.Count != 40 ||
+                rCatalog.Frames.Count(frame => frame.Group == "正图") != 20 ||
+                rCatalog.Frames.Count(frame => frame.Group == "反图") != 20 ||
+                rCatalog.Frames.Any(frame => frame.SourceRectangle.Size != new Size(48, 64)) ||
+                rCatalog.Frames[0].ImageNumber != row0R * 2 + 1 ||
+                rCatalog.Frames[20].ImageNumber != row0R * 2 + 2 ||
+                !rCatalog.Frames[0].DisplayLabel.Contains("普通", StringComparison.Ordinal) ||
+                !rCatalog.Frames[1].DisplayLabel.Contains("移动1", StringComparison.Ordinal) ||
+                !rCatalog.Frames[2].DisplayLabel.Contains("移动2", StringComparison.Ordinal))
+                throw new InvalidOperationException("R 单帧目录的 40 帧、正反图号、尺寸或已验证标签不正确。");
+        }
+        using (var sCatalog = new RsSingleFrameCatalogService().BuildS(project, row0S, row0Job, 1, 1, row0Name))
+        {
+            if (sCatalog.Frames.Count != 28 ||
+                sCatalog.Frames.Count(frame => frame.Group == "移动") != 11 ||
+                sCatalog.Frames.Count(frame => frame.Group == "攻击") != 12 ||
+                sCatalog.Frames.Count(frame => frame.Group == "特技") != 5 ||
+                sCatalog.Frames.Where(frame => frame.Group == "移动").Any(frame => frame.SourceRectangle.Size != new Size(48, 48)) ||
+                sCatalog.Frames.Where(frame => frame.Group == "攻击").Any(frame => frame.SourceRectangle.Size != new Size(64, 64)) ||
+                sCatalog.Frames.Where(frame => frame.Group == "特技").Any(frame => frame.SourceRectangle.Size != new Size(48, 48)))
+                throw new InvalidOperationException("S 单帧目录的 28 帧分组或尺寸不正确。");
+        }
         var previewInfo = previewService.BuildResourceInfo(project, "S", row0S, row0Name, row0Face, row0Job, 1);
         AssertSMapping(0, 1, 1, 4);
         AssertSMapping(0, 1, 2, 5);

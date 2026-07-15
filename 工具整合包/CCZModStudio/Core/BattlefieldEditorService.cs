@@ -26,7 +26,13 @@ public sealed class BattlefieldEditorService
         var conditionEntry = texts.FirstOrDefault(x => x.Kind == "胜败条件")
                              ?? texts.FirstOrDefault(x => x.Text.Contains("胜利条件", StringComparison.Ordinal)
                                                        || x.Text.Contains("失败条件", StringComparison.Ordinal));
-        var candidates = LoadBattlefieldCommandCandidates(project, scenario, dictionary, tables);
+        var legacyDocument = TryLoadLegacyBattlefieldDocument(scenario, dictionary);
+        var legacyCandidates = legacyDocument != null
+            ? BuildBattlefieldCommandCandidates(legacyDocument)
+            : Array.Empty<BattlefieldCommandCandidate>();
+        var candidates = legacyCandidates.Count > 0
+            ? legacyCandidates
+            : LoadBattlefieldCommandCandidates(project, scenario, dictionary, tables);
         var lookups = BuildDisplayLookups(project, tables);
         var deploymentRecords = BuildDeploymentRecordStates(candidates, lookups);
         var unitCandidates = BuildUnitCandidates(deploymentRecords);
@@ -34,6 +40,7 @@ public sealed class BattlefieldEditorService
         return new BattlefieldEditorDocument
         {
             Scenario = scenario,
+            MapReference = BattlefieldMapResolutionService.Resolve(scenario, legacyDocument),
             TextEntries = texts,
             TitleEntry = titleEntry,
             ConditionEntry = conditionEntry,
@@ -58,6 +65,7 @@ public sealed class BattlefieldEditorService
         return new BattlefieldEditorDocument
         {
             Scenario = current.Scenario,
+            MapReference = BattlefieldMapResolutionService.Resolve(current.Scenario, legacyDocument),
             TextEntries = current.TextEntries,
             TitleEntry = current.TitleEntry,
             ConditionEntry = current.ConditionEntry,
@@ -537,12 +545,6 @@ public sealed class BattlefieldEditorService
         IReadOnlyList<HexTableDefinition> tables)
     {
         if (dictionary == null || !File.Exists(scenario.Path)) return Array.Empty<BattlefieldCommandCandidate>();
-        var legacyCandidates = LoadLegacyBattlefieldCommandCandidates(scenario, dictionary);
-        if (legacyCandidates.Count > 0)
-        {
-            return legacyCandidates;
-        }
-
         try
         {
             var structure = _structureReader.Build(scenario.Path, dictionary, maxCommandRows: 260, project: project, tables: tables);
@@ -557,18 +559,18 @@ public sealed class BattlefieldEditorService
         }
     }
 
-    private IReadOnlyList<BattlefieldCommandCandidate> LoadLegacyBattlefieldCommandCandidates(
+    private LegacyScenarioDocument? TryLoadLegacyBattlefieldDocument(
         ScenarioFileInfo scenario,
-        SceneStringDocument dictionary)
+        SceneStringDocument? dictionary)
     {
+        if (dictionary == null || !File.Exists(scenario.Path)) return null;
         try
         {
-            var document = _legacyReader.Read(scenario.Path, dictionary);
-            return BuildBattlefieldCommandCandidates(document);
+            return _legacyReader.Read(scenario.Path, dictionary);
         }
         catch
         {
-            return Array.Empty<BattlefieldCommandCandidate>();
+            return null;
         }
     }
 

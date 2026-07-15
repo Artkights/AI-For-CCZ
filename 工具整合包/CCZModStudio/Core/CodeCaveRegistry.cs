@@ -123,38 +123,65 @@ public sealed class CodeCaveRegistry
 
     public List<AllocatedCodeCaveRange> LoadExistingAllocations(CczProject project, string targetFileName = "Ekd5.exe")
     {
-        var root = Path.Combine(project.WorkspaceRoot, "CCZModStudio_Notes", "EffectManifests");
-        if (!Directory.Exists(root)) return [];
-
         var allocations = new List<AllocatedCodeCaveRange>();
-        foreach (var path in Directory.GetFiles(root, "*.json"))
+        foreach (var root in new[]
+                 {
+                     ProjectPatchIdentityService.EffectManifestRoot(project),
+                     ProjectPatchIdentityService.CompositeManifestRoot(project),
+                     ProjectPatchIdentityService.DispatcherManifestRoot(project)
+                 }.Where(Directory.Exists))
         {
-            try
+            foreach (var path in Directory.GetFiles(root, "*.json"))
             {
-                var manifest = JsonSerializer.Deserialize<EffectManifest>(File.ReadAllText(path, Encoding.UTF8));
-                if (manifest == null) continue;
-                foreach (var segment in manifest.Package.PatchSegments)
+                try
                 {
-                    if (!TargetFileMatches(segment.TargetFile, targetFileName)) continue;
-
-                    var length = ParseHexByteCount(segment.BytesHex);
-                    if (length <= 0) continue;
-                    var start = ResolveAddress(segment);
-                    if (start == 0) continue;
-
-                    allocations.Add(new AllocatedCodeCaveRange
+                    using var document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
+                    var rootElement = document.RootElement;
+                    var isDispatcher = rootElement.TryGetProperty("InstallationPackage", out _);
+                    var isComposite = !isDispatcher && rootElement.TryGetProperty("Draft", out _);
+                    ProjectPatchIdentity? identity;
+                    string legacyRoot;
+                    EffectPackage package;
+                    string manifestId;
+                    if (isDispatcher)
                     {
-                        CaveId = FirstNonEmpty(segment.CodeCaveId, segment.HookPoint, manifest.ManifestId, Path.GetFileNameWithoutExtension(path)),
-                        StartVirtualAddress = start,
-                        EndVirtualAddress = checked(start + (uint)length - 1),
-                        Length = length,
-                        Reason = $"Existing patch manifest {manifest.ManifestId}: {FirstNonEmpty(segment.Comment, segment.HookPoint, segment.CodeCaveId, "patch segment")}."
-                    });
+                        var manifest = rootElement.Deserialize<EffectDispatcherManifestV2>();
+                        if (manifest == null || manifest.StatusZh == "已移除") continue;
+                        identity = manifest.ProjectIdentity;
+                        legacyRoot = identity?.GameRoot ?? string.Empty;
+                        package = manifest.InstallationPackage;
+                        manifestId = manifest.ManifestId;
+                    }
+                    else if (isComposite)
+                    {
+                        var manifest = rootElement.Deserialize<CompositeEffectManifest>();
+                        if (manifest == null || manifest.StatusZh == "已移除") continue;
+                        identity = manifest.ProjectIdentity;
+                        legacyRoot = identity?.GameRoot ?? string.Empty;
+                        package = manifest.Package;
+                        manifestId = manifest.ManifestId;
+                    }
+                    else
+                    {
+                        var manifest = rootElement.Deserialize<EffectManifest>();
+                        if (manifest == null) continue;
+                        identity = manifest.ProjectIdentity;
+                        legacyRoot = manifest.ProjectRoot;
+                        package = manifest.Package;
+                        manifestId = manifest.ManifestId;
+                        // 模块化语义特效的代码洞由 EffectDispatcherManifestV2 独占登记。
+                        // 通用事务清单仅保留备份与审计信息，不能重复声明同一调度器载荷。
+                        if (package.Metadata.GetValueOrDefault("LogicalPatchKind") is
+                            "modular-semantic-effect-v2" or "modular-semantic-maintenance-v2") continue;
+                        if (package.Metadata.GetValueOrDefault("AdapterStatus", "Active") == "Released") continue;
+                    }
+                    if (!new ProjectPatchIdentityService().Matches(project, identity, legacyRoot)) continue;
+                    AddOwnedCodeCaves(allocations, package, manifestId, targetFileName);
                 }
-            }
-            catch
-            {
-                // Ignore malformed or older manifest files; preview old-byte locks still protect writes.
+                catch
+                {
+                    // Malformed and unscoped manifests cannot own code caves.
+                }
             }
         }
 
@@ -163,6 +190,31 @@ public sealed class CodeCaveRegistry
             .Select(group => group.First())
             .OrderBy(range => range.StartVirtualAddress)
             .ToList();
+    }
+
+    private static void AddOwnedCodeCaves(
+        ICollection<AllocatedCodeCaveRange> allocations,
+        EffectPackage package,
+        string manifestId,
+        string targetFileName)
+    {
+        foreach (var segment in package.PatchSegments)
+        {
+            if (string.IsNullOrWhiteSpace(segment.CodeCaveId)) continue;
+            if (!TargetFileMatches(segment.TargetFile, targetFileName)) continue;
+            if (!FirstNonEmpty(segment.AddressKind, "OdVirtualAddress").Equals("OdVirtualAddress", StringComparison.OrdinalIgnoreCase)) continue;
+            var length = ParseHexByteCount(segment.BytesHex);
+            var start = ResolveAddress(segment);
+            if (length <= 0 || start == 0) continue;
+            allocations.Add(new AllocatedCodeCaveRange
+            {
+                CaveId = segment.CodeCaveId,
+                StartVirtualAddress = start,
+                EndVirtualAddress = checked(start + (uint)length - 1),
+                Length = length,
+                Reason = $"当前项目补丁 {manifestId}：{FirstNonEmpty(segment.Comment, segment.HookPoint, segment.CodeCaveId)}。"
+            });
+        }
     }
 
     private static List<RangeBlock> BuildBlockers(

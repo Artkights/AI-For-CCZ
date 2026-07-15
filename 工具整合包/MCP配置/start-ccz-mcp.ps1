@@ -1,6 +1,7 @@
 param(
     [string]$GameRoot = "",
-    [string]$Configuration = "Debug"
+    [string]$Configuration = "Debug",
+    [switch]$DeveloperBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -133,8 +134,33 @@ function Find-DefaultGameRoot {
         Select-Object -First 1
 }
 
-if (-not (Test-ServerOutputCurrent $serverOutput)) {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccz-mcp-server-" + [guid]::NewGuid().ToString("N"))
+if (-not $DeveloperBuild) {
+    $activeRoot = Join-Path $toolRoot "CCZModStudio_Releases\Active"
+    $activeOutput = Join-Path $activeRoot "servers\mcp"
+    $activeManifest = Join-Path $activeRoot "effect-release-manifest.json"
+    if (-not (Test-ServerOutput $activeOutput) -or -not (Test-Path -LiteralPath $activeManifest -PathType Leaf)) {
+        throw "Active v7 release is missing. Run publish-effect-release.ps1 and activate-pending-effect-release.ps1, or pass -DeveloperBuild explicitly."
+    }
+    $manifest = Get-Content -LiteralPath $activeManifest -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($manifest.EffectCapabilitySchemaVersion -ne "effect-authoring-7.0" -or $manifest.BuildChannel -ne "ccz65-open-authoring-v7") {
+        throw "Active release does not provide effect-authoring-7.0."
+    }
+    foreach ($component in $manifest.Components) {
+        $componentPath = Join-Path $activeRoot ([string]$component.RelativePath)
+        if (-not (Test-Path -LiteralPath $componentPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $componentPath -Algorithm SHA256).Hash -ne [string]$component.Sha256) {
+            throw "Active release component failed SHA validation: $($component.ComponentId)"
+        }
+    }
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccz-mcp-server-active-" + [guid]::NewGuid().ToString("N"))
+    $tempOutput = Join-Path $tempRoot "bin"
+    New-Item -ItemType Directory -Force -Path $tempOutput | Out-Null
+    Get-ChildItem -LiteralPath $activeOutput -Force | Copy-Item -Destination $tempOutput -Recurse -Force
+    Copy-Item -LiteralPath $activeManifest -Destination (Join-Path $tempRoot "effect-release-manifest.json") -Force
+    $env:CCZ_EFFECT_RELEASE_MANIFEST = $activeManifest
+    Set-ServerOutput $tempOutput
+} elseif (-not (Test-ServerOutputCurrent $serverOutput)) {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ccz-mcp-server-developer-" + [guid]::NewGuid().ToString("N"))
     $tempOutput = Join-Path $tempRoot "bin"
     $tempIntermediate = Join-Path $tempRoot "obj"
     Invoke-ServerBuild -OutputDirectory $tempOutput -IntermediateDirectory $tempIntermediate

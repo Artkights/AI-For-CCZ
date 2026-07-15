@@ -39,6 +39,9 @@ public sealed class CczEngineDetectionEvidence
 public sealed class CczEngineTableHints
 {
     public string PersonTable { get; set; } = "6.5-0 人物";
+    public string BiographyTable { get; set; } = "6.5-0-1 人物列传";
+    public string CriticalQuoteTable { get; set; } = "6.5-0-2 暴击台词";
+    public string RetreatQuoteTable { get; set; } = "6.5-0-3 撤退台词";
     public string ItemLowTable { get; set; } = "6.5-1 物品（0-103）";
     public string ItemHighTable { get; set; } = "6.5-2 物品（104-255）";
     public string JobTable { get; set; } = "6.5-3 兵种系";
@@ -93,6 +96,9 @@ public sealed class CczLegacyRuntimeMemoryLayout
     public int EnemyCapacity { get; set; }
     public int ItemCapacity { get; set; }
     public int UnitDataIdOffset { get; set; } = 0x04;
+    public int UnitDataIdByteWidth { get; set; } = 1;
+    public int UnitDisplayIdOffset { get; set; } = 0x04;
+    public int UnitDisplayIdByteWidth { get; set; } = 4;
     public int UnitSideOffset { get; set; } = 0x05;
     public int UnitXOffset { get; set; } = 0x06;
     public int UnitYOffset { get; set; } = 0x07;

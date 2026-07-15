@@ -72,7 +72,8 @@ public sealed partial class GameDebugRuntime
             .Select(u => new
             {
                 u.UnitIndex,
-                u.DataIdByte,
+                u.DataId,
+                u.DisplayId,
                 u.Side,
                 u.X,
                 u.Y,
@@ -900,6 +901,7 @@ public sealed partial class GameDebugRuntime
                 AttackerUnitIndex = attackerIndex,
                 TargetUnitIndex = targetIndex,
                 AttackerDataId = ReadInt32Nullable(bytes, 0x04),
+                AttackerRuntimeCharacterPtr = FormatNullableAddress(ReadUInt32Nullable(bytes, 0x08)),
                 AttackerUnitPtr = FormatNullableAddress(ReadUInt32Nullable(bytes, 0x0C)),
                 AttackerSide = attackerUnit?.Side,
                 TargetSide = targetUnit?.Side,
@@ -908,7 +910,7 @@ public sealed partial class GameDebugRuntime
                 WeaponExpCache = ReadInt32Nullable(bytes, 0x42C),
                 ArmorExpCache = ReadInt32Nullable(bytes, 0x430),
                 CriticalFlag = ReadInt32Nullable(bytes, 0x604),
-                DoubleAttackCounter = ReadInt32Nullable(bytes, 0x608),
+                DoubleAttackCounter = ReadByteNullable(bytes, 0x608),
                 CounterFlag = ReadInt32Nullable(bytes, 0x614),
                 RawHeaderHex = ToHex(bytes.Take(Math.Min(bytes.Length, 0x40)))
             };

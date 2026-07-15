@@ -51,6 +51,126 @@ internal partial class Program
         var assignedFaceAfterCurrentEdit = ImageAssignmentFreeIdService.CollectAssignedIds(table, ImageAssignmentResourceKind.Face);
         var freeFaceAfterCurrentEdit = ImageAssignmentFreeIdService.BuildFreeCandidates([0, 1, 2, 3, 4], assignedFaceAfterCurrentEdit, ImageAssignmentResourceKind.Face, 1);
         AssertIntSequence([0, 1, 2], freeFaceAfterCurrentEdit.Select(x => x.Id), "free Face diff uses DataRowVersion.Current");
+        AssertAnyReadableSyntheticDiscovery();
+        AssertForceFreshSameStampDiscovery();
+    }
+
+    private static void AssertAnyReadableSyntheticDiscovery()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "CCZModStudio_RsDiscoverySmoke_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            WriteSyntheticE5(Path.Combine(root, "Pmapobj.e5"), new[]
+            {
+                new byte[48 * 64 * 20 + 2],
+                new byte[17],
+                new byte[48 * 64 * 20],
+                new byte[19],
+                new byte[23]
+            });
+
+            static byte[][] UnitEntries(int validIndex, int validLength)
+            {
+                var entries = Enumerable.Range(1, 243).Select(_ => new byte[1]).ToArray();
+                entries[validIndex - 1] = new byte[validLength];
+                return entries;
+            }
+
+            WriteSyntheticE5(Path.Combine(root, "Unit_mov.e5"), UnitEntries(validIndex: 242, validLength: 7));
+            WriteSyntheticE5(Path.Combine(root, "Unit_atk.e5"), UnitEntries(validIndex: 242, validLength: 9));
+            WriteSyntheticE5(Path.Combine(root, "Unit_spc.e5"), UnitEntries(validIndex: 241, validLength: 48 * 48 * 5 + 2));
+            var project = new CczProject { WorkspaceRoot = root, GameRoot = root, HexTableXmlPath = string.Empty };
+            var service = new ImageAssignmentPreviewService();
+            AssertIntSequence([0, 1], service.GetAvailableCharacterImageIds(project, "R", includeZero: true),
+                "R discovery includes RAW+2 and a front-only final candidate, but excludes an invalid-only candidate");
+            AssertIntSequence([1], service.GetAvailableCharacterImageIds(project, "S", includeZero: false),
+                "S discovery includes a candidate whose only readable resource is Unit_spc RAW+2");
+        }
+        finally
+        {
+            E5ImageReadSessionPool.Shared.Invalidate(new[]
+            {
+                Path.Combine(root, "Pmapobj.e5"),
+                Path.Combine(root, "Unit_mov.e5"),
+                Path.Combine(root, "Unit_atk.e5"),
+                Path.Combine(root, "Unit_spc.e5")
+            });
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void WriteSyntheticE5(string path, IReadOnlyList<byte[]> payloads)
+    {
+        const int indexOffset = 0x110;
+        const int entrySize = 12;
+        var dataOffset = checked(indexOffset + payloads.Count * entrySize);
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        stream.SetLength(dataOffset);
+        stream.Position = indexOffset;
+        var offset = dataOffset;
+        Span<byte> entry = stackalloc byte[entrySize];
+        foreach (var payload in payloads)
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(entry[..4], checked((uint)payload.Length));
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(entry.Slice(4, 4), checked((uint)payload.Length));
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(entry.Slice(8, 4), checked((uint)offset));
+            stream.Write(entry);
+            offset = checked(offset + payload.Length);
+        }
+
+        foreach (var payload in payloads) stream.Write(payload);
+    }
+
+    private static void AssertForceFreshSameStampDiscovery()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "CCZModStudio_RsForceFreshSmoke_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "Pmapobj.e5");
+        try
+        {
+            var payloadLength = 48 * 64 * 20;
+            var invalidBmp = new byte[payloadLength];
+            invalidBmp[0] = (byte)'B';
+            invalidBmp[1] = (byte)'M';
+            WriteSyntheticE5(path, new[] { invalidBmp });
+            var originalWriteTime = File.GetLastWriteTimeUtc(path);
+            var project = new CczProject { WorkspaceRoot = root, GameRoot = root, HexTableXmlPath = string.Empty };
+            var service = new ImageAssignmentPreviewService();
+
+            var initial = service.ScanAvailableCharacterImageIds(project, "R", includeZero: true, forceFresh: false);
+            if (initial.AvailableIds.Count != 0 || initial.FromCache)
+                throw new InvalidOperationException("The invalid same-length BMP-like payload should be rejected on the initial fresh scan.");
+
+            const int firstPayloadOffset = 0x110 + 12;
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite))
+            {
+                stream.Position = firstPayloadOffset;
+                stream.Write(new byte[payloadLength]);
+                stream.Flush(flushToDisk: true);
+            }
+            File.SetLastWriteTimeUtc(path, originalWriteTime);
+
+            var stale = service.ScanAvailableCharacterImageIds(project, "R", includeZero: true, forceFresh: false);
+            if (!stale.FromCache || stale.AvailableIds.Count != 0)
+                throw new InvalidOperationException("A normal scan should demonstrate the stale same-length/same-timestamp availability snapshot before explicit rescan.");
+
+            var refreshed = service.ScanAvailableCharacterImageIds(project, "R", includeZero: true, forceFresh: true);
+            AssertIntSequence([0], refreshed.AvailableIds, "force-fresh scan discovers an in-place RAW replacement");
+            if (refreshed.FromCache)
+                throw new InvalidOperationException("A ForceFresh availability scan must not report a cache hit.");
+            if (refreshed.SourceFingerprints.Count != 1 ||
+                refreshed.SourceFingerprints[0].EntryCount != 1 ||
+                string.IsNullOrWhiteSpace(refreshed.SourceFingerprints[0].IndexSha256))
+            {
+                throw new InvalidOperationException("ForceFresh availability diagnostics did not retain a complete source fingerprint.");
+            }
+        }
+        finally
+        {
+            E5ImageReadSessionPool.Shared.Invalidate(new[] { path });
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     private static void RunImageAssignmentFreeIdProjectSmoke(CczProject project, IReadOnlyList<HexTableDefinition> tables)
@@ -76,15 +196,17 @@ internal partial class Program
         var faceResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.Face, 1);
         var allFaceResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.Face, 1, freeOnly: false);
         var allRResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.R, 1, freeOnly: false);
+        var allSResult = freeIdService.Build(project, assignments, ImageAssignmentResourceKind.S, 1, freeOnly: false);
         AssertCacheFlag(faceResult, expected: false, "first Face free-id query");
         AssertCacheFlag(rResult, expected: false, "first R free-id query");
         AssertCacheFlag(sResult, expected: false, "first S free-id query");
         AssertCacheFlag(allFaceResult, expected: true, "all Face query should reuse first Face available-id scan");
         AssertCacheFlag(allRResult, expected: true, "all R query should reuse first R available-id scan");
-        if (allFaceResult.FreeOnly || allRResult.FreeOnly)
+        if (allFaceResult.FreeOnly || allRResult.FreeOnly || allSResult.FreeOnly)
         {
             throw new InvalidOperationException("全部头像/R 查询不应标记为 FreeOnly。");
         }
+        AssertRealBaseCandidateCounts(project, allRResult, allSResult);
         if (allFaceResult.Items.Count != allFaceResult.CandidateResourceCount ||
             allRResult.Items.Count != allRResult.CandidateResourceCount ||
             !allFaceResult.Items.Select(x => x.Id).SequenceEqual(allFaceResult.Items.Select(x => x.Id).OrderBy(id => id)) ||
@@ -150,6 +272,21 @@ internal partial class Program
         AssertConcurrentPreviewCache(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Front);
         AssertConcurrentPreviewCache(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Side);
         AssertConcurrentPreviewCache(project, freeIdService, sResult, ImageAssignmentResourceKind.S, 1, ImageAssignmentPreviewStance.Back);
+        AssertDetailedCandidateContract(project, freeIdService, allSResult);
+        AssertKnownMalformedUnitAttack(project, previewService);
+
+        var firstReadableR = allRResult.Items.FirstOrDefault()?.Id;
+        if (firstReadableR != null)
+        {
+            using var invalidFrame = previewService.TryRenderRScenePhysicalStripFrame(
+                project,
+                firstReadableR.Value,
+                20,
+                "下",
+                out var invalidFrameDetail);
+            if (invalidFrame != null || !invalidFrameDetail.Contains("请求 20", StringComparison.Ordinal))
+                throw new InvalidOperationException("R physical-frame rendering must reject index 20 instead of clamping it to frame 19.");
+        }
 
         foreach (var id in rResult.FreeCandidates.Take(3).Select(x => x.Id))
         {
@@ -171,7 +308,7 @@ internal partial class Program
 
         Console.WriteLine($"FREE_FACE={faceResult.FreeCandidates.Count} ALL_FACE={allFaceResult.Items.Count} CANDIDATE_FACE={faceResult.CandidateResourceCount} ASSIGNED_FACE={faceResult.AssignedCount}");
         Console.WriteLine($"FREE_R={rResult.FreeCandidates.Count} ALL_R={allRResult.Items.Count} CANDIDATE_R={rResult.CandidateResourceCount} ASSIGNED_R={rResult.AssignedCount}");
-        Console.WriteLine($"FREE_S={sResult.FreeCandidates.Count} CANDIDATE_S={sResult.CandidateResourceCount} ASSIGNED_S={sResult.AssignedCount}");
+        Console.WriteLine($"FREE_S={sResult.FreeCandidates.Count} ALL_S={allSResult.Items.Count} CANDIDATE_S={sResult.CandidateResourceCount} ASSIGNED_S={sResult.AssignedCount}");
     }
 
     private static void AssertCacheFlag(ImageAssignmentFreeIdResult result, bool expected, string label)
@@ -317,6 +454,254 @@ internal partial class Program
         {
             throw new InvalidOperationException($"并发 S 查询预览应只缓存 Unit_mov.e5 单个 48x48 待机帧。");
         }
+    }
+
+    private static void AssertDetailedCandidateContract(
+        CczProject project,
+        ImageAssignmentFreeIdService freeIdService,
+        ImageAssignmentFreeIdResult allSResult)
+    {
+        var candidate = allSResult.Items.FirstOrDefault(item => item.Id == 219) ?? allSResult.Items.FirstOrDefault();
+        if (candidate == null) return;
+        if (candidate.Id == 219)
+        {
+            AssertS219OneStageFallback(project, freeIdService);
+            AssertThreeStageMapping(project);
+            return;
+        }
+        var detail = freeIdService.RenderCandidateDetailsAsync(
+                project,
+                ImageAssignmentResourceKind.S,
+                candidate.Id,
+                1,
+                ImageAssignmentPreviewStance.Front,
+                1,
+                CancellationToken.None)
+            .ConfigureAwait(false)
+            .GetAwaiter()
+            .GetResult();
+        if (!detail.SelectedStageAvailable || detail.Representative == null || detail.Representative.Size != new Size(48, 48))
+            throw new InvalidOperationException($"S{candidate.Id} detailed representative should be a complete 48x48 physical frame.");
+        if (!detail.Representative.CacheKey.StartsWith("thumbnail-v4|compact-rs-v1|" + RsStripLayoutService.ContractVersion + "|", StringComparison.Ordinal))
+            throw new InvalidOperationException("Candidate thumbnail did not use the thumbnail-v4 compact strip contract.");
+    }
+
+    private static void AssertS219OneStageFallback(CczProject project, ImageAssignmentFreeIdService freeIdService)
+    {
+        var previews = new List<CachedPreviewImage>();
+        try
+        {
+            foreach (var requestedStage in new[] { 1, 2, 3 })
+            {
+                var resolution = CharacterImageResourceService.ResolveSPreviewStage(project, 219, jobId: null, factionSlot: 1, requestedStage);
+                if (resolution.Target?.ImageNumber != 523 || resolution.EffectiveStageSlot != 1 ||
+                    resolution.IsOneStageFallback != (requestedStage != 1))
+                {
+                    throw new InvalidOperationException(
+                        $"S219 stage fallback mismatch: requested={requestedStage}, effective={resolution.EffectiveStageSlot}, image=#{resolution.Target?.ImageNumber}.");
+                }
+
+                var detail = freeIdService.RenderCandidateDetailsAsync(
+                        project, ImageAssignmentResourceKind.S, 219, 1,
+                        ImageAssignmentPreviewStance.Front, requestedStage, CancellationToken.None)
+                    .ConfigureAwait(false).GetAwaiter().GetResult();
+                if (!detail.SelectedStageAvailable || detail.Representative == null || detail.Representative.Size != new Size(48, 48))
+                    throw new InvalidOperationException($"S219 requested stage {requestedStage} did not render its effective one-stage representative.");
+                if (!detail.Representative.CacheKey.StartsWith("thumbnail-v4|compact-rs-v1|" + RsStripLayoutService.ContractVersion + "|", StringComparison.Ordinal))
+                    throw new InvalidOperationException("S219 fallback preview did not use thumbnail-v4.");
+                previews.Add(detail.Representative);
+
+                using var battlefield = freeIdService.PreviewService.TryRenderBattlefieldMoveIdleFrame(
+                    project, 219, jobId: null, factionSlot: 1, direction: "下", framePhase: 0,
+                    stageSlot: requestedStage, out var battlefieldDetail);
+                if (battlefield == null || (requestedStage != 1 && !battlefieldDetail.Contains("实际使用第一转", StringComparison.Ordinal)))
+                    throw new InvalidOperationException($"S219 battlefield fallback failed for requested stage {requestedStage}: {battlefieldDetail}");
+
+                using var catalog = new RsSingleFrameCatalogService().BuildS(project, 219, jobId: null, 1, requestedStage, "fallback smoke");
+                if (catalog.StageSlot != 1 || catalog.Frames.Where(frame => frame.ImageNumber > 0).Any(frame => frame.ImageNumber != 523))
+                    throw new InvalidOperationException($"S219 all-frames fallback targeted the wrong stage or image for request {requestedStage}.");
+
+                AssertSActionSequenceContract(project, freeIdService.PreviewService, requestedStage, catalog);
+            }
+
+            if (!previews.Skip(1).All(preview => preview.PngBytes.SequenceEqual(previews[0].PngBytes)))
+                throw new InvalidOperationException("S219 stage 1/2/3 compact representatives must have identical pixels after one-stage fallback.");
+        }
+        finally
+        {
+            previews.Clear();
+        }
+    }
+
+    private static void AssertSActionSequenceContract(
+        CczProject project,
+        ImageAssignmentPreviewService previewService,
+        int requestedStage,
+        RsFrameCatalog catalog)
+    {
+        var expected = new (string Id, string FileName, string Action, RsFacing? Facing, int[] Frames)[]
+        {
+            ("move-front", "Unit_mov.e5", "待机/移动", RsFacing.Front, [0, 1]),
+            ("move-back", "Unit_mov.e5", "待机/移动", RsFacing.Back, [2, 3]),
+            ("move-side", "Unit_mov.e5", "待机/移动", RsFacing.Side, [4, 5]),
+            ("guard-front", "Unit_mov.e5", "防御/受击", RsFacing.Front, [6]),
+            ("guard-back", "Unit_mov.e5", "防御/受击", RsFacing.Back, [7]),
+            ("guard-side", "Unit_mov.e5", "防御/受击", RsFacing.Side, [8]),
+            ("defeat", "Unit_mov.e5", "倒地/退场", null, [9, 10]),
+            ("attack-front", "Unit_atk.e5", "攻击", RsFacing.Front, [0, 1, 2, 3]),
+            ("attack-back", "Unit_atk.e5", "攻击", RsFacing.Back, [4, 5, 6, 7]),
+            ("attack-side", "Unit_atk.e5", "攻击", RsFacing.Side, [8, 9, 10, 11]),
+            ("special", "Unit_spc.e5", "特技", null, [0, 1, 2, 3, 4])
+        };
+
+        using var preview = previewService.BuildSAnimationPreview(project, 219, jobId: null, factionSlot: 1, requestedStage);
+        if (preview.StageSlot != 1 || preview.Sequences.Count != expected.Length ||
+            preview.ReadableFrameCount != 28 || preview.MissingFrameCount != 0)
+        {
+            throw new InvalidOperationException(
+                $"S219 action preview contract mismatch for requested stage {requestedStage}: stage={preview.StageSlot}, sequences={preview.Sequences.Count}, readable={preview.ReadableFrameCount}, missing={preview.MissingFrameCount}.");
+        }
+
+        for (var sequenceIndex = 0; sequenceIndex < expected.Length; sequenceIndex++)
+        {
+            var contract = expected[sequenceIndex];
+            var sequence = preview.Sequences[sequenceIndex];
+            if (sequence.Definition.Id != contract.Id ||
+                !sequence.Definition.SourceFile.Equals(contract.FileName, StringComparison.OrdinalIgnoreCase) ||
+                sequence.Definition.ActionLabel != contract.Action ||
+                sequence.Definition.Facing != contract.Facing ||
+                !sequence.Definition.PhysicalFrameIndices.SequenceEqual(contract.Frames) ||
+                !sequence.Frames.Select(frame => frame.PhysicalFrameIndex).SequenceEqual(contract.Frames) ||
+                sequence.ImageNumber != 523 ||
+                sequence.RequestedStageSlot != requestedStage ||
+                sequence.EffectiveStageSlot != 1)
+            {
+                throw new InvalidOperationException($"S219 action sequence {sequenceIndex} does not match the shared physical-frame contract.");
+            }
+
+            foreach (var frame in sequence.Frames)
+            {
+                var descriptor = catalog.Frames.Single(candidate =>
+                    Path.GetFileName(candidate.TargetPath).Equals(contract.FileName, StringComparison.OrdinalIgnoreCase) &&
+                    candidate.PhysicalFrameIndex == frame.PhysicalFrameIndex);
+                if (!descriptor.IsReadable || descriptor.Bitmap == null || frame.Bitmap == null)
+                    throw new InvalidOperationException($"S219 {contract.Id} physical frame {frame.PhysicalFrameIndex} is missing from animation or all-frames view.");
+                if (!descriptor.DisplayLabel.Contains($"物理帧{frame.PhysicalFrameIndex}", StringComparison.Ordinal) ||
+                    !descriptor.DisplayLabel.Contains(contract.Action, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"S219 {contract.Id} label is inconsistent with the shared action contract: {descriptor.DisplayLabel}");
+                }
+                AssertRsActionBitmapEqual(descriptor.Bitmap, frame.Bitmap, $"S219 {contract.Id} physical frame {frame.PhysicalFrameIndex}");
+            }
+        }
+
+        if (!preview.Sequences.SelectMany(sequence => sequence.Frames).Select(frame => frame.PhysicalFrameIndex)
+                .Where((_, index) => index < 11)
+                .OrderBy(index => index)
+                .SequenceEqual(Enumerable.Range(0, 11)) ||
+            preview.Sequences.Count(sequence => sequence.Definition.SourceFile.Equals("Unit_spc.e5", StringComparison.OrdinalIgnoreCase)) != 1)
+        {
+            throw new InvalidOperationException("S action preview must include Unit_mov 0-10 exactly once and Unit_spc as one five-frame sequence.");
+        }
+
+        var sideIndex = preview.Sequences.ToList().FindIndex(sequence => sequence.Definition.Id == "move-side");
+        using var left = previewService.BuildAnimationSequenceFrame(preview, sideIndex, 0, mirrorHorizontal: false);
+        using var right = previewService.BuildAnimationSequenceFrame(preview, sideIndex, 0, mirrorHorizontal: true);
+        AssertRsActionHorizontalMirror(left, right, "S219 move-side right-facing mirror");
+
+        if (requestedStage == 1)
+        {
+            using var cached = previewService.LoadAnimationAsync(
+                    project,
+                    ImageAssignmentResourceKind.S,
+                    219,
+                    jobId: null,
+                    factionSlot: 1,
+                    stageSlot: 1,
+                    CancellationToken.None)
+                .ConfigureAwait(false)
+                .GetAwaiter()
+                .GetResult();
+            if (cached.Sequences.Count != 11 || cached.PrecomposedFrames.Count != 28 ||
+                cached.PrecomposedFrames.Any(frame =>
+                    !frame.CacheKey.StartsWith("animation-v4|" + RsActionSequenceCatalog.ContractVersion + "|", StringComparison.Ordinal) ||
+                    !frame.CacheKey.Contains("|entry=", StringComparison.Ordinal)))
+            {
+                throw new InvalidOperationException("S animation cache did not use the action-layout and entry-content identity contract.");
+            }
+        }
+    }
+
+    private static void AssertRsActionBitmapEqual(Bitmap expected, Bitmap actual, string label)
+    {
+        if (expected.Size != actual.Size)
+            throw new InvalidOperationException($"{label}: size mismatch {expected.Size}/{actual.Size}.");
+        for (var y = 0; y < expected.Height; y++)
+        for (var x = 0; x < expected.Width; x++)
+        {
+            if (expected.GetPixel(x, y).ToArgb() != actual.GetPixel(x, y).ToArgb())
+                throw new InvalidOperationException($"{label}: pixel mismatch at {x},{y}.");
+        }
+    }
+
+    private static void AssertRsActionHorizontalMirror(Bitmap left, Bitmap right, string label)
+    {
+        if (left.Size != right.Size)
+            throw new InvalidOperationException($"{label}: size mismatch {left.Size}/{right.Size}.");
+        for (var y = 0; y < left.Height; y++)
+        for (var x = 0; x < left.Width; x++)
+        {
+            if (left.GetPixel(x, y).ToArgb() != right.GetPixel(right.Width - 1 - x, y).ToArgb())
+                throw new InvalidOperationException($"{label}: mirrored pixel mismatch at {x},{y}.");
+        }
+    }
+
+    private static void AssertThreeStageMapping(CczProject project)
+    {
+        var targets = new[] { 1, 2, 3 }
+            .Select(stage => CharacterImageResourceService.ResolveSPreviewStage(project, 1, jobId: null, factionSlot: 1, stage))
+            .ToArray();
+        if (targets.Any(target => target.IsOneStageFallback || target.EffectiveStageSlot != target.RequestedStageSlot) ||
+            targets.Select(target => target.Target?.ImageNumber).Distinct().Count() != 3)
+        {
+            throw new InvalidOperationException("S1 must preserve three distinct stage mappings without one-stage fallback.");
+        }
+    }
+
+    private static void AssertRealBaseCandidateCounts(
+        CczProject project,
+        ImageAssignmentFreeIdResult allRResult,
+        ImageAssignmentFreeIdResult allSResult)
+    {
+        var baseName = Path.GetFileName(project.GameRoot.TrimEnd(Path.DirectorySeparatorChar));
+        var expected = baseName switch
+        {
+            "加强版6.5未加密版" => (R: 329, S: 252),
+            var value when value.Contains("神话三国志2026新春版", StringComparison.Ordinal) => (R: 340, S: 525),
+            _ => ((int R, int S)?)null
+        };
+        if (expected.HasValue &&
+            (allRResult.Items.Count != expected.Value.R || allSResult.Items.Count != expected.Value.S))
+        {
+            throw new InvalidOperationException(
+                $"Strict any-readable candidate count mismatch for {baseName}: R={allRResult.Items.Count}/{expected.Value.R}, S={allSResult.Items.Count}/{expected.Value.S}.");
+        }
+    }
+
+    private static void AssertKnownMalformedUnitAttack(CczProject project, ImageAssignmentPreviewService previewService)
+    {
+        if (!project.GameRoot.Contains("神话三国志2026新春版", StringComparison.Ordinal)) return;
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5");
+        if (!previewService.TryProbeRsEntry(path, 513, out var probe, out var detail) || probe == null)
+            throw new InvalidOperationException("Failed to inspect known malformed Unit_atk.e5 #513: " + detail);
+        if (probe.Strip.IsSupportedLayout ||
+            probe.Strip.DecodedWidth != 64 ||
+            probe.Strip.DecodedHeight != 959 ||
+            !probe.Strip.Detail.Contains("要求 64x768", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Known Unit_atk.e5 #513 64x959 entry was not rejected as a malformed 12x64 strip: " + probe.Strip.Detail);
+        }
+        Console.WriteLine("KNOWN_MALFORMED_UNIT_ATK_513_REJECTED=" + probe.Strip.Detail);
     }
 
     private static void AssertNoAssignedOverlap(DataTable assignments, string columnName, IEnumerable<int> freeIds, string label)

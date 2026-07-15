@@ -46,7 +46,7 @@ public sealed partial class MainForm : Form
     private const int AbsoluteMinimumWindowHeight = 420;
     private const int WindowScreenMargin = 24;
     private const int ScriptCommandGridMaxRows = 800;
-    private const int ScriptLegacyTreeCommandNodeLimitPerSection = 20000;
+    private const int ScriptLegacyTreeCommandNodeLimitPerSection = 300;
     private const int ScriptLegacyTreeMaxNestedDepth = 64;
     private const int RSceneCanvasWidth = 640;
     private const int RSceneCanvasHeight = 400;
@@ -60,6 +60,8 @@ public sealed partial class MainForm : Form
     private const int RSceneMapFaceMaxHeight = 80;
     private const int RSceneImageCacheLimit = 256;
     private const int BattlefieldUnitAnimationIntervalMs = 800;
+    private const string ImageAssignmentAnimationIntervalSettingKey = "ImageAssignment.AnimationIntervalMs";
+    private const string ImageAssignmentExternalResourceFolderSettingKey = "ImageAssignment.ExternalResourceFolder";
     private static readonly bool ShowGenericTableEditorPage = false;
     private static readonly bool ShowLegacyProbePages = false;
     private const string JobStrategyLearningPrefix = "学会等级_";
@@ -255,11 +257,16 @@ public sealed partial class MainForm : Form
     private readonly MapDraftService _mapDraftService = new();
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
+    private readonly MapTerrainPublishCoordinator _mapTerrainPublishCoordinator = new();
+    private readonly MapSlotPublishService _mapSlotPublishService = new();
+    private readonly MapResizeService _mapResizeService = new();
     private readonly MapPairImportExportService _mapPairImportExportService = new();
     private readonly MapCanvasPreviewRenderer _mapCanvasPreviewRenderer = new();
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
     private readonly CurrentMapStyleProfileService _currentMapStyleProfileService = new();
     private readonly TerrainVisualSynthesisService _terrainVisualSynthesisService = new();
+    private readonly TerrainRenderService _terrainRenderService = new();
+    private readonly TerrainStylePackRepository _terrainStylePackRepository = new();
     private readonly MaterialDrivenTerrainService _materialDrivenTerrainService = new();
     private readonly MapMaterialExtractionService _mapMaterialExtractionService = new();
     private readonly MapResourceIndexer _mapResourceIndexer = new();
@@ -305,6 +312,7 @@ public sealed partial class MainForm : Form
     private readonly AttackAreaPreviewService _attackAreaPreviewService = new();
     private readonly StrategyAnimationPreviewService _strategyAnimationPreviewService = new();
     private readonly InjectedEffectDiscoveryService _injectedEffectDiscoveryService = new();
+    private readonly EffectKnowledgeFusionService _effectKnowledgeFusionService = new();
     private readonly ExeCodeCaveScanner _exeCodeCaveScanner = new();
     private readonly CodeCaveRegistry _codeCaveRegistry = new();
     private readonly AssemblyPatchCompiler _assemblyPatchCompiler = new();
@@ -320,6 +328,10 @@ public sealed partial class MainForm : Form
     private IReadOnlyList<MaterialAsset> _currentMaterialAssets = Array.Empty<MaterialAsset>();
     private IReadOnlyList<MapResourceItem> _currentMapResources = Array.Empty<MapResourceItem>();
     private IReadOnlyList<ImageResourceFileInfo> _currentImageResourceFiles = Array.Empty<ImageResourceFileInfo>();
+    private readonly AsyncLoadCoordinator _asyncLoadCoordinator = new();
+    private readonly DebouncedUiAction _debouncedUiAction = new();
+    private CancellationTokenSource? _imageResourceLoadCts;
+    private long _imageResourceSelectionGeneration;
     private IReadOnlyList<ImageResourceEntryInfo> _currentImageResourceEntries = Array.Empty<ImageResourceEntryInfo>();    private IReadOnlyList<EexArchiveInfo> _currentEexArchives = Array.Empty<EexArchiveInfo>();
     private IReadOnlyList<EexEntryProbeRow> _currentEexEntryProbeRows = Array.Empty<EexEntryProbeRow>();
     private EexCrossFileComparisonResult? _currentEexCrossFileComparison;
@@ -382,6 +394,8 @@ public sealed partial class MainForm : Form
     private readonly Dictionary<int, ScenarioTextEntry> _battlefieldScriptTextEntryByOffset = new();
     private IReadOnlyList<BattlefieldUnitPaletteItem> _battlefieldUnitPaletteItems = Array.Empty<BattlefieldUnitPaletteItem>();
     private readonly List<BattlefieldPlacedUnit> _battlefieldPlacedUnits = new();
+    private readonly HashSet<BattlefieldPlacedUnit> _pendingBattlefieldDropSynchronizations = [];
+    private bool _flushingBattlefieldDropSynchronizations;
     private IReadOnlyList<BattlefieldAllyDeploymentSlot> _battlefieldAllyDeploymentSlots = Array.Empty<BattlefieldAllyDeploymentSlot>();
     private readonly Dictionary<string, BattlefieldUnitCandidate> _battlefieldUnitCandidatePreviewOverrides = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, BattlefieldCommandCandidate> _battlefieldCommandCandidatePreviewOverrides = new(StringComparer.OrdinalIgnoreCase);
@@ -403,6 +417,12 @@ public sealed partial class MainForm : Form
     private readonly Dictionary<string, Bitmap> _battlefieldUnitFrameCache = new(StringComparer.Ordinal);
     private Bitmap? _battlefieldMapStaticPreviewImage;
     private (int Width, int Height) _battlefieldMapStaticGridSize;
+    private string _battlefieldMapStaticMapId = string.Empty;
+    private string _battlefieldMapStaticResourceIdentity = string.Empty;
+    private string _battlefieldMapStaticHexzmapIdentity = string.Empty;
+    private string _battlefieldMapStaticSlotIdentity = string.Empty;
+    private byte[] _battlefieldMapTerrainCells = Array.Empty<byte>();
+    private (int Width, int Height) _battlefieldMapTerrainGridSize;
     private BattlefieldUnitCandidate? _battlefieldMapPreviewSelectedUnit;
     private int _battlefieldHoverGridX = -1;
     private int _battlefieldHoverGridY = -1;
@@ -571,15 +591,23 @@ public sealed partial class MainForm : Form
     private MapWorkbenchSubPageMode _mapWorkbenchSubPageMode = MapWorkbenchSubPageMode.MaterialPaint;
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapUndoStack = new();
     private readonly Stack<List<MapWorkbenchCellChange>> _mapMakerMapRedoStack = new();
-    private readonly Stack<List<TerrainEditorCellChange>> _mapMakerTerrainUndoStack = new();
-    private readonly Stack<List<TerrainEditorCellChange>> _mapMakerTerrainRedoStack = new();
+    private readonly Stack<TerrainCellEditCommand> _mapMakerTerrainUndoStack = new();
+    private readonly Stack<TerrainCellEditCommand> _mapMakerTerrainRedoStack = new();
+    private readonly Stack<MapWorkbenchHistoryKind> _mapMakerUnifiedUndoStack = new();
+    private readonly Stack<MapWorkbenchHistoryKind> _mapMakerUnifiedRedoStack = new();
     private readonly List<MapWorkbenchCellChange> _mapMakerPendingMapPaintChanges = new();
     private readonly HashSet<int> _mapMakerPendingMapPaintIndexes = new();
     private readonly List<TerrainEditorCellChange> _mapMakerPendingTerrainPaintChanges = new();
     private readonly HashSet<int> _mapMakerPendingTerrainPaintIndexes = new();
+    private readonly TerrainGridEditService _terrainGridEditService = new();
+    private TerrainEditTool _mapMakerTerrainEditTool = TerrainEditTool.Pencil;
+    private int _mapMakerTerrainBrushSize = 1;
+    private Point? _mapMakerLastPaintCell;
+    private Point? _mapMakerTerrainShapeStartCell;
     private readonly Dictionary<int, MapCellOverride> _mapMakerMapCellOverrideLookup = new();
     private byte[] _mapMakerOriginalTerrainCells = Array.Empty<byte>();
     private Bitmap? _mapViewerRenderedImage;
+    private ConfirmedTerrainRenderSnapshot? _mapMakerConfirmedFinalRender;
     private Point? _mapMakerSelectionStartCell;
     private Point? _mapMakerSelectionEndCell;
     private Rectangle _mapMakerSelectedCellRange = Rectangle.Empty;
@@ -593,17 +621,21 @@ public sealed partial class MainForm : Form
     private int _mapMakerTerrainChangedCellCount;
     private readonly System.Windows.Forms.Timer _mapMakerDirtyBaseRefreshTimer = new() { Interval = 200 };
     private readonly HashSet<int> _mapMakerDirtyTerrainPreviewIndexes = new();
+    private readonly System.Windows.Forms.Timer _mapMakerVisualPreviewDebounceTimer = new() { Interval = 800 };
+    private readonly HashSet<int> _mapMakerPendingVisualTerrainIndexes = new();
     private System.Threading.CancellationTokenSource? _mapMakerBeautifyCts;
     private int _mapMakerBeautifyRequestId;
     private bool _mapMakerBeautifyRunning;
     private bool _mapMakerBeautifyStale;
     private bool _updatingMapMakerBeautifyFilterSelection;
+    private bool _suppressMapMakerViewRender;
     private long _mapMakerLastBaseRefreshMs;
     private long _mapMakerLastBeautifyMs;
     private int _mapMakerLastMaterialHitPercent;
     private TableReferenceNavigationTarget? _currentTableReferenceTarget;
     private UiLayoutSettings _uiLayoutSettings = new();
     private readonly Dictionary<string, SplitContainer> _uiLayoutSplits = new(StringComparer.Ordinal);
+    private string _imageAssignmentExternalResourceFolder = string.Empty;
     private string _loadedProjectSessionKey = string.Empty;
     private string _lastMainTabText = string.Empty;
     private bool _updatingScenarioStructureSelection;
@@ -625,6 +657,21 @@ public sealed partial class MainForm : Form
     private string _battlefieldConsoleDirtyTargetKey = string.Empty;
     private BattlefieldConsoleDirtyKind _battlefieldConsoleDirtyKind = BattlefieldConsoleDirtyKind.None;
     private bool _battlefieldConsoleCommitInProgress;
+    private LegacyScenarioHistorySnapshot? _battlefieldBatchTransactionBeforeEdit;
+    private readonly HashSet<string> _battlefieldBatchTransactionTargetKeys = new(StringComparer.OrdinalIgnoreCase);
+    private bool _battlefieldBatchTransactionDirty;
+    private bool _battlefieldBatchTransactionFailed;
+    private readonly List<BattlefieldUnitStatusDraft> _battlefieldBatchTransactionStatusDeltas = [];
+    private readonly List<BattlefieldPlacedUnit> _battlefieldBatchTransactionOldPlacements = [];
+    private readonly List<string> _battlefieldBatchTransactionFailures = [];
+    private readonly List<BattlefieldPlacedUnit> _battlefieldBatchTransactionBeforeUnits = [];
+    private BattlefieldPlacedUnit? _battlefieldConsoleBeforeEditSnapshot;
+    private BattlefieldUnsyncedDraftState? _battlefieldUnsyncedDraftState;
+    private bool _suppressBattlefieldScriptSelectionCommit;
+    private TreeNode? _battlefieldScriptSelectionCommitSatisfiedNode;
+    private TreeNode? _battlefieldScriptSelectionBlockedNode;
+    private DateTime _battlefieldScriptSelectionCommitUtc;
+    private int _battlefieldConsoleCommitAttemptCountForSmoke;
     private bool _bindingBattlefieldScriptEditor;
     private bool _updatingBattlefieldScriptSelection;
     private bool _editingBattlefieldLegacyCommandDialog;
@@ -642,12 +689,11 @@ public sealed partial class MainForm : Form
     private int _rSceneCanvasZoomPercent = 100;
     private DateTime _lastMapMakerRenderUtc = DateTime.MinValue;
     private bool _mapMakerRenderDeferred;
+    private bool _suppressMapImageSelectionLoad = false;
     private string _battlefieldManualMarkerTargetKey = string.Empty;
     private int _battlefieldManualMarkerX = -1;
     private int _battlefieldManualMarkerY = -1;
     private bool _mapMakerPainting;
-    private readonly List<TerrainEditorCellChange> _mapMakerPendingPaintChanges = new();
-    private readonly HashSet<int> _mapMakerPendingPaintIndexes = new();
 
     private readonly Label _projectLabel = new();
     private readonly DataGridView _fileGrid = new();
@@ -659,8 +705,11 @@ public sealed partial class MainForm : Form
     private readonly DataGridView _dataGrid = new();
     private readonly StatusStrip _statusStrip = new();
     private readonly ToolStripStatusLabel _statusLabel = new();
+    private readonly ToolStripButton _statusErrorOpenLogButton = new("打开日志");
+    private readonly ToolStripButton _statusErrorCopyButton = new("复制错误");
     private readonly ToolStripButton _statusErrorCloseButton = new("关闭");
     private readonly System.Windows.Forms.Timer _errorStatusClearTimer = new() { Interval = 9000 };
+    private ApplicationErrorReport? _lastApplicationErrorReport;
     private readonly CheckBox _showAllTables = new();
     private readonly RadioButton _currentPageDecimalButton = new();
     private readonly RadioButton _currentPageHexButton = new();
@@ -668,6 +717,8 @@ public sealed partial class MainForm : Form
     private readonly HashSet<DataGridView> _numberBaseGrids = new();
     private readonly Button _openProjectButton = new();
     private readonly Button _reloadButton = new();
+    private readonly Button _backupPathButton = new();
+    private readonly ToolTip _backupPathToolTip = new();
     private readonly Button _usageGuideButton = new();
     private readonly Button _testCopyButton = new();
     private readonly Button _saveTableButton = new();
@@ -715,6 +766,9 @@ public sealed partial class MainForm : Form
     private readonly Button _saveJobEditorButton = new();
     private readonly Button _editAccessoryJobGroupsButton = new();
     private readonly Button _replaceJobSImageButton = new();
+    private readonly Button _playJobSImageButton = new();
+    private readonly Button _viewJobSSingleFramesButton = new();
+    private readonly Button _editJobSImagePixelsButton = new();
     private readonly Button _batchReplaceJobSImageButton = new();
     private readonly Button _exportJobSImageBmpButton = new();
     private readonly Button _openJobSeriesTableButton = new();
@@ -802,6 +856,7 @@ public sealed partial class MainForm : Form
     private readonly Button _copyItemEditorSelectionButton = new();
     private readonly Button _pasteItemEditorSelectionButton = new();
     private readonly Button _batchFillItemEditorColumnButton = new();
+    private readonly Button _queryItemIconButton = new();
     private readonly Button _batchImportItemIconButton = new();
     private readonly Button _editItemIconButton = new();
     private readonly Button _exportItemIconBmpButton = new();
@@ -915,6 +970,7 @@ public sealed partial class MainForm : Form
     private readonly Button _mapMakerImportPairButton = new();
     private readonly NumericUpDown _mapMakerGridWidthInput = new();
     private readonly NumericUpDown _mapMakerGridHeightInput = new();
+    private readonly Button _mapMakerResizeButton = new();
     private readonly ComboBox _mapMakerBrushModeCombo = new();
     private readonly Button _mapMakerSelectMaterialRootButton = new();
     private readonly ComboBox _mapMakerMaterialCategoryCombo = new();
@@ -939,6 +995,8 @@ public sealed partial class MainForm : Form
     private readonly TrackBar _mapMakerTerrainOpacityTrackBar = new();
     private readonly Label _mapMakerTerrainOpacityLabel = new();
     private readonly ComboBox _mapMakerTerrainPresetCombo = new();
+    private readonly ComboBox _mapMakerTerrainToolCombo = new();
+    private readonly ComboBox _mapMakerTerrainBrushSizeCombo = new();
     private readonly NumericUpDown _mapMakerTerrainBrushInput = new();
     private readonly Label _mapMakerBrushNameLabel = new();
     private readonly Button _mapMakerSaveTerrainButton = new();
@@ -965,6 +1023,8 @@ public sealed partial class MainForm : Form
     private readonly Button _openImageResourceButton = new();
     private readonly Button _replaceImageResourceEntryButton = new();
     private readonly Button _editImageResourceEntryButton = new();
+    private readonly Button _viewImageResourceSingleFramesButton = new();
+    private readonly Button _repairRsArchivesButton = new();
     private readonly Button _restoreImageResourceEntryButton = new();
     private readonly Button _batchImportImageResourceEntriesButton = new();
     private readonly Button _batchClearImageResourceEntriesButton = new();
@@ -984,6 +1044,11 @@ public sealed partial class MainForm : Form
     private readonly Button _queryFreeFaceIdsButton = new();
     private readonly Button _queryFreeRImageIdsButton = new();
     private readonly Button _queryFreeSImageIdsButton = new();
+    private readonly Button _playRImageAssignmentButton = new();
+    private readonly Button _playSImageAssignmentButton = new();
+    private readonly Button _viewRSingleFramesButton = new();
+    private readonly Button _viewSSingleFramesButton = new();
+    private readonly NumericUpDown _imageAssignmentAnimationIntervalInput = new();
     private readonly Button _openRsDirectoryButton = new();
     private readonly TextBox _imageAssignmentSearchBox = new();
     private readonly CheckBox _imageAssignmentMissingOnlyCheckBox = new();
@@ -1078,6 +1143,7 @@ public sealed partial class MainForm : Form
     private readonly Label _battlefieldMapHintLabel = new();
     private readonly Label _battlefieldMapZoomLabel = new();
     private readonly Button _battlefieldMapZoomResetButton = new();
+    private readonly Button _viewBattlefieldSingleFramesButton = new();
     private readonly ComboBox _battlefieldDeploymentPreviewFilterCombo = new();
     private readonly Button _markBattlefieldCommand25Button = new();
     private readonly Panel _battlefieldMapScrollPanel = new();
@@ -1118,7 +1184,6 @@ public sealed partial class MainForm : Form
     private readonly ComboBox _battlefieldLevelModeCombo = new();
     private readonly ComboBox _battlefieldAiModeCombo = new();
     private readonly ComboBox _battlefieldDirectionCombo = new();
-    private readonly Label _battlefieldConsoleSummaryLabel = new();
     private readonly TextBox _battlefieldDataDefaultsBox = new();
     private readonly ComboBox _battlefieldConsoleWeaponCombo = new();
     private readonly NumericUpDown _battlefieldConsoleWeaponLevelInput = new();
@@ -1128,6 +1193,9 @@ public sealed partial class MainForm : Form
     private readonly ComboBox _battlefieldConsoleJobCombo = new();
     private readonly DataGridView _battlefieldConsoleAbilityGrid = new();
     private readonly TextBox _battlefieldConsoleStatusPreviewBox = new();
+    private readonly Button _battlefieldRetryUnsyncedDraftButton = new();
+    private readonly Button _battlefieldRestoreScriptValuesButton = new();
+    private readonly Button _battlefieldDetachUnsyncedDraftButton = new();
     private readonly Button _battlefieldRemovePlacedUnitButton = new();
     private readonly Button _battlefieldClearPlacedUnitsButton = new();
     private readonly TextBox _battlefieldUnitPaletteFilterBox = new();
@@ -1175,6 +1243,7 @@ public sealed partial class MainForm : Form
     private readonly ComboBox _rSceneBackgroundCombo = new();
     private readonly NumericUpDown _rSceneGridSizeInput = new();
     private readonly CheckBox _rSceneShowGridCheckBox = new();
+    private readonly Button _viewRSceneSingleFramesButton = new();
     private readonly CheckBox _rSceneDialoguePreviewCheckBox = new();
     private readonly ComboBox _rSceneFacingCombo = new();
     private readonly NumericUpDown _rSceneStanceInput = new();
@@ -1326,6 +1395,12 @@ public sealed partial class MainForm : Form
         TerrainGenerate
     }
 
+    private enum MapWorkbenchHistoryKind
+    {
+        Terrain,
+        Overlay
+    }
+
     private enum MapSceneryOverlayHitKind
     {
         None,
@@ -1338,6 +1413,11 @@ public sealed partial class MainForm : Form
     }
 
     private sealed record TerrainEditorCellChange(int Index, byte OldValue, byte NewValue);
+
+    private sealed record TerrainRenderConfirmationContext(
+        TerrainStylePackManifest StylePack,
+        CurrentMapStyleProfile StyleProfile,
+        string Fingerprint);
 
     private sealed record MapWorkbenchCellChange(
         int Index,
@@ -1386,9 +1466,13 @@ public sealed partial class MainForm : Form
 
     public MainForm()
     {
+        using var constructorPerf = PerformanceMetrics.Begin("MainForm.Constructor");
         _imageAssignmentFreeIdService = new ImageAssignmentFreeIdService(_imageAssignmentPreviewService);
         _materialLibraryCache = new MaterialLibraryCache(_materialLibraryIndexer);
-        Text = "CCZModStudio 6.5 - V0.6 集成原型";
+        var developerBuild = ActiveReleaseStartupService.IsDeveloperBuildProcess
+            ? $" | 开发构建 | {AppContext.BaseDirectory}"
+            : string.Empty;
+        Text = $"普罗工具整合包 | {EffectCapabilityVersion.BuildIdentity} | {EffectCapabilityVersion.SchemaVersion}{developerBuild}";
         Icon = LoadApplicationIcon();
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScroll = true;
@@ -1400,9 +1484,12 @@ public sealed partial class MainForm : Form
         LoadUiLayoutSettings();
         ApplyWindowLayoutSettings();
         BuildLayout();
+        LoadImageAssignmentAnimationSettings();
         WireEvents();
         ApplicationErrorService.ErrorReported += OnApplicationErrorReported;
         _errorStatusClearTimer.Tick += (_, _) => ClearApplicationErrorNotification();
+        _statusErrorOpenLogButton.Click += (_, _) => OpenLastApplicationErrorLog();
+        _statusErrorCopyButton.Click += (_, _) => CopyLastApplicationErrorDetails();
         _statusErrorCloseButton.Click += (_, _) => ClearApplicationErrorNotification();
     }
 
@@ -1427,7 +1514,19 @@ public sealed partial class MainForm : Form
     {
         base.OnLoad(e);
         RunPackageSelfCheck();
-        LoadDefaultProject();
+        PerformanceMetrics.Increment("MainForm.Loaded");
+        // Let Windows paint the shell before project discovery and table initialization.
+        BeginInvoke((Action)(() =>
+        {
+            using var projectPerf = PerformanceMetrics.Begin("MainForm.DefaultProjectInitialization");
+            LoadDefaultProject();
+        }));
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        PerformanceMetrics.Increment("MainForm.FirstShown");
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -1587,6 +1686,9 @@ public sealed partial class MainForm : Form
         _openProjectButton.AutoSize = true;
         _reloadButton.Text = "重新读取";
         _reloadButton.AutoSize = true;
+        _backupPathButton.Text = "备份路径";
+        _backupPathButton.AutoSize = true;
+        _backupPathButton.Enabled = false;
         _usageGuideButton.Text = "使用指南";
         _usageGuideButton.AutoSize = true;
         _testCopyButton.Text = "创建测试副本";
@@ -1636,6 +1738,7 @@ public sealed partial class MainForm : Form
         {
             _openProjectButton,
             _reloadButton,
+            _backupPathButton,
             _usageGuideButton
         });
 
@@ -1870,6 +1973,10 @@ public sealed partial class MainForm : Form
         ConfigureToolbarButton(_replaceImageResourceEntryButton, 104);
         _editImageResourceEntryButton.Text = "像素编辑";
         ConfigureToolbarButton(_editImageResourceEntryButton, 88);
+        _viewImageResourceSingleFramesButton.Text = "查看单帧";
+        ConfigureToolbarButton(_viewImageResourceSingleFramesButton, 88);
+        _repairRsArchivesButton.Text = "修复/整理R/S档案";
+        ConfigureToolbarButton(_repairRsArchivesButton, 138);
         _restoreImageResourceEntryButton.Text = "从备份还原";
         ConfigureToolbarButton(_restoreImageResourceEntryButton, 104);
         _batchImportImageResourceEntriesButton.Text = "批量导入";
@@ -1894,6 +2001,8 @@ public sealed partial class MainForm : Form
             _openImageResourceButton,
             _replaceImageResourceEntryButton,
             _editImageResourceEntryButton,
+            _viewImageResourceSingleFramesButton,
+            _repairRsArchivesButton,
             _restoreImageResourceEntryButton,
             _batchImportImageResourceEntriesButton,
             _batchClearImageResourceEntriesButton,
@@ -1969,6 +2078,21 @@ public sealed partial class MainForm : Form
         _queryFreeSImageIdsButton.Text = "查询S形象";
         ConfigureToolbarButton(_queryFreeSImageIdsButton, 96);
         _queryFreeSImageIdsButton.Enabled = false;
+        _playRImageAssignmentButton.Text = "播放R";
+        ConfigureToolbarButton(_playRImageAssignmentButton, 76);
+        _playRImageAssignmentButton.Enabled = true;
+        _playSImageAssignmentButton.Text = "播放S";
+        ConfigureToolbarButton(_playSImageAssignmentButton, 76);
+        _playSImageAssignmentButton.Enabled = true;
+        _viewRSingleFramesButton.Text = "查看单帧R";
+        ConfigureToolbarButton(_viewRSingleFramesButton, 96);
+        _viewSSingleFramesButton.Text = "查看单帧S";
+        ConfigureToolbarButton(_viewSSingleFramesButton, 96);
+        _imageAssignmentAnimationIntervalInput.Minimum = CharacterImageAnimationPreviewDialog.MinIntervalMs;
+        _imageAssignmentAnimationIntervalInput.Maximum = CharacterImageAnimationPreviewDialog.MaxIntervalMs;
+        _imageAssignmentAnimationIntervalInput.Value = CharacterImageAnimationPreviewDialog.DefaultIntervalMs;
+        _imageAssignmentAnimationIntervalInput.Width = 70;
+        _imageAssignmentAnimationIntervalInput.Margin = new Padding(3);
         _openRsDirectoryButton.Text = "打开RS目录";
         ConfigureToolbarButton(_openRsDirectoryButton, 104);
         _openRsDirectoryButton.Visible = false;
@@ -2034,6 +2158,12 @@ public sealed partial class MainForm : Form
             _queryFreeFaceIdsButton,
             _queryFreeRImageIdsButton,
             _queryFreeSImageIdsButton,
+            _playRImageAssignmentButton,
+            _playSImageAssignmentButton,
+            _viewRSingleFramesButton,
+            _viewSSingleFramesButton,
+            CreateToolbarLabel("播放间隔(ms)："),
+            _imageAssignmentAnimationIntervalInput,
             _imageAssignmentSearchBox,
             _imageAssignmentMissingOnlyCheckBox,
             CreateToolbarLabel("S预览阵营："),
@@ -2120,10 +2250,10 @@ public sealed partial class MainForm : Form
         imageLayout.Controls.Add(imageSplit, 0, 1);
         imageTabs.TabPages.Add(imageAssignmentPage);
         _mainTabs.TabPages.Add(imagePage);
-        _mainTabs.TabPages.Add(BuildMapEditorPage());
-        _mainTabs.TabPages.Add(BuildScriptEditorPage());
-        _mainTabs.TabPages.Add(BuildRSceneEditorPage());
-        _mainTabs.TabPages.Add(BuildBattlefieldEditorPage());
+        _mainTabs.TabPages.Add(CreateLazyMainPage("地图编辑", BuildMapEditorPage));
+        _mainTabs.TabPages.Add(CreateLazyMainPage("剧本编辑", BuildScriptEditorPage));
+        _mainTabs.TabPages.Add(CreateLazyMainPage("场景编辑", BuildRSceneEditorPage));
+        _mainTabs.TabPages.Add(CreateLazyMainPage("战场编辑", BuildBattlefieldEditorPage));
         _mainTabs.TabPages.Add(BuildShopEditorPage());
 
         if (ShowLegacyProbePages)
@@ -2725,8 +2855,14 @@ public sealed partial class MainForm : Form
         ReorderMainCreationTabs();
 
         _statusStrip.Items.Add(_statusLabel);
+        _statusStrip.Items.Add(_statusErrorOpenLogButton);
+        _statusStrip.Items.Add(_statusErrorCopyButton);
         _statusStrip.Items.Add(_statusErrorCloseButton);
         _statusLabel.Text = "就绪";
+        _statusLabel.Spring = true;
+        _statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+        _statusErrorOpenLogButton.Visible = false;
+        _statusErrorCopyButton.Visible = false;
         _statusErrorCloseButton.Visible = false;
         root.Controls.Add(_statusStrip, 0, 2);
     }
@@ -2777,10 +2913,13 @@ public sealed partial class MainForm : Form
 
     private void ShowApplicationErrorNotification(ApplicationErrorReport report)
     {
+        _lastApplicationErrorReport = report;
         var logPath = string.IsNullOrWhiteSpace(report.LogPath) ? "日志写入失败" : report.LogPath;
         SetStatus($"操作未完成：{report.Summary}。详细信息已写入 {logPath}");
         _statusLabel.BackColor = Color.FromArgb(255, 244, 230);
         _statusLabel.ForeColor = Color.FromArgb(142, 55, 0);
+        _statusErrorOpenLogButton.Visible = !string.IsNullOrWhiteSpace(report.LogPath);
+        _statusErrorCopyButton.Visible = true;
         _statusErrorCloseButton.Visible = true;
         _errorStatusClearTimer.Stop();
         _errorStatusClearTimer.Start();
@@ -2791,7 +2930,48 @@ public sealed partial class MainForm : Form
         _errorStatusClearTimer.Stop();
         _statusLabel.BackColor = Color.Empty;
         _statusLabel.ForeColor = Color.Empty;
+        _statusErrorOpenLogButton.Visible = false;
+        _statusErrorCopyButton.Visible = false;
         _statusErrorCloseButton.Visible = false;
+    }
+
+    private void OpenLastApplicationErrorLog()
+    {
+        var logPath = _lastApplicationErrorReport?.LogPath;
+        if (string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath))
+        {
+            SetStatus("错误日志不存在或尚未成功写入。");
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = logPath, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            SetStatus("打开错误日志失败：" + ex.Message);
+        }
+    }
+
+    private void CopyLastApplicationErrorDetails()
+    {
+        var details = _lastApplicationErrorReport?.Details;
+        if (string.IsNullOrWhiteSpace(details))
+        {
+            SetStatus("当前没有可复制的错误信息。");
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(details);
+            SetStatus("错误详情已复制，可直接发送给开发者。");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("复制错误详情失败：" + ex.Message);
+        }
     }
 
     private sealed record ScriptCommandComboItem(int Id, string Name)

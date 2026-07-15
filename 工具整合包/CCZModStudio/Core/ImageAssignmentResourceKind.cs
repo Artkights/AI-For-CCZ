@@ -1,6 +1,6 @@
 namespace CCZModStudio.Core;
 
-internal enum ImageAssignmentResourceKind
+public enum ImageAssignmentResourceKind
 {
     Face,
     R,

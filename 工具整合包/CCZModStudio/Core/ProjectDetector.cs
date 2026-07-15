@@ -877,7 +877,7 @@ public sealed class ProjectDetector
             name.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("CCZModStudio_Exports", StringComparison.OrdinalIgnoreCase) ||
             name.Equals("CCZModStudio_Reports", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("_CCZModStudio_Backups", StringComparison.OrdinalIgnoreCase))
+            name.Equals(ProjectBackupPathService.LegacyBackupDirectoryName, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

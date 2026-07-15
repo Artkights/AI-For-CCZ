@@ -3,6 +3,7 @@ param(
     [string]$OutputDirectory = "",
     [string]$Configuration = "Debug",
     [switch]$IncludeGameDebug,
+    [switch]$SkipGameDebug,
     [switch]$IncludeX64dbg,
     [string]$X64dbgHost = "127.0.0.1",
     [int]$X64dbgPort = 27042,
@@ -11,6 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$includeGameDebugEffective = $IncludeGameDebug -or -not $SkipGameDebug
 
 $configRoot = $PSScriptRoot
 $toolRoot = Split-Path -Parent $configRoot
@@ -127,7 +129,7 @@ if ($Build -or -not (Test-Path -LiteralPath $serverDll)) {
     }
 }
 
-if ($IncludeGameDebug -and ($Build -or -not (Test-Path -LiteralPath $gameDebugDll))) {
+if ($includeGameDebugEffective -and ($Build -or -not (Test-Path -LiteralPath $gameDebugDll))) {
     dotnet build $gameDebugProject -c $Configuration -v:minimal
     if ($LASTEXITCODE -ne 0) {
         throw "Game debug MCP server build failed with exit code $LASTEXITCODE."
@@ -194,7 +196,7 @@ $serverMap = [ordered]@{
     }
 }
 
-if ($IncludeGameDebug) {
+if ($includeGameDebugEffective) {
     if (-not (Test-Path -LiteralPath $gameDebugStartScript -PathType Leaf)) {
         throw "Game debug start script not found: $gameDebugStartScript"
     }
@@ -289,7 +291,7 @@ if ($IncludeX64dbg) {
         $toml += "X64DBG_MCP_TOKEN = " + (To-TomlLiteral $X64dbgToken)
     }
 }
-if ($IncludeGameDebug) {
+if ($includeGameDebugEffective) {
     $toml += ""
     $toml += "[mcp_servers.cczgame_debug]"
     $toml += "command = 'powershell.exe'"
@@ -321,7 +323,7 @@ $direct = [ordered]@{
 if ($IncludeX64dbg) {
     $direct.mcpServers["x64dbg"] = $serverMap["x64dbg"]
 }
-if ($IncludeGameDebug) {
+if ($includeGameDebugEffective) {
     $direct.mcpServers["cczgame_debug"] = [ordered]@{
         command = "dotnet"
         args = @($resolvedGameDebugDll)
@@ -350,7 +352,7 @@ Generated files:
 
 Restart the MCP client after applying the config.
 
-Game debug MCP included: $IncludeGameDebug
+Game debug MCP included: $includeGameDebugEffective
 X64dbg MCP included: $IncludeX64dbg
 X64dbg endpoint: ${X64dbgHost}:$X64dbgPort
 "@

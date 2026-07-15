@@ -277,7 +277,7 @@ public sealed class PatchApplyService
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
         var backupPath = Path.Combine(backupRoot, $"{stamp}_{Path.GetFileName(filePath)}");
@@ -287,7 +287,7 @@ public sealed class PatchApplyService
 
     private static string WriteReport(CczProject project, PatchPreviewResult preview, string backupPath, string beforeHash, string afterHash, int changedBytes, int bytesWritten)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
         var reportPath = Path.Combine(backupRoot, $"{stamp}_PatchReport.txt");

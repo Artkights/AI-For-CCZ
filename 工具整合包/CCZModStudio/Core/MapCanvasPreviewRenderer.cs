@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Security.Cryptography;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
@@ -18,7 +19,9 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
     private Bitmap? _terrainLayerCache;
     private Bitmap? _beautifiedMapCache;
     private readonly HashSet<int> _dirtyTerrainIndexes = new();
+    private readonly HashSet<int> _pendingTerrainOverlayIndexes = new();
     private string _cacheKey = string.Empty;
+    private string _contentKey = string.Empty;
     private int _gridWidth;
     private int _gridHeight;
     private int _tileSize;
@@ -34,6 +37,9 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
     private int _lastComposedTerrainVersion = -1;
     private int _lastComposedBeautifiedVersion = -1;
     private int _lastComposedDirtyCount = -1;
+    private int _pendingTerrainOverlayVersion;
+    private int _lastComposedPendingTerrainOverlayVersion = -1;
+    private int _pendingTerrainOverlayAlphaPercent = 45;
     private bool _lastComposedTerrainLayerOnly;
     private bool _lastComposedShowTerrain;
     private bool _lastComposedShowGrid;
@@ -208,6 +214,62 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         return dirty;
     }
 
+    public Rectangle UpdateGeneratedPreviewTerrainOverlay(MapWorkbenchDraft draft, IReadOnlyCollection<int> indexes, int alphaPercent)
+    {
+        if (indexes.Count == 0) return Rectangle.Empty;
+        ValidateDraft(draft);
+        EnsureContext(draft, _materials);
+        if (_terrainLayerOnly || draft.TerrainCells.Length != draft.CellCount) return Rectangle.Empty;
+
+        var dirty = Rectangle.Empty;
+        var changed = false;
+        var clampedAlpha = Math.Clamp(alphaPercent, 10, 90);
+        if (_pendingTerrainOverlayAlphaPercent != clampedAlpha)
+        {
+            _pendingTerrainOverlayAlphaPercent = clampedAlpha;
+            changed = true;
+        }
+
+        foreach (var index in indexes)
+        {
+            if (!CanUpdateCell(draft, index)) continue;
+            changed |= _pendingTerrainOverlayIndexes.Add(index);
+            var rect = GetTileRectangle(index);
+            dirty = dirty.IsEmpty ? rect : Rectangle.Union(dirty, rect);
+        }
+
+        if (changed || !dirty.IsEmpty)
+        {
+            _pendingTerrainOverlayVersion++;
+        }
+
+        if (!dirty.IsEmpty)
+        {
+            ComposeCurrentPreview(draft);
+        }
+
+        return dirty;
+    }
+
+    public void ClearGeneratedPreviewTerrainOverlay()
+    {
+        if (_pendingTerrainOverlayIndexes.Count == 0) return;
+        _pendingTerrainOverlayIndexes.Clear();
+        _pendingTerrainOverlayVersion++;
+    }
+
+    public void RemoveGeneratedPreviewTerrainOverlay(IEnumerable<int> indexes)
+    {
+        var changed = false;
+        foreach (var index in indexes)
+        {
+            changed |= _pendingTerrainOverlayIndexes.Remove(index);
+        }
+
+        if (!changed) return;
+        _pendingTerrainOverlayVersion++;
+    }
+
     public Rectangle RefreshDirtyBaseMap(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
     {
         ValidateDraft(draft);
@@ -307,6 +369,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         var tileCount = Math.Max(1, _gridWidth * _gridHeight);
         return new MapCanvasPreviewDiagnostics(
             DirtyCellCount: _dirtyTerrainIndexes.Count,
+            PendingTerrainOverlayCount: _pendingTerrainOverlayIndexes.Count,
             BaseMapVersion: _baseMapVersion,
             TerrainLayerVersion: _terrainLayerVersion,
             BeautifiedMapVersion: _beautifiedMapVersion,
@@ -325,7 +388,9 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _terrainLayerCache = null;
         _beautifiedMapCache = null;
         _dirtyTerrainIndexes.Clear();
+        _pendingTerrainOverlayIndexes.Clear();
         _cacheKey = string.Empty;
+        _contentKey = string.Empty;
         _gridWidth = 0;
         _gridHeight = 0;
         _tileSize = 0;
@@ -334,6 +399,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _terrainOpacityPercent = 0;
         _terrainLayerOnly = false;
         _beautifyGeneratedMap = false;
+        _pendingTerrainOverlayAlphaPercent = 45;
         _materials = Array.Empty<MaterialAsset>();
         _baseMapVersion = 0;
         _terrainLayerVersion = 0;
@@ -342,6 +408,8 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _lastComposedTerrainVersion = -1;
         _lastComposedBeautifiedVersion = -1;
         _lastComposedDirtyCount = -1;
+        _pendingTerrainOverlayVersion = 0;
+        _lastComposedPendingTerrainOverlayVersion = -1;
         _lastComposedTerrainLayerOnly = false;
         _lastComposedShowTerrain = false;
         _lastComposedShowGrid = false;
@@ -386,6 +454,11 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             DrawTerrainCell(g, draft, index);
         }
 
+        if (!_terrainLayerOnly && draft.TerrainCells.Length == draft.CellCount && _pendingTerrainOverlayIndexes.Contains(index))
+        {
+            DrawPendingTerrainOverlayCell(g, draft, index);
+        }
+
         if (_showGrid)
         {
             DrawGrid(g, _gridWidth, _gridHeight, _preview.Width, _preview.Height);
@@ -406,6 +479,11 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         if (_showTerrain && draft.TerrainCells.Length == draft.CellCount)
         {
             DrawTerrainCell(g, draft, index);
+        }
+
+        if (!_terrainLayerOnly && draft.TerrainCells.Length == draft.CellCount && _pendingTerrainOverlayIndexes.Contains(index))
+        {
+            DrawPendingTerrainOverlayCell(g, draft, index);
         }
 
         if (_showGrid)
@@ -437,18 +515,41 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
     private void EnsureContext(MapWorkbenchDraft draft, IReadOnlyList<MaterialAsset> materials)
     {
         var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
-        var key = BuildCacheKey(draft, tileSize, materials);
-        if (!_cacheKey.Equals(key, StringComparison.Ordinal))
+        var contextKey = BuildContextCacheKey(draft, tileSize, materials);
+        var contentKey = BuildCacheKey(draft, tileSize, materials);
+        if (!_cacheKey.Equals(contextKey, StringComparison.Ordinal))
         {
             Clear();
-            _cacheKey = key;
+            _cacheKey = contextKey;
             _gridWidth = draft.GridWidth;
             _gridHeight = draft.GridHeight;
             _tileSize = tileSize;
         }
+        else if (!_contentKey.Equals(contentKey, StringComparison.Ordinal) && _dirtyTerrainIndexes.Count == 0)
+        {
+            _baseMapDirty = true;
+            _terrainLayerDirty = true;
+            _beautifiedMapDirty = true;
+        }
 
+        _contentKey = contentKey;
         _materials = materials;
     }
+
+    private static string BuildContextCacheKey(MapWorkbenchDraft draft, int tileSize, IReadOnlyList<MaterialAsset> materials)
+        => string.Join("|",
+            draft.DraftId,
+            draft.BoundMapId,
+            draft.GridWidth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            draft.GridHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            NormalizeFileKey(draft.BaseLayerPath),
+            NormalizePathKey(draft.MaterialRoot),
+            draft.GenerationMode,
+            NormalizeTerrainVisualProfileKey(draft.TerrainVisualProfile),
+            NormalizeTerrainRenderSettingsKey(draft.TerrainRenderSettings),
+            materials.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            NormalizeMaterialAutoTileKey(materials));
 
     private static string BuildCacheKey(MapWorkbenchDraft draft, int tileSize, IReadOnlyList<MaterialAsset> materials)
         => string.Join("|",
@@ -460,6 +561,10 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             NormalizeFileKey(draft.BaseLayerPath),
             NormalizePathKey(draft.MaterialRoot),
             draft.GenerationMode,
+            Convert.ToHexString(SHA256.HashData(draft.TerrainCells)),
+            Convert.ToHexString(SHA256.HashData(draft.OriginalTerrainCells)),
+            NormalizeTerrainMaterialPlanKey(draft.TerrainMaterialPlan),
+            NormalizeTerrainRenderSettingsKey(draft.TerrainRenderSettings),
             NormalizeTerrainVisualProfileKey(draft.TerrainVisualProfile),
             NormalizeOverlayKey(draft),
             draft.BeautifyFilterProfile,
@@ -515,8 +620,22 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             NormalizePathKey(profile.StyleSampleRoot),
             string.Join(";", (profile.MaterialOverrides ?? new List<TerrainVisualMaterialOverride>())
                 .OrderBy(item => item.TerrainId)
-                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.MaterialRelativePath)));
+                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.MaterialRelativePath)),
+            string.Join(";", (profile.SurfaceOverrides ?? new List<TerrainSurfaceOverride>())
+                .OrderBy(item => item.TerrainId)
+                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.SurfaceKind)));
     }
+
+    private static string NormalizeTerrainMaterialPlanKey(IEnumerable<TerrainMaterialPlanItem> plan)
+        => string.Join(";", plan.OrderBy(item => item.TerrainId).ThenBy(item => item.VisualFamilyKey, StringComparer.OrdinalIgnoreCase)
+            .Select(item => string.Join(",", item.MapId, item.TerrainId, item.VisualFamilyKey, item.MaterialRelativePath, item.SelectionMode, item.MaterialRootFingerprint)));
+
+    private static string NormalizeTerrainRenderSettingsKey(TerrainRenderSettings? settings)
+        => settings == null
+            ? string.Empty
+            : string.Join(",", settings.RedrawEnabled, settings.StyleSelectionMode, settings.StylePackId, settings.Seed,
+                settings.PreviewQuality, settings.FinalQuality, settings.ObjectPolicy, settings.ToneProfile,
+                settings.ToneAmount.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture), settings.LastConfirmedFinalFingerprint);
 
     private static string NormalizePathKey(string path)
     {
@@ -615,7 +734,6 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
     private static string NormalizeMaterialAutoTileKey(IReadOnlyList<MaterialAsset> materials)
         => string.Join(";",
             materials
-                .Where(asset => !string.IsNullOrWhiteSpace(asset.AutoTileSetKey))
                 .OrderBy(asset => asset.AutoTileSetKey, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.FilePath, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(asset => asset.SourceX)
@@ -628,6 +746,15 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
                     asset.SourceY.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     asset.SourceWidth.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     asset.SourceHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SamplingMode.ToString(),
+                    asset.SampleBoundsX.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SampleBoundsY.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SampleBoundsWidth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SampleBoundsHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.SafeBorder.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.PreferredPatchWidth.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.PreferredPatchHeight.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    asset.StylePackId,
                     NormalizeFileKey(asset.FilePath))));
 
     private void RebuildBaseMapCache(MapWorkbenchDraft draft)
@@ -692,6 +819,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             _lastComposedTerrainVersion == _terrainLayerVersion &&
             _lastComposedBeautifiedVersion == _beautifiedMapVersion &&
             _lastComposedDirtyCount == _dirtyTerrainIndexes.Count &&
+            _lastComposedPendingTerrainOverlayVersion == _pendingTerrainOverlayVersion &&
             _lastComposedTerrainLayerOnly == _terrainLayerOnly &&
             _lastComposedShowTerrain == _showTerrain &&
             _lastComposedShowGrid == _showGrid &&
@@ -715,6 +843,11 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
             DrawTerrain(g, draft);
         }
 
+        if (!_terrainLayerOnly && draft.TerrainCells.Length == draft.CellCount && _pendingTerrainOverlayIndexes.Count > 0)
+        {
+            DrawPendingTerrainOverlay(g, draft);
+        }
+
         if (_showGrid)
         {
             DrawGrid(g, _gridWidth, _gridHeight, _preview.Width, _preview.Height);
@@ -726,6 +859,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         _lastComposedTerrainVersion = _terrainLayerVersion;
         _lastComposedBeautifiedVersion = _beautifiedMapVersion;
         _lastComposedDirtyCount = _dirtyTerrainIndexes.Count;
+        _lastComposedPendingTerrainOverlayVersion = _pendingTerrainOverlayVersion;
         _lastComposedTerrainLayerOnly = _terrainLayerOnly;
         _lastComposedShowTerrain = _showTerrain;
         _lastComposedShowGrid = _showGrid;
@@ -861,6 +995,40 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
         g.FillRectangle(brush, GetTileRectangle(index));
     }
 
+    private void DrawPendingTerrainOverlay(Graphics g, MapWorkbenchDraft draft)
+    {
+        foreach (var index in _pendingTerrainOverlayIndexes.OrderBy(x => x))
+        {
+            DrawPendingTerrainOverlayCell(g, draft, index);
+        }
+    }
+
+    private void DrawPendingTerrainOverlayCell(Graphics g, MapWorkbenchDraft draft, int index)
+    {
+        if (index < 0 || index >= draft.TerrainCells.Length) return;
+        var rect = GetTileRectangle(index);
+        var terrainColor = HexzmapTerrainRenderService.GetTerrainColor(draft.TerrainCells[index]);
+        var alpha = Math.Clamp(_pendingTerrainOverlayAlphaPercent, 10, 90) * 255 / 100;
+        using var fill = new SolidBrush(Color.FromArgb(alpha, terrainColor));
+        using var border = new Pen(Color.FromArgb(230, Color.White), Math.Max(1f, _tileSize / 24f));
+        using var shadow = new Pen(Color.FromArgb(180, Color.Black), Math.Max(1f, _tileSize / 32f));
+        g.FillRectangle(fill, rect);
+        g.DrawRectangle(shadow, rect.Left, rect.Top, rect.Width - 1, rect.Height - 1);
+        g.DrawRectangle(border, rect.Left + 1, rect.Top + 1, Math.Max(1, rect.Width - 3), Math.Max(1, rect.Height - 3));
+
+        using var hatchPen = new Pen(Color.FromArgb(95, Color.White), 1f);
+        var step = Math.Max(8, _tileSize / 4);
+        for (var offset = -rect.Height; offset < rect.Width; offset += step)
+        {
+            g.DrawLine(
+                hatchPen,
+                rect.Left + offset,
+                rect.Bottom - 1,
+                rect.Left + offset + rect.Height,
+                rect.Top);
+        }
+    }
+
     private static void DrawGrid(Graphics g, int gridWidth, int gridHeight, int pixelWidth, int pixelHeight)
     {
         using var darkPen = new Pen(Color.FromArgb(150, Color.Black));
@@ -977,6 +1145,7 @@ public sealed class MapCanvasPreviewRenderer : IDisposable
 
 public sealed record MapCanvasPreviewDiagnostics(
     int DirtyCellCount,
+    int PendingTerrainOverlayCount,
     int BaseMapVersion,
     int TerrainLayerVersion,
     int BeautifiedMapVersion,

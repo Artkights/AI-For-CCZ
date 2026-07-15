@@ -11,7 +11,8 @@ internal sealed class TerrainRegionTextureSynthesizer
         TerrainVisualSynthesisPlan plan,
         Func<MaterialAsset, int, TileVisualStats, Bitmap> renderMaterialTile,
         Func<MaterialAsset, TileVisualStats> getStats,
-        out TerrainRegionTextureSynthesisStats stats)
+        out TerrainRegionTextureSynthesisStats stats,
+        CancellationToken cancellationToken = default)
     {
         stats = new TerrainRegionTextureSynthesisStats();
         var result = new Dictionary<int, Bitmap>();
@@ -22,6 +23,7 @@ internal sealed class TerrainRegionTextureSynthesizer
 
         foreach (var region in plan.Regions.OrderBy(region => region.RegionId))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!region.HasMaterial ||
                 !TerrainVisualSurfaceClassifier.SupportsInteriorSynthesis(region.SurfaceKind) ||
                 region.CellIndexes.Count == 0)
@@ -50,7 +52,7 @@ internal sealed class TerrainRegionTextureSynthesizer
                 continue;
             }
 
-            BuildRegionCanvas(draft, profile, region, candidates, renderMaterialTile, getStats, result, stats);
+            BuildRegionCanvas(draft, profile, region, candidates, renderMaterialTile, getStats, result, stats, cancellationToken);
             stats.RegionTextureCanvasCount++;
         }
 
@@ -65,7 +67,8 @@ internal sealed class TerrainRegionTextureSynthesizer
         Func<MaterialAsset, int, TileVisualStats, Bitmap> renderMaterialTile,
         Func<MaterialAsset, TileVisualStats> getStats,
         Dictionary<int, Bitmap> result,
-        TerrainRegionTextureSynthesisStats stats)
+        TerrainRegionTextureSynthesisStats stats,
+        CancellationToken cancellationToken)
     {
         var tileSize = draft.TileSize <= 0 ? MapResourceItem.MapTilePixelSize : draft.TileSize;
         var cells = region.CellIndexes.Distinct().OrderBy(index => index / draft.GridWidth).ThenBy(index => index % draft.GridWidth).ToList();
@@ -83,6 +86,7 @@ internal sealed class TerrainRegionTextureSynthesizer
 
         foreach (var index in cells)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var selected = SelectPatch(
                 draft,
                 profile,
@@ -99,7 +103,8 @@ internal sealed class TerrainRegionTextureSynthesizer
                 cellSet,
                 renderMaterialTile,
                 getStats,
-                stats);
+                stats,
+                cancellationToken);
             using var tile = selected.Tile;
             using var tileBuffer = FastBitmapBuffer.FromBitmap(tile);
             var cellX = index % draft.GridWidth;
@@ -122,13 +127,15 @@ internal sealed class TerrainRegionTextureSynthesizer
                 overlap,
                 hasLeft,
                 hasTop,
-                stats);
+                stats,
+                cancellationToken);
             writtenCells.Add(index);
             stats.QuiltedPatchCount++;
         }
 
         foreach (var index in cells)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var cellX = index % draft.GridWidth;
             var cellY = index / draft.GridWidth;
             var localX = (cellX - minX) * tileSize;
@@ -153,7 +160,8 @@ internal sealed class TerrainRegionTextureSynthesizer
         IReadOnlySet<int> regionCells,
         Func<MaterialAsset, int, TileVisualStats, Bitmap> renderMaterialTile,
         Func<MaterialAsset, TileVisualStats> getStats,
-        TerrainRegionTextureSynthesisStats stats)
+        TerrainRegionTextureSynthesisStats stats,
+        CancellationToken cancellationToken)
     {
         var ranked = candidates
             .Select(asset => new
@@ -171,6 +179,7 @@ internal sealed class TerrainRegionTextureSynthesizer
 
         foreach (var item in ranked)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var tile = renderMaterialTile(item.Asset, index, region.TargetStyleStats);
             var transform = PickRegionTransform(profile, region.SurfaceKind, index, item.Asset);
             if (ApplyTileTransform(tile, transform))
@@ -178,7 +187,7 @@ internal sealed class TerrainRegionTextureSynthesizer
                 stats.TileTransformCount++;
             }
 
-            BlendSecondaryPatchIfAvailable(tile, draft, profile, region, candidates, item.Asset, renderMaterialTile, index, stats);
+            BlendSecondaryPatchIfAvailable(tile, draft, profile, region, candidates, item.Asset, renderMaterialTile, index, stats, cancellationToken);
 
             using var tileBuffer = FastBitmapBuffer.FromBitmap(tile);
             var score = item.Score + OverlapScore(
@@ -279,13 +288,15 @@ internal sealed class TerrainRegionTextureSynthesizer
         int overlap,
         bool hasLeft,
         bool hasTop,
-        TerrainRegionTextureSynthesisStats stats)
+        TerrainRegionTextureSynthesisStats stats,
+        CancellationToken cancellationToken)
     {
         var scale = Math.Max(tileSize, profile.RegionNoiseScalePixels <= 0 ? 96 : profile.RegionNoiseScalePixels);
         var noiseStrength = Math.Clamp(profile.MacroNoiseStrength <= 0f ? profile.RegionTextureUnifyStrength : profile.MacroNoiseStrength, 0f, 0.5f);
         var maxDelta = 24f * noiseStrength;
         for (var y = 0; y < tileSize; y++)
         {
+            if ((y & 7) == 0) cancellationToken.ThrowIfCancellationRequested();
             for (var x = 0; x < tileSize; x++)
             {
                 var color = tile.Pixels[y * tile.Width + x];
@@ -334,7 +345,8 @@ internal sealed class TerrainRegionTextureSynthesizer
         MaterialAsset primary,
         Func<MaterialAsset, int, TileVisualStats, Bitmap> renderMaterialTile,
         int index,
-        TerrainRegionTextureSynthesisStats stats)
+        TerrainRegionTextureSynthesisStats stats,
+        CancellationToken cancellationToken)
     {
         if (profile.InteriorSecondaryBlendStrength <= 0.001f || candidates.Count <= 1)
         {
@@ -368,6 +380,7 @@ internal sealed class TerrainRegionTextureSynthesizer
         var changed = 0;
         for (var y = 0; y < primaryBuffer.Height; y++)
         {
+            if ((y & 7) == 0) cancellationToken.ThrowIfCancellationRequested();
             for (var x = 0; x < primaryBuffer.Width; x++)
             {
                 var pixel = y * primaryBuffer.Width + x;

@@ -26,13 +26,28 @@ public sealed partial class MainForm
         "EquipmentLevelRaiseSpecial"
     ];
 
+    private sealed class CmSettingsPageSession
+    {
+        public string LoadedGameRoot { get; set; } = string.Empty;
+        public GlobalSettingsService GlobalSettingsService { get; } = new();
+        public GlobalSettingsDocument? GlobalDocument { get; set; }
+        public required Dictionary<string, DataGridView> SettingGrids { get; init; }
+        public required DataGridView GlobalNumericGrid { get; init; }
+        public required TextBox TitleBox { get; init; }
+        public required Label TitleCapacityLabel { get; init; }
+        public required Button TitleSaveButton { get; init; }
+        public required DataGridView TerrainGrid { get; init; }
+        public required TabControl Tabs { get; init; }
+        public required TabPage TerrainPage { get; init; }
+        public required TextBox StatusBox { get; init; }
+    }
+
+    private CmSettingsPageSession? _cmSettingsPageSession;
+
     private TabPage BuildCmSettingsPage()
     {
         var page = new TabPage("全局设定");
-        var loadedGameRoot = string.Empty;
         var settingGrids = new Dictionary<string, DataGridView>(StringComparer.OrdinalIgnoreCase);
-        var globalSettingsService = new GlobalSettingsService();
-        GlobalSettingsDocument? globalDocument = null;
 
         var layout = new TableLayoutPanel
         {
@@ -70,6 +85,7 @@ public sealed partial class MainForm
         var globalNumericGrid = CreateGlobalNumericGrid();
         var titleBox = new TextBox { Width = 420, Anchor = AnchorStyles.Left | AnchorStyles.Top };
         var titleCapacityLabel = new Label { AutoSize = true, Padding = new Padding(0, 6, 0, 6) };
+        var titlePage = CreateGlobalTitlePage(titleBox, titleCapacityLabel, SaveCmGameTitle, out var titleSaveButton);
         var growthGrid = CreateCmSettingGrid(useCheckBoxValue: false);
         var equipmentGrid = CreateMixedCmSettingGrid();
         var battleGrid = CreateCmSettingGrid(useCheckBoxValue: false);
@@ -82,222 +98,350 @@ public sealed partial class MainForm
         settingGrids["abnormal-state"] = abnormalGrid;
 
         var terrainPage = CreateGridTabPage("地形策略", terrainGrid);
-        tabs.TabPages.Add(CreateGlobalNumericPage(globalNumericGrid, SaveGlobalNumeric));
-        tabs.TabPages.Add(CreateGlobalTitlePage(titleBox, titleCapacityLabel, SaveGameTitle));
+        var session = new CmSettingsPageSession
+        {
+            SettingGrids = settingGrids,
+            GlobalNumericGrid = globalNumericGrid,
+            TitleBox = titleBox,
+            TitleCapacityLabel = titleCapacityLabel,
+            TitleSaveButton = titleSaveButton,
+            TerrainGrid = terrainGrid,
+            Tabs = tabs,
+            TerrainPage = terrainPage,
+            StatusBox = statusBox
+        };
+        _cmSettingsPageSession = session;
+
+        tabs.TabPages.Add(CreateGlobalNumericPage(globalNumericGrid, SaveCmGlobalNumericSettings));
+        tabs.TabPages.Add(titlePage);
         tabs.TabPages.Add(CreateGridTabPage("成长", growthGrid));
         tabs.TabPages.Add(CreateGridTabPage("装备经验", equipmentGrid));
         tabs.TabPages.Add(CreateGridTabPage("战斗公式", battleGrid));
         tabs.TabPages.Add(CreateGridTabPage("异常状态", abnormalGrid));
         tabs.TabPages.Add(terrainPage);
 
-        void Reload()
+        titleBox.TextChanged += (_, _) => RefreshGlobalTitleCapacityLabel(session.GlobalDocument, titleBox, titleCapacityLabel);
+        reloadButton.Click += (_, _) =>
         {
-            if (_project == null)
-            {
-                statusBox.Text = "请选择项目后读取全局设定。";
-                return;
-            }
-
-            try
-            {
-                if (_tables.Count == 0)
-                {
-                    ReloadCurrentProject();
-                    if (_tables.Count == 0) return;
-                }
-
-                LoadGlobalSection();
-                var document = _cmSettingsService.Load(_project);
-                foreach (var group in document.Groups)
-                {
-                    if (!settingGrids.TryGetValue(group.GroupKey, out var grid)) continue;
-                    grid.DataSource = group.GroupKey.Equals("equipment-exp", StringComparison.OrdinalIgnoreCase)
-                        ? BuildEquipmentExperienceTable(globalDocument, group)
-                        : BuildCmSettingTable(group);
-                }
-
-                terrainGrid.DataSource = BuildCmTerrainTable(document.TerrainStrategyRows);
-                SetTabPageVisible(tabs, terrainPage, document.TerrainStrategyRows.Count > 0);
-                loadedGameRoot = _project.GameRoot;
-                statusBox.Text = "已读取全局设定。";
-                SetStatus("已读取全局设定");
-            }
-            catch (Exception ex)
-            {
-                statusBox.Text = ex.Message;
-                MessageBox.Show(this, ex.Message, "读取全局设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        void LoadGlobalSection()
-        {
-            if (_project == null) return;
-            globalDocument = globalSettingsService.Load(_project, _tables);
-            globalNumericGrid.DataSource = BuildGlobalNumericTable(globalDocument.NumericSettings);
-            titleBox.Text = globalDocument.GameTitle.Title;
-            RefreshGlobalTitleCapacityLabel(globalDocument, titleBox, titleCapacityLabel);
-        }
-
-        void SaveGlobalNumeric()
-        {
-            if (_project == null)
-            {
-                MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            if (globalDocument == null)
-            {
-                Reload();
-                if (globalDocument == null) return;
-            }
-
-            try
-            {
-                globalNumericGrid.EndEdit();
-                if (globalNumericGrid.DataSource is BindingSource bindingSource) bindingSource.EndEdit();
-                var updates = globalNumericGrid.DataSource is DataTable table
-                    ? CollectGlobalNumericUpdates(table)
-                    : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                var result = globalSettingsService.SaveNumericSettings(_project, globalDocument, updates);
-                LoadGlobalSection();
-                statusBox.Text = BuildGlobalSettingsSaveStatus(result);
-                SetStatus(result.Summary);
-                MessageBox.Show(this, result.Summary, "保存全局参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                statusBox.Text = ex.Message;
-                MessageBox.Show(this, ex.Message, "保存全局参数失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        void SaveGameTitle()
-        {
-            if (_project == null)
-            {
-                MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            if (globalDocument == null)
-            {
-                Reload();
-                if (globalDocument == null) return;
-            }
-
-            try
-            {
-                globalDocument.GameTitle.Title = titleBox.Text;
-                _ = EncodingService.EncodeFixedString(globalDocument.GameTitle.Title, globalDocument.GameTitle.CapacityBytes);
-                var result = globalSettingsService.Save(_project, _tables, globalDocument, saveJobSeries: false, saveDetailedJobs: false, saveGameTitle: true);
-                LoadGlobalSection();
-                statusBox.Text = BuildGlobalSettingsSaveStatus(result);
-                SetStatus(result.Summary);
-                MessageBox.Show(this, result.Summary, "保存游戏标题", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                statusBox.Text = ex.Message;
-                MessageBox.Show(this, ex.Message, "保存游戏标题失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        void SaveCmSettings()
-        {
-            if (_project == null)
-            {
-                MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            try
-            {
-                foreach (var grid in settingGrids.Values.Append(terrainGrid))
-                {
-                    grid.EndEdit();
-                    if (grid.DataSource is BindingSource bindingSource) bindingSource.EndEdit();
-                }
-
-                if (globalDocument == null)
-                {
-                    LoadGlobalSection();
-                    if (globalDocument == null) return;
-                }
-
-                var update = new CmSettingsUpdate();
-                foreach (var grid in settingGrids.Values)
-                {
-                    if (grid.DataSource is not DataTable table) continue;
-                    foreach (DataRow row in table.Rows)
-                    {
-                        if (IsGlobalNumericSettingRow(row)) continue;
-                        var key = Convert.ToString(row["Key"], CultureInfo.InvariantCulture) ?? string.Empty;
-                        if (string.IsNullOrWhiteSpace(key)) continue;
-                        var value = row["Value"] is bool boolValue
-                            ? (boolValue ? "true" : "false")
-                            : Convert.ToString(row["Value"], CultureInfo.InvariantCulture) ?? string.Empty;
-                        update.Values[key] = value;
-                    }
-                }
-
-                if (terrainGrid.DataSource is DataTable terrainTable)
-                {
-                    foreach (DataRow row in terrainTable.Rows)
-                    {
-                        var terrainId = Convert.ToInt32(row["TerrainId"], CultureInfo.InvariantCulture);
-                        update.TerrainStrategy[terrainId] = new CmTerrainStrategyUpdate
-                        {
-                            Fire = Convert.ToBoolean(row["火"], CultureInfo.InvariantCulture),
-                            Water = Convert.ToBoolean(row["水"], CultureInfo.InvariantCulture),
-                            Wind = Convert.ToBoolean(row["风"], CultureInfo.InvariantCulture),
-                            Earth = Convert.ToBoolean(row["地"], CultureInfo.InvariantCulture)
-                        };
-                    }
-                }
-
-                var cmPreview = _cmSettingsService.Preview(_project, update);
-                var globalNumericUpdates = equipmentGrid.DataSource is DataTable equipmentTable
-                    ? CollectEquipmentExperienceGlobalNumericUpdates(equipmentTable)
-                    : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-                CmSettingsSaveResult? cmResult = null;
-                GlobalSettingsSaveResult? globalResult = null;
-                if (cmPreview.Count > 0)
-                {
-                    cmResult = _cmSettingsService.Save(_project, update);
-                }
-
-                if (globalNumericUpdates.Count > 0)
-                {
-                    globalResult = globalSettingsService.SaveNumericSettings(_project, globalDocument, globalNumericUpdates);
-                }
-
-                var summary = BuildParameterSaveStatus(cmResult, globalResult);
-                Reload();
-                statusBox.Text = summary;
-                SetStatus(summary);
-                MessageBox.Show(this, summary, "保存参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                statusBox.Text = ex.Message;
-                MessageBox.Show(this, ex.Message, "保存参数失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        titleBox.TextChanged += (_, _) => RefreshGlobalTitleCapacityLabel(globalDocument, titleBox, titleCapacityLabel);
-        reloadButton.Click += (_, _) => Reload();
-        saveCmButton.Click += (_, _) => SaveCmSettings();
+            if (ConfirmPageReloadIfUnsaved("全局设定")) ReloadCmSettingsPage();
+        };
+        saveCmButton.Click += (_, _) => SaveCmParameters();
         page.Enter += (_, _) =>
         {
-            if (_project != null && !loadedGameRoot.Equals(_project.GameRoot, StringComparison.OrdinalIgnoreCase))
+            if (_project != null && !session.LoadedGameRoot.Equals(_project.GameRoot, StringComparison.OrdinalIgnoreCase))
             {
-                Reload();
+                ReloadCmSettingsPage();
             }
         };
 
         return page;
+    }
+
+    private void ReloadCmSettingsPage(bool showErrorMessage = true)
+    {
+        var session = _cmSettingsPageSession;
+        if (session == null) return;
+        if (_project == null)
+        {
+            session.StatusBox.Text = "请选择项目后读取全局设定。";
+            return;
+        }
+
+        try
+        {
+            if (_tables.Count == 0)
+            {
+                ReloadCurrentProject();
+                if (_tables.Count == 0) return;
+            }
+
+            LoadCmGlobalSection(session);
+            var document = _cmSettingsService.Load(_project);
+            foreach (var group in document.Groups)
+            {
+                if (!session.SettingGrids.TryGetValue(group.GroupKey, out var grid)) continue;
+                grid.DataSource = group.GroupKey.Equals("equipment-exp", StringComparison.OrdinalIgnoreCase)
+                    ? BuildEquipmentExperienceTable(session.GlobalDocument, group)
+                    : BuildCmSettingTable(group);
+            }
+
+            session.TerrainGrid.DataSource = BuildCmTerrainTable(document.TerrainStrategyRows);
+            SetTabPageVisible(session.Tabs, session.TerrainPage, document.TerrainStrategyRows.Count > 0);
+            session.LoadedGameRoot = _project.GameRoot;
+            session.StatusBox.Text = "已读取全局设定。";
+            SetStatus("已读取全局设定");
+        }
+        catch (Exception ex)
+        {
+            session.StatusBox.Text = ex.Message;
+            if (showErrorMessage)
+            {
+                MessageBox.Show(this, ex.Message, "读取全局设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
+
+    private void LoadCmGlobalSection(CmSettingsPageSession session)
+    {
+        if (_project == null) return;
+        session.GlobalDocument = session.GlobalSettingsService.Load(_project, _tables);
+        session.GlobalNumericGrid.DataSource = BuildGlobalNumericTable(session.GlobalDocument.NumericSettings);
+        session.TitleBox.Text = session.GlobalDocument.GameTitle.Title;
+        session.TitleBox.ReadOnly = !session.GlobalDocument.GameTitle.CanEdit;
+        session.TitleSaveButton.Enabled = session.GlobalDocument.GameTitle.CanEdit;
+        RefreshGlobalTitleCapacityLabel(session.GlobalDocument, session.TitleBox, session.TitleCapacityLabel);
+    }
+
+    private bool EnsureCmGlobalDocument(CmSettingsPageSession session)
+    {
+        if (session.GlobalDocument != null) return true;
+        ReloadCmSettingsPage();
+        return session.GlobalDocument != null;
+    }
+
+    private void SaveCmGlobalNumericSettings()
+    {
+        var session = _cmSettingsPageSession;
+        if (_project == null || session == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (!EnsureCmGlobalDocument(session)) return;
+
+        try
+        {
+            CommitCmSettingsEditors();
+            var updates = session.GlobalNumericGrid.DataSource is DataTable table
+                ? CollectGlobalNumericUpdates(table)
+                : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var result = session.GlobalSettingsService.SaveNumericSettings(_project, session.GlobalDocument!, updates);
+            LoadCmGlobalSection(session);
+            session.StatusBox.Text = BuildGlobalSettingsSaveStatus(result);
+            SetStatus(result.Summary);
+            MessageBox.Show(this, result.Summary, "保存全局参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            session.StatusBox.Text = ex.Message;
+            MessageBox.Show(this, ex.Message, "保存全局参数失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void SaveCmGameTitle()
+    {
+        var session = _cmSettingsPageSession;
+        if (_project == null || session == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (!EnsureCmGlobalDocument(session)) return;
+
+        var originalTitle = session.GlobalDocument!.GameTitle.Title;
+        try
+        {
+            session.GlobalSettingsService.ValidateGameTitleUpdate(session.GlobalDocument.GameTitle, session.TitleBox.Text);
+            session.GlobalDocument.GameTitle.Title = session.TitleBox.Text;
+            var result = session.GlobalSettingsService.Save(
+                _project,
+                _tables,
+                session.GlobalDocument,
+                saveJobSeries: false,
+                saveDetailedJobs: false,
+                saveGameTitle: true);
+            LoadCmGlobalSection(session);
+            session.StatusBox.Text = BuildGlobalSettingsSaveStatus(result);
+            SetStatus(result.Summary);
+            MessageBox.Show(this, result.Summary, "保存游戏标题", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            session.GlobalDocument.GameTitle.Title = originalTitle;
+            session.StatusBox.Text = ex.Message;
+            MessageBox.Show(this, ex.Message, "保存游戏标题失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void SaveCmParameters()
+    {
+        var session = _cmSettingsPageSession;
+        if (_project == null || session == null)
+        {
+            MessageBox.Show(this, "请先打开 MOD 项目目录。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            CommitCmSettingsEditors();
+            if (!EnsureCmGlobalDocument(session)) return;
+            var update = BuildCmSettingsUpdate(session);
+            var cmPreview = _cmSettingsService.Preview(_project, update);
+            var globalNumericUpdates = CollectCmEquipmentExperienceGlobalNumericUpdates(session);
+
+            CmSettingsSaveResult? cmResult = null;
+            GlobalSettingsSaveResult? globalResult = null;
+            if (cmPreview.Count > 0) cmResult = _cmSettingsService.Save(_project, update);
+            if (globalNumericUpdates.Count > 0)
+            {
+                globalResult = session.GlobalSettingsService.SaveNumericSettings(_project, session.GlobalDocument!, globalNumericUpdates);
+            }
+
+            var summary = BuildParameterSaveStatus(cmResult, globalResult);
+            ReloadCmSettingsPage();
+            session.StatusBox.Text = summary;
+            SetStatus(summary);
+            MessageBox.Show(this, summary, "保存参数", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            session.StatusBox.Text = ex.Message;
+            MessageBox.Show(this, ex.Message, "保存参数失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void CommitCmSettingsEditors()
+    {
+        var session = _cmSettingsPageSession;
+        if (session == null) return;
+        foreach (var grid in session.SettingGrids.Values.Append(session.GlobalNumericGrid).Append(session.TerrainGrid))
+        {
+            if (grid.IsCurrentCellDirty) grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            grid.EndEdit();
+            if (grid.DataSource is BindingSource bindingSource) bindingSource.EndEdit();
+            if (grid.DataSource != null && grid.BindingContext?[grid.DataSource] is CurrencyManager manager) manager.EndCurrentEdit();
+        }
+    }
+
+    private static CmSettingsUpdate BuildCmSettingsUpdate(CmSettingsPageSession session)
+    {
+        var update = new CmSettingsUpdate();
+        foreach (var grid in session.SettingGrids.Values)
+        {
+            if (grid.DataSource is not DataTable table) continue;
+            foreach (DataRow row in table.Rows)
+            {
+                if (IsGlobalNumericSettingRow(row)) continue;
+                var key = Convert.ToString(row["Key"], CultureInfo.InvariantCulture) ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(key)) continue;
+                var value = row["Value"] is bool boolValue
+                    ? (boolValue ? "true" : "false")
+                    : Convert.ToString(row["Value"], CultureInfo.InvariantCulture) ?? string.Empty;
+                update.Values[key] = value;
+            }
+        }
+
+        if (session.TerrainGrid.DataSource is DataTable terrainTable)
+        {
+            foreach (DataRow row in terrainTable.Rows)
+            {
+                var terrainId = Convert.ToInt32(row["TerrainId"], CultureInfo.InvariantCulture);
+                update.TerrainStrategy[terrainId] = new CmTerrainStrategyUpdate
+                {
+                    Fire = Convert.ToBoolean(row["火"], CultureInfo.InvariantCulture),
+                    Water = Convert.ToBoolean(row["水"], CultureInfo.InvariantCulture),
+                    Wind = Convert.ToBoolean(row["风"], CultureInfo.InvariantCulture),
+                    Earth = Convert.ToBoolean(row["地"], CultureInfo.InvariantCulture)
+                };
+            }
+        }
+
+        return update;
+    }
+
+    private static Dictionary<string, int> CollectCmEquipmentExperienceGlobalNumericUpdates(CmSettingsPageSession session)
+        => session.SettingGrids.TryGetValue("equipment-exp", out var equipmentGrid) && equipmentGrid.DataSource is DataTable equipmentTable
+            ? CollectEquipmentExperienceGlobalNumericUpdates(equipmentTable)
+            : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    private static Dictionary<string, int> CollectAllCmGlobalNumericUpdates(CmSettingsPageSession session)
+    {
+        var updates = session.GlobalNumericGrid.DataSource is DataTable globalTable
+            ? CollectGlobalNumericUpdates(globalTable)
+            : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in CollectCmEquipmentExperienceGlobalNumericUpdates(session)) updates[pair.Key] = pair.Value;
+        return updates;
+    }
+
+    private bool IsCmSettingsDirty(out string summary)
+    {
+        summary = string.Empty;
+        var session = _cmSettingsPageSession;
+        if (_project == null || session?.GlobalDocument == null ||
+            !session.LoadedGameRoot.Equals(_project.GameRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            CommitCmSettingsEditors();
+            var parts = new List<string>();
+            var globalUpdates = CollectAllCmGlobalNumericUpdates(session);
+            if (globalUpdates.Count > 0) parts.Add($"{globalUpdates.Count} 个全局参数");
+            if (!string.Equals(session.TitleBox.Text, session.GlobalDocument.GameTitle.Title, StringComparison.Ordinal))
+            {
+                parts.Add("游戏标题");
+            }
+
+            var cmChanges = _cmSettingsService.Preview(_project, BuildCmSettingsUpdate(session));
+            if (cmChanges.Count > 0) parts.Add($"{cmChanges.Count} 个 CM 参数");
+            summary = string.Join("、", parts);
+            return parts.Count > 0;
+        }
+        catch (Exception ex)
+        {
+            summary = "存在未提交或无效编辑：" + ex.Message;
+            return true;
+        }
+    }
+
+    private Task SaveCmSettingsSilentlyAsync()
+    {
+        var session = _cmSettingsPageSession;
+        if (_project == null || session?.GlobalDocument == null) return Task.CompletedTask;
+
+        CommitCmSettingsEditors();
+        var globalUpdates = CollectAllCmGlobalNumericUpdates(session);
+        var cmUpdate = BuildCmSettingsUpdate(session);
+        var cmChanges = _cmSettingsService.Preview(_project, cmUpdate);
+        var summaries = new List<string>();
+
+        if (!string.Equals(session.TitleBox.Text, session.GlobalDocument.GameTitle.Title, StringComparison.Ordinal))
+        {
+            var originalTitle = session.GlobalDocument.GameTitle.Title;
+            try
+            {
+                session.GlobalSettingsService.ValidateGameTitleUpdate(session.GlobalDocument.GameTitle, session.TitleBox.Text);
+                session.GlobalDocument.GameTitle.Title = session.TitleBox.Text;
+                var result = session.GlobalSettingsService.Save(
+                    _project,
+                    _tables,
+                    session.GlobalDocument,
+                    saveJobSeries: false,
+                    saveDetailedJobs: false,
+                    saveGameTitle: true);
+                summaries.Add(result.Summary);
+            }
+            catch
+            {
+                session.GlobalDocument.GameTitle.Title = originalTitle;
+                throw;
+            }
+        }
+
+        if (globalUpdates.Count > 0)
+        {
+            summaries.Add(session.GlobalSettingsService.SaveNumericSettings(_project, session.GlobalDocument, globalUpdates).Summary);
+        }
+        if (cmChanges.Count > 0) summaries.Add(_cmSettingsService.Save(_project, cmUpdate).Summary);
+
+        ReloadCmSettingsPage(showErrorMessage: false);
+        var status = summaries.Count == 0 ? "没有检测到需要保存的全局设定。" : string.Join("\r\n", summaries);
+        session.StatusBox.Text = status;
+        SetStatus(status);
+        return Task.CompletedTask;
     }
 
     private static TabPage CreateGlobalNumericPage(DataGridView grid, Action saveAction)
@@ -323,7 +467,7 @@ public sealed partial class MainForm
         return page;
     }
 
-    private static TabPage CreateGlobalTitlePage(TextBox titleBox, Label capacityLabel, Action saveAction)
+    private static TabPage CreateGlobalTitlePage(TextBox titleBox, Label capacityLabel, Action saveAction, out Button saveButton)
     {
         var page = new TabPage("游戏标题");
         var layout = new TableLayoutPanel
@@ -348,7 +492,7 @@ public sealed partial class MainForm
         layout.Controls.Add(titleBox, 0, 1);
         layout.Controls.Add(capacityLabel, 0, 2);
 
-        var saveButton = new Button { Text = "保存游戏标题", AutoSize = true };
+        saveButton = new Button { Text = "保存游戏标题", AutoSize = true };
         saveButton.Click += (_, _) => saveAction();
         layout.Controls.Add(saveButton, 0, 3);
 
@@ -504,7 +648,15 @@ public sealed partial class MainForm
         }
 
         var used = EncodingService.GetGbkByteCount(titleBox.Text);
-        label.Text = $"GBK {used}/{document.GameTitle.CapacityBytes} 字节";
+        if (!document.GameTitle.CanEdit)
+        {
+            label.Text = "游戏标题不可编辑：" + document.GameTitle.Diagnostic;
+            label.ForeColor = Color.Firebrick;
+            return;
+        }
+
+        label.Text = $"{document.GameTitle.EngineVersion} / {document.GameTitle.LayoutKey}    GBK {used}/{document.GameTitle.CapacityBytes} 字节    " +
+                     $"位置：{document.GameTitle.FileName}@{HexDisplayFormatter.FormatOffset(document.GameTitle.Offset)}";
         label.ForeColor = used <= document.GameTitle.CapacityBytes ? SystemColors.ControlText : Color.Firebrick;
     }
 

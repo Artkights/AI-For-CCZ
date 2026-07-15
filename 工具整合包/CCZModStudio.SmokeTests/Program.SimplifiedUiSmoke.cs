@@ -21,7 +21,23 @@ internal partial class Program
 
                 AssertDisplayedButton(form, "_openProjectButton", "打开项目目录");
                 AssertDisplayedButton(form, "_reloadButton", "重新读取");
+                AssertDisplayedButton(form, "_backupPathButton", "备份路径");
                 AssertDisplayedButton(form, "_usageGuideButton", "使用指南");
+
+                var reloadButton = GetSimplifiedUiPrivateField<Button>(form, "_reloadButton");
+                var backupPathButton = GetSimplifiedUiPrivateField<Button>(form, "_backupPathButton");
+                var usageGuideButton = GetSimplifiedUiPrivateField<Button>(form, "_usageGuideButton");
+                AssertSimplifiedUiTrue(
+                    ReferenceEquals(reloadButton.Parent, backupPathButton.Parent) &&
+                    ReferenceEquals(backupPathButton.Parent, usageGuideButton.Parent),
+                    "top toolbar buttons share a parent");
+                AssertSimplifiedUiTrue(
+                    reloadButton.Parent!.Controls.IndexOf(reloadButton) < reloadButton.Parent.Controls.IndexOf(backupPathButton) &&
+                    reloadButton.Parent.Controls.IndexOf(backupPathButton) < reloadButton.Parent.Controls.IndexOf(usageGuideButton),
+                    "backup path button is between reload and usage guide");
+                AssertSimplifiedUiTrue(
+                    reloadButton.Right <= backupPathButton.Left && backupPathButton.Right <= usageGuideButton.Left,
+                    "top toolbar buttons do not overlap");
 
                 foreach (var fieldName in new[]
                          {
@@ -70,6 +86,25 @@ internal partial class Program
                 }
 
                 var sourceRoot = ResolveSimplifiedUiSourceRoot();
+                var productionSourceRoot = Path.Combine(sourceRoot, "CCZModStudio");
+                var generatedDirectoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "bin", "obj", "_BuildCheck", "artifacts"
+                };
+                var legacyBackupLiteralHits = Directory.EnumerateFiles(productionSourceRoot, "*.cs", SearchOption.AllDirectories)
+                    .Where(path => !Path.GetRelativePath(productionSourceRoot, path)
+                        .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        .Any(generatedDirectoryNames.Contains))
+                    .Where(path => !path.EndsWith(
+                        Path.Combine("Core", "ProjectBackupPathService.cs"),
+                        StringComparison.OrdinalIgnoreCase))
+                    .Where(path => File.ReadAllText(path, Encoding.UTF8)
+                        .Contains("\"_CCZModStudio_Backups\"", StringComparison.Ordinal))
+                    .Select(path => Path.GetRelativePath(productionSourceRoot, path))
+                    .ToList();
+                AssertSimplifiedUiTrue(
+                    legacyBackupLiteralHits.Count == 0,
+                    "legacy backup directory literal is centralized; hits=" + string.Join(",", legacyBackupLiteralHits));
                 var eventsText = File.ReadAllText(Path.Combine(sourceRoot, "CCZModStudio", "MainForm.Events.cs"), Encoding.UTF8);
                 AssertSimplifiedUiContains(eventsText, "_openRoleEffectButton.Click += (_, _) => OpenJobEffectEditor();", "role effect button routes to job effect editor");
                 AssertSimplifiedUiTrue(!eventsText.Contains("_openRoleEffectButton.Click += (_, _) => OpenRolePersonalEffectTableEditor();", StringComparison.Ordinal), "role effect button no longer routes to old EXE table");
@@ -148,6 +183,39 @@ internal partial class Program
                  })
         {
             AssertSimplifiedUiTrue(!markdown.Contains(forbidden, StringComparison.Ordinal), "usage guide omits hidden entry " + forbidden);
+        }
+
+        foreach (var required in new[]
+                 {
+                     "批量导入兵种S",
+                     "像素编辑兵种S",
+                     "导出兵种S",
+                     "Job<ID>/FactionN",
+                     "Faction1",
+                     "Faction2",
+                     "Faction3",
+                     "mov.bmp=48x528",
+                     "atk.bmp=64x768",
+                     "spc.bmp=48x240"
+                 })
+        {
+            AssertSimplifiedUiContains(markdown, required, "usage guide contains job S contract " + required);
+            AssertSimplifiedUiContains(UsageGuideDialog.FallbackMarkdown, required, "fallback guide contains job S contract " + required);
+        }
+
+        foreach (var required in new[]
+                 {
+                     "普罗工具整合包.exe",
+                     "同目录的",
+                     "log",
+                     "exceptions.jsonl",
+                     "cache",
+                     "cache\\ImagePreview\\v1",
+                     "不会回退到 C 盘"
+                 })
+        {
+            AssertSimplifiedUiContains(markdown, required, "usage guide contains portable storage contract " + required);
+            AssertSimplifiedUiContains(UsageGuideDialog.FallbackMarkdown, required, "fallback guide contains portable storage contract " + required);
         }
 
         Console.WriteLine("USAGE_GUIDE_DOC_SMOKE_OK sections=" + sections.Count);

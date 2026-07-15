@@ -13,10 +13,29 @@ public sealed class EffectPackage
     public int? EffectValue { get; set; }
     public List<EffectPackageBinding> Bindings { get; set; } = [];
     public List<EffectPatchSegment> PatchSegments { get; set; } = [];
+    public EffectWriteAuthorization? WriteAuthorization { get; set; }
     public List<string> SourceLinks { get; set; } = [];
     public string SourcePrompt { get; set; } = string.Empty;
     public string BackupNote { get; set; } = string.Empty;
     public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>
+/// 预览完成后由当前进程签发的短期写入凭据。凭据本身随包返回，
+/// 但可用状态只保存在签发它的进程内，因此不能通过修改 JSON 伪造。
+/// </summary>
+public sealed class LockedEffectWriteReceipt
+{
+    public string ReceiptId { get; set; } = string.Empty;
+    public string Nonce { get; set; } = string.Empty;
+    public string OperationKind { get; set; } = string.Empty;
+    public string ProjectId { get; set; } = string.Empty;
+    public string GameRoot { get; set; } = string.Empty;
+    public string ExeSha256 { get; set; } = string.Empty;
+    public string PackageHash { get; set; } = string.Empty;
+    public string ProcessInstanceId { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
 }
 
 public sealed class EffectPackageBinding
@@ -34,6 +53,7 @@ public sealed class EffectPackageBinding
     public int? EffectValue { get; set; }
     public Dictionary<string, int> Values { get; set; } = new(StringComparer.Ordinal);
     public string Note { get; set; } = string.Empty;
+    public bool Remove { get; set; }
 }
 
 public sealed class EffectPatchSegment
@@ -50,6 +70,13 @@ public sealed class EffectPatchSegment
     public string AllocatedRange { get; set; } = string.Empty;
     public string EngineProfileSha256 { get; set; } = string.Empty;
     public string Comment { get; set; } = string.Empty;
+    public string SemanticFieldId { get; set; } = string.Empty;
+    public string ModificationKind { get; set; } = string.Empty;
+    public string SourceLocationId { get; set; } = string.Empty;
+    public string RequiredCapability { get; set; } = string.Empty;
+    public string ContractId { get; set; } = string.Empty;
+    public string ContractHash { get; set; } = string.Empty;
+    public string ContractCodeIdentityHash { get; set; } = string.Empty;
 }
 
 public sealed class EffectCatalogEntry
@@ -108,6 +135,7 @@ public sealed class EffectManifest
     public string ManifestId { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public string ProjectRoot { get; set; } = string.Empty;
+    public ProjectPatchIdentity? ProjectIdentity { get; set; }
     public string Mode { get; set; } = string.Empty;
     public string Domain { get; set; } = string.Empty;
     public int EffectId { get; set; }
@@ -120,6 +148,8 @@ public sealed class EffectManifest
     public List<string> BackupPaths { get; set; } = [];
     public List<string> ReportPaths { get; set; } = [];
     public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public string SignatureAlgorithm { get; set; } = "HMAC-SHA256-DPAPI-CurrentUser";
+    public string Signature { get; set; } = string.Empty;
 }
 
 public sealed class EffectManifestBackup
@@ -162,6 +192,8 @@ public sealed class EffectPatchPreviewResult
     public string Summary { get; set; } = string.Empty;
     public List<string> Warnings { get; set; } = [];
     public List<EffectPackageChangePreview> Segments { get; set; } = [];
+    public EffectWriteAuthorization? WriteAuthorization { get; set; }
+    public List<EffectWriteDecision> WriteDecisions { get; set; } = [];
 }
 
 public sealed class EffectPackageToolRequest

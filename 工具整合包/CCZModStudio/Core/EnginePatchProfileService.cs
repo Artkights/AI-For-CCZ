@@ -43,9 +43,14 @@ public sealed class EnginePatchProfileService
             publicFunctions["core_effect_engine"] = "0x004101D9";
             publicFunctions["clear_unit_flag"] = "0x00406690";
             publicFunctions["effect_stub_dispatch"] = "0x00421175";
-            publicFunctions["battlefield_id_to_unit"] = "0x004061F9";
-            runtimeAddresses["unit_array_base"] = "0x004A7B20";
-            runtimeAddresses["battle_context_base"] = "0x004927F0";
+            publicFunctions["battlefield_id_to_unit"] = $"0x{EngineRuntimeSemanticRegistry.BattlefieldIdToTacticalUnitAddress:X8}";
+            publicFunctions["data_id_to_runtime_character"] = $"0x{EngineRuntimeSemanticRegistry.DataIdToRuntimeCharacterAddress:X8}";
+            publicFunctions["tactical_unit_to_runtime_character"] = $"0x{EngineRuntimeSemanticRegistry.TacticalUnitToRuntimeCharacterAddress:X8}";
+            publicFunctions["strategy_id_to_record"] = $"0x{EngineRuntimeSemanticRegistry.StrategyIdToRecordAddress:X8}";
+            runtimeAddresses["unit_array_base"] = $"0x{EngineRuntimeSemanticRegistry.TacticalUnitArrayAddress:X8}";
+            runtimeAddresses["battle_context_base"] = $"0x{EngineRuntimeSemanticRegistry.PhysicalAttackContextAddress:X8}";
+            runtimeAddresses["strategy_context_base"] = $"0x{EngineRuntimeSemanticRegistry.StrategyContextAddress:X8}";
+            runtimeAddresses["item_context_base"] = $"0x{EngineRuntimeSemanticRegistry.ItemContextAddress:X8}";
             runtimeAddresses["second_action_state"] = "0x00508B00";
             reserved.AddRange(BuildKnown65ReservedRanges());
             foreach (var spec in BuildKnown65SpecialSkillHookSpecs())
@@ -156,10 +161,10 @@ public sealed class EnginePatchProfileService
             HookAddress = 0x00418335,
             OverwriteLength = 5,
             Mode = "post-damage",
-            SafetyLevel = "manual-review-template",
-            AllowAutoPreview = false,
-            UnitPointerSource = "dword [ebp-04]",
-            DamageSlot = "physical-damage-current",
+            SafetyLevel = "sandbox-chain-template",
+            AllowAutoPreview = true,
+            UnitPointerSource = "path(dword [ebp+08])->dword [+0C]",
+            DamageSlot = "current-mp",
             ConflictGroup = "physical-after-damage",
             RequiredCodeCaveBytes = 192,
             DynamicValidationPlan =

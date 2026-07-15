@@ -19,6 +19,7 @@ public sealed class HexzmapBlockInfo
     public int MapPixelWidth { get; init; }
     public int MapPixelHeight { get; init; }
     public bool CanEdit { get; init; }
+    public HexzmapBlockBinding? Binding { get; init; }
     public int Width { get; init; }
     public int Height { get; init; }
     public int BytesRead { get; init; }

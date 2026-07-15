@@ -202,6 +202,30 @@ internal partial class Program
         };
 
         var compiler = new AssemblyPatchCompiler();
+        var realInstructionHook = 0x004101D9u;
+        var realInstructionOffset = mapper.VirtualAddressToFileOffset(realInstructionHook);
+        var realInstructionBytes = exeBytes.Skip(checked((int)realInstructionOffset)).Take(5).ToArray();
+        var unsafeDraft = new AssemblyPatchDraft
+        {
+            Prompt = "Smoke: non-padding hook without a contract must be rejected.",
+            TargetFile = "Ekd5.exe",
+            EngineVersion = "6.5",
+            EffectId = 65004,
+            HookPoint = "unsafe-no-contract",
+            HookAddress = realInstructionHook,
+            OverwriteLength = 5,
+            ExpectedOldBytesHex = BitConverter.ToString(realInstructionBytes).Replace("-", " "),
+            ReturnAddress = realInstructionHook + 5,
+            RequiredCodeCaveBytes = 16,
+            AssemblySource = "nop\njmp {return}"
+        };
+        var unsafePreview = compiler.Preview(testProject, unsafeDraft);
+        if (unsafePreview.CanApply ||
+            unsafePreview.HookSafety.Warnings.All(warning => !warning.Contains("HookContract", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Non-padding hook without HookContract was not rejected.");
+        }
+
         var agentDraft = compiler.Draft(testProject, "生成一个回MP攻击补丁草案，只生成草案不要写入", "6.5", 65003, null);
         if (agentDraft.HookPoint != "physical_after_damage_mp_restore" ||
             agentDraft.HookAddress == 0 ||
@@ -264,7 +288,7 @@ internal partial class Program
             personalEffectId: 0xB0,
             itemEffectId: 0x00,
             mode: "damage-adjust");
-        if (!specialDraft.AllowPreview ||
+        if (specialDraft.AllowPreview ||
             specialDraft.LogicalPatch.HookJump.HookPoint.Length == 0 ||
             specialDraft.ParameterEncodingPolicy != "auto-wide" ||
             specialDraft.Metadata.GetValueOrDefault("LogicalPatchKind") != "inline-special-skill")
@@ -273,16 +297,12 @@ internal partial class Program
         }
 
         var specialPreview = specialService.Preview(testProject, specialDraft, "smallest-fit");
-        if (!specialPreview.CanApply ||
-            specialPreview.Package.PatchSegments.Count != 2 ||
-            specialPreview.LogicalPatch.PersonalEffectPatchPoint.ValueAddress == 0 ||
-            specialPreview.LogicalPatch.ItemEffectPatchPoint.ValueAddress == 0 ||
-            specialPreview.Package.Metadata.GetValueOrDefault("LogicalPatchKind") != "inline-special-skill" ||
-            !specialPreview.Package.Metadata.ContainsKey("LogicalModulesJson") ||
-            !specialPreview.Package.Metadata.ContainsKey("ParameterPatchPointsJson") ||
-            specialPreview.Package.PatchSegments.Any(segment => segment.Comment.Contains("effect id rebind", StringComparison.OrdinalIgnoreCase)))
+        if (specialPreview.CanApply || specialPreview.Warnings.All(item =>
+                !item.Contains("动态", StringComparison.Ordinal) &&
+                !item.Contains("人工", StringComparison.Ordinal) &&
+                !item.Contains("契约", StringComparison.Ordinal)))
         {
-            throw new InvalidOperationException("Special-skill preview did not produce a valid non-overlapping four-module patch package: " + string.Join("; ", specialPreview.Warnings));
+            throw new InvalidOperationException("Static-only strategy NOP hook was not blocked by the execution-contract gate: " + string.Join("; ", specialPreview.Warnings));
         }
 
         var badPackage = ClonePatchPackage(preview.Package);

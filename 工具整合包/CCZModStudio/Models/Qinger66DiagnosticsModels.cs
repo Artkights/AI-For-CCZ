@@ -15,6 +15,7 @@ public sealed class Qinger66Diagnostics
     public bool IsCrossVersionFallback { get; init; }
     public Qinger66TableStatusSummary TableStatusSummary { get; init; } = new();
     public Qinger66ItemAuditSummary ItemAuditSummary { get; init; } = new();
+    public object? QuoteLayout { get; init; }
     public IReadOnlyList<Qinger66TableDiagnostic> Tables { get; init; } = Array.Empty<Qinger66TableDiagnostic>();
     public IReadOnlyList<Qinger66ResourceDiagnostic> RequiredResources { get; init; } = Array.Empty<Qinger66ResourceDiagnostic>();
     public IReadOnlyList<Qinger66ResourceDiagnostic> ObsoleteRuntimeFiles { get; init; } = Array.Empty<Qinger66ResourceDiagnostic>();

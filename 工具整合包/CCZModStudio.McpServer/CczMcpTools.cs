@@ -1825,7 +1825,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ApplyScenarioPatchAggressive(game_root, patch, write_mode);
 
     [McpServerTool]
-    [Description("List declarative effect templates for AI-assisted EffectPackage creation.")]
+    [Description("List declarative effect templates for local-agent EffectPackage creation.")]
     public object list_effect_templates()
         => runtime.ListEffectTemplates();
 
@@ -1863,7 +1863,460 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ScanExeCodeCaves(game_root, target_file, min_length, include_zero, include_mixed);
 
     [McpServerTool]
-    [Description("Create a structured assembly patch draft from a natural-language request. Draft-only; does not compile or write.")]
+    [Description("扫描并聚合当前 EXE 的已注入特技和原生特技桩。只读。")]
+    public object scan_installed_effects(
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.ScanInstalledEffects(game_root, target_file);
+
+    [McpServerTool]
+    [Description("读取一个聚合后的逻辑特技实例及其参数语义。只读。")]
+    public object read_effect_instance(
+        [Description("Instance id returned by scan_installed_effects.")] string instance_id,
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.ReadEffectInstance(game_root, instance_id, target_file);
+
+    [McpServerTool]
+    [Description("扫描逻辑特效号在 EXE、原生表、注入补丁和复合参数块中的全部物理位置。只读。")]
+    public object scan_effect_id_locations(
+        [Description("是否包含仅供研究的未解析来源。默认否。")] bool include_diagnostics = false,
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.ScanEffectIdLocations(game_root, target_file, include_diagnostics);
+
+    [McpServerTool]
+    [Description("按稳定位置编号读取精确地址、编码、定义链和写入能力。只读。")]
+    public object read_effect_id_location(
+        [Description("Location id returned by scan_effect_id_locations.")] string location_id,
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.ReadEffectIdLocation(game_root, location_id, target_file);
+
+    [McpServerTool]
+    [Description("预览修改一个已确认特效号物理位置；返回锁定包，不写文件。")]
+    public object preview_effect_id_update(
+        [Description("Stable location id and new numeric value.")] EffectIdUpdateRequest request,
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.PreviewEffectIdUpdate(game_root, request, target_file);
+
+    [McpServerTool]
+    [Description("应用 preview_effect_id_update 返回的宽参数适配器锁定包；普通原位包仍使用 apply_effect_patch。")]
+    public object apply_effect_parameter_adapter(
+        [Description("Locked adapter package returned by preview_effect_id_update.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyEffectParameterAdapter(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("读取当前 EXE SHA 绑定的特效执行契约、上下文槽位和动态验证状态。只读。")]
+    public object read_hook_execution_contract(
+        [Description("Hook execution contract id.")] string contract_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadHookExecutionContract(game_root, contract_id);
+
+    [McpServerTool]
+    [Description("为执行契约生成 GameDebug/x32dbg 动态证据采集计划。只读，不启动游戏。")]
+    public object create_effect_contract_probe_plan(
+        [Description("Hook execution contract id.")] string contract_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.CreateEffectContractProbePlan(game_root, contract_id);
+
+    [McpServerTool]
+    [Description("导入当前 SHA 的动态契约证据；证据不完整或 SHA 不同不会提升写入能力。")]
+    public object import_effect_contract_evidence(
+        [Description("Structured dynamic evidence captured by GameDebug MCP or x32dbg.")] EffectContractEvidence evidence,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ImportEffectContractEvidence(game_root, evidence);
+
+    [McpServerTool]
+    [Description("导入 GameDebug 签发的可信特效证据包；结构化字段不能替代原始文件、当前进程和用户签名。")]
+    public object import_effect_evidence_bundle(
+        [Description("EffectEvidenceBundleV1 returned by GameDebug finalization.")] EffectEvidenceBundleV1 bundle,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ImportEffectEvidenceBundle(game_root, bundle);
+
+    [McpServerTool]
+    [Description("审计当前 Ekd5.exe 的完整 SHA、规范档案身份、登记字段差异、未知差异和最终信任结论。只读。")]
+    public object audit_effect_executable_profile(
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.AuditEffectExecutableProfile(game_root);
+
+    [McpServerTool]
+    [Description("解释特效调用的 ECX 来源、结构化栈槽、底层指针类型和关系语义候选。只读。")]
+    public object explain_effect_context(
+        [Description("Optional execution contract id.")] string? contract_id = null,
+        [Description("Optional direct call address to 004101D9.")] uint? call_address = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ExplainEffectContext(game_root, contract_id, call_address);
+
+    [McpServerTool]
+    [Description("导入 GameDebug 签发的可信特效证据包 v2；必须匹配档案、完整 SHA、代码身份和契约摘要。")]
+    public object import_effect_evidence_bundle_v2(
+        [Description("EffectEvidenceBundleV2 returned by GameDebug finalization.")] EffectEvidenceBundleV2 bundle,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ImportEffectEvidenceBundleV2(game_root, bundle);
+
+    [McpServerTool]
+    [Description("导入 GameDebug 签发的 V3 证据；必须匹配签名沙箱、代码身份、边界、关系语义和探针恢复。")]
+    public object import_effect_evidence_bundle_v3(
+        EffectEvidenceBundleV3 bundle,
+        [Description("Optional original game root.")] string? game_root = null)
+        => runtime.ImportEffectEvidenceBundleV3(game_root, bundle);
+
+    [McpServerTool]
+    [Description("读取所有特效字段和行为的统一读写权限矩阵。只读。")]
+    public object read_effect_write_matrix(
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadEffectWriteMatrix(game_root);
+
+    [McpServerTool]
+    [Description("审计未知 6.5 EXE，并创建带用户签名的独立验证副本和入库计划；原项目不写入。")]
+    public object prepare_effect_profile_onboarding(
+        [Description("Optional original game root.")] string? game_root = null)
+        => runtime.PrepareEffectProfileOnboarding(game_root);
+
+    [McpServerTool]
+    [Description("用验证副本的完整 V3 证据签发本机 LocalVerified 6.5 档案。")]
+    public object run_effect_profile_onboarding(
+        string sandbox_root,
+        IReadOnlyList<EffectEvidenceBundleV3> evidence,
+        [Description("Optional original game root.")] string? game_root = null)
+        => runtime.RunEffectProfileOnboarding(game_root, sandbox_root, evidence);
+
+    [McpServerTool]
+    [Description("统一预览任意已声明语义的特效补丁包，返回逐段授权和一次性锁定包，不写文件。")]
+    public object preview_effect_write_v2(
+        EffectPackage package,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewEffectWriteV2(game_root, package);
+
+    [McpServerTool]
+    [Description("只应用 preview_effect_write_v2 返回且在当前磁盘身份下仍有效的一次性授权包。")]
+    public object apply_effect_write_v2(
+        EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyEffectWriteV2(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("把受约束语义程序编译为中文说明和受控汇编；未验证契约只返回诊断。")]
+    public object compile_semantic_effect(
+        [Description("SemanticEffectProgram JSON object.")] SemanticEffectProgram program,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.CompileSemanticEffect(game_root, program);
+
+    [McpServerTool]
+    [Description("列出触发时机、判定对象、作用目标、条件、效果、数值、绑定和安全模块。只读。")]
+    public object list_effect_modules(
+        [Description("Optional module kind filter.")] string? kind = null,
+        [Description("Only return modules currently available for authoring.")] bool authoring_only = false,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ListEffectModules(game_root, kind, authoring_only);
+
+    [McpServerTool]
+    [Description("读取一个类型化特效模块的输入、输出、契约和值域。只读。")]
+    public object read_effect_module(
+        [Description("Module id returned by list_effect_modules.")] string module_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadEffectModule(game_root, module_id);
+
+    [McpServerTool]
+    [Description("验证模块化复合特效蓝图的配方、上下文、值域和冲突，不写文件。")]
+    public object validate_effect_blueprint(
+        [Description("ModularCompositeEffectBlueprint JSON object.")] ModularCompositeEffectBlueprint blueprint,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ValidateEffectBlueprint(game_root, blueprint);
+
+    [McpServerTool]
+    [Description("将验证通过的模块化复合蓝图编译为锁定预览包，不写文件。")]
+    public object preview_modular_effect(
+        [Description("ModularCompositeEffectBlueprint JSON object.")] ModularCompositeEffectBlueprint blueprint,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewModularEffect(game_root, blueprint);
+
+    [McpServerTool]
+    [Description("应用 preview_modular_effect 返回的锁定模块化复合特效包。")]
+    public object apply_modular_effect(
+        [Description("Locked EffectPackage returned by preview_modular_effect.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyModularEffect(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("读取已安装模块化语义特效、共享调度器引用和当前完整性。")]
+    public object read_modular_effect(string manifest_id, string? game_root = null)
+        => runtime.ReadModularEffect(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("预览修改已安装的模块化复合特效；当前兼容 CCZE 复合 manifest，语义调度 manifest 未安装时不会混用。")]
+    public object preview_update_modular_effect(
+        [Description("ModularEffectMaintenanceDraft for an installed modular semantic effect.")] ModularEffectMaintenanceDraft draft,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewUpdateModularEffect(game_root, draft);
+
+    [McpServerTool]
+    [Description("应用 preview_update_modular_effect 返回的锁定事务包。")]
+    public object apply_update_modular_effect(
+        [Description("Locked EffectPackage returned by preview.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyModularMaintenance(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("预览停用或启用已安装的模块化复合特效。")]
+    public object preview_toggle_modular_effect(
+        [Description("Installed modular/composite manifest id.")] string manifest_id,
+        [Description("True enables; false disables.")] bool enable,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewToggleModularEffect(game_root, manifest_id, enable);
+
+    [McpServerTool]
+    [Description("应用 preview_toggle_modular_effect 返回的锁定事务包。")]
+    public object apply_toggle_modular_effect(
+        [Description("Locked EffectPackage returned by preview.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyModularMaintenance(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("预览修复已安装模块化语义特效；只恢复仍等于安装前字节的锁定位置。")]
+    public object preview_repair_modular_effect(string manifest_id, string? game_root = null)
+        => runtime.PreviewRepairModularEffect(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("应用 preview_repair_modular_effect 返回的一次性锁定事务包。")]
+    public object apply_repair_modular_effect(
+        [Description("Locked EffectPackage returned by preview_repair_modular_effect.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyModularMaintenance(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("预览完整移除已安装的模块化复合特效。")]
+    public object preview_remove_modular_effect(
+        [Description("Installed modular/composite manifest id.")] string manifest_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewRemoveModularEffect(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("应用 preview_remove_modular_effect 返回的一次性锁定事务包。")]
+    public object apply_remove_modular_effect(
+        [Description("Locked EffectPackage returned by preview_remove_modular_effect.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyModularMaintenance(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("解释一个 EXE 虚拟地址的 PE 映射、x86 指令、寄存器/内存访问和已知语义。只读。")]
+    public object explain_exe_address(
+        [Description("32-bit virtual address, for example 0x004101D9.")] uint address,
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.ExplainExeAddress(game_root, address, target_file);
+
+    [McpServerTool]
+    [Description("按关键词、阶段或 Hook 契约读取受字符预算限制的本地 agent 特效生成上下文。只读。")]
+    public object read_effect_generation_context(
+        [Description("Optional effect name or meaning keyword.")] string? keyword = null,
+        [Description("Optional trigger phase filter.")] string? phase = null,
+        [Description("Optional parameter semantic kind filter.")] string? semantic_kind = null,
+        [Description("Optional HookContract id.")] string? hook_contract_id = null,
+        [Description("Maximum context characters; clamped to 2000..12000.")] int character_budget = 12000,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadEffectGenerationContext(game_root, keyword, phase, semantic_kind, hook_contract_id, character_budget);
+
+    [McpServerTool]
+    [Description("预览修改已扫描特技的安全参数位，返回可交给 apply_effect_patch 的 patch 包，不写文件。")]
+    public object preview_effect_parameter_update(
+        [Description("Logical instance id and slot value updates.")] EffectParameterUpdateRequest request,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewEffectParameterUpdate(game_root, request);
+
+    [McpServerTool]
+    [Description("读取当前 EXE 的特效核心函数、调用约定、消费者语义和复合身份契约。只读。")]
+    public object read_engine_effect_mechanism(
+        [Description("Optional game root.")] string? game_root = null,
+        [Description("Target executable. Defaults to Ekd5.exe.")] string? target_file = "Ekd5.exe")
+        => runtime.ReadEngineEffectMechanism(game_root, target_file);
+
+    [McpServerTool]
+    [Description("按中文关键词和兼容类型查找可加入复合特效的成员。只读。")]
+    public object search_compatible_effect_members(
+        [Description("Optional Chinese name or meaning keyword.")] string? keyword = null,
+        [Description("DirectCoreCall, VerifiedWrapper, VerifiedComplexFamily or Unsupported.")] string? compatibility_kind = null,
+        [Description("Maximum rows, 1..500.")] int limit = 100,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.SearchCompatibleEffectMembers(game_root, keyword, compatibility_kind, limit);
+
+    [McpServerTool]
+    [Description("读取当前 EXE 身份下的包装函数写入契约。只读。")]
+    public object read_wrapper_contract(
+        [Description("Wrapper contract id.")] string contract_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadWrapperContract(game_root, contract_id);
+
+    [McpServerTool]
+    [Description("读取复杂多入口特效的补丁家族契约。只读。")]
+    public object read_complex_effect_family_contract(
+        [Description("Complex family contract id.")] string contract_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadComplexEffectFamilyContract(game_root, contract_id);
+
+    [McpServerTool]
+    [Description("读取一个人物/兵种或宝物原生特效的名称、说明、绑定和桩参数。只读。")]
+    public object read_native_effect_definition(
+        [Description("PersonalJob or Item.")] string channel,
+        [Description("Effect id, 0..255.")] int effect_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadNativeEffectDefinition(game_root, channel, effect_id);
+
+    [McpServerTool]
+    [Description("预览原生特效名称、说明或已验证桩参数修改，不写文件。")]
+    public object preview_native_effect_update(
+        [Description("NativeEffectEditDraft JSON object.")] NativeEffectEditDraft draft,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewNativeEffectUpdate(game_root, draft);
+
+    [McpServerTool]
+    [Description("为突破原生三个武将和一个兵种槽位生成当前 SHA 的动态读断点计划。只读，不修改游戏。")]
+    public object create_extended_binding_probe_plan(
+        [Description("Personal/job effect id, 0..254.")] int effect_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.CreateExtendedBindingProbePlan(game_root, effect_id);
+
+    [McpServerTool]
+    [Description("导入 GameDebug/x32dbg 采集的扩展绑定结构化证据；证据不足或 SHA 不同不会开放写入。")]
+    public object import_extended_binding_evidence(
+        [Description("ExtendedBindingEvidence JSON object.")] ExtendedBindingEvidence evidence,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ImportExtendedBindingEvidence(game_root, evidence);
+
+    [McpServerTool]
+    [Description("应用 preview_native_effect_update 返回的锁定事务包。")]
+    public object apply_native_effect_update(
+        [Description("EffectPackage returned by preview_native_effect_update.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyNativeEffectUpdate(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("查找未被名称、绑定、桩、注入实现或复合 manifest 占用的真实特效编号。只读。")]
+    public object find_free_effect_ids(
+        [Description("PersonalJob or Item.")] string channel,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.FindFreeEffectIds(game_root, channel);
+
+    [McpServerTool]
+    [Description("创建占用真实新编号的 CompositeEffectDraft。只生成草案。")]
+    public object draft_composite_effect(
+        [Description("PersonalJob or Item.")] string channel,
+        [Description("Chinese composite effect name.")] string name,
+        [Description("Chinese description.")] string description,
+        [Description("Logical member instance ids from scan_installed_effects.")] IReadOnlyList<string> member_instance_ids,
+        [Description("Optional free effect id; omit to choose the first free id.")] int? effect_id = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.DraftCompositeEffect(game_root, channel, effect_id, name, description, member_instance_ids);
+
+    [McpServerTool]
+    [Description("验证复合编号、成员直接调用、代码洞、参数块、名称池和旧字节锁，不写文件。")]
+    public object preview_composite_effect(
+        [Description("CompositeEffectDraft JSON object.")] CompositeEffectDraft draft,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewCompositeEffect(game_root, draft);
+
+    [McpServerTool]
+    [Description("按项目身份、编号、成员、代码洞、名称容量和事务锁执行完整复合特效预检，不写文件。")]
+    public object preflight_composite_effect(
+        [Description("CompositeEffectDraft JSON object.")] CompositeEffectDraft draft,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreflightCompositeEffect(game_root, draft);
+
+    [McpServerTool]
+    [Description("读取当前特效 Core/MCP 版本、schema、项目身份和可用写入端点。只读。")]
+    public object read_effect_capabilities(
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadEffectCapabilities(game_root);
+
+    [McpServerTool]
+    [Description("注入 preview_composite_effect 返回的锁定复合事务包。")]
+    public object apply_composite_effect(
+        [Description("EffectPackage returned by preview_composite_effect.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyCompositeEffect(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("读取已安装复合特效的成员、参数块、适配器和备份记录。只读。")]
+    public object read_composite_effect(
+        [Description("Composite manifest id or composite id.")] string manifest_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ReadCompositeEffect(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("预览修改已安装复合特效的中文定义、成员数值或绑定，不写文件。")]
+    public object preview_update_composite_effect(
+        [Description("CompositeEffectMaintenanceDraft JSON object.")] CompositeEffectMaintenanceDraft draft,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewUpdateCompositeEffect(game_root, draft);
+
+    [McpServerTool]
+    [Description("应用 preview_update_composite_effect 返回的锁定事务包。")]
+    public object apply_update_composite_effect(
+        [Description("Locked EffectPackage returned by preview.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyUpdateCompositeEffect(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("预览停用或重新启用已安装复合特效，只切换成员入口。")]
+    public object preview_toggle_composite_effect(
+        [Description("Composite manifest id or composite id.")] string manifest_id,
+        [Description("True enables; false disables.")] bool enable,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewToggleCompositeEffect(game_root, manifest_id, enable);
+
+    [McpServerTool]
+    [Description("应用 preview_toggle_composite_effect 返回的锁定事务包。")]
+    public object apply_toggle_composite_effect(
+        [Description("Locked EffectPackage returned by preview.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyToggleCompositeEffect(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("预览修复被还原为安装前字节的复合特效位置；外部改写会被阻断。")]
+    public object preview_repair_composite_effect(
+        [Description("Composite manifest id or composite id.")] string manifest_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewRepairCompositeEffect(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("应用 preview_repair_composite_effect 返回的锁定修复事务包。")]
+    public object apply_repair_composite_effect(
+        [Description("Locked EffectPackage returned by preview.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.ApplyRepairCompositeEffect(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("预览完整移除复合特效，只有当前字节与 manifest 一致时才返回恢复包。")]
+    public object preview_remove_composite_effect(
+        [Description("Composite manifest id or composite id.")] string manifest_id,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.PreviewRemoveCompositeEffect(game_root, manifest_id);
+
+    [McpServerTool]
+    [Description("应用 preview_remove_composite_effect 返回的恢复包。")]
+    public object remove_composite_effect(
+        [Description("EffectPackage returned by preview_remove_composite_effect.")] EffectPackage package,
+        [Description("Default direct writes the detected project.")] string? write_mode = null,
+        [Description("Optional game root.")] string? game_root = null)
+        => runtime.RemoveCompositeEffect(game_root, package, write_mode);
+
+    [McpServerTool]
+    [Description("Create a seed AssemblyPatchDraft from a request. Draft-only; local agents should fill reviewed hook fields and assembly before preview.")]
     public object draft_assembly_patch(
         [Description("Natural-language patch request.")]
         string prompt,
@@ -1965,7 +2418,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ApplyEffectPatch(game_root, package, write_mode);
 
     [McpServerTool]
-    [Description("Read effect pseudo-resources such as ccz://effects/schema, ccz://effects/catalog/item, ccz://effects/templates, ccz://effects/manifests, and ccz://knowledge/effects.")]
+    [Description("Read effect pseudo-resources such as ccz://effects/schema, ccz://effects/catalog/item, ccz://effects/templates, ccz://effects/manifests, ccz://knowledge/effects, and ccz://knowledge/effects/agent-special-effect.")]
     public object read_effect_resource(
         [Description("Effect resource URI.")]
         string uri,
@@ -1974,7 +2427,7 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ReadEffectResource(game_root, uri);
 
     [McpServerTool]
-    [Description("Read AI prompt instructions for make_ccz_effect, import_ccz_effect, or delete_ccz_effect.")]
+    [Description("Read local-agent prompt instructions for make_ccz_effect, import_ccz_effect, or delete_ccz_effect.")]
     public object read_effect_prompt(
         [Description("Prompt name, or empty to list prompts.")]
         string name = "")
@@ -2011,9 +2464,29 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.PublishMapCanvasToMapImage(game_root, draft_id, map_id, write_mode);
 
     [McpServerTool]
-    [Description("Publish a map workbench draft as both Map/Mxxx.jpg and the matching Hexzmap.e5 terrain block with backups and reports.")]
-    public object publish_map_workbench_bundle(string draft_id, string? map_id = null, string? game_root = null)
-        => runtime.PublishMapWorkbenchBundle(game_root, draft_id, map_id);
+    [Description("List the combined Map JPG and Hexzmap slot catalog, including incomplete or unsupported slots. Read-only.")]
+    public object list_map_slots(string? game_root = null)
+        => runtime.ListMapSlots(game_root);
+
+    [McpServerTool]
+    [Description("Preview publishing a map draft over an existing complete slot or at the Hexzmap directory end. Generates final JPG/Hexzmap in memory only.")]
+    public object preview_map_slot_publish(string draft_id, string? map_id = null, string? game_root = null, bool append_new = false, bool allow_resize = false, bool confirm_destructive_crop = false, string? expected_target_hash = null, string? expected_hexzmap_hash = null)
+        => runtime.PreviewMapSlotPublish(game_root, draft_id, map_id, append_new, allow_resize, confirm_destructive_crop, expected_target_hash, expected_hexzmap_hash);
+
+    [McpServerTool]
+    [Description("Apply one transactional map-slot publish plan. Overwrite is default; append_new allocates the next Hexzmap directory index and never fills gaps.")]
+    public object apply_map_slot_publish(string draft_id, string? map_id = null, string? game_root = null, bool append_new = false, bool allow_resize = false, bool confirm_destructive_crop = false, string? expected_target_hash = null, string? expected_hexzmap_hash = null, string? write_mode = null)
+        => runtime.ApplyMapSlotPublish(game_root, draft_id, map_id, append_new, allow_resize, confirm_destructive_crop, expected_target_hash, expected_hexzmap_hash, write_mode);
+
+    [McpServerTool]
+    [Description("Preview a top-left-anchored map draft resize and report removed layer/scenery counts. Read-only.")]
+    public object preview_map_resize(string draft_id, int new_width, int new_height, string? game_root = null, int terrain_fill_id = 0)
+        => runtime.PreviewMapResize(game_root, draft_id, new_width, new_height, terrain_fill_id);
+
+    [McpServerTool]
+    [Description("Publish a map workbench draft as Map/Mxxx.JPG plus its Hexzmap terrain block in one rollback-capable transaction. Defaults to overwrite; set append_new=true to append.")]
+    public object publish_map_workbench_bundle(string draft_id, string? map_id = null, string? game_root = null, bool append_new = false, bool allow_resize = false, bool confirm_destructive_crop = false, string? write_mode = null)
+        => runtime.PublishMapWorkbenchBundle(game_root, draft_id, map_id, append_new, allow_resize, confirm_destructive_crop, write_mode);
 
     [McpServerTool]
     [Description("List indexed terrain/building/scenery material assets. Read-only.")]

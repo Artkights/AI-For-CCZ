@@ -184,7 +184,7 @@ public sealed class AbilityTierPatchService
         }
 
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups", "AbilityTier");
+        var backupRoot = Path.Combine(ProjectBackupPathService.EnsureBackupRootWritable(project), "AbilityTier");
         Directory.CreateDirectory(backupRoot);
         var backupPath = Path.Combine(backupRoot, $"{stamp}_Ekd5.exe.bak");
         File.Copy(exePath, backupPath, overwrite: false);

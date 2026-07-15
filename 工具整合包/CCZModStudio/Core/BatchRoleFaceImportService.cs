@@ -399,7 +399,7 @@ public sealed class BatchRoleFaceImportService
 
     private static string WriteAggregateReport(CczProject project, BatchRoleFaceImportResult result)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchRoleFaceImportReport.json");

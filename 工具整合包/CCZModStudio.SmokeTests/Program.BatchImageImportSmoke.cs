@@ -414,24 +414,137 @@ internal partial class Program
             return;
         }
 
-        var materialRoot = Path.Combine(smokeRoot, "_BatchJobSMaterials");
-        CreateBatchSFolder(materialRoot, "Job0", Color.FromArgb(255, 220, 80, 40), Color.FromArgb(255, 40, 150, 220));
-        CreateBatchSFolder(materialRoot, "Job1", Color.FromArgb(255, 90, 180, 60), Color.FromArgb(255, 220, 180, 40));
+        var materialRoot = Path.Combine(smokeRoot, "_BatchJobSCanonicalMaterials");
+        var exportResult = new BmpImageExportService().Export(testProject, new BmpExportRequest
+        {
+            Kind = BmpExportKind.JobSImage,
+            OutputRoot = materialRoot,
+            SingleMode = false,
+            FactionSlots = new[] { 1, 3 },
+            Targets = new[]
+            {
+                new BmpExportTarget { RowId = 0, DisplayName = "Job0", FieldValue = 0, JobId = 0 },
+                new BmpExportTarget { RowId = 1, DisplayName = "Job1", FieldValue = 0, JobId = 1 },
+                new BmpExportTarget { RowId = 2, DisplayName = "Job2", FieldValue = 0, JobId = 2 }
+            }
+        });
+        if (exportResult.Files.Count != 18 || exportResult.SkippedItems.Count != 0)
+        {
+            throw new InvalidOperationException(
+                $"Job S round-trip export should create 18 canonical BMP files, actual={exportResult.Files.Count}, skipped={exportResult.SkippedItems.Count}.");
+        }
+
+        if (!JobSImageMaterialLayout.TryParseJobFolder("Job_12", out var parsedJobId) || parsedJobId != 12 ||
+            !JobSImageMaterialLayout.TryParseFactionFolder("Faction_3", out var parsedFactionSlot) || parsedFactionSlot != 3)
+        {
+            throw new InvalidOperationException("Job S material layout should accept legacy underscore aliases.");
+        }
+
         var service = new BatchJobSImageReplaceService();
-        var preview = service.Preview(testProject, new BatchJobSImageReplaceRequest
+        var request = new BatchJobSImageReplaceRequest
         {
             MaterialRoot = materialRoot,
             AllowedJobIds = new HashSet<int> { 0, 1 },
             IncludeOnlySelectedOrFiltered = true,
-            FactionSlots = new[] { 1 },
+            FactionSlots = new[] { 1, 3 },
             WriteMode = "test_copy"
-        });
+        };
+        var preview = service.Preview(testProject, request);
 
         if (!preview.CanWrite ||
-            preview.Items.Count != 2 ||
+            preview.Items.Count != 4 ||
+            preview.TotalOperationCount != 12 ||
+            !preview.Items.Select(item => (item.JobId, item.FactionSlot)).SequenceEqual(new[] { (0, 1), (0, 3), (1, 1), (1, 3) }) ||
+            preview.Items.Any(item => item.UsesLegacyFlatLayout) ||
+            !preview.SkippedItems.Any(item => item.Key == "2" && item.Reason.StartsWith(BatchImageImportSkipReasons.Unused, StringComparison.Ordinal)) ||
             preview.SkippedItems.Any(item => item.Reason.StartsWith(BatchImageImportSkipReasons.InvalidName, StringComparison.Ordinal)))
         {
-            throw new InvalidOperationException("Batch job S image preview should accept Job0/Job1 folders.");
+            throw new InvalidOperationException("Batch job S canonical preview should map selected Job/Faction directories and skip unselected jobs.");
+        }
+
+        var result = service.Replace(testProject, request);
+        if (result.Results.Count != 4 || result.Results.Sum(item => item.Result.TotalOperationCount) != 12)
+        {
+            throw new InvalidOperationException("Batch job S canonical import did not write all selected Job/Faction triplets.");
+        }
+
+        var e5 = new E5ImageReplaceService();
+        foreach (var imageNumber in new[] { 1, 3, 4, 6 })
+        {
+            VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_mov.e5"), imageNumber, 48 * 528);
+            VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_atk.e5"), imageNumber, 64 * 768);
+            VerifyTrueColorEntry(e5, CharacterImageResourceService.ResolveGameFile(testProject, "Unit_spc.e5"), imageNumber, 48 * 240);
+        }
+
+        var legacyRoot = Path.Combine(smokeRoot, "_BatchJobSLegacyMaterials");
+        CreateBatchSFolder(legacyRoot, "Job_2", Color.FromArgb(255, 210, 100, 40), Color.FromArgb(255, 40, 140, 220));
+        var legacyPreview = service.Preview(testProject, new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = legacyRoot,
+            AllowedJobIds = new HashSet<int> { 2 },
+            IncludeOnlySelectedOrFiltered = true,
+            FactionSlots = new[] { 1, 2 },
+            WriteMode = "test_copy"
+        });
+        if (!legacyPreview.CanWrite ||
+            legacyPreview.Items.Count != 2 ||
+            legacyPreview.Items.Any(item => !item.UsesLegacyFlatLayout) ||
+            !legacyPreview.Items.Select(item => item.FactionSlot).SequenceEqual(new[] { 1, 2 }))
+        {
+            throw new InvalidOperationException("Batch job S legacy flat layout should apply the same triplet to selected factions.");
+        }
+
+        var precedenceRoot = Path.Combine(smokeRoot, "_BatchJobSCanonicalPrecedence");
+        CreateBatchSFolder(precedenceRoot, "Job3", Color.FromArgb(255, 200, 70, 40), Color.FromArgb(255, 50, 150, 220));
+        CreateBatchSFolder(Path.Combine(precedenceRoot, "Job3"), "Faction3", Color.FromArgb(255, 80, 210, 80), Color.FromArgb(255, 210, 80, 180));
+        var precedencePreview = service.Preview(testProject, new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = precedenceRoot,
+            AllowedJobIds = new HashSet<int> { 3 },
+            IncludeOnlySelectedOrFiltered = true,
+            FactionSlots = new[] { 1, 3 },
+            WriteMode = "test_copy"
+        });
+        if (!precedencePreview.CanWrite ||
+            precedencePreview.Items.Count != 1 ||
+            precedencePreview.Items[0].FactionSlot != 3 ||
+            precedencePreview.Items[0].UsesLegacyFlatLayout ||
+            precedencePreview.Warnings.All(warning => !warning.Contains("legacy flat", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Canonical Faction directories should take precedence over legacy flat Job material.");
+        }
+
+        var missingRoot = Path.Combine(smokeRoot, "_BatchJobSMissingFactionFile");
+        var missingFolder = Path.Combine(missingRoot, "Job4", "Faction2");
+        Directory.CreateDirectory(missingFolder);
+        CreateSmokeBmp(Path.Combine(missingFolder, "mov.bmp"), 48, 528, Color.Red, Color.Blue);
+        CreateSmokeBmp(Path.Combine(missingFolder, "atk.bmp"), 64, 768, Color.Blue, Color.Red);
+        var missingPreview = service.Preview(testProject, new BatchJobSImageReplaceRequest
+        {
+            MaterialRoot = missingRoot,
+            AllowedJobIds = new HashSet<int> { 4 },
+            IncludeOnlySelectedOrFiltered = true,
+            FactionSlots = new[] { 2 },
+            WriteMode = "test_copy"
+        });
+        if (missingPreview.CanWrite ||
+            missingPreview.SkippedItems.All(item => !item.Reason.StartsWith(BatchImageImportSkipReasons.MissingFile, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("Batch job S canonical import should block when a selected Faction triplet is incomplete.");
+        }
+
+        try
+        {
+            service.Preview(testProject, new BatchJobSImageReplaceRequest
+            {
+                MaterialRoot = materialRoot,
+                FactionSlots = Array.Empty<int>(),
+                WriteMode = "test_copy"
+            });
+            throw new InvalidOperationException("Batch job S import should reject an empty faction selection.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Select at least one faction", StringComparison.Ordinal))
+        {
         }
     }
 

@@ -17,6 +17,9 @@ public sealed class SImageReplaceService
     private readonly E5TrueColorImageCodec _codec = new();
     private readonly E5ImageReplaceService _replace = new();
     private readonly SImageMaterialLayoutResolver _layoutResolver = new();
+    private E5ArchiveSetTransaction? _transaction;
+
+    private E5ArchiveSetTransaction Transaction => _transaction ??= new E5ArchiveSetTransaction(_replace);
 
     public SImageReplacePreviewResult Preview(CczProject project, SImageReplaceRequest request)
     {
@@ -46,7 +49,10 @@ public sealed class SImageReplaceService
         {
             var encode = _codec.EncodeFile(project, plan.SourcePath, plan.Spec, strictHeight: true);
             warnings.AddRange(encode.Warnings.Select(warning => $"{plan.TargetFileName}: {warning}"));
-            var requests = BuildRequests(plan.ImageNumber, encode, plan.ActionName, plan.StageName);
+            var descriptor = CharacterImageTargetResolver.ResolveS(
+                project, request.SImageId, request.JobId, request.FactionSlot,
+                plan.StageSlot, plan.TargetFileName, plan.ActionName);
+            var requests = BuildRequests(plan.ImageNumber, encode, plan.ActionName, plan.StageName, descriptor);
             var preview = _replace.PreviewBatchReplacement(project, plan.TargetPath, requests);
             files.Add(new SImageReplaceFilePreview
             {
@@ -72,44 +78,89 @@ public sealed class SImageReplaceService
     }
 
     public SImageReplaceResult Replace(CczProject project, SImageReplaceRequest request)
+        => ReplaceMany(project, new[] { request }).Single();
+
+    public IReadOnlyList<SImageReplaceResult> ReplaceMany(
+        CczProject project,
+        IReadOnlyList<SImageReplaceRequest> requests)
     {
-        var preview = Preview(project, request);
-        var files = new List<SImageReplaceFileResult>();
-        foreach (var file in preview.Files)
+        if (requests.Count == 0)
+            throw new InvalidOperationException("No S image replacements were requested.");
+        var previews = requests.Select(request => Preview(project, request)).ToArray();
+        var planItems = previews.SelectMany(preview => preview.Files.Select(file => new
         {
-            var requests = BuildRequests(file.ImageNumber, file.Encode, file.ActionName, file.StageName);
-            var result = _replace.ReplaceBatch(project, file.TargetPath, requests);
-            files.Add(new SImageReplaceFileResult
+            Preview = preview,
+            File = file
+        })).ToArray();
+        var plans = planItems
+            .GroupBy(item => Path.GetFullPath(item.File.TargetPath), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new E5ArchiveMutationPlan(
+                group.Key,
+                group.SelectMany(item =>
+                {
+                    var request = item.Preview.Request;
+                    var file = item.File;
+                    var descriptor = CharacterImageTargetResolver.ResolveS(
+                        project, request.SImageId, request.JobId, request.FactionSlot,
+                        file.StageSlot, file.TargetFileName, file.ActionName);
+                    return BuildRequests(file.ImageNumber, file.Encode, file.ActionName, file.StageName, descriptor);
+                }).ToArray(),
+                $"S image archive set {Path.GetFileName(group.Key)}"))
+            .OrderBy(plan => GetUnitArchiveOrder(Path.GetFileName(plan.TargetPath)))
+            .ToArray();
+        var transactionResult = Transaction.Execute(project, plans);
+        var resultByPath = transactionResult.Files.ToDictionary(
+            result => Path.GetFullPath(result.TargetPath),
+            StringComparer.OrdinalIgnoreCase);
+        var outputs = new List<SImageReplaceResult>(previews.Length);
+        foreach (var preview in previews)
+        {
+            var files = new List<SImageReplaceFileResult>();
+            foreach (var file in preview.Files)
             {
-                ActionName = file.ActionName,
-                StageSlot = file.StageSlot,
-                StageName = file.StageName,
-                ImageNumber = file.ImageNumber,
-                TargetFileName = file.TargetFileName,
-                TargetPath = file.TargetPath,
-                SourcePath = file.SourcePath,
-                Encode = file.Encode,
-                WriteResult = result
+                var result = resultByPath[Path.GetFullPath(file.TargetPath)];
+                files.Add(new SImageReplaceFileResult
+                {
+                    ActionName = file.ActionName,
+                    StageSlot = file.StageSlot,
+                    StageName = file.StageName,
+                    ImageNumber = file.ImageNumber,
+                    TargetFileName = file.TargetFileName,
+                    TargetPath = file.TargetPath,
+                    SourcePath = file.SourcePath,
+                    Encode = file.Encode,
+                    WriteResult = result
+                });
+            }
+
+            var resultPayload = new SImageReplaceResult
+            {
+                Request = preview.Request,
+                Mapping = preview.Mapping,
+                Files = files,
+                Warnings = preview.Warnings
+            };
+            outputs.Add(new SImageReplaceResult
+            {
+                Request = resultPayload.Request,
+                Mapping = resultPayload.Mapping,
+                Files = resultPayload.Files,
+                Warnings = resultPayload.Warnings,
+                AggregateReportPath = WriteAggregateReport(project, resultPayload)
             });
         }
 
-        var resultPayload = new SImageReplaceResult
-        {
-            Request = request,
-            Mapping = preview.Mapping,
-            Files = files,
-            Warnings = preview.Warnings
-        };
-
-        return new SImageReplaceResult
-        {
-            Request = resultPayload.Request,
-            Mapping = resultPayload.Mapping,
-            Files = resultPayload.Files,
-            Warnings = resultPayload.Warnings,
-            AggregateReportPath = WriteAggregateReport(project, resultPayload)
-        };
+        return outputs;
     }
+
+    private static int GetUnitArchiveOrder(string fileName)
+        => fileName.ToLowerInvariant() switch
+        {
+            "unit_mov.e5" => 0,
+            "unit_atk.e5" => 1,
+            "unit_spc.e5" => 2,
+            _ => 10
+        };
 
     private static SUnitImageMapping ResolveMapping(CczProject project, SImageReplaceRequest request)
     {
@@ -220,7 +271,8 @@ public sealed class SImageReplaceService
         int imageNumber,
         E5TrueColorEncodeResult encode,
         string actionName,
-        string stageName)
+        string stageName,
+        CharacterImageTargetDescriptor descriptor)
         => new[]
         {
             new E5ImageBatchReplaceRequest
@@ -229,13 +281,14 @@ public sealed class SImageReplaceService
                 SourceBytes = encode.ImageBytes,
                 SourceBytesAreRaw = false,
                 SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
-                OperationKind = $"S image import {stageName} {actionName}"
+                OperationKind = $"S image import {stageName} {actionName}",
+                CharacterTarget = descriptor
             }
         };
 
     private static string WriteAggregateReport(CczProject project, SImageReplaceResult result)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_SImageTrueColorReplaceReport.json");

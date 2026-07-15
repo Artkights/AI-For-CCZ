@@ -13,7 +13,8 @@ public sealed class HexzmapEditorService
         HexzmapProbeResult probe,
         HexzmapBlockInfo block,
         byte[] newCells,
-        IReadOnlyDictionary<byte, string>? terrainNames = null)
+        IReadOnlyDictionary<byte, string>? terrainNames = null,
+        HexzmapBlockBinding? binding = null)
     {
         var expectedLength = checked(block.Width * block.Height);
         if (expectedLength <= 0 || newCells.Length != expectedLength)
@@ -25,6 +26,15 @@ public sealed class HexzmapEditorService
         {
             throw new InvalidOperationException(
                 $"当前 Hexzmap 地形块 {block.MapId} 的段长度与地图格数不一致，已拒绝写回。段长度={block.SegmentLength}，格数={expectedLength}。");
+        }
+
+        binding ??= block.Binding ?? BuildLegacyExactBinding(block);
+        if (binding == null || !binding.AuthorizesWrite ||
+            !binding.MapId.Equals(block.MapId, StringComparison.OrdinalIgnoreCase) ||
+            binding.DirectoryEntryIndex != block.Index ||
+            binding.Width != block.Width || binding.Height != block.Height)
+        {
+            throw new InvalidOperationException("Hexzmap 块缺少可信绑定。只有精确编号绑定或用户确认并持久化的手动绑定允许写回；尺寸候选只能只读预览。");
         }
 
         var filePath = project.ResolveGameFile("Hexzmap.e5");
@@ -54,10 +64,23 @@ public sealed class HexzmapEditorService
             throw new InvalidOperationException("当前地形块没有检测到改动，无需保存。");
         }
 
+        var tempPath = Path.Combine(Path.GetDirectoryName(filePath)!, $".{Path.GetFileName(filePath)}.{Guid.NewGuid():N}.tmp");
+        File.WriteAllBytes(tempPath, output);
+        var staged = File.ReadAllBytes(tempPath);
+        var outputHash = WriteOperationReportService.ComputeSha256(output);
+        if (!staged.AsSpan().SequenceEqual(output) ||
+            !WriteOperationReportService.ComputeSha256(staged).Equals(outputHash, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(tempPath);
+            throw new InvalidOperationException("Hexzmap 临时输出完整复读或哈希校验失败，目标文件未修改。");
+        }
+
         var backupPath = CreateBeforeSaveBackup(project, filePath);
-        File.WriteAllBytes(filePath, output);
+        AtomicReplaceWithRollback(tempPath, filePath, backupPath, output, outputHash);
         var verify = File.ReadAllBytes(filePath);
-        if (verify.Length != output.Length || !verify.AsSpan(offset, newCells.Length).SequenceEqual(newCells))
+        if (!verify.AsSpan().SequenceEqual(output) ||
+            !WriteOperationReportService.ComputeSha256(verify).Equals(outputHash, StringComparison.OrdinalIgnoreCase) ||
+            !verify.AsSpan(offset, newCells.Length).SequenceEqual(newCells))
         {
             throw new InvalidOperationException("Hexzmap 保存后复读校验失败。已生成保存前备份，请用备份文件核对并恢复目标文件。");
         }
@@ -75,6 +98,64 @@ public sealed class HexzmapEditorService
             ChangedCells = changes.Count,
             ChangedBytes = changedBytes
         };
+    }
+
+    private static HexzmapBlockBinding? BuildLegacyExactBinding(HexzmapBlockInfo block)
+    {
+        if (block.MapId.Length < 2 ||
+            !block.MapId.StartsWith("M", StringComparison.OrdinalIgnoreCase) ||
+            !int.TryParse(block.MapId[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var mapNumber) ||
+            mapNumber != block.Index)
+        {
+            return null;
+        }
+
+        return new HexzmapBlockBinding
+        {
+            MapId = block.MapId,
+            DirectoryEntryIndex = block.Index,
+            Width = block.Width,
+            Height = block.Height,
+            Source = HexzmapBindingSource.ExactMapNumber,
+            Confidence = 1f,
+            Evidence = "兼容旧调用：地图编号与目录项索引一致。"
+        };
+    }
+
+    private static void AtomicReplaceWithRollback(
+        string tempPath,
+        string targetPath,
+        string backupPath,
+        byte[] expected,
+        string expectedHash)
+    {
+        try
+        {
+            try
+            {
+                File.Replace(tempPath, targetPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                File.Move(tempPath, targetPath, overwrite: true);
+            }
+
+            var verify = File.ReadAllBytes(targetPath);
+            if (!verify.AsSpan().SequenceEqual(expected) ||
+                !WriteOperationReportService.ComputeSha256(verify).Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Hexzmap 原子替换后整文件复读校验失败。");
+            }
+        }
+        catch
+        {
+            File.Copy(backupPath, targetPath, overwrite: true);
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 
     private string WriteStructuredReport(
@@ -158,7 +239,7 @@ public sealed class HexzmapEditorService
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var backupPath = Path.Combine(backupRoot, $"{stamp}_{Path.GetFileName(filePath)}");

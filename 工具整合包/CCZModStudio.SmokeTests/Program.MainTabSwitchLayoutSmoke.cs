@@ -1,4 +1,5 @@
 using CCZModStudio;
+using System.Data;
 using System.Reflection;
 using System.Windows.Forms;
 
@@ -36,6 +37,8 @@ internal partial class Program
                 {
                     throw new InvalidOperationException($"Effect injection tab should be immediately after item settings. item={itemTabIndex} effectInjection={effectInjectionTabIndex}");
                 }
+
+                AssertCmEditSurvivesMainTabSwitch(form, tabs);
 
                 var initialRequests = GetPrivateStaticIntForMainTabSwitchLayoutSmoke("CompactToolbarLayoutRequestCount");
                 var initialFlushes = GetPrivateStaticIntForMainTabSwitchLayoutSmoke("CompactToolbarLayoutFlushCount");
@@ -80,6 +83,50 @@ internal partial class Program
         if (failure != null)
         {
             throw new InvalidOperationException("Main tab switch layout smoke failed.", failure);
+        }
+    }
+
+    private static void AssertCmEditSurvivesMainTabSwitch(MainForm form, TabControl tabs)
+    {
+        var globalTab = tabs.TabPages.Cast<TabPage>().FirstOrDefault(page => page.Text == "全局设定")
+            ?? throw new InvalidOperationException("Main tabs do not include global settings.");
+        var otherTab = tabs.TabPages.Cast<TabPage>().FirstOrDefault(page => page.Text == "角色设定")
+            ?? throw new InvalidOperationException("Main tabs do not include role settings.");
+        var session = GetPrivateFieldForMainTabSwitchLayoutSmoke<object>(form, "_cmSettingsPageSession");
+        var grid = (DataGridView)(session.GetType().GetProperty("GlobalNumericGrid")?.GetValue(session)
+            ?? throw new InvalidOperationException("CM settings session does not expose its numeric grid."));
+
+        var table = new DataTable("tab-switch-cache");
+        table.Columns.Add("Key", typeof(string));
+        table.Columns.Add("名称", typeof(string));
+        table.Columns.Add("当前值", typeof(string));
+        table.Columns.Add("新值", typeof(string));
+        table.Columns.Add("MinValue", typeof(int));
+        table.Columns.Add("MaxValue", typeof(int));
+        table.Rows.Add("smoke", "切页缓存", "12", string.Empty, 0, 255);
+        table.AcceptChanges();
+        grid.DataSource = table;
+
+        tabs.SelectedTab = globalTab;
+        Application.DoEvents();
+        grid.CurrentCell = grid.Rows[0].Cells.Cast<DataGridViewCell>()
+            .First(cell => grid.Columns[cell.ColumnIndex].DataPropertyName == "新值");
+        table.Rows[0]["新值"] = "37";
+
+        var deselectingCount = 0;
+        tabs.Deselecting += (_, _) => deselectingCount++;
+        tabs.SelectedTab = otherTab;
+        Application.DoEvents();
+        tabs.SelectedTab = globalTab;
+        Application.DoEvents();
+        var cachedValue = Convert.ToString(table.Rows[0]["新值"]);
+        if (!string.Equals(cachedValue, "37", StringComparison.Ordinal) || table.Rows[0].RowState != DataRowState.Modified)
+        {
+            throw new InvalidOperationException($"CM grid edit was lost after switching main tabs. value={cachedValue ?? "<null>"} state={table.Rows[0].RowState}");
+        }
+        if (deselectingCount == 0)
+        {
+            throw new InvalidOperationException("Main tab switch did not invoke the pre-deselect cache event.");
         }
     }
 

@@ -232,6 +232,28 @@ try {
         "publish_map_workbench_bundle",
         "draw_and_replace_ccz_image_asset"
     )
+    $requiredEffectTools = @(
+        "scan_installed_effects",
+        "scan_effect_id_locations",
+        "read_native_effect_definition",
+        "preview_native_effect_update",
+        "create_extended_binding_probe_plan",
+        "import_effect_evidence_bundle",
+        "read_hook_execution_contract",
+        "preflight_composite_effect",
+        "apply_composite_effect",
+        "read_modular_effect",
+        "preview_update_modular_effect",
+        "apply_update_modular_effect",
+        "preview_toggle_modular_effect",
+        "apply_toggle_modular_effect",
+        "preview_repair_modular_effect",
+        "apply_repair_modular_effect",
+        "preview_remove_modular_effect",
+        "apply_remove_modular_effect",
+        "read_effect_capabilities"
+    )
+    $requiredDirectTools += $requiredEffectTools
     $missingDirectTools = @($requiredDirectTools | Where-Object { $toolNames -notcontains $_ })
     if ($missingDirectTools.Count -gt 0) {
         throw "Missing direct-production tools: $($missingDirectTools -join ', ')"

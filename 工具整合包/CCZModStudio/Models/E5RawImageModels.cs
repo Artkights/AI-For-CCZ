@@ -112,7 +112,10 @@ public sealed class SImageReplaceResult
     public SImageReplaceRequest Request { get; init; } = new();
     public SImageMappingSnapshot Mapping { get; init; } = new();
     public IReadOnlyList<SImageReplaceFileResult> Files { get; init; } = Array.Empty<SImageReplaceFileResult>();
-    public int TotalOperationCount => Files.Sum(file => file.WriteResult.OperationCount);
+    // One file item represents one logical action/stage write. A single archive
+    // transaction result can be shared by several items and must not be counted
+    // repeatedly here.
+    public int TotalOperationCount => Files.Count;
     public IReadOnlyList<string> Warnings { get; init; } = Array.Empty<string>();
     public string AggregateReportPath { get; init; } = string.Empty;
 }

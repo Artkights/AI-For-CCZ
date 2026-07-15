@@ -461,9 +461,16 @@ public sealed class IconResourceReplaceService
             throw new InvalidOperationException("No writable DLL icon resources were found.");
         }
 
+        var currentHash = WriteOperationReportService.ComputeSha256(File.ReadAllBytes(preview.TargetPath));
+        if (!currentHash.Equals(preview.OldFileSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The DLL changed between preview and commit. Reload before saving.");
         var backupPath = CreateBeforeSaveBackup(project, preview.TargetPath);
-        var beforeBytes = File.ReadAllBytes(preview.TargetPath);
-        var updateHandle = BeginUpdateResource(preview.TargetPath, false);
+        EnsureFileSha256(backupPath, preview.OldFileSha256,
+            "The DLL changed while its safety backup was being created. Reload before saving.");
+        var beforeBytes = File.ReadAllBytes(backupPath);
+        var workingPath = preview.TargetPath + ".CCZModStudio." + Guid.NewGuid().ToString("N") + ".dlltmp";
+        File.Copy(backupPath, workingPath, overwrite: true);
+        var updateHandle = BeginUpdateResource(workingPath, false);
         if (updateHandle == IntPtr.Zero)
         {
             throw new InvalidOperationException("BeginUpdateResource failed, Win32Error=" + Marshal.GetLastWin32Error());
@@ -492,7 +499,26 @@ public sealed class IconResourceReplaceService
             if (!committed)
             {
                 EndUpdateResource(updateHandle, true);
+                if (File.Exists(workingPath)) File.Delete(workingPath);
             }
+        }
+
+        var replaced = false;
+        try
+        {
+            VerifyBitmapResourceMutation(backupPath, workingPath, updates, Array.Empty<BitmapResourceDelete>());
+            EnsureFileSha256(preview.TargetPath, preview.OldFileSha256,
+                "The DLL changed before the atomic replacement. Reload before saving.");
+            File.Move(workingPath, preview.TargetPath, overwrite: true);
+            replaced = true;
+            VerifyBitmapResourceMutation(backupPath, preview.TargetPath, updates, Array.Empty<BitmapResourceDelete>());
+        }
+        catch
+        {
+            if (File.Exists(workingPath)) File.Delete(workingPath);
+            if (replaced)
+                RestoreFileFromBackup(backupPath, preview.TargetPath, preview.OldFileSha256);
+            throw;
         }
 
         var afterBytes = File.ReadAllBytes(preview.TargetPath);
@@ -545,9 +571,16 @@ public sealed class IconResourceReplaceService
             throw new InvalidOperationException("No writable DLL icon resources were found.");
         }
 
+        var currentHash = WriteOperationReportService.ComputeSha256(File.ReadAllBytes(preview.TargetPath));
+        if (!currentHash.Equals(preview.OldFileSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The DLL changed between preview and commit. Reload before saving.");
         var backupPath = CreateBeforeSaveBackup(project, preview.TargetPath);
-        var beforeBytes = File.ReadAllBytes(preview.TargetPath);
-        var updateHandle = BeginUpdateResource(preview.TargetPath, false);
+        EnsureFileSha256(backupPath, preview.OldFileSha256,
+            "The DLL changed while its safety backup was being created. Reload before saving.");
+        var beforeBytes = File.ReadAllBytes(backupPath);
+        var workingPath = preview.TargetPath + ".CCZModStudio." + Guid.NewGuid().ToString("N") + ".dlltmp";
+        File.Copy(backupPath, workingPath, overwrite: true);
+        var updateHandle = BeginUpdateResource(workingPath, false);
         if (updateHandle == IntPtr.Zero)
         {
             throw new InvalidOperationException("BeginUpdateResource failed, Win32Error=" + Marshal.GetLastWin32Error());
@@ -584,7 +617,26 @@ public sealed class IconResourceReplaceService
             if (!committed)
             {
                 EndUpdateResource(updateHandle, true);
+                if (File.Exists(workingPath)) File.Delete(workingPath);
             }
+        }
+
+        var replaced = false;
+        try
+        {
+            VerifyBitmapResourceMutation(backupPath, workingPath, updates, deletes);
+            EnsureFileSha256(preview.TargetPath, preview.OldFileSha256,
+                "The DLL changed before the atomic replacement. Reload before saving.");
+            File.Move(workingPath, preview.TargetPath, overwrite: true);
+            replaced = true;
+            VerifyBitmapResourceMutation(backupPath, preview.TargetPath, updates, deletes);
+        }
+        catch
+        {
+            if (File.Exists(workingPath)) File.Delete(workingPath);
+            if (replaced)
+                RestoreFileFromBackup(backupPath, preview.TargetPath, preview.OldFileSha256);
+            throw;
         }
 
         var afterBytes = File.ReadAllBytes(preview.TargetPath);
@@ -736,9 +788,122 @@ public sealed class IconResourceReplaceService
         }
     }
 
+    private void VerifyBitmapResourceMutation(
+        string beforePath,
+        string candidatePath,
+        IReadOnlyList<BitmapResourceUpdate> updates,
+        IReadOnlyList<BitmapResourceDelete> deletes)
+    {
+        var before = _dllCodec.ParseBitmapResources(beforePath);
+        var after = _dllCodec.ParseBitmapResources(candidatePath);
+        var updateMap = updates
+            .GroupBy(update => (update.ResourceId, update.LanguageId))
+            .ToDictionary(group => group.Key, group => group.Last());
+        var deleteSet = deletes.Select(delete => (delete.ResourceId, delete.LanguageId)).ToHashSet();
+
+        foreach (var deleted in deleteSet)
+        {
+            if (after.Any(resource => resource.Id == deleted.ResourceId && resource.LanguageId == deleted.LanguageId))
+                throw new InvalidOperationException($"DLL verification failed: RT_BITMAP ID={deleted.ResourceId} LANG={deleted.LanguageId} was not deleted.");
+        }
+        foreach (var update in updateMap.Values)
+        {
+            var actual = after.FirstOrDefault(resource =>
+                resource.Id == update.ResourceId && resource.LanguageId == update.LanguageId);
+            if (actual == null || !actual.DibBytes.SequenceEqual(update.DibBytes))
+                throw new InvalidOperationException($"DLL verification failed: RT_BITMAP ID={update.ResourceId} LANG={update.LanguageId} payload mismatch.");
+        }
+
+        var beforeUntouched = before
+            .Where(resource => !updateMap.ContainsKey((resource.Id, resource.LanguageId)) &&
+                               !deleteSet.Contains((resource.Id, resource.LanguageId)))
+            .OrderBy(resource => resource.Id).ThenBy(resource => resource.LanguageId).ThenBy(resource => resource.BitCount)
+            .ToArray();
+        var afterUntouched = after
+            .Where(resource => !updateMap.ContainsKey((resource.Id, resource.LanguageId)) &&
+                               !deleteSet.Contains((resource.Id, resource.LanguageId)))
+            .OrderBy(resource => resource.Id).ThenBy(resource => resource.LanguageId).ThenBy(resource => resource.BitCount)
+            .ToArray();
+        if (beforeUntouched.Length != afterUntouched.Length)
+            throw new InvalidOperationException("DLL verification failed: the untouched RT_BITMAP resource count changed.");
+        for (var index = 0; index < beforeUntouched.Length; index++)
+        {
+            var expected = beforeUntouched[index];
+            var actual = afterUntouched[index];
+            if (expected.Id != actual.Id || expected.LanguageId != actual.LanguageId ||
+                expected.Width != actual.Width || expected.Height != actual.Height ||
+                expected.BitCount != actual.BitCount || !expected.DibBytes.SequenceEqual(actual.DibBytes))
+                throw new InvalidOperationException(
+                    $"DLL verification failed: untouched RT_BITMAP ID={expected.Id} LANG={expected.LanguageId} changed.");
+        }
+
+        VerifyAllUntouchedPeResources(beforePath, candidatePath, updateMap.Keys, deleteSet);
+    }
+
+    private static void VerifyAllUntouchedPeResources(
+        string beforePath,
+        string candidatePath,
+        IEnumerable<(int ResourceId, ushort LanguageId)> updated,
+        IEnumerable<(int ResourceId, ushort LanguageId)> deleted)
+    {
+        var targets = updated.Concat(deleted).ToHashSet();
+        static bool IsTarget(
+            PeResourceSnapshot resource,
+            IReadOnlySet<(int ResourceId, ushort LanguageId)> targetSet)
+            => resource.Type.IsInteger && resource.Type.IntegerId == RtBitmap &&
+               resource.Name.IsInteger &&
+               targetSet.Contains((resource.Name.IntegerId, resource.LanguageId));
+
+        var before = PeResourceSnapshotService.Capture(beforePath)
+            .Where(resource => !IsTarget(resource, targets))
+            .ToArray();
+        var after = PeResourceSnapshotService.Capture(candidatePath)
+            .Where(resource => !IsTarget(resource, targets))
+            .ToArray();
+        if (before.Length != after.Length)
+            throw new InvalidOperationException("DLL verification failed: the untouched PE resource count changed.");
+
+        for (var index = 0; index < before.Length; index++)
+        {
+            var expected = before[index];
+            var actual = after[index];
+            if (expected.Type != actual.Type || expected.Name != actual.Name ||
+                expected.LanguageId != actual.LanguageId || expected.Size != actual.Size ||
+                !expected.Sha256.Equals(actual.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"DLL verification failed: untouched PE resource {expected.Type.SortKey}/{expected.Name.SortKey}/LANG={expected.LanguageId} changed.");
+            }
+        }
+    }
+
+    private static void RestoreFileFromBackup(string backupPath, string targetPath, string expectedSha256)
+    {
+        var tempPath = targetPath + ".CCZModStudio.rollback." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.Copy(backupPath, tempPath, overwrite: true);
+            File.Move(tempPath, targetPath, overwrite: true);
+            var restored = WriteOperationReportService.ComputeSha256(File.ReadAllBytes(targetPath));
+            if (!restored.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("DLL rollback SHA-256 does not match the pre-save file.");
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
+    private static void EnsureFileSha256(string path, string expectedSha256, string message)
+    {
+        var actual = WriteOperationReportService.ComputeSha256(File.ReadAllBytes(path));
+        if (!actual.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(message);
+    }
+
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var safeRelative = MakeSafeRelativeName(project, filePath);
@@ -784,7 +949,7 @@ public sealed class IconResourceReplaceService
         int changedBytes,
         string newHash)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_DllIconReplaceReport.txt");
@@ -824,7 +989,7 @@ public sealed class IconResourceReplaceService
         int changedBytes,
         string newHash)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_DllIconBatchReplaceReport.txt");

@@ -8,10 +8,10 @@ namespace CCZModStudio.Core;
 public sealed class ItemIconPreviewService
 {
     private readonly Dictionary<string, IReadOnlyList<DllBitmapResourceRecord>> _bitmapResourceCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly E5ImageReplaceService _e5ImageService = new();
     private readonly E5ImageRenderService _e5ImageRenderService = new();
     private readonly DllBitmapIconCodecService _dllCodec = new();
     private readonly ItemIconMappingService _iconMapping = new();
+    private readonly E5ImageReadSessionPool _readSessions = E5ImageReadSessionPool.Shared;
 
     public void ClearCache() => _bitmapResourceCache.Clear();
 
@@ -114,8 +114,17 @@ public sealed class ItemIconPreviewService
         return string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)
             ? 0
             : Ccz66RevisedLayout.Is66(project)
-                ? _e5ImageService.ReadIndex(sourcePath).Count
+                ? _readSessions.GetSession(sourcePath).ReadIndex().Count
                 : GetIconCount(sourcePath);
+    }
+
+    public int GetAvailableBitmapIconCount(CczProject project, string resourceFileName)
+    {
+        var sourcePath = ResolveIconDll(project, resourceFileName);
+        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath)) return 0;
+        return IsGameIconResourceFile(resourceFileName)
+            ? EstimateBitmapIconCount(GetBitmapResources(sourcePath))
+            : GetIconCount(sourcePath);
     }
 
     private ItemIconPreviewResult BuildDllBitmapPreview(
@@ -221,7 +230,7 @@ public sealed class ItemIconPreviewService
                 $"未找到 {resourceFileName}，暂无法显示{displayName}。");
         }
 
-        var entries = _e5ImageService.ReadIndex(sourcePath);
+        var entries = _readSessions.GetSession(sourcePath).ReadIndex();
         if (entries.Count == 0)
         {
             return new ItemIconPreviewResult(
@@ -296,7 +305,7 @@ public sealed class ItemIconPreviewService
             }
             else
             {
-                var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
+                var bytes = _readSessions.GetSession(sourcePath).ReadDecodedEntry(imageNumber);
                 using var decoded = _e5ImageRenderService.TryDecodeStandardImage(bytes);
                 if (decoded != null)
                 {
@@ -389,7 +398,7 @@ public sealed class ItemIconPreviewService
 
     private Bitmap? DecodeE5IconBitmap(string sourcePath, int imageNumber, out int byteCount)
     {
-        var bytes = _e5ImageService.ReadEntryBytes(sourcePath, imageNumber);
+        var bytes = _readSessions.GetSession(sourcePath).ReadDecodedEntry(imageNumber);
         byteCount = bytes.Length;
         return _e5ImageRenderService.TryDecodeStandardImage(bytes);
     }
@@ -466,9 +475,17 @@ public sealed class ItemIconPreviewService
 
     private IReadOnlyList<DllBitmapResourceRecord> GetBitmapResources(string sourcePath)
     {
-        if (_bitmapResourceCache.TryGetValue(sourcePath, out var cached)) return cached;
+        var info = new FileInfo(sourcePath);
+        var cacheKey = $"{Path.GetFullPath(sourcePath)}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+        if (_bitmapResourceCache.TryGetValue(cacheKey, out var cached)) return cached;
+        foreach (var stale in _bitmapResourceCache.Keys.Where(key =>
+                     key.StartsWith(Path.GetFullPath(sourcePath) + "|", StringComparison.OrdinalIgnoreCase) &&
+                     !key.Equals(cacheKey, StringComparison.OrdinalIgnoreCase)))
+        {
+            _bitmapResourceCache.Remove(stale);
+        }
         var parsed = _dllCodec.ParseBitmapResources(sourcePath);
-        _bitmapResourceCache[sourcePath] = parsed;
+        _bitmapResourceCache[cacheKey] = parsed;
         return parsed;
     }
 

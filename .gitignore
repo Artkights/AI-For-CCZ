@@ -12,6 +12,7 @@ x86/
 *.userosscache
 *.sln.docstates
 .dotnet_home/
+.nuget/
 .codex/
 
 # Local generated exports and test copies

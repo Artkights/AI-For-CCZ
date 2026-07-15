@@ -232,7 +232,11 @@ internal static class LegacyMfcDialogCatalog
     }
 
     private static void InitPer2Combo(LegacyMfcDialogSession session, string controlId, int index)
-        => InitCombo(session, controlId, session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(session.Data.GetInt(index)));
+        => session.SetPersonComboItems(
+            controlId,
+            session.DataSources.Person2,
+            LegacyPersonComboKind.Person2,
+            LegacyMfcDialogDataSources.Per2CodeToList(session.Data.GetInt(index)));
 
     private static string? CommitPer2Combos(LegacyMfcDialogSession session, params (string ControlId, int Index)[] bindings)
     {
@@ -244,7 +248,11 @@ internal static class LegacyMfcDialogCatalog
     }
 
     private static void InitPer1Combo(LegacyMfcDialogSession session, string controlId, int index)
-        => InitCombo(session, controlId, session.DataSources.Person1, LegacyMfcDialogDataSources.Per1CodeToList(session.Data.GetInt(index)));
+        => session.SetPersonComboItems(
+            controlId,
+            session.DataSources.Person1,
+            LegacyPersonComboKind.Person1,
+            LegacyMfcDialogDataSources.Per1CodeToList(session.Data.GetInt(index)));
 
     private static void InitSentinelCombo(LegacyMfcDialogSession session, string controlId, IEnumerable<string> items, int index, int fallbackIndex)
     {
@@ -357,7 +365,7 @@ internal static class LegacyMfcDialogCatalog
                 per[selectedLine] = LegacyMfcDialogDataSources.Per1ListToCode(session.GetComboIndex("IDC_COMBO1"));
             }
             selectedLine = Math.Max(0, list.SelectedIndex);
-            InitCombo(session, "IDC_COMBO1", session.DataSources.Person1, LegacyMfcDialogDataSources.Per1CodeToList(per[selectedLine]));
+            session.SetPersonComboItems("IDC_COMBO1", session.DataSources.Person1, LegacyPersonComboKind.Person1, LegacyMfcDialogDataSources.Per1CodeToList(per[selectedLine]));
         };
         session.BindComboSelectionChanged("IDC_COMBO1", (_, _) =>
         {
@@ -618,7 +626,7 @@ internal static class LegacyMfcDialogCatalog
         session.ListBox("IDC_LIST1").AccessibleName = string.Join(",", originalDat.Select(value => value.ToString(CultureInfo.InvariantCulture)));
         session.ListBox("IDC_LIST1").AccessibleDescription = "0";
         session.SetVisible("IDC_CHECK1", id != 0);
-        InitCombo(session, "IDC_COMBO13", session.DataSources.Person2, 0);
+        session.SetPersonComboItems("IDC_COMBO13", session.DataSources.Person2, LegacyPersonComboKind.Person2, 0);
         LoadDialog70Row(session, id, stride, 0, dat, ref loadingRow);
         session.BindComboSelectionChanged("IDC_COMBO1", (_, _) =>
         {
@@ -689,7 +697,7 @@ internal static class LegacyMfcDialogCatalog
         {
             listLine = ClampDialog70Line(listLine, 20 + id * 60);
             var baseIndex = listLine * stride;
-            InitCombo(session, "IDC_COMBO1", session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex]));
+            session.SetPersonComboItems("IDC_COMBO1", session.DataSources.Person2, LegacyPersonComboKind.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex]));
             session.SetCheck("IDC_CHECK1", dat[baseIndex + 1] == 1);
             session.SetCheck("IDC_CHECK4", dat[baseIndex + 1 + id] == 1);
             session.SetText("IDC_EDIT1", dat[baseIndex + 2 + id].ToString(CultureInfo.InvariantCulture));
@@ -698,7 +706,7 @@ internal static class LegacyMfcDialogCatalog
             InitCombo(session, "IDC_COMBO10", session.DataSources.LevelOffsetItems(), session.DataSources.LevelOffsetCodeToList(dat[baseIndex + 5 + id]));
             InitExistingCombo(session, "IDC_COMBO11", dat[baseIndex + 6 + id] >= 0 ? dat[baseIndex + 6 + id] : 2);
             InitCombo(session, "IDC_COMBO12", session.DataSources.Policy, dat[baseIndex + 7 + id] >= 0 ? dat[baseIndex + 7 + id] : 1);
-            InitCombo(session, "IDC_COMBO13", session.DataSources.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex + 8 + id]));
+            session.SetPersonComboItems("IDC_COMBO13", session.DataSources.Person2, LegacyPersonComboKind.Person2, LegacyMfcDialogDataSources.Per2CodeToList(dat[baseIndex + 8 + id]));
             session.SetText("IDC_EDIT7", dat[baseIndex + 9 + id].ToString(CultureInfo.InvariantCulture));
             session.SetText("IDC_EDIT8", dat[baseIndex + 10 + id].ToString(CultureInfo.InvariantCulture));
             SyncDialog70Policy(session, id, stride, listLine, dat, updatePolicy: false);
@@ -932,7 +940,7 @@ internal static class LegacyMfcDialogCatalog
         InitEditInts(session, ("IDC_EDIT1", 2), ("IDC_EDIT2", 3), ("IDC_EDIT3", 4), ("IDC_EDIT4", 5), ("IDC_EDIT5", 9), ("IDC_EDIT6", 10));
         InitCombo(session, "IDC_COMBO4", session.DataSources.Camp, session.Data.GetInt(6));
         InitCombo(session, "IDC_COMBO8", session.DataSources.Policy, session.Data.GetInt(7));
-        InitCombo(session, "IDC_COMBO9", session.DataSources.Person2, session.Data.GetInt(8));
+        session.SetPersonComboItems("IDC_COMBO9", session.DataSources.Person2, LegacyPersonComboKind.Person2, session.Data.GetInt(8));
         session.BindComboSelectionChanged("IDC_COMBO1", (_, _) => SyncDialog78Type(session));
         session.BindComboSelectionChanged("IDC_COMBO8", (_, _) => SyncDialog78Policy(session));
         SyncDialog78Type(session);

@@ -305,6 +305,12 @@ public sealed partial class MainForm
         if (changedItem.Name.Equals("Hexzmap.e5", StringComparison.OrdinalIgnoreCase))
         {
             _currentHexzmapProbe = null;
+            InvalidateBattlefieldStaticMapCache(rebuildCurrentPreview: false);
+        }
+        else if (changedItem.Path.Contains("Map" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                 changedItem.Path.Contains("Map/", StringComparison.OrdinalIgnoreCase))
+        {
+            InvalidateBattlefieldStaticMapCache(rebuildCurrentPreview: true);
         }
 
         if (changedItem.Path.Contains("RS" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
@@ -440,10 +446,18 @@ public sealed partial class MainForm
             return;
         }
 
-        var backupRoot = Path.Combine(_project.GameRoot, "_CCZModStudio_Backups");
-        if (!Directory.Exists(backupRoot))
+        var backupRoot = GetPreferredExistingBackupRoot(_project);
+        if (backupRoot == null)
         {
-            MessageBox.Show(this, "当前项目还没有备份目录：" + backupRoot, "没有可用备份", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            try
+            {
+                var expectedRoot = ProjectBackupPathService.GetBackupRoot(_project);
+                MessageBox.Show(this, "当前项目还没有备份目录：" + expectedRoot, "没有可用备份", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (InvalidOperationException ex)
+            {
+                MessageBox.Show(this, ex.Message, "备份路径配置异常", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
             return;
         }
 
@@ -1171,7 +1185,7 @@ public sealed partial class MainForm
             }
             if (gridRow.Index >= 0 && gridRow.Index < _eexEntryProbeGrid.RowCount)
             {
-                _eexEntryProbeGrid.FirstDisplayedScrollingRowIndex = gridRow.Index;
+                TryScrollGridRowIntoView(_eexEntryProbeGrid, gridRow.Index);
             }
             break;
         }

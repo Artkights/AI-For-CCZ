@@ -16,6 +16,12 @@ public sealed class ImageResourceFileInfo
     public bool SupportsE5Index { get; init; }
     public bool SupportsPreview { get; init; }
     public bool CanReplace { get; init; }
+    public bool IsIndexComplete { get; init; } = true;
+    public int ExpectedEntryCount { get; init; }
+    public int ParsedEntryCount { get; init; }
+    public int? FirstInvalidImageNumber { get; init; }
+    public string IndexSha256 { get; init; } = string.Empty;
+    public string IntegrityDiagnostic { get; init; } = string.Empty;
     public string ResourceFormat { get; init; } = string.Empty;
     public string KindSummary { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;

@@ -27,23 +27,50 @@ public sealed class JobSImageReplaceService
     }
 
     public JobSImageReplaceResult Replace(CczProject project, JobSImageReplaceRequest request)
+        => ReplaceMany(project, new[] { request }).Single();
+
+    public IReadOnlyList<JobSImageReplaceResult> ReplaceMany(
+        CczProject project,
+        IReadOnlyList<JobSImageReplaceRequest> requests)
     {
-        var normalized = NormalizeRequest(request);
-        var results = normalized.FactionSlots
-            .Select(slot => new JobSImageFactionResult
+        if (requests.Count == 0)
+            throw new InvalidOperationException("No job S image replacements were requested.");
+        var normalizedRequests = requests.Select(NormalizeRequest).ToArray();
+        var flat = normalizedRequests
+            .SelectMany((normalized, requestIndex) => normalized.FactionSlots.Select(slot => new
             {
-                FactionSlot = slot,
-                FactionName = CharacterImageResourceService.BuildSPreviewFactionText(slot),
-                Result = _sImageReplaceService.Replace(project, BuildSRequest(normalized, slot))
+                RequestIndex = requestIndex,
+                Normalized = normalized,
+                Slot = slot,
+                SRequest = BuildSRequest(normalized, slot)
+            }))
+            .ToArray();
+        var writes = _sImageReplaceService.ReplaceMany(
+            project,
+            flat.Select(item => item.SRequest).ToArray());
+        var outputs = new List<JobSImageReplaceResult>(normalizedRequests.Length);
+        for (var requestIndex = 0; requestIndex < normalizedRequests.Length; requestIndex++)
+        {
+            var normalized = normalizedRequests[requestIndex];
+            var items = flat.Select((item, flatIndex) => (item, flatIndex))
+                .Where(pair => pair.item.RequestIndex == requestIndex)
+                .ToArray();
+            var results = items
+            .Select(pair => new JobSImageFactionResult
+            {
+                FactionSlot = pair.item.Slot,
+                FactionName = CharacterImageResourceService.BuildSPreviewFactionText(pair.item.Slot),
+                Result = writes[pair.flatIndex]
             })
             .ToArray();
-
-        return new JobSImageReplaceResult
-        {
-            Request = normalized,
-            Factions = results,
-            Warnings = results.SelectMany(faction => faction.Result.Warnings).Distinct(StringComparer.Ordinal).ToArray()
-        };
+            outputs.Add(new JobSImageReplaceResult
+            {
+                Request = normalized,
+                Factions = results,
+                Warnings = results.SelectMany(faction => faction.Result.Warnings).Distinct(StringComparer.Ordinal).ToArray()
+            });
+        }
+        return outputs;
     }
 
     public static JobSImageReplaceRequest NormalizeRequest(JobSImageReplaceRequest request)

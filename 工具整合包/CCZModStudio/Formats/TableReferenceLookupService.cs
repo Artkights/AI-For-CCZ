@@ -35,7 +35,7 @@ public sealed class TableReferenceLookupService
             return rowAlignedEvidence;
         }
 
-        var rule = GetRule(currentTable, field);
+        var rule = GetRule(currentTable, field, project);
         if (rule?.Kind == ReferenceRuleKind.EquipmentEffect)
         {
             return BuildEquipmentEffectReference(project, tables, field, id);
@@ -806,13 +806,22 @@ public sealed class TableReferenceLookupService
         };
     }
 
-    private static ReferenceRule? GetRule(HexTableDefinition currentTable, HexFieldDefinition field)
+    private static ReferenceRule? GetRule(HexTableDefinition currentTable, HexFieldDefinition field, CczProject? project = null)
     {
         var tableName = currentTable.TableName;
         var name = field.ColumnName;
 
-        if (name == "撤退台词") return new ReferenceRule(ReferenceRuleKind.None, string.Empty, "撤退台词兼容字段", "6.5 撤退台词实际按人物行 ID 对齐 49 行撤退台词表；人物表字段值不应直接当文本行号跳转。");
-        if (name == "暴击台词") return new ReferenceRule(ReferenceRuleKind.None, string.Empty, "暴击台词类型号", "暴击台词字段是普通暴击类型号；特殊人物由 Ekd5.exe @ 0x89C30 的 21 组表决定，普通类型按 21+类型*3 取三条随机台词。");
+        if (name == "撤退台词")
+        {
+            var location = project == null ? "当前版本撤退表" : RoleQuoteLayoutService.BuildSummary(new RoleQuoteLayoutService().Resolve(project));
+            return new ReferenceRule(ReferenceRuleKind.None, string.Empty, "撤退台词兼容字段", $"撤退台词按人物行 ID 对齐 49 行表；人物表字段值不应直接当文本行号跳转。布局：{location}");
+        }
+        if (name == "暴击台词")
+        {
+            var mapping = project == null ? null : new RoleQuoteLayoutService().Resolve(project).SpecialCriticalMapping;
+            var location = mapping == null ? "当前版本特殊暴击人物表" : $"{mapping.FileName} @ {mapping.OffsetHex}（{mapping.Status}）";
+            return new ReferenceRule(ReferenceRuleKind.None, string.Empty, "暴击台词类型号", $"暴击台词字段是普通类型号；特殊人物由 {location} 的 21 槽表决定，普通类型按 21+类型*3 取三条随机台词。");
+        }
         if (name == "职业" || name == "兵种") return new ReferenceRule(ReferenceRuleKind.SingleTable, "6.5-4 详细兵种", "职业/详细兵种编号", "职业、兵种字段通常引用详细兵种表。");
         if (name == "装备特效号") return new ReferenceRule(ReferenceRuleKind.EquipmentEffect, string.Empty, "装备特效号", "装备特效号通常优先引用项目侧宝物特效目录，未命中时再回退到基础装备特效名称表。");
         if (name.Contains("武将", StringComparison.Ordinal) || name is "开关仓库人物" or "买卖物品人物")

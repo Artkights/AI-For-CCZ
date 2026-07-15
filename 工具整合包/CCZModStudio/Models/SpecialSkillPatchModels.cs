@@ -42,6 +42,12 @@ public sealed class InlineSpecialSkillPatchDraft
     public string ParameterEncodingPolicy { get; set; } = "auto-wide";
     public string UnitPointerSource { get; set; } = "dword [ebp-04]";
     public string FunctionAssemblySource { get; set; } = "nop";
+    public string HookContractId { get; set; } = string.Empty;
+    public string OriginalInstructionPolicy { get; set; } = string.Empty;
+    public string OriginalInstructionPlacement { get; set; } = OriginalInstructionPlacements.AfterBody;
+    public bool PreserveFlags { get; set; } = true;
+    public int ExpectedStackDelta { get; set; }
+    public List<string> RequiredSymbols { get; set; } = [];
     public int RequiredCodeCaveBytes { get; set; } = 96;
     public bool AllowPreview { get; set; }
     public InlineSpecialSkillPatch LogicalPatch { get; set; } = new();

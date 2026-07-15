@@ -83,8 +83,10 @@ public sealed class ExeCodeCaveScanner
     }
 
     internal static PeImage ReadPe(string path)
+        => ExecutableAnalysisSnapshotCache.Shared.GetBase(path).PeImage;
+
+    internal static PeImage ParsePe(byte[] bytes)
     {
-        var bytes = File.ReadAllBytes(path);
         ushort ReadUInt16(int offset) => BitConverter.ToUInt16(bytes, offset);
         uint ReadUInt32(int offset) => BitConverter.ToUInt32(bytes, offset);
 

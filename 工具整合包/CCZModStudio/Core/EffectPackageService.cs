@@ -27,15 +27,16 @@ public sealed class EffectPackageService
     private readonly WriteOperationReportService _reportService = new();
     private readonly CczEngineProfileService _engineProfile = new();
     private readonly CmfDerivedCapabilityService _cmfDerivedCapabilityService = new();
+    private readonly UnifiedEffectCatalogService _unifiedCatalog = new();
 
     public IReadOnlyList<EffectCatalogEntry> ListEffects(CczProject project, IReadOnlyList<HexTableDefinition> tables, string domain, string? keyword, int limit)
     {
         var normalized = NormalizeDomain(domain);
         var entries = normalized switch
         {
-            "item" => ListItemEffects(project, tables),
-            "job" => ListJobEffects(project, tables),
-            "personal" => ListPersonalEffects(project, tables),
+            "item" => ListUnifiedEffects(project, tables, EffectChannelKind.Item, "item"),
+            "job" => ListUnifiedEffects(project, tables, EffectChannelKind.PersonalJob, "job"),
+            "personal" => ListUnifiedEffects(project, tables, EffectChannelKind.PersonalJob, "personal"),
             "patch" => ListPatchEffects(project),
             "cmf" => ListCmfDerivedEffects(project),
             _ => throw new InvalidOperationException("Unsupported effect domain: " + domain)
@@ -47,6 +48,47 @@ public sealed class EffectPackageService
             .ToList();
         return filtered;
     }
+
+    private List<EffectCatalogEntry> ListUnifiedEffects(
+        CczProject project,
+        IReadOnlyList<HexTableDefinition> tables,
+        string channel,
+        string domain)
+    {
+        var catalog = _unifiedCatalog.Build(project, tables);
+        var effects = channel == EffectChannelKind.Item ? catalog.ItemEffects : catalog.PersonalJobEffects;
+        return effects.Select(effect =>
+        {
+            var packageBindings = effect.Bindings.Select(binding => binding.PackageBinding)
+                .Where(binding => binding != null && BindingBelongsToDomain(binding.Kind, domain))
+                .Cast<EffectPackageBinding>().ToList();
+            return new EffectCatalogEntry
+            {
+                Domain = domain,
+                EffectId = effect.EffectId,
+                Name = effect.Name,
+                Description = effect.Description,
+                EffectValue = packageBindings.Select(binding => binding.EffectValue).FirstOrDefault(value => value.HasValue),
+                Source = effect.NameSource,
+                Status = packageBindings.Count > 0 || domain == "item" && effect.IsConfigured ? "configured" : "catalog",
+                Details =
+                {
+                    ["Channel"] = effect.Channel,
+                    ["Bindings"] = packageBindings,
+                    ["UnifiedBindings"] = effect.Bindings,
+                    ["Conflicts"] = effect.Conflicts
+                }
+            };
+        }).ToList();
+    }
+
+    private static bool BindingBelongsToDomain(string kind, string domain)
+        => domain switch
+        {
+            "job" => kind.Equals("job_assignment", StringComparison.OrdinalIgnoreCase),
+            "personal" => !kind.Equals("job_assignment", StringComparison.OrdinalIgnoreCase),
+            _ => true
+        };
 
     public EffectCatalogEntry ReadEffect(CczProject project, IReadOnlyList<HexTableDefinition> tables, string domain, int effectId)
         => ListEffects(project, tables, domain, null, 1000)
@@ -81,6 +123,9 @@ public sealed class EffectPackageService
     }
 
     public EffectPackagePreviewResult Preview(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode)
+        => PreviewCore(project, tables, package, mode, issueReceipt: true);
+
+    private EffectPackagePreviewResult PreviewCore(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode, bool issueReceipt)
     {
         ValidatePackage(package);
         var normalizedMode = NormalizeMode(mode);
@@ -114,12 +159,15 @@ public sealed class EffectPackageService
 
         preview.CanApply = preview.CanApply && preview.Warnings.Count == 0;
         preview.Summary = $"{preview.Domain} effect {preview.EffectId} {preview.Mode}: {preview.Changes.Count} planned changes, warnings={preview.Warnings.Count}.";
+        if (issueReceipt && preview.CanApply)
+            new LockedEffectWriteReceiptService().Issue(project, package, "effect-package-" + preview.Mode);
         return preview;
     }
 
     public EffectPackageApplyResult Apply(CczProject project, IReadOnlyList<HexTableDefinition> tables, EffectPackage package, string mode)
     {
-        var preview = Preview(project, tables, package, mode);
+        new LockedEffectWriteReceiptService().ValidateAndConsume(project, package);
+        var preview = PreviewCore(project, tables, package, mode, issueReceipt: false);
         if (!preview.CanApply)
         {
             throw new InvalidOperationException("EffectPackage preview failed; apply was cancelled: " + string.Join("; ", preview.Warnings.Take(10)));
@@ -165,6 +213,9 @@ public sealed class EffectPackageService
     }
 
     public EffectPatchPreviewResult PreviewPatch(CczProject project, EffectPackage package)
+        => PreviewPatchCore(project, package, issueReceipt: true);
+
+    private EffectPatchPreviewResult PreviewPatchCore(CczProject project, EffectPackage package, bool issueReceipt)
     {
         ValidatePackage(package);
         var preview = new EffectPatchPreviewResult
@@ -241,64 +292,49 @@ public sealed class EffectPackageService
             }
         }
 
+        try
+        {
+            preview.WriteDecisions = new EffectWriteAuthorizationService().AuthorizePreview(project, package).ToList();
+            preview.WriteAuthorization = package.WriteAuthorization;
+            foreach (var decision in preview.WriteDecisions.Where(item => !item.CanApply))
+            {
+                preview.Warnings.Add("Write authorization denied [" +
+                                     string.Join(",", decision.BlockerCodes) + "]: " +
+                                     string.Join("; ", decision.ReasonsZh));
+            }
+            preview.CanApply = preview.CanApply && preview.WriteDecisions.Count == package.PatchSegments.Count &&
+                               preview.WriteDecisions.All(item => item.CanApply);
+        }
+        catch (Exception ex)
+        {
+            preview.CanApply = false;
+            preview.Warnings.Add("Structured write authorization failed: " + ex.Message);
+        }
         preview.Summary = $"Patch package preview: segments={package.PatchSegments.Count}, warnings={preview.Warnings.Count}.";
+        if (issueReceipt && preview.CanApply)
+            new LockedEffectWriteReceiptService().Issue(project, package, "effect-patch");
         return preview;
     }
 
     public EffectPackageApplyResult ApplyPatch(CczProject project, EffectPackage package)
     {
-        var preview = PreviewPatch(project, package);
-        if (!preview.CanApply)
-        {
-            throw new InvalidOperationException("Patch package preview failed; apply was cancelled: " + string.Join("; ", preview.Warnings.Take(10)));
-        }
-
-        var aggregate = new EffectPackageApplyResult
+        var applied = new EffectTransactionalPatchService().Apply(
+            project,
+            package,
+            "effect-patch",
+            expectedReceiptOperationKind: null);
+        return new EffectPackageApplyResult
         {
             Mode = "patch",
             Domain = "patch",
             EffectId = package.EffectId,
-            ManifestId = CreateManifestId(package)
+            ManifestId = Path.GetFileNameWithoutExtension(applied.ManifestPath),
+            ManifestPath = applied.ManifestPath,
+            BackupPaths = applied.BackupPaths.ToList(),
+            ChangedBytes = applied.ChangedBytes,
+            ChangeCount = package.PatchSegments.Count,
+            Summary = applied.SummaryZh
         };
-        var manifest = new EffectManifest
-        {
-            ManifestId = aggregate.ManifestId,
-            ProjectRoot = project.GameRoot,
-            Mode = "patch",
-            Domain = "patch",
-            EffectId = package.EffectId,
-            PackageId = NormalizePackageId(package),
-            SourcePrompt = package.SourcePrompt,
-            BackupNote = package.BackupNote,
-            Package = package
-        };
-
-        foreach (var group in package.PatchSegments.GroupBy(segment => FirstNonEmpty(segment.TargetFile, "Ekd5.exe"), StringComparer.OrdinalIgnoreCase))
-        {
-            var document = BuildPatchDocument(package, group.Key, group.ToList());
-            var apply = _patchApply.Apply(project, document, group.Key);
-            AddBackup(manifest, aggregate, project, Path.Combine(project.GameRoot, group.Key), apply.BackupPath, "PatchSegment");
-            if (!string.IsNullOrWhiteSpace(apply.ReportJsonPath))
-            {
-                aggregate.ReportPaths.Add(apply.ReportJsonPath);
-                manifest.ReportPaths.Add(apply.ReportJsonPath);
-            }
-            manifest.Changes.AddRange(group.Select(segment => new EffectManifestChange
-            {
-                Category = "PatchSegment",
-                TargetRelativePath = group.Key,
-                Field = FirstNonEmpty(segment.HookPoint, segment.CodeCaveId, "patch"),
-                OldValue = segment.ExpectedOldBytesHex,
-                NewValue = ToHex(ParseHexBytes(segment.BytesHex)),
-                Note = segment.Comment
-            }));
-        }
-
-        aggregate.ChangeCount = manifest.Changes.Count;
-        aggregate.ChangedBytes = manifest.Changes.Count;
-        aggregate.ManifestPath = SaveManifest(project, manifest);
-        aggregate.Summary = $"Patch effect {package.EffectId} applied with {aggregate.ChangeCount} segments.";
-        return aggregate;
     }
 
     public IReadOnlyList<EffectTemplate> ListTemplates()
@@ -1171,7 +1207,7 @@ public sealed class EffectPackageService
 
     private static EffectManifestBackup CreateManifestBackup(CczProject project, string targetPath, string category)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var existed = File.Exists(targetPath);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
@@ -1236,7 +1272,7 @@ public sealed class EffectPackageService
     }
 
     private static string GetManifestRoot(CczProject project)
-        => Path.Combine(project.WorkspaceRoot, "CCZModStudio_Notes", "EffectManifests");
+        => ProjectPatchIdentityService.EffectManifestRoot(project);
 
     private static string ResolveManifestPath(CczProject project, string manifestId)
     {

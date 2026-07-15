@@ -462,10 +462,8 @@ internal sealed class LegacyMfcDialogHostControl : UserControl
                     WordWrap = controlSpec.Multiline
                 };
             case LegacyMfcControlKind.ComboBox:
-                return new ComboBox
+                return new LegacyPersonComboBox
                 {
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    IntegralHeight = false,
                     Sorted = controlSpec.Sorted
                 };
             case LegacyMfcControlKind.CheckBox:

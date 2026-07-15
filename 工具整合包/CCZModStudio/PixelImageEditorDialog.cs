@@ -18,25 +18,67 @@ internal sealed class PixelImageEditorDialog : Form
         Rectangle
     }
 
-    private readonly EditableImageDocument _document;
-    private readonly PixelCanvas _canvas;
+    private enum InteractionState
+    {
+        Normal,
+        ConfiguringColorReplacement,
+        PickingColorReplacement
+    }
+
+    private EditableImageDocument _document;
+    private readonly PixelEditResourceGroup? _group;
+    private readonly PixelEditResourcePage _singlePage;
+    private PixelCanvas _canvas = null!;
+    private readonly Panel _scroll = new();
+    private readonly TabControl _documentTabs = new();
     private readonly PictureBox _colorPreview = new();
     private readonly TrackBar _zoomBar = new();
     private readonly Label _statusLabel = new();
     private readonly CheckBox _gridCheckBox = new();
     private readonly ToolTip _toolTip = new();
-    private readonly Stack<Bitmap> _undo = new();
-    private readonly Stack<Bitmap> _redo = new();
+    private readonly List<Control> _disabledDuringColorReplacement = new();
+    private readonly Stack<PixelEditHistoryEntry> _undo = new();
+    private readonly Stack<PixelEditHistoryEntry> _redo = new();
+    private readonly PixelColorReplacementService _colorReplacementService = new();
     private ToolKind _tool = ToolKind.Pencil;
     private Color _primaryColor = Color.Black;
+    private PixelColorReplaceDialog? _colorReplaceDialog;
+    private ColorReplacementPickRequest? _pendingColorPick;
+    private InteractionState _interactionState = InteractionState.Normal;
     private bool _painting;
     private Point _startPixel;
     private Point _lastPixel;
+    private readonly bool _singleFrameMode;
 
     public PixelImageEditorDialog(EditableImageDocument document)
+        : this(document, singleFrameMode: false)
     {
+    }
+
+    internal PixelImageEditorDialog(EditableImageDocument document, bool singleFrameMode)
+    {
+        _singleFrameMode = singleFrameMode;
         _document = document;
-        Text = "像素编辑 - " + document.Target.DisplayName;
+        _singlePage = new PixelEditResourcePage
+        {
+            Key = BuildDocumentKey(document),
+            Label = document.Target.DisplayName,
+            Document = document
+        };
+        InitializeDialog();
+    }
+
+    public PixelImageEditorDialog(PixelEditResourceGroup group)
+    {
+        _group = group;
+        _document = group.ActivePage.Document;
+        _singlePage = group.ActivePage;
+        InitializeDialog();
+    }
+
+    private void InitializeDialog()
+    {
+        Text = "像素编辑 - " + _document.Target.DisplayName;
         StartPosition = FormStartPosition.CenterParent;
         MinimizeBox = false;
         MaximizeBox = true;
@@ -45,12 +87,12 @@ internal sealed class PixelImageEditorDialog : Form
         Height = 780;
         KeyPreview = true;
 
-        _canvas = new PixelCanvas(document.Bitmap)
+        _canvas = new PixelCanvas(_document.Bitmap)
         {
             Dock = DockStyle.None,
             Location = Point.Empty,
-            FrameWidth = document.FrameWidth,
-            FrameHeight = document.FrameHeight,
+            FrameWidth = _document.FrameWidth,
+            FrameHeight = _document.FrameHeight,
             ShowGrid = true
         };
         _canvas.PixelMouseDown += CanvasPixelMouseDown;
@@ -59,35 +101,42 @@ internal sealed class PixelImageEditorDialog : Form
         _canvas.PixelHover += (_, point) => UpdateStatus(point);
 
         Controls.Add(BuildRoot());
+        BuildDocumentTabs();
         UpdateColorPreview();
         UpdateStatus(null);
     }
 
     public Bitmap EditedBitmap => _document.Bitmap;
 
+    internal PixelColorReplaceDialog? ColorReplaceDialogForSmoke => _colorReplaceDialog;
+    internal string InteractionStateForSmoke => _interactionState.ToString();
+
     private Control BuildRoot()
     {
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            RowCount = 3,
+            RowCount = 4,
             ColumnCount = 1,
             Padding = new Padding(8)
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        root.Controls.Add(BuildToolbar(), 0, 0);
+        _documentTabs.Dock = DockStyle.Top;
+        _documentTabs.Height = 34;
+        _documentTabs.Visible = _group?.ShowTabs == true;
+        _documentTabs.SelectedIndexChanged += (_, _) => SwitchDocument(_documentTabs.SelectedIndex);
+        root.Controls.Add(_documentTabs, 0, 0);
+        root.Controls.Add(BuildToolbar(), 0, 1);
 
-        var scroll = new Panel
-        {
-            Dock = DockStyle.Fill,
-            AutoScroll = true,
-            BackColor = Color.FromArgb(36, 36, 40)
-        };
-        scroll.Controls.Add(_canvas);
-        root.Controls.Add(scroll, 0, 1);
+        _scroll.Dock = DockStyle.Fill;
+        _scroll.AutoScroll = true;
+        _scroll.BackColor = Color.FromArgb(36, 36, 40);
+        _scroll.Controls.Add(_canvas);
+        root.Controls.Add(_scroll, 0, 2);
 
         var bottom = new TableLayoutPanel
         {
@@ -104,11 +153,12 @@ internal sealed class PixelImageEditorDialog : Form
         bottom.Controls.Add(_statusLabel, 0, 0);
         var ok = new Button { Text = "保存写回", AutoSize = true, MinimumSize = new Size(96, 32), DialogResult = DialogResult.OK };
         var cancel = new Button { Text = "取消", AutoSize = true, MinimumSize = new Size(80, 32), DialogResult = DialogResult.Cancel };
+        _disabledDuringColorReplacement.Add(ok);
         bottom.Controls.Add(ok, 1, 0);
         bottom.Controls.Add(cancel, 2, 0);
         AcceptButton = ok;
         CancelButton = cancel;
-        root.Controls.Add(bottom, 0, 2);
+        root.Controls.Add(bottom, 0, 3);
         return root;
     }
 
@@ -153,13 +203,23 @@ internal sealed class PixelImageEditorDialog : Form
                 _primaryColor = color;
                 UpdateColorPreview();
             };
+            _disabledDuringColorReplacement.Add(swatch);
             bar.Controls.Add(swatch);
         }
 
+        bar.Controls.Add(MakeButton("换色", ReplaceColors, "整组并行换色，最多五组"));
         bar.Controls.Add(MakeButton("导入PNG", ImportPng, "Ctrl+I"));
         bar.Controls.Add(MakeButton("导出PNG", ExportPng, "Ctrl+E"));
         bar.Controls.Add(MakeButton("撤销", Undo, "Ctrl+Z"));
         bar.Controls.Add(MakeButton("重做", Redo, "Ctrl+Y / Ctrl+Shift+Z"));
+        if (_singleFrameMode)
+        {
+            bar.Controls.Add(new Label { Text = "对齐：", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            bar.Controls.Add(MakeButton("左移", () => ShiftSingleFrame(RsFrameShiftDirection.Left), "Alt+左方向键"));
+            bar.Controls.Add(MakeButton("右移", () => ShiftSingleFrame(RsFrameShiftDirection.Right), "Alt+右方向键"));
+            bar.Controls.Add(MakeButton("上移", () => ShiftSingleFrame(RsFrameShiftDirection.Up), "Alt+上方向键"));
+            bar.Controls.Add(MakeButton("下移", () => ShiftSingleFrame(RsFrameShiftDirection.Down), "Alt+下方向键"));
+        }
         _gridCheckBox.Text = "网格";
         _gridCheckBox.Checked = true;
         _gridCheckBox.AutoSize = true;
@@ -200,13 +260,17 @@ internal sealed class PixelImageEditorDialog : Form
         return button;
     }
 
-    private Button MakeButton(string text, Action action, string tooltip = "")
+    private Button MakeButton(string text, Action action, string tooltip = "", bool disableDuringColorReplacement = true)
     {
         var button = new Button { Text = text, AutoSize = true, MinimumSize = new Size(64, 30), Margin = new Padding(2) };
         button.Click += (_, _) => action();
         if (!string.IsNullOrWhiteSpace(tooltip))
         {
             _toolTip.SetToolTip(button, tooltip);
+        }
+        if (disableDuringColorReplacement)
+        {
+            _disabledDuringColorReplacement.Add(button);
         }
         return button;
     }
@@ -215,6 +279,78 @@ internal sealed class PixelImageEditorDialog : Form
     {
         var keyCode = keyData & Keys.KeyCode;
         var modifiers = keyData & (Keys.Control | Keys.Shift | Keys.Alt);
+
+        if (_interactionState != InteractionState.Normal)
+        {
+            if (modifiers == Keys.None && keyCode == Keys.Escape)
+            {
+                if (_interactionState == InteractionState.PickingColorReplacement)
+                {
+                    CancelColorReplacementPick();
+                }
+                else
+                {
+                    _colorReplaceDialog?.Show();
+                    _colorReplaceDialog?.Activate();
+                    UpdateStatus(null);
+                }
+
+                return true;
+            }
+
+            if (keyData == (Keys.Control | Keys.H))
+            {
+                ToggleGrid();
+                return true;
+            }
+
+            if (keyData == (Keys.Shift | Keys.Oemplus))
+            {
+                ChangeZoom(1);
+                return true;
+            }
+
+            if (modifiers == Keys.None)
+            {
+                switch (keyCode)
+                {
+                    case Keys.G:
+                        ToggleGrid();
+                        return true;
+                    case Keys.Oemplus:
+                    case Keys.Add:
+                        ChangeZoom(1);
+                        return true;
+                    case Keys.OemMinus:
+                    case Keys.Subtract:
+                        ChangeZoom(-1);
+                        return true;
+                    case Keys.D0:
+                    case Keys.NumPad0:
+                        ResetZoom();
+                        return true;
+                    case Keys.P:
+                    case Keys.E:
+                    case Keys.I:
+                    case Keys.F:
+                    case Keys.L:
+                    case Keys.R:
+                        UpdateStatus(null);
+                        return true;
+                }
+            }
+
+            if (keyData is (Keys.Control | Keys.S) or
+                (Keys.Control | Keys.Z) or
+                (Keys.Control | Keys.Y) or
+                (Keys.Control | Keys.Shift | Keys.Z) or
+                (Keys.Control | Keys.I) or
+                (Keys.Control | Keys.E))
+            {
+                UpdateStatus(null);
+                return true;
+            }
+        }
 
         if (keyData == (Keys.Control | Keys.S))
         {
@@ -251,6 +387,25 @@ internal sealed class PixelImageEditorDialog : Form
         {
             ExportPng();
             return true;
+        }
+
+        if (_singleFrameMode && modifiers == Keys.Alt)
+        {
+            switch (keyCode)
+            {
+                case Keys.Left:
+                    ShiftSingleFrame(RsFrameShiftDirection.Left);
+                    return true;
+                case Keys.Right:
+                    ShiftSingleFrame(RsFrameShiftDirection.Right);
+                    return true;
+                case Keys.Up:
+                    ShiftSingleFrame(RsFrameShiftDirection.Up);
+                    return true;
+                case Keys.Down:
+                    ShiftSingleFrame(RsFrameShiftDirection.Down);
+                    return true;
+            }
         }
 
         if (keyData == (Keys.Shift | Keys.Oemplus))
@@ -331,6 +486,16 @@ internal sealed class PixelImageEditorDialog : Form
         _canvas.Invalidate();
     }
 
+    private void ShiftSingleFrame(RsFrameShiftDirection direction)
+    {
+        if (!_singleFrameMode) return;
+        SaveUndo();
+        using var shifted = RsFrameShiftService.Shift(_document.Bitmap, direction);
+        RestoreBitmap(_document.Bitmap, shifted);
+        _canvas.Invalidate();
+        UpdateStatus(null);
+    }
+
     private static string GetToolDisplayName(ToolKind tool)
         => tool switch
         {
@@ -393,8 +558,145 @@ internal sealed class PixelImageEditorDialog : Form
         return colors;
     }
 
+    private void BuildDocumentTabs()
+    {
+        if (_group?.ShowTabs != true) return;
+        _documentTabs.SuspendLayout();
+        _documentTabs.TabPages.Clear();
+        foreach (var page in _group.Pages)
+        {
+            _documentTabs.TabPages.Add(new TabPage(page.Label));
+        }
+        _documentTabs.SelectedIndex = Math.Clamp(_group.ActiveIndex, 0, _documentTabs.TabPages.Count - 1);
+        _documentTabs.ResumeLayout();
+    }
+
+    private void SwitchDocument(int index)
+    {
+        if (_group?.ShowTabs != true || index < 0 || index >= _group.Pages.Count || index == _group.ActiveIndex) return;
+        var current = _group.ActivePage;
+        current.Zoom = _canvas.Zoom;
+        current.ScrollPosition = new Point(-_scroll.AutoScrollPosition.X, -_scroll.AutoScrollPosition.Y);
+
+        ClearPreviewState();
+        _group.ActiveIndex = index;
+        var next = _group.ActivePage;
+        _document = next.Document;
+        _canvas.SetBitmap(_document.Bitmap);
+        _canvas.FrameWidth = _document.FrameWidth;
+        _canvas.FrameHeight = _document.FrameHeight;
+        _zoomBar.Value = Math.Clamp(next.Zoom, _zoomBar.Minimum, _zoomBar.Maximum);
+        _scroll.AutoScrollPosition = next.ScrollPosition;
+        Text = "像素编辑 - " + _document.Target.DisplayName;
+        UpdateStatus(null);
+    }
+
+    private void ReplaceColors()
+    {
+        if (_colorReplaceDialog != null)
+        {
+            _colorReplaceDialog.Show();
+            _colorReplaceDialog.Activate();
+            return;
+        }
+
+        try
+        {
+            if (_group != null && !_group.EnsureReplacementScope(this)) return;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "完整形象组载入失败：\r\n" + ex.Message, "整组换色", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        var pages = GetAllPages();
+        var dialog = new PixelColorReplaceDialog(pages, _group?.ScopeDescription ?? _document.Target.DisplayName);
+        _colorReplaceDialog = dialog;
+        dialog.PickRequested += ColorReplaceDialogPickRequested;
+        dialog.ApplyRequested += ColorReplaceDialogApplyRequested;
+        dialog.FormClosed += ColorReplaceDialogFormClosed;
+        SetInteractionState(InteractionState.ConfiguringColorReplacement);
+        dialog.Show(this);
+    }
+
+    internal void OpenColorReplacementForSmoke()
+        => ReplaceColors();
+
+    internal void PickColorReplacementPixelForSmoke(Point pixel, MouseButtons button)
+        => CanvasPixelMouseDown(_canvas, new PixelMouseEventArgs(pixel, button));
+
+    private void ColorReplaceDialogPickRequested(object? sender, PixelColorPickRequestedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _colorReplaceDialog)) return;
+        _pendingColorPick = new ColorReplacementPickRequest(e.RuleIndex, e.FieldKind);
+        SetInteractionState(InteractionState.PickingColorReplacement);
+        ClearPreviewState();
+        UpdateStatus(null);
+        Activate();
+    }
+
+    private void ColorReplaceDialogApplyRequested(object? sender, EventArgs e)
+    {
+        if (sender is not PixelColorReplaceDialog dialog || !ReferenceEquals(dialog, _colorReplaceDialog)) return;
+        ApplyColorReplacement(dialog);
+    }
+
+    private void ApplyColorReplacement(PixelColorReplaceDialog dialog)
+    {
+        if (dialog.Preview == null) return;
+        var pages = GetAllPages();
+        var changedKeys = dialog.Preview.Documents
+            .Where(document => document.TotalMatches > 0)
+            .Select(document => document.DocumentKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        SaveUndoPages(pages.Where(page => changedKeys.Contains(page.Key)));
+        var result = _colorReplacementService.Apply(
+            pages.Select(page => (page.Key, page.Label, page.Document.Bitmap)).ToArray(),
+            dialog.Rules);
+        if (_group != null)
+        {
+            _group.ColorReplacementPreview = result.Preview;
+        }
+        _canvas.Invalidate();
+        _statusLabel.Text = $"整组换色完成：{dialog.Rules.Count} 组，并行替换 {result.Preview.TotalMatches:N0} 个像素，覆盖 {result.ChangedDocumentKeys.Count} 个形象条目。";
+        dialog.Close();
+    }
+
+    private void ColorReplaceDialogFormClosed(object? sender, FormClosedEventArgs e)
+    {
+        if (!ReferenceEquals(sender, _colorReplaceDialog)) return;
+        var dialog = _colorReplaceDialog;
+        if (dialog != null)
+        {
+            dialog.PickRequested -= ColorReplaceDialogPickRequested;
+            dialog.ApplyRequested -= ColorReplaceDialogApplyRequested;
+            dialog.FormClosed -= ColorReplaceDialogFormClosed;
+            dialog.Dispose();
+        }
+
+        _colorReplaceDialog = null;
+        _pendingColorPick = null;
+        SetInteractionState(InteractionState.Normal, updateStatus: dialog?.IsApplying != true);
+    }
+
     private void CanvasPixelMouseDown(object? sender, PixelMouseEventArgs e)
     {
+        if (_interactionState == InteractionState.PickingColorReplacement)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                CancelColorReplacementPick();
+                return;
+            }
+
+            if (e.Button == MouseButtons.Left && IsInside(e.Pixel))
+            {
+                CompleteColorReplacementPick(e.Pixel);
+                return;
+            }
+        }
+
+        if (_interactionState != InteractionState.Normal) return;
         if (!IsInside(e.Pixel)) return;
         _painting = true;
         _startPixel = e.Pixel;
@@ -426,6 +728,12 @@ internal sealed class PixelImageEditorDialog : Form
 
     private void CanvasPixelMouseMove(object? sender, PixelMouseEventArgs e)
     {
+        if (_interactionState != InteractionState.Normal)
+        {
+            UpdateStatus(IsInside(e.Pixel) ? e.Pixel : null);
+            return;
+        }
+
         if (!_painting || !IsInside(e.Pixel)) return;
         if (_tool is ToolKind.Pencil or ToolKind.Eraser)
         {
@@ -445,6 +753,12 @@ internal sealed class PixelImageEditorDialog : Form
 
     private void CanvasPixelMouseUp(object? sender, PixelMouseEventArgs e)
     {
+        if (_interactionState != InteractionState.Normal)
+        {
+            _painting = false;
+            return;
+        }
+
         if (!_painting) return;
         _painting = false;
         if (IsInside(e.Pixel))
@@ -529,17 +843,54 @@ internal sealed class PixelImageEditorDialog : Form
     private bool IsInside(Point point)
         => point.X >= 0 && point.Y >= 0 && point.X < _document.Bitmap.Width && point.Y < _document.Bitmap.Height;
 
-    private void SaveUndo()
+    private void CompleteColorReplacementPick(Point pixel)
     {
-        _undo.Push(new Bitmap(_document.Bitmap));
-        _redo.Clear();
+        if (_pendingColorPick == null || _colorReplaceDialog == null || !IsInside(pixel)) return;
+
+        var color = _document.Bitmap.GetPixel(pixel.X, pixel.Y);
+        var request = _pendingColorPick;
+        _pendingColorPick = null;
+        SetInteractionState(InteractionState.ConfiguringColorReplacement);
+        _colorReplaceDialog.ApplyPickedColor(request.RuleIndex, request.FieldKind, color);
+    }
+
+    private void CancelColorReplacementPick()
+    {
+        _pendingColorPick = null;
+        SetInteractionState(_colorReplaceDialog == null ? InteractionState.Normal : InteractionState.ConfiguringColorReplacement);
+        _colorReplaceDialog?.CancelPick();
+        UpdateStatus(null);
+    }
+
+    private void SetInteractionState(InteractionState state, bool updateStatus = true)
+    {
+        _interactionState = state;
+        _painting = false;
+        _canvas.Cursor = state == InteractionState.ConfiguringColorReplacement ? Cursors.Default : Cursors.Cross;
+        var commandsEnabled = state == InteractionState.Normal;
+        foreach (var control in _disabledDuringColorReplacement.Where(control => !control.IsDisposed).Distinct())
+        {
+            control.Enabled = commandsEnabled;
+        }
+
+        if (updateStatus) UpdateStatus(null);
+    }
+
+    private void SaveUndo()
+        => SaveUndoPages(new[] { GetActivePage() });
+
+    private void SaveUndoPages(IEnumerable<PixelEditResourcePage> pages)
+    {
+        var snapshots = pages
+            .DistinctBy(page => page.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(page => page.Key, page => new Bitmap(page.Document.Bitmap), StringComparer.OrdinalIgnoreCase);
+        if (snapshots.Count == 0) return;
+        _undo.Push(new PixelEditHistoryEntry(snapshots, _group?.ColorReplacementPreview));
+        DisposeHistory(_redo);
         if (_undo.Count > 50)
         {
             var kept = _undo.Take(50).ToArray();
-            foreach (var stale in _undo.Skip(50))
-            {
-                stale.Dispose();
-            }
+            foreach (var stale in _undo.Skip(50)) stale.Dispose();
 
             _undo.Clear();
             for (var i = kept.Length - 1; i >= 0; i--)
@@ -553,26 +904,62 @@ internal sealed class PixelImageEditorDialog : Form
     {
         if (_undo.Count == 0) return;
         ClearPreviewState();
-        _redo.Push(new Bitmap(_document.Bitmap));
-        using var previous = _undo.Pop();
-        using var g = Graphics.FromImage(_document.Bitmap);
-        g.CompositingMode = CompositingMode.SourceCopy;
-        g.DrawImage(previous, 0, 0);
-        _canvas.Invalidate();
-        UpdateStatus(null);
+        ApplyHistory(_undo, _redo);
     }
 
     private void Redo()
     {
         if (_redo.Count == 0) return;
         ClearPreviewState();
-        _undo.Push(new Bitmap(_document.Bitmap));
-        using var next = _redo.Pop();
-        using var g = Graphics.FromImage(_document.Bitmap);
-        g.CompositingMode = CompositingMode.SourceCopy;
-        g.DrawImage(next, 0, 0);
+        ApplyHistory(_redo, _undo);
+    }
+
+    private void ApplyHistory(Stack<PixelEditHistoryEntry> source, Stack<PixelEditHistoryEntry> destination)
+    {
+        using var entry = source.Pop();
+        var current = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in entry.Snapshots.Keys)
+        {
+            var page = GetAllPages().FirstOrDefault(candidate => candidate.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+            if (page == null) continue;
+            current[key] = new Bitmap(page.Document.Bitmap);
+            RestoreBitmap(page.Document.Bitmap, entry.Snapshots[key]);
+        }
+        destination.Push(new PixelEditHistoryEntry(current, _group?.ColorReplacementPreview));
+        if (_group != null)
+        {
+            _group.ColorReplacementPreview = entry.ColorReplacementPreview;
+        }
         _canvas.Invalidate();
         UpdateStatus(null);
+    }
+
+    private static void RestoreBitmap(Bitmap target, Bitmap source)
+    {
+        using var g = Graphics.FromImage(target);
+        g.CompositingMode = CompositingMode.SourceCopy;
+        g.DrawImageUnscaled(source, 0, 0);
+    }
+
+    private PixelEditResourcePage GetActivePage() => _group?.ActivePage ?? _singlePage;
+
+    private IReadOnlyList<PixelEditResourcePage> GetAllPages() => _group?.Pages ?? new[] { _singlePage };
+
+    private static string BuildDocumentKey(EditableImageDocument document)
+    {
+        try
+        {
+            return PixelEditResourceGroup.BuildTargetKey(document.Target);
+        }
+        catch
+        {
+            return "document:" + document.Target.DisplayName;
+        }
+    }
+
+    private static void DisposeHistory(Stack<PixelEditHistoryEntry> history)
+    {
+        while (history.Count > 0) history.Pop().Dispose();
     }
 
     private void PickColor()
@@ -593,11 +980,22 @@ internal sealed class PixelImageEditorDialog : Form
         using var dialog = new OpenFileDialog
         {
             Title = "导入 PNG 到当前画布",
-            Filter = "PNG 图片 (*.png)|*.png|图片文件 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|所有文件 (*.*)|*.*",
+            Filter = _singleFrameMode
+                ? "PNG 图片 (*.png)|*.png"
+                : "PNG 图片 (*.png)|*.png|图片文件 (*.bmp;*.jpg;*.jpeg;*.png)|*.bmp;*.jpg;*.jpeg;*.png|所有文件 (*.*)|*.*",
             CheckFileExists = true
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         using var raw = Image.FromFile(dialog.FileName);
+        if (_singleFrameMode && raw.Size != _document.Bitmap.Size)
+        {
+            MessageBox.Show(this,
+                $"单帧导入尺寸必须严格等于 {_document.Bitmap.Width}x{_document.Bitmap.Height}，当前图片为 {raw.Width}x{raw.Height}。",
+                "单帧尺寸不匹配",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
         SaveUndo();
         using var g = Graphics.FromImage(_document.Bitmap);
         g.CompositingMode = CompositingMode.SourceCopy;
@@ -684,6 +1082,29 @@ internal sealed class PixelImageEditorDialog : Form
 
     private void UpdateStatus(Point? pixel)
     {
+        if (_interactionState == InteractionState.PickingColorReplacement && _pendingColorPick != null)
+        {
+            var field = _pendingColorPick.FieldKind == PixelColorReplaceDialog.PickFieldKind.Source ? "源" : "目标";
+            var hover = string.Empty;
+            if (pixel.HasValue && IsInside(pixel.Value))
+            {
+                var color = PixelColorReplacementService.NormalizeColor(_document.Bitmap.GetPixel(pixel.Value.X, pixel.Value.Y));
+                var colorText = color.A == 0
+                    ? "透明"
+                    : $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
+                hover = $"    坐标 {pixel.Value.X},{pixel.Value.Y}    {colorText}";
+            }
+
+            _statusLabel.Text = $"正在为规则 {_pendingColorPick.RuleIndex + 1} 选择{field}颜色；左键取色，右键或 Esc 取消。缩放、滚动、网格和动作标签可用。{hover}";
+            return;
+        }
+
+        if (_interactionState == InteractionState.ConfiguringColorReplacement)
+        {
+            _statusLabel.Text = "换色窗口已打开；主画布暂不绘图。点击换色窗口里的“取色”后可回到画布单击像素取色。";
+            return;
+        }
+
         var pos = pixel.HasValue && IsInside(pixel.Value)
             ? $"    坐标 {pixel.Value.X},{pixel.Value.Y}"
             : string.Empty;
@@ -707,9 +1128,49 @@ internal sealed class PixelImageEditorDialog : Form
         }
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            var dialog = _colorReplaceDialog;
+            _colorReplaceDialog = null;
+            if (dialog != null)
+            {
+                dialog.PickRequested -= ColorReplaceDialogPickRequested;
+                dialog.ApplyRequested -= ColorReplaceDialogApplyRequested;
+                dialog.FormClosed -= ColorReplaceDialogFormClosed;
+                dialog.Close();
+                dialog.Dispose();
+            }
+
+            DisposeHistory(_undo);
+            DisposeHistory(_redo);
+        }
+        base.Dispose(disposing);
+    }
+
+    private sealed class PixelEditHistoryEntry : IDisposable
+    {
+        public PixelEditHistoryEntry(
+            IReadOnlyDictionary<string, Bitmap> snapshots,
+            PixelColorReplacementPreview? colorReplacementPreview)
+        {
+            Snapshots = snapshots;
+            ColorReplacementPreview = colorReplacementPreview;
+        }
+
+        public IReadOnlyDictionary<string, Bitmap> Snapshots { get; }
+        public PixelColorReplacementPreview? ColorReplacementPreview { get; }
+
+        public void Dispose()
+        {
+            foreach (var bitmap in Snapshots.Values) bitmap.Dispose();
+        }
+    }
+
     private sealed class PixelCanvas : Control
     {
-        private readonly Bitmap _bitmap;
+        private Bitmap _bitmap;
         private int _zoom = 12;
 
         public PixelCanvas(Bitmap bitmap)
@@ -769,30 +1230,6 @@ internal sealed class PixelImageEditorDialog : Form
                 for (var y = 0; y <= _bitmap.Height; y++) g.DrawLine(gridPen, 0, y * Zoom, _bitmap.Width * Zoom, y * Zoom);
             }
 
-            var frameWidth = FrameWidth.GetValueOrDefault();
-            var frameHeight = FrameHeight.GetValueOrDefault();
-            if (frameWidth > 0 && frameHeight > 0)
-            {
-                using var framePen = new Pen(Color.FromArgb(210, Color.DeepSkyBlue), 2);
-                for (var x = frameWidth; x < _bitmap.Width; x += frameWidth) g.DrawLine(framePen, x * Zoom, 0, x * Zoom, _bitmap.Height * Zoom);
-                for (var y = frameHeight; y < _bitmap.Height; y += frameHeight) g.DrawLine(framePen, 0, y * Zoom, _bitmap.Width * Zoom, y * Zoom);
-                using var frameFont = new Font(FontFamily.GenericSansSerif, Math.Max(7f, Math.Min(11f, Zoom * 0.55f)), FontStyle.Bold, GraphicsUnit.Pixel);
-                using var frameBack = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
-                using var frameBrush = new SolidBrush(Color.White);
-                var frameIndex = 0;
-                for (var y = 0; y < _bitmap.Height; y += frameHeight)
-                {
-                    for (var x = 0; x < _bitmap.Width; x += frameWidth)
-                    {
-                        var text = (++frameIndex).ToString(CultureInfo.InvariantCulture);
-                        var size = g.MeasureString(text, frameFont);
-                        var rect = new RectangleF(x * Zoom + 2, y * Zoom + 2, size.Width + 5, size.Height + 2);
-                        g.FillRectangle(frameBack, rect);
-                        g.DrawString(text, frameFont, frameBrush, rect.Left + 2, rect.Top + 1);
-                    }
-                }
-            }
-
             if (!string.IsNullOrWhiteSpace(PreviewKind) && PreviewStart.HasValue && PreviewEnd.HasValue)
             {
                 using var pen = new Pen(PreviewColor.A == 0 ? Color.Red : PreviewColor, Math.Max(1, Zoom / 5f));
@@ -811,6 +1248,14 @@ internal sealed class PixelImageEditorDialog : Form
                     g.DrawRectangle(pen, left, top, width, height);
                 }
             }
+        }
+
+        public void SetBitmap(Bitmap bitmap)
+        {
+            _bitmap = bitmap;
+            Size = new Size(_bitmap.Width * _zoom + 1, _bitmap.Height * _zoom + 1);
+            ClearPreview();
+            Invalidate();
         }
 
         private static void DrawPixelScaledBitmap(Graphics g, Bitmap bitmap, int zoom)
@@ -847,7 +1292,7 @@ internal sealed class PixelImageEditorDialog : Form
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            PixelMouseDown?.Invoke(this, new PixelMouseEventArgs(ToPixel(e.Location)));
+            PixelMouseDown?.Invoke(this, new PixelMouseEventArgs(ToPixel(e.Location), e.Button));
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -855,21 +1300,24 @@ internal sealed class PixelImageEditorDialog : Form
             base.OnMouseMove(e);
             var pixel = ToPixel(e.Location);
             PixelHover?.Invoke(this, pixel.X >= 0 && pixel.Y >= 0 && pixel.X < _bitmap.Width && pixel.Y < _bitmap.Height ? pixel : null);
-            PixelMouseMove?.Invoke(this, new PixelMouseEventArgs(pixel));
+            PixelMouseMove?.Invoke(this, new PixelMouseEventArgs(pixel, e.Button));
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            PixelMouseUp?.Invoke(this, new PixelMouseEventArgs(ToPixel(e.Location)));
+            PixelMouseUp?.Invoke(this, new PixelMouseEventArgs(ToPixel(e.Location), e.Button));
         }
 
         private Point ToPixel(Point point)
             => new(point.X / Math.Max(1, Zoom), point.Y / Math.Max(1, Zoom));
     }
 
-    private sealed class PixelMouseEventArgs(Point pixel) : EventArgs
+    private sealed class PixelMouseEventArgs(Point pixel, MouseButtons button) : EventArgs
     {
         public Point Pixel { get; } = pixel;
+        public MouseButtons Button { get; } = button;
     }
+
+    private sealed record ColorReplacementPickRequest(int RuleIndex, PixelColorReplaceDialog.PickFieldKind FieldKind);
 }

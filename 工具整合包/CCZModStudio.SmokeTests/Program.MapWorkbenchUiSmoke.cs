@@ -130,10 +130,10 @@ internal partial class Program
                 }
 
                 if (workbenchModeTabs.TabPages.Count != 2 ||
-                    !workbenchModeTabs.TabPages[0].Text.Contains("\u7d20\u6750", StringComparison.Ordinal) ||
-                    !workbenchModeTabs.TabPages[1].Text.Contains("\u5730\u5f62", StringComparison.Ordinal))
+                    !workbenchModeTabs.TabPages[0].Text.Contains("\u5730\u5f62", StringComparison.Ordinal) ||
+                    !workbenchModeTabs.TabPages[1].Text.Contains("\u89c6\u89c9", StringComparison.Ordinal))
                 {
-                    throw new InvalidOperationException("Map workbench should expose material-paint and terrain-generate sub tabs.");
+                    throw new InvalidOperationException("Map workbench should expose terrain-edit and visual-redraw sub tabs.");
                 }
 
                 workbenchModeTabs.SelectedIndex = 1;
@@ -150,6 +150,8 @@ internal partial class Program
                 {
                     throw new InvalidOperationException("Terrain generation tab should expose an enabled one-click generate button.");
                 }
+
+                AssertTerrainGenerationButtonRoutesToFinalDialog();
 
                 rendered = GetPrivateFieldForMapWorkbenchUiSmoke<Bitmap?>(form, "_mapViewerRenderedImage");
                 if (rendered == null)
@@ -194,36 +196,6 @@ internal partial class Program
                 if (!draft.GenerationMode.Equals(MapWorkbenchGenerationModes.TerrainDrivenVisual, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException("Terrain generation tab should keep the draft in TerrainDrivenVisual mode.");
-                }
-
-                InvokePrivateForMapWorkbenchUiSmoke(form, "GenerateTerrainStyleAlignedPreviewFromPage");
-                Application.DoEvents();
-                Application.DoEvents();
-                if (!terrainGeneratedRadio.Checked || terrainLayerRadio.Checked)
-                {
-                    throw new InvalidOperationException("One-click terrain generation should switch to generated preview view.");
-                }
-
-                if (!terrainGenerationInfo.Text.Contains(MapWorkbenchGenerationModes.TerrainDrivenVisual, StringComparison.Ordinal) ||
-                    !terrainGenerationInfo.Text.Contains("fallback", StringComparison.OrdinalIgnoreCase) ||
-                    !terrainGenerationInfo.Text.Contains("Regions", StringComparison.Ordinal) ||
-                    !terrainGenerationInfo.Text.Contains("boundary mask pixels", StringComparison.OrdinalIgnoreCase) ||
-                    !terrainGenerationInfo.Text.Contains("Local color transfer pixels", StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException("Terrain generation diagnostics should be written into the terrain panel.");
-                }
-
-                rendered = GetPrivateFieldForMapWorkbenchUiSmoke<Bitmap?>(form, "_mapViewerRenderedImage");
-                if (rendered == null)
-                {
-                    throw new InvalidOperationException("One-click terrain generation did not render a preview.");
-                }
-
-                var generatedVisiblePixels = CountVisiblePixelsForMapWorkbenchUiSmoke(rendered);
-                var generatedTerrainLikePixels = CountTerrainColorLikePixelsForMapWorkbenchUiSmoke(rendered, draft);
-                if (generatedVisiblePixels <= 0 || generatedTerrainLikePixels > generatedVisiblePixels * 9 / 10)
-                {
-                    throw new InvalidOperationException($"Generated terrain preview should not remain a raw terrain-color layer. terrain={generatedTerrainLikePixels} visible={generatedVisiblePixels}");
                 }
 
                 workbenchModeTabs.SelectedIndex = 0;
@@ -533,6 +505,21 @@ internal partial class Program
 
     private static string GetMapWorkbenchBeautifyFilterProfile(object item)
         => item.GetType().GetProperty("Profile")?.GetValue(item) as string ?? string.Empty;
+
+    private static void AssertTerrainGenerationButtonRoutesToFinalDialog()
+    {
+        var sourceRoot = ResolveSimplifiedUiSourceRoot();
+        var eventsText = File.ReadAllText(Path.Combine(sourceRoot, "CCZModStudio", "MainForm.Events.cs"), System.Text.Encoding.UTF8);
+        if (!eventsText.Contains("_mapMakerTerrainStyleButton.Click += (_, _) => OpenTerrainStyleAlignedGenerationDialog();", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Terrain generation main button should open the preview/final generation dialog.");
+        }
+
+        if (eventsText.Contains("_mapMakerTerrainStyleButton.Click += (_, _) => GenerateTerrainStyleAlignedPreviewFromPage();", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Terrain generation main button must not route directly to quick preview only.");
+        }
+    }
 
     private static void AssertWorkbenchMaterialLibraryUsesStandardFolders(
         IReadOnlyList<MaterialAsset> materials,

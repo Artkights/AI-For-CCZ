@@ -21,7 +21,7 @@ public sealed class BackupManager
         foreach (var directory in Directory.GetDirectories(project.GameRoot))
         {
             var dirName = Path.GetFileName(directory);
-            if (dirName.Equals("_CCZModStudio_Backups", StringComparison.OrdinalIgnoreCase)) continue;
+            if (dirName.Equals(ProjectBackupPathService.LegacyBackupDirectoryName, StringComparison.OrdinalIgnoreCase)) continue;
             progress?.Report($"复制 {dirName} 目录");
             CopyDirectory(directory, Path.Combine(testRoot, dirName));
         }

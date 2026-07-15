@@ -37,10 +37,7 @@ internal sealed class ScenarioTextImportDialog : Form
         MinimizeBox = false;
         MaximizeBox = true;
         ShowIcon = false;
-        AutoScaleMode = AutoScaleMode.None;
-        Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
-        ClientSize = new Size(1180, 760);
-        MinimumSize = new Size(900, 560);
+        ImportExportDialogLayout.Apply(this, new Size(1180, 760), new Size(900, 560));
 
         BuildLayout(targetText);
         SeedExample();

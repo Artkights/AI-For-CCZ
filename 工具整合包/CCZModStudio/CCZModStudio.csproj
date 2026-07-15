@@ -8,6 +8,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Version>7.0.0</Version>
+    <AssemblyVersion>7.0.0.0</AssemblyVersion>
+    <FileVersion>7.0.0.0</FileVersion>
+    <InformationalVersion>7.0.0+open-authoring-v7</InformationalVersion>
     <PublishSelfContained>true</PublishSelfContained>
     <ApplicationIcon>Assets\About\Doro-white.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**;_BuildCheck\**</DefaultItemExcludes>
@@ -275,10 +279,18 @@
   <PropertyGroup>
     <CczPublishRuntimeSubdirectory>net</CczPublishRuntimeSubdirectory>
     <CczLauncherName>普罗工具整合包</CczLauncherName>
+    <!--
+      Root companion documents are user-editable after a release is assembled.
+      Normal incremental build/publish operations must only initialize missing files;
+      pass -p:CczOverwriteRootPackageCompanionFiles=true for an intentional refresh.
+    -->
+    <CczOverwriteRootPackageCompanionFiles Condition="'$(CczOverwriteRootPackageCompanionFiles)' == ''">false</CczOverwriteRootPackageCompanionFiles>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Iced" Version="1.21.0" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.8" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
 
@@ -389,9 +401,10 @@
     </Content>
   </ItemGroup>
 
+  <!-- Referencing projects must consume TargetPath before the standalone build layout moves it under net. -->
   <Target Name="ArrangeSelfContainedBuildLayout"
           AfterTargets="Build"
-          Condition="'$(Configuration)' == 'Release' and '$(_IsPublishing)' != 'true' and '$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' != '' and '$(PublishSingleFile)' != 'true'">
+          Condition="'$(BuildingSolutionFile)' != 'true' and '$(CczSkipStandaloneBuildLayout)' != 'true' and '$(Configuration)' == 'Release' and '$(_IsPublishing)' != 'true' and '$(SelfContained)' == 'true' and '$(RuntimeIdentifier)' != '' and '$(PublishSingleFile)' != 'true'">
     <PropertyGroup>
       <_CczBuildLayoutRoot>$([System.IO.Path]::GetFullPath('$(TargetDir)'))</_CczBuildLayoutRoot>
       <_CczBuildLayoutRoot Condition="!HasTrailingSlash('$(_CczBuildLayoutRoot)')">$(_CczBuildLayoutRoot)\</_CczBuildLayoutRoot>
@@ -405,12 +418,12 @@
                                   RootCompanionFiles="@(RootPackageCompanionFiles)" />
 
     <ItemGroup>
-      <_MissingBuildRootPackageCompanionFiles Include="@(RootPackageCompanionFiles)"
-                                              Condition="!Exists('$(_CczBuildLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
+      <_BuildRootPackageCompanionFilesToInitialize Include="@(RootPackageCompanionFiles)"
+                                                   Condition="'$(CczOverwriteRootPackageCompanionFiles)' == 'true' or !Exists('$(_CczBuildLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
     </ItemGroup>
 
-    <Copy SourceFiles="@(_MissingBuildRootPackageCompanionFiles)"
-          DestinationFiles="@(_MissingBuildRootPackageCompanionFiles->'$(_CczBuildLayoutRoot)%(TargetPath)')"
+    <Copy SourceFiles="@(_BuildRootPackageCompanionFilesToInitialize)"
+          DestinationFiles="@(_BuildRootPackageCompanionFilesToInitialize->'$(_CczBuildLayoutRoot)%(TargetPath)')"
           SkipUnchangedFiles="true" />
 
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczBuildLayoutRoot)"
@@ -448,12 +461,12 @@
                                   RootCompanionFiles="@(RootPackageCompanionFiles)" />
 
     <ItemGroup>
-      <_MissingPublishRootPackageCompanionFiles Include="@(RootPackageCompanionFiles)"
-                                                Condition="!Exists('$(_CczPublishLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
+      <_PublishRootPackageCompanionFilesToInitialize Include="@(RootPackageCompanionFiles)"
+                                                     Condition="'$(CczOverwriteRootPackageCompanionFiles)' == 'true' or !Exists('$(_CczPublishLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
     </ItemGroup>
 
-    <Copy SourceFiles="@(_MissingPublishRootPackageCompanionFiles)"
-          DestinationFiles="@(_MissingPublishRootPackageCompanionFiles->'$(_CczPublishLayoutRoot)%(TargetPath)')"
+    <Copy SourceFiles="@(_PublishRootPackageCompanionFilesToInitialize)"
+          DestinationFiles="@(_PublishRootPackageCompanionFilesToInitialize->'$(_CczPublishLayoutRoot)%(TargetPath)')"
           SkipUnchangedFiles="true" />
 
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPublishLayoutRoot)"
@@ -494,12 +507,12 @@
                                   RootCompanionFiles="@(RootPackageCompanionFiles)" />
 
     <ItemGroup>
-      <_MissingPostPublishBuildRootPackageCompanionFiles Include="@(RootPackageCompanionFiles)"
-                                                         Condition="!Exists('$(_CczPostPublishBuildLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
+      <_PostPublishBuildRootPackageCompanionFilesToInitialize Include="@(RootPackageCompanionFiles)"
+                                                              Condition="'$(CczOverwriteRootPackageCompanionFiles)' == 'true' or !Exists('$(_CczPostPublishBuildLayoutRoot)%(RootPackageCompanionFiles.TargetPath)')" />
     </ItemGroup>
 
-    <Copy SourceFiles="@(_MissingPostPublishBuildRootPackageCompanionFiles)"
-          DestinationFiles="@(_MissingPostPublishBuildRootPackageCompanionFiles->'$(_CczPostPublishBuildLayoutRoot)%(TargetPath)')"
+    <Copy SourceFiles="@(_PostPublishBuildRootPackageCompanionFilesToInitialize)"
+          DestinationFiles="@(_PostPublishBuildRootPackageCompanionFilesToInitialize->'$(_CczPostPublishBuildLayoutRoot)%(TargetPath)')"
           SkipUnchangedFiles="true" />
 
     <RemoveEmptyLayoutDirectoriesUnder Root="$(_CczPostPublishBuildLayoutRoot)"

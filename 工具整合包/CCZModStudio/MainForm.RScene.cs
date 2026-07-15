@@ -1180,6 +1180,32 @@ public sealed partial class MainForm
         }
     }
 
+    private void ScheduleSelectedRSceneCandidateScroll()
+    {
+        if (IsDisposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        try
+        {
+            BeginInvoke((Action)(() =>
+            {
+                if (IsDisposed || _rSceneCommandGrid.IsDisposed)
+                {
+                    return;
+                }
+
+                var rowIndex = _rSceneCommandGrid.CurrentRow?.Index ?? -1;
+                TryScrollGridRowIntoView(_rSceneCommandGrid, rowIndex);
+            }));
+        }
+        catch (InvalidOperationException)
+        {
+            // The form may be closing between the tab selection and BeginInvoke.
+        }
+    }
+
     private void ToggleRScenePlayback()
     {
         if (_rScenePlaybackTimer.Enabled)

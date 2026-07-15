@@ -18,6 +18,7 @@ public sealed partial class Ccz66HexTableAugmentationService
         }
 
         var result = tables.ToList();
+        var quoteLayout = new RoleQuoteLayoutService().Resolve(project);
         var nextId = result.Count == 0 ? 660_001 : Math.Max(660_001, result.Max(table => table.Id) + 1);
         var existing66Keys = result
             .Where(table => table.Version.Equals(Ccz66RevisedLayout.Version, StringComparison.OrdinalIgnoreCase))
@@ -33,6 +34,22 @@ public sealed partial class Ccz66HexTableAugmentationService
             if (!existing66Keys.Add(HexTableNameResolver.BuildSemanticKey(targetName))) continue;
 
             var (canUse, reason) = VerifyNativeReuseCandidate(project, source);
+            if (IsCriticalQuoteTable(source))
+            {
+                canUse = quoteLayout.CriticalText.CanWrite;
+                reason = quoteLayout.CriticalText.Evidence;
+                result.Add(CloneRoleQuoteTableFor66(source, targetName, nextId++, quoteLayout.CriticalText, canUse, reason));
+                continue;
+            }
+
+            if (IsRetreatQuoteTable(source))
+            {
+                canUse = quoteLayout.RetreatText.CanWrite;
+                reason = quoteLayout.RetreatText.Evidence;
+                result.Add(CloneRoleQuoteTableFor66(source, targetName, nextId++, quoteLayout.RetreatText, canUse, reason));
+                continue;
+            }
+
             if (ItemEffectNameReader.IsItemEffectNameTable(source))
             {
                 canUse = false;
@@ -46,6 +63,44 @@ public sealed partial class Ccz66HexTableAugmentationService
 
         return result.OrderBy(table => table.Id).ToList();
     }
+
+    private static bool IsCriticalQuoteTable(HexTableDefinition table)
+        => HexTableNameResolver.BuildSemanticKey(table.TableName).TrimStart('-', ' ').StartsWith("0-2 暴击台词", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRetreatQuoteTable(HexTableDefinition table)
+        => HexTableNameResolver.BuildSemanticKey(table.TableName).TrimStart('-', ' ').StartsWith("0-3 撤退台词", StringComparison.OrdinalIgnoreCase);
+
+    private static HexTableDefinition CloneRoleQuoteTableFor66(
+        HexTableDefinition source,
+        string tableName,
+        int id,
+        RoleQuoteLayoutComponent component,
+        bool writable,
+        string reason)
+        => new()
+        {
+            Id = id,
+            Enabled = source.Enabled,
+            TableName = tableName,
+            FileName = component.FileName,
+            DataPos = component.Offset,
+            RowCount = component.EntryCount,
+            RowSize = component.EntrySize,
+            Columns = source.Columns,
+            ByteSizes = source.ByteSizes,
+            IndexTable = RewriteIndexTable(source.IndexTable),
+            BeginId = source.BeginId,
+            OnMem = source.OnMem,
+            ReadOnly = !writable || source.ReadOnly,
+            Version = Ccz66RevisedLayout.Version,
+            Fields = source.Fields,
+            EvidenceStatus = writable
+                ? $"Native66RoleQuoteLayoutVerified: {reason}"
+                : $"ReadOnly66RoleQuoteEvidence: {reason}",
+            SourceTableName = source.TableName,
+            IsGeneratedCompatibilityTable = true,
+            IsEvidenceReadOnlyTable = !writable
+        };
 
     private static HexTableDefinition CloneFor66(HexTableDefinition source, string tableName, int id, bool writable, string reason)
         => new()

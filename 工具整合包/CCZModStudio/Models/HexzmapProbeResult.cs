@@ -15,4 +15,5 @@ public sealed class HexzmapProbeResult
     public int DirectoryTableOffset { get; init; }
     public IReadOnlyList<HexzmapDirectoryEntry> DirectoryEntries { get; init; } = Array.Empty<HexzmapDirectoryEntry>();
     public IReadOnlyList<HexzmapBlockInfo> Blocks { get; init; } = Array.Empty<HexzmapBlockInfo>();
+    public IReadOnlyList<HexzmapBlockBinding> Bindings { get; init; } = Array.Empty<HexzmapBlockBinding>();
 }

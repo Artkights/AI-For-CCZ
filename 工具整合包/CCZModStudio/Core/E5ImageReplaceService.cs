@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Drawing;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using CCZModStudio.Models;
 
@@ -16,17 +17,102 @@ public sealed class E5ImageReplaceService
     private static readonly byte[] PngMagic = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
     private readonly WriteOperationReportService _reportService = new();
 
+    internal Action<string>? PreReplaceVerificationTestHook { get; set; }
+    internal Action<string>? PostReplaceVerificationTestHook { get; set; }
+
     public IReadOnlyList<E5ImageEntryInfo> ReadIndex(string path)
+        => ReadIndex(path, Path.GetFileName(path));
+
+    public E5IndexProbeResult ProbeIndex(string path)
+        => ProbeIndex(path, Path.GetFileName(path));
+
+    public E5IndexProbeResult ProbeIndex(string path, string? logicalFileName)
+    {
+        if (!File.Exists(path))
+        {
+            return new E5IndexProbeResult
+            {
+                Path = Path.GetFullPath(path),
+                IsComplete = false,
+                FailureReason = "The E5 archive does not exist."
+            };
+        }
+
+        var data = File.ReadAllBytes(path);
+        return E5IndexParser.Probe(data, logicalFileName, Path.GetFullPath(path));
+    }
+
+    public string ComputeArchiveSha256(string path)
+        => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+
+    public string ComputeIndexSha256(string path)
+    {
+        return ProbeIndex(path).DirectorySha256;
+    }
+
+    public E5ArchiveTopologySnapshot CaptureTopology(string path, string? logicalFileName = null)
+    {
+        var data = File.ReadAllBytes(path);
+        var probe = E5IndexParser.Probe(data, logicalFileName ?? Path.GetFileName(path), Path.GetFullPath(path));
+        var entries = RequireCompleteIndex(probe);
+        var topologyEntries = entries.Select(entry => new E5ArchiveTopologyEntry
+        {
+            ImageNumber = entry.ImageNumber,
+            IndexOffset = entry.IndexOffset,
+            DataOffset = entry.DataOffset,
+            StoredLength = entry.StoredLength,
+            DecodedLength = entry.DecodedLength,
+            Kind = entry.Kind,
+            StoredSha256 = Convert.ToHexString(SHA256.HashData(data.AsSpan(entry.DataOffset, entry.StoredLength)))
+        }).ToArray();
+        var distinctPayloads = entries
+            .GroupBy(entry => (entry.DataOffset, entry.StoredLength))
+            .Select(group => group.First())
+            .OrderBy(entry => entry.DataOffset)
+            .ToArray();
+        long gaps = 0;
+        long cursor = distinctPayloads.Length == 0 ? data.Length : distinctPayloads[0].DataOffset;
+        foreach (var entry in distinctPayloads)
+        {
+            if (entry.DataOffset > cursor) gaps += entry.DataOffset - cursor;
+            cursor = Math.Max(cursor, (long)entry.DataOffset + entry.StoredLength);
+        }
+        var overlapPairs = 0;
+        for (var left = 0; left < entries.Count; left++)
+        for (var right = left + 1; right < entries.Count; right++)
+        {
+            var a = entries[left];
+            var b = entries[right];
+            if (a.DataOffset == b.DataOffset && a.StoredLength == b.StoredLength) continue;
+            if ((long)a.DataOffset < (long)b.DataOffset + b.StoredLength &&
+                (long)b.DataOffset < (long)a.DataOffset + a.StoredLength) overlapPairs++;
+        }
+        return new E5ArchiveTopologySnapshot
+        {
+            FileSha256 = Convert.ToHexString(SHA256.HashData(data)),
+            IndexSha256 = probe.DirectorySha256,
+            HeaderSha256 = Convert.ToHexString(SHA256.HashData(data.AsSpan(0, Math.Min(E5ImageIndexOffset, data.Length)))),
+            FileLength = data.LongLength,
+            EntryCount = entries.Count,
+            ActivePayloadBytes = distinctPayloads.Sum(entry => (long)entry.StoredLength),
+            GapBytes = gaps,
+            TailBytes = Math.Max(0, data.LongLength - cursor),
+            SharedPayloadGroupCount = entries.GroupBy(entry => (entry.DataOffset, entry.StoredLength)).Count(group => group.Count() > 1),
+            OverlapPairCount = overlapPairs,
+            Entries = topologyEntries
+        };
+    }
+
+    public IReadOnlyList<E5ImageEntryInfo> ReadIndex(string path, string? logicalFileName)
     {
         if (!File.Exists(path)) return Array.Empty<E5ImageEntryInfo>();
-        var data = File.ReadAllBytes(path);
-        return ReadIndex(data, Path.GetFileName(path));
+        return ProbeIndex(path, logicalFileName).Entries;
     }
 
     public byte[] ReadEntryBytes(string path, int imageNumber)
     {
         var data = File.ReadAllBytes(path);
-        var entries = ReadIndex(data);
+        var entries = ReadIndex(data, Path.GetFileName(path));
         if (imageNumber <= 0 || imageNumber > entries.Count)
         {
             throw new InvalidOperationException($"E5 图号越界：#{imageNumber}/{entries.Count}。");
@@ -34,6 +120,18 @@ public sealed class E5ImageReplaceService
 
         var entry = entries[imageNumber - 1];
         return ReadEntryBytes(data, entry);
+    }
+
+    public byte[] ReadStoredEntryBytes(string path, int imageNumber)
+    {
+        var data = File.ReadAllBytes(path);
+        var entries = ReadIndex(data, Path.GetFileName(path));
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+            throw new InvalidOperationException($"E5 图号越界：#{imageNumber}/{entries.Count}。");
+        var entry = entries[imageNumber - 1];
+        var stored = new byte[entry.StoredLength];
+        Buffer.BlockCopy(data, entry.DataOffset, stored, 0, stored.Length);
+        return stored;
     }
 
     public E5ImageReplacePreviewResult PreviewReplacement(CczProject project, string targetPath, int imageNumber, string sourcePath)
@@ -54,7 +152,7 @@ public sealed class E5ImageReplaceService
     public E5ImageReplaceResult Replace(CczProject project, string targetPath, int imageNumber, string sourcePath)
     {
         var sourceBytes = File.ReadAllBytes(sourcePath);
-        return ReplaceCore(project, targetPath, imageNumber, sourcePath, sourceBytes);
+        return ReplaceSingleThroughBatch(project, targetPath, imageNumber, sourcePath, sourceBytes);
     }
 
     public E5ImageReplaceResult ReplaceFromEntry(CczProject project, string targetPath, int imageNumber, string sourceE5Path)
@@ -63,7 +161,58 @@ public sealed class E5ImageReplaceService
     public E5ImageReplaceResult ReplaceFromEntry(CczProject project, string targetPath, int imageNumber, string sourceE5Path, int sourceImageNumber)
     {
         var sourceBytes = ReadEntryBytes(sourceE5Path, sourceImageNumber);
-        return ReplaceCore(project, targetPath, imageNumber, $"{sourceE5Path}#{sourceImageNumber}", sourceBytes);
+        return ReplaceSingleThroughBatch(project, targetPath, imageNumber, $"{sourceE5Path}#{sourceImageNumber}", sourceBytes);
+    }
+
+    private E5ImageReplaceResult ReplaceSingleThroughBatch(
+        CczProject project,
+        string targetPath,
+        int imageNumber,
+        string sourceLabel,
+        byte[] sourceBytes)
+    {
+        var result = ReplaceBatch(project, targetPath, new[]
+        {
+            new E5ImageBatchReplaceRequest
+            {
+                ImageNumber = imageNumber,
+                SourceBytes = sourceBytes,
+                SourceBytesAreRaw = DetectKind(sourceBytes, Path.GetFileName(targetPath)) == "RAW",
+                SourceLabel = sourceLabel,
+                OperationKind = "single image import",
+                AllowFormatConversion = true,
+                PlacementPolicy = E5ImageWritePlacementPolicy.AllowAppend
+            }
+        });
+        var operation = result.Operations.Single();
+        return new E5ImageReplaceResult
+        {
+            TargetPath = result.TargetPath,
+            TargetRelativePath = result.TargetRelativePath,
+            SourcePath = operation.SourcePath,
+            ImageNumber = operation.ImageNumber,
+            IndexOffset = operation.IndexOffset,
+            OldDataOffset = operation.OldDataOffset,
+            NewDataOffset = operation.NewDataOffset,
+            OldSizeBytes = operation.OldSizeBytes,
+            NewSizeBytes = operation.NewSizeBytes,
+            OldFileSizeBytes = result.OldFileSizeBytes,
+            NewFileSizeBytes = result.NewFileSizeBytes,
+            ChangedBytesEstimate = result.ChangedBytesEstimate,
+            OldFileSha256 = result.OldFileSha256,
+            NewFileSha256 = result.NewFileSha256,
+            SourceSha256 = operation.SourceSha256,
+            OldKind = operation.OldKind,
+            NewKind = operation.NewKind,
+            SourceWidth = operation.SourceWidth,
+            SourceHeight = operation.SourceHeight,
+            Placement = operation.Placement,
+            FormatWarnings = operation.FormatWarnings,
+            RiskSummary = result.RiskSummary,
+            BackupPath = result.BackupPath,
+            ReportPath = result.ReportPath,
+            ReportJsonPath = result.ReportJsonPath
+        };
     }
 
     public E5ImageBatchReplacePreviewResult PreviewBatchReplacement(CczProject project, string targetPath, IEnumerable<E5ImageBatchReplaceRequest> requests)
@@ -72,98 +221,42 @@ public sealed class E5ImageReplaceService
     public E5ImageBatchReplaceResult ReplaceBatch(CczProject project, string targetPath, IEnumerable<E5ImageBatchReplaceRequest> requests)
     {
         var preview = BuildBatchPreview(project, targetPath, requests);
+        var beforeData = File.ReadAllBytes(preview.TargetPath);
+        var currentSha = Convert.ToHexString(SHA256.HashData(beforeData));
+        if (!currentSha.Equals(preview.OldFileSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The E5 archive changed between preview and commit. Reload before saving.");
+
         var backupPath = CreateBeforeSaveBackup(project, preview.TargetPath);
-        var tempPath = preview.TargetPath + ".CCZModStudio.tmp";
-        File.WriteAllBytes(tempPath, preview.NewFileBytes);
-        File.Move(tempPath, preview.TargetPath, overwrite: true);
-
-        var writtenData = File.ReadAllBytes(preview.TargetPath);
-        var writtenEntries = ReadIndex(writtenData);
-        foreach (var operation in preview.Operations)
+        EnsureFileSha256(backupPath, preview.OldFileSha256,
+            "The E5 archive changed while its safety backup was being created. Reload before saving.");
+        var tempPath = preview.TargetPath + ".CCZModStudio." + Guid.NewGuid().ToString("N") + ".tmp";
+        var replaced = false;
+        try
         {
-            if (operation.ImageNumber <= 0 || operation.ImageNumber > writtenEntries.Count)
-            {
-                throw new InvalidOperationException($"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 越界。");
-            }
-
-            var writtenEntry = writtenEntries[operation.ImageNumber - 1];
-            if (writtenEntry.DataOffset != operation.NewDataOffset || writtenEntry.Length != operation.NewSizeBytes)
-            {
-                throw new InvalidOperationException(
-                    $"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 索引项不匹配。预期 offset={HexDisplayFormatter.FormatOffset(operation.NewDataOffset)}, size={operation.NewSizeBytes}；实际 offset={HexDisplayFormatter.FormatOffset(writtenEntry.DataOffset)}, size={writtenEntry.Length}。");
-            }
-
-            var writtenBytes = ReadEntryBytes(writtenData, writtenEntry);
-            if (!writtenBytes.SequenceEqual(operation.SourceBytes))
-            {
-                throw new InvalidOperationException($"E5 批量写入后复读失败：图号 #{operation.ImageNumber} 条目字节与来源不一致。");
-            }
+            File.WriteAllBytes(tempPath, preview.NewFileBytes);
+            VerifyBatchArchiveMutation(beforeData, File.ReadAllBytes(tempPath), preview.Operations, Path.GetFileName(preview.TargetPath));
+            PreReplaceVerificationTestHook?.Invoke(preview.TargetPath);
+            EnsureFileSha256(preview.TargetPath, preview.OldFileSha256,
+                "The E5 archive changed before the atomic replacement. Reload before saving.");
+            File.Move(tempPath, preview.TargetPath, overwrite: true);
+            replaced = true;
+            PostReplaceVerificationTestHook?.Invoke(preview.TargetPath);
+            VerifyBatchArchiveMutation(beforeData, File.ReadAllBytes(preview.TargetPath), preview.Operations, Path.GetFileName(preview.TargetPath));
+        }
+        catch
+        {
+            if (replaced)
+                RestoreBackupOrThrow(backupPath, preview.TargetPath, preview.OldFileSha256);
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
         }
 
         var reportPath = WriteBatchTextReport(project, preview, backupPath);
         var reportJsonPath = WriteBatchStructuredReport(project, preview, backupPath, reportPath);
         return preview.ToResult(backupPath, reportPath, reportJsonPath);
-    }
-
-    private E5ImageReplaceResult ReplaceCore(CczProject project, string targetPath, int imageNumber, string sourcePath, byte[] sourceBytes)
-    {
-        var preview = BuildPreview(project, targetPath, imageNumber, sourcePath, sourceBytes);
-        var backupPath = CreateBeforeSaveBackup(project, preview.TargetPath);
-        var tempPath = preview.TargetPath + ".CCZModStudio.tmp";
-        File.WriteAllBytes(tempPath, preview.NewFileBytes);
-        File.Move(tempPath, preview.TargetPath, overwrite: true);
-
-        var writtenData = File.ReadAllBytes(preview.TargetPath);
-        var writtenEntries = ReadIndex(writtenData);
-        if (imageNumber <= 0 || imageNumber > writtenEntries.Count)
-        {
-            throw new InvalidOperationException($"E5 写入后复读失败：图号 #{imageNumber} 越界。");
-        }
-
-        var writtenEntry = writtenEntries[imageNumber - 1];
-        if (writtenEntry.DataOffset != preview.NewDataOffset || writtenEntry.Length != preview.NewSizeBytes)
-        {
-            throw new InvalidOperationException(
-                $"E5 写入后复读失败：索引项不匹配。预期 offset={HexDisplayFormatter.FormatOffset(preview.NewDataOffset)}, size={preview.NewSizeBytes}；实际 offset={HexDisplayFormatter.FormatOffset(writtenEntry.DataOffset)}, size={writtenEntry.Length}。");
-        }
-
-        var writtenBytes = ReadEntryBytes(writtenData, writtenEntry);
-        if (!writtenBytes.SequenceEqual(sourceBytes))
-        {
-            throw new InvalidOperationException("E5 写入后复读失败：目标条目字节与来源字节不一致。");
-        }
-
-        var reportPath = WriteTextReport(project, preview, backupPath);
-        var reportJsonPath = WriteStructuredReport(project, preview, backupPath, reportPath);
-
-        return new E5ImageReplaceResult
-        {
-            TargetPath = preview.TargetPath,
-            TargetRelativePath = preview.TargetRelativePath,
-            SourcePath = preview.SourcePath,
-            ImageNumber = preview.ImageNumber,
-            IndexOffset = preview.IndexOffset,
-            OldDataOffset = preview.OldDataOffset,
-            NewDataOffset = preview.NewDataOffset,
-            OldSizeBytes = preview.OldSizeBytes,
-            NewSizeBytes = preview.NewSizeBytes,
-            OldFileSizeBytes = preview.OldFileSizeBytes,
-            NewFileSizeBytes = preview.NewFileSizeBytes,
-            ChangedBytesEstimate = preview.ChangedBytesEstimate,
-            OldFileSha256 = preview.OldFileSha256,
-            NewFileSha256 = preview.NewFileSha256,
-            SourceSha256 = preview.SourceSha256,
-            OldKind = preview.OldKind,
-            NewKind = preview.NewKind,
-            SourceWidth = preview.SourceWidth,
-            SourceHeight = preview.SourceHeight,
-            Placement = preview.Placement,
-            FormatWarnings = preview.FormatWarnings,
-            RiskSummary = preview.RiskSummary,
-            BackupPath = backupPath,
-            ReportPath = reportPath,
-            ReportJsonPath = reportJsonPath
-        };
     }
 
     private ReplacementPreviewData BuildPreview(CczProject project, string targetPath, int imageNumber, string sourcePath, byte[] sourceBytes)
@@ -179,7 +272,7 @@ public sealed class E5ImageReplaceService
             throw new InvalidOperationException("目标 E5 文件过短，无法读取 0x110 图片索引表。");
         }
 
-        var entries = ReadIndex(oldFileBytes);
+        var entries = ReadIndex(oldFileBytes, Path.GetFileName(targetPath));
         if (entries.Count == 0)
         {
             throw new InvalidOperationException("目标 E5 未读取到有效图片索引项，已拒绝写入。");
@@ -247,16 +340,19 @@ public sealed class E5ImageReplaceService
         }
 
         var oldFileBytes = File.ReadAllBytes(targetPath);
-        var baseEntries = ReadIndex(oldFileBytes);
+        var baseEntries = ReadIndex(oldFileBytes, Path.GetFileName(targetPath));
         if (baseEntries.Count == 0)
         {
             throw new InvalidOperationException("目标 E5 未读取到有效图片索引项，已拒绝批量写入。");
         }
 
-        var currentBytes = oldFileBytes;
-        var operations = new List<BatchOperationData>();
+        ValidateArchiveSnapshotContract(oldFileBytes, baseEntries, requestList);
+
+        var resolved = new List<ResolvedBatchRequest>();
         foreach (var request in requestList.OrderBy(x => x.ImageNumber))
         {
+            if (request.CharacterTarget != null)
+                CharacterImageTargetResolver.ValidateRequestTarget(request.CharacterTarget, targetPath, request.ImageNumber);
             if (request.ImageNumber <= 0 || request.ImageNumber > baseEntries.Count)
             {
                 throw new InvalidOperationException($"E5 图号越界：#{request.ImageNumber}/{baseEntries.Count}。");
@@ -271,16 +367,59 @@ public sealed class E5ImageReplaceService
             var sourceInfo = request.SourceBytesAreRaw
                 ? new ReplacementSourceInfo("RAW", null, null)
                 : ValidateReplacementBytes(sourceBytes);
-            var entries = ReadIndex(currentBytes);
-            var entry = entries[request.ImageNumber - 1];
-            var newOffset = sourceBytes.Length <= entry.StoredLength ? entry.DataOffset : currentBytes.Length;
+            var entry = baseEntries[request.ImageNumber - 1];
+            if (request.PlacementPolicy is E5ImageWritePlacementPolicy.RequireInPlace
+                or E5ImageWritePlacementPolicy.RequireStableOffset)
+                EnsureTargetPayloadIsExclusive(baseEntries, entry);
+            ValidateWriteContract(oldFileBytes, entry, request, sourceInfo, sourceBytes);
+            resolved.Add(new ResolvedBatchRequest(request, entry, sourceBytes, sourceInfo));
+        }
+
+        var compactRewrite = resolved.Any(item => item.Request.PlacementPolicy == E5ImageWritePlacementPolicy.CompactRewrite);
+        byte[] currentBytes;
+        IReadOnlyDictionary<int, int> compactOffsets = new Dictionary<int, int>();
+        if (compactRewrite)
+        {
+            currentBytes = BuildCompactArchive(oldFileBytes, baseEntries, resolved, out compactOffsets);
+        }
+        else
+        {
+            currentBytes = oldFileBytes;
+            foreach (var item in resolved)
+            {
+                var entries = ReadIndex(currentBytes, Path.GetFileName(targetPath));
+                var entry = entries[item.Request.ImageNumber - 1];
+                var newOffset = item.Request.PlacementPolicy is E5ImageWritePlacementPolicy.RequireInPlace
+                    or E5ImageWritePlacementPolicy.RequireStableOffset
+                    ? entry.DataOffset
+                    : item.SourceBytes.Length <= entry.StoredLength ? entry.DataOffset : currentBytes.Length;
+                currentBytes = BuildNewFileBytes(currentBytes, entry, item.SourceBytes, newOffset);
+            }
+        }
+
+        var operations = new List<BatchOperationData>();
+        foreach (var item in resolved)
+        {
+            var request = item.Request;
+            var entry = item.Entry;
+            var sourceBytes = item.SourceBytes;
+            var sourceInfo = item.SourceInfo;
+            var newOffset = compactRewrite ? compactOffsets[request.ImageNumber] :
+                request.PlacementPolicy is E5ImageWritePlacementPolicy.RequireInPlace
+                    or E5ImageWritePlacementPolicy.RequireStableOffset || sourceBytes.Length <= entry.StoredLength
+                    ? entry.DataOffset
+                    : FindWrittenOffset(currentBytes, request.ImageNumber, Path.GetFileName(targetPath));
             if ((uint)newOffset != newOffset || (uint)sourceBytes.Length != sourceBytes.Length)
             {
                 throw new InvalidOperationException("E5 条目偏移或图片长度超过 32 位索引可表达范围，已拒绝批量写入。");
             }
+            if (request.PlacementPolicy == E5ImageWritePlacementPolicy.RequireInPlace && newOffset != entry.DataOffset)
+                throw new InvalidOperationException($"图号 #{request.ImageNumber} 要求原址写回，但紧凑重建会把偏移从 0x{entry.DataOffset:X} 改为 0x{newOffset:X}，已拒绝写入。");
 
-            var nextBytes = BuildNewFileBytes(currentBytes, entry, sourceBytes, newOffset);
-            var warnings = BuildWarnings(currentBytes, entry, sourceInfo, nextBytes.LongLength, newOffset);
+            if (request.PlacementPolicy == E5ImageWritePlacementPolicy.RequireStableOffset && newOffset != entry.DataOffset)
+                throw new InvalidOperationException($"Image #{request.ImageNumber} must keep offset 0x{entry.DataOffset:X}.");
+
+            var warnings = BuildWarnings(oldFileBytes, entry, sourceInfo, currentBytes.LongLength, newOffset);
             var displaySource = string.IsNullOrWhiteSpace(request.DisplaySource)
                 ? $"<内存来源 #{request.ImageNumber}>"
                 : request.DisplaySource;
@@ -298,19 +437,29 @@ public sealed class E5ImageReplaceService
                 WriteOperationReportService.ComputeSha256(sourceBytes),
                 sourceInfo.Width,
                 sourceInfo.Height,
-                newOffset == entry.DataOffset ? "原址覆盖" : "追加到文件末尾并更新索引",
+                compactRewrite
+                    ? newOffset == entry.DataOffset ? "紧凑重建（偏移不变）" : "紧凑重建（清理孤立载荷）"
+                    : newOffset == entry.DataOffset ? "原址覆盖" : "追加到文件末尾并更新索引",
+                request.PlacementPolicy,
                 warnings,
-                sourceBytes));
-            currentBytes = nextBytes;
+                sourceBytes,
+                request.CharacterTarget));
         }
 
         var allWarnings = operations.SelectMany(x => x.FormatWarnings).Distinct(StringComparer.Ordinal).ToArray();
+        var finalEntries = ReadIndex(currentBytes, Path.GetFileName(targetPath));
+        var indexEntriesChanged = baseEntries.Zip(finalEntries).Count(pair =>
+            pair.First.StoredLength != pair.Second.StoredLength ||
+            pair.First.DecodedLength != pair.Second.DecodedLength ||
+            pair.First.DataOffset != pair.Second.DataOffset);
         return new BatchReplacementPreviewData(
             targetPath,
             WriteOperationReportService.ToProjectRelativePath(project, targetPath),
             oldFileBytes.LongLength,
             currentBytes.LongLength,
             EstimateChangedBytes(oldFileBytes, currentBytes),
+            indexEntriesChanged,
+            baseEntries.Count - operations.Count,
             WriteOperationReportService.ComputeSha256(oldFileBytes),
             WriteOperationReportService.ComputeSha256(currentBytes),
             operations,
@@ -330,51 +479,296 @@ public sealed class E5ImageReplaceService
         return File.ReadAllBytes(request.SourcePath);
     }
 
-    private static IReadOnlyList<E5ImageEntryInfo> ReadIndex(byte[] data, string? fileName = null)
+    private static void ValidateWriteContract(
+        byte[] oldFileBytes,
+        E5ImageEntryInfo entry,
+        E5ImageBatchReplaceRequest request,
+        ReplacementSourceInfo sourceInfo,
+        byte[] sourceBytes)
     {
-        var result = new List<E5ImageEntryInfo>();
-        uint firstDataOffset = 0;
-        for (var indexOffset = E5ImageIndexOffset; indexOffset + E5ImageIndexEntrySize <= data.Length; indexOffset += E5ImageIndexEntrySize)
+        if (!string.IsNullOrWhiteSpace(request.ExpectedTargetKind) &&
+            !entry.Kind.Equals(request.ExpectedTargetKind, StringComparison.OrdinalIgnoreCase))
         {
-            if (firstDataOffset > 0 && indexOffset >= firstDataOffset)
+            throw new InvalidOperationException(
+                $"图号 #{request.ImageNumber} 的原格式已变化：编辑载入时预期 {request.ExpectedTargetKind}，当前为 {entry.Kind}。请重新载入后再保存。");
+        }
+        if (!string.IsNullOrWhiteSpace(request.ExpectedTargetKind) &&
+            !request.AllowFormatConversion &&
+            !sourceInfo.Kind.Equals(request.ExpectedTargetKind, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"图号 #{request.ImageNumber} 禁止格式变化：原格式 {request.ExpectedTargetKind}，待写格式 {sourceInfo.Kind}。");
+        }
+        if (!string.IsNullOrWhiteSpace(request.ExpectedTargetSha256))
+        {
+            var stored = oldFileBytes.AsSpan(entry.DataOffset, entry.StoredLength);
+            var currentSha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stored));
+            if (!currentSha.Equals(request.ExpectedTargetSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"图号 #{request.ImageNumber} 在编辑期间已变化。请重新载入后再保存。");
+        }
+        if (request.PlacementPolicy == E5ImageWritePlacementPolicy.RequireInPlace &&
+            sourceBytes.Length != entry.StoredLength)
+        {
+            throw new InvalidOperationException(
+                $"图号 #{request.ImageNumber} 要求原址等长写回：原槽位 {entry.StoredLength:N0} 字节，待写 {sourceBytes.Length:N0} 字节。");
+        }
+        if (request.PlacementPolicy == E5ImageWritePlacementPolicy.RequireStableOffset &&
+            sourceBytes.Length > entry.StoredLength)
+        {
+            throw new InvalidOperationException(
+                $"Image #{request.ImageNumber} exceeds its stable slot: original {entry.StoredLength:N0} bytes, pending {sourceBytes.Length:N0} bytes. Use the explicit archive maintenance/import workflow.");
+        }
+    }
+
+    private static void ValidateArchiveSnapshotContract(
+        byte[] oldFileBytes,
+        IReadOnlyList<E5ImageEntryInfo> entries,
+        IReadOnlyList<E5ImageBatchReplaceRequest> requests)
+    {
+        var archiveSha = Convert.ToHexString(SHA256.HashData(oldFileBytes));
+        var indexSha = E5IndexParser.Probe(oldFileBytes).DirectorySha256;
+        foreach (var request in requests)
+        {
+            if (!string.IsNullOrWhiteSpace(request.ExpectedArchiveSha256) &&
+                !archiveSha.Equals(request.ExpectedArchiveSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The E5 archive changed after the pixel editor loaded it. Reload before saving.");
+            if (!string.IsNullOrWhiteSpace(request.ExpectedIndexSha256) &&
+                !indexSha.Equals(request.ExpectedIndexSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The E5 index changed after the pixel editor loaded it. Reload before saving.");
+        }
+    }
+
+    private static void EnsureTargetPayloadIsExclusive(
+        IReadOnlyList<E5ImageEntryInfo> entries,
+        E5ImageEntryInfo target)
+    {
+        var targetStart = (long)target.DataOffset;
+        var targetEnd = targetStart + target.StoredLength;
+        foreach (var other in entries)
+        {
+            if (other.ImageNumber == target.ImageNumber) continue;
+            var otherStart = (long)other.DataOffset;
+            var otherEnd = otherStart + other.StoredLength;
+            if (targetStart >= otherEnd || otherStart >= targetEnd) continue;
+            var relationship = targetStart == otherStart && targetEnd == otherEnd
+                ? "shares its payload"
+                : "overlaps its payload range";
+            throw new InvalidOperationException(
+                $"Image #{target.ImageNumber} {relationship} with image #{other.ImageNumber}; pixel editing is refused to prevent cross-entry corruption.");
+        }
+    }
+
+    private static byte[] BuildCompactArchive(
+        byte[] oldFileBytes,
+        IReadOnlyList<E5ImageEntryInfo> entries,
+        IReadOnlyList<ResolvedBatchRequest> replacements,
+        out IReadOnlyDictionary<int, int> replacementOffsets)
+    {
+        if (entries.Count == 0) throw new InvalidOperationException("E5 索引为空，不能紧凑重建。");
+        if (replacements.Any(item => item.Request.PlacementPolicy == E5ImageWritePlacementPolicy.RequireInPlace))
+            throw new InvalidOperationException("同一个 E5 写回批次不能同时要求 RAW/BMP 原址覆盖和 PNG 紧凑重建。请分别保存这些条目。");
+
+        var firstDataOffset = entries.Min(entry => entry.DataOffset);
+        var indexEnd = checked(E5ImageIndexOffset + entries.Count * E5ImageIndexEntrySize);
+        if (firstDataOffset < indexEnd || firstDataOffset > oldFileBytes.Length)
+            throw new InvalidOperationException("E5 头部或索引区布局无效，不能紧凑重建。");
+
+        var replacementByNumber = replacements.ToDictionary(item => item.Request.ImageNumber);
+        var payloads = new List<byte[]>();
+        var payloadKeys = new Dictionary<string, int>(StringComparer.Ordinal);
+        var entryPayloadIndices = new int[entries.Count];
+        var entryStoredLengths = new int[entries.Count];
+        var entryDecodedLengths = new int[entries.Count];
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            byte[] payload;
+            string key;
+            int decodedLength;
+            if (replacementByNumber.TryGetValue(entry.ImageNumber, out var replacement))
             {
-                break;
+                payload = replacement.SourceBytes;
+                decodedLength = payload.Length;
+                key = $"replacement:{entry.ImageNumber}";
+            }
+            else
+            {
+                payload = oldFileBytes.AsSpan(entry.DataOffset, entry.StoredLength).ToArray();
+                decodedLength = entry.DecodedLength;
+                key = $"stored:{entry.DataOffset}:{entry.StoredLength}:{entry.DecodedLength}";
             }
 
-            var storedSize = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset, 4));
-            var decodedSize = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset + 4, 4));
-            var dataOffset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(indexOffset + 8, 4));
-            if (storedSize == 0 ||
-                decodedSize == 0 ||
-                dataOffset >= data.Length ||
-                storedSize > data.Length - dataOffset ||
-                storedSize > int.MaxValue ||
-                decodedSize > int.MaxValue)
+            if (!payloadKeys.TryGetValue(key, out var payloadIndex))
             {
-                break;
+                payloadIndex = payloads.Count;
+                payloadKeys.Add(key, payloadIndex);
+                payloads.Add(payload);
             }
-
-            if (firstDataOffset == 0)
-            {
-                firstDataOffset = dataOffset;
-            }
-
-            var compressed = storedSize != decodedSize;
-            result.Add(new E5ImageEntryInfo
-            {
-                ImageNumber = result.Count + 1,
-                IndexOffset = indexOffset,
-                DataOffset = checked((int)dataOffset),
-                Length = checked((int)storedSize),
-                StoredLength = checked((int)storedSize),
-                DecodedLength = checked((int)decodedSize),
-                Kind = compressed
-                    ? "LS12"
-                    : DetectKind(data.AsSpan(checked((int)dataOffset), checked((int)storedSize)), fileName)
-            });
+            entryPayloadIndices[index] = payloadIndex;
+            entryStoredLengths[index] = payload.Length;
+            entryDecodedLengths[index] = decodedLength;
         }
 
-        return result;
+        var payloadOffsets = new int[payloads.Count];
+        var length = firstDataOffset;
+        for (var index = 0; index < payloads.Count; index++)
+        {
+            payloadOffsets[index] = length;
+            length = checked(length + payloads[index].Length);
+        }
+        var output = new byte[length];
+        Buffer.BlockCopy(oldFileBytes, 0, output, 0, firstDataOffset);
+        for (var index = 0; index < payloads.Count; index++)
+            Buffer.BlockCopy(payloads[index], 0, output, payloadOffsets[index], payloads[index].Length);
+
+        var offsets = new Dictionary<int, int>();
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            var offset = payloadOffsets[entryPayloadIndices[index]];
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(entry.IndexOffset, 4), checked((uint)entryStoredLengths[index]));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(entry.IndexOffset + 4, 4), checked((uint)entryDecodedLengths[index]));
+            BinaryPrimitives.WriteUInt32BigEndian(output.AsSpan(entry.IndexOffset + 8, 4), checked((uint)offset));
+            if (replacementByNumber.ContainsKey(entry.ImageNumber)) offsets[entry.ImageNumber] = offset;
+        }
+        replacementOffsets = offsets;
+        return output;
+    }
+
+    private static int FindWrittenOffset(byte[] data, int imageNumber, string fileName)
+    {
+        var entries = ReadIndex(data, fileName);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+            throw new InvalidOperationException($"紧凑重建后图号 #{imageNumber} 越界。");
+        return entries[imageNumber - 1].DataOffset;
+    }
+
+    private static void VerifyBatchArchiveMutation(
+        byte[] oldData,
+        byte[] newData,
+        IReadOnlyList<BatchOperationData> operations,
+        string logicalFileName)
+    {
+        var oldEntries = ReadIndex(oldData, logicalFileName);
+        var newEntries = ReadIndex(newData, logicalFileName);
+        if (oldEntries.Count != newEntries.Count)
+            throw new InvalidOperationException("E5 verification failed: the image entry count changed.");
+
+        var changed = operations.ToDictionary(operation => operation.ImageNumber);
+        var compactRewrite = operations.Any(operation =>
+            operation.PlacementPolicy == E5ImageWritePlacementPolicy.CompactRewrite);
+        var allowAppendGrowth = operations.Any(operation =>
+            operation.PlacementPolicy == E5ImageWritePlacementPolicy.AllowAppend &&
+            operation.NewDataOffset != operation.OldDataOffset);
+        for (var index = 0; index < oldEntries.Count; index++)
+        {
+            var imageNumber = index + 1;
+            var before = oldEntries[index];
+            var after = newEntries[index];
+            if (changed.TryGetValue(imageNumber, out var operation))
+            {
+                if (after.DataOffset != operation.NewDataOffset ||
+                    after.StoredLength != operation.NewSizeBytes ||
+                    !after.Kind.Equals(operation.NewKind, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"E5 verification failed for target image #{imageNumber}: index or format mismatch.");
+                var decoded = ReadEntryBytes(newData, after);
+                if (!decoded.SequenceEqual(operation.SourceBytes))
+                    throw new InvalidOperationException($"E5 verification failed for target image #{imageNumber}: payload mismatch.");
+                continue;
+            }
+
+            if (before.StoredLength != after.StoredLength || before.DecodedLength != after.DecodedLength)
+                throw new InvalidOperationException($"E5 verification failed: untouched image #{imageNumber} length changed.");
+            if (!compactRewrite && before.DataOffset != after.DataOffset)
+                throw new InvalidOperationException($"E5 verification failed: untouched image #{imageNumber} offset changed.");
+            if (!oldData.AsSpan(before.DataOffset, before.StoredLength)
+                    .SequenceEqual(newData.AsSpan(after.DataOffset, after.StoredLength)))
+                throw new InvalidOperationException($"E5 verification failed: untouched image #{imageNumber} payload changed.");
+        }
+
+        if (compactRewrite)
+        {
+            if (!oldData.AsSpan(0, E5ImageIndexOffset).SequenceEqual(newData.AsSpan(0, E5ImageIndexOffset)))
+                throw new InvalidOperationException("E5 compact verification failed: header or LS dictionary changed.");
+            return;
+        }
+
+        if (!allowAppendGrowth && oldData.Length != newData.Length)
+            throw new InvalidOperationException("E5 in-place verification failed: archive length changed.");
+        if (allowAppendGrowth && newData.Length < oldData.Length)
+            throw new InvalidOperationException("E5 append verification failed: archive length shrank.");
+        var allowed = new bool[oldData.Length];
+        foreach (var operation in operations)
+        {
+            var before = oldEntries[operation.ImageNumber - 1];
+            Array.Fill(allowed, true, before.IndexOffset, E5ImageIndexEntrySize);
+            if (operation.NewDataOffset == operation.OldDataOffset)
+                Array.Fill(allowed, true, before.DataOffset, before.StoredLength);
+        }
+        for (var offset = 0; offset < oldData.Length; offset++)
+        {
+            if (!allowed[offset] && oldData[offset] != newData[offset])
+                throw new InvalidOperationException($"E5 in-place verification failed: unexpected byte change at 0x{offset:X}.");
+        }
+    }
+
+    private static void RestoreBackupOrThrow(string backupPath, string targetPath, string expectedSha256)
+    {
+        var restoreTemp = targetPath + ".CCZModStudio.rollback." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.Copy(backupPath, restoreTemp, overwrite: true);
+            File.Move(restoreTemp, targetPath, overwrite: true);
+            var restoredSha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(targetPath)));
+            if (!restoredSha.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Automatic E5 rollback completed but its SHA-256 did not match the pre-save archive.");
+        }
+        finally
+        {
+            if (File.Exists(restoreTemp)) File.Delete(restoreTemp);
+        }
+    }
+
+    internal void RestoreVerifiedBackup(string backupPath, string targetPath, string expectedSha256)
+        => RestoreBackupOrThrow(backupPath, targetPath, expectedSha256);
+
+    private static void EnsureFileSha256(string path, string expectedSha256, string message)
+    {
+        var actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+        if (!actual.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(message);
+    }
+
+    private static void VerifyUntouchedStoredEntries(string oldPath, string newPath, IEnumerable<int> changedImageNumbers)
+    {
+        var oldData = File.ReadAllBytes(oldPath);
+        var newData = File.ReadAllBytes(newPath);
+        var oldEntries = ReadIndex(oldData, Path.GetFileName(oldPath));
+        var newEntries = ReadIndex(newData, Path.GetFileName(newPath));
+        if (oldEntries.Count != newEntries.Count)
+            throw new InvalidOperationException("E5 紧凑重建后索引条目数量发生变化。");
+        var changed = changedImageNumbers.ToHashSet();
+        for (var index = 0; index < oldEntries.Count; index++)
+        {
+            if (changed.Contains(index + 1)) continue;
+            var oldEntry = oldEntries[index];
+            var newEntry = newEntries[index];
+            if (oldEntry.StoredLength != newEntry.StoredLength || oldEntry.DecodedLength != newEntry.DecodedLength ||
+                !oldData.AsSpan(oldEntry.DataOffset, oldEntry.StoredLength)
+                    .SequenceEqual(newData.AsSpan(newEntry.DataOffset, newEntry.StoredLength)))
+            {
+                throw new InvalidOperationException($"E5 紧凑重建复读失败：未修改条目 #{index + 1} 的存储字节发生变化。");
+            }
+        }
+    }
+
+    private static IReadOnlyList<E5ImageEntryInfo> ReadIndex(byte[] data, string? fileName = null)
+        => RequireCompleteIndex(E5IndexParser.Probe(data, fileName));
+
+    private static IReadOnlyList<E5ImageEntryInfo> RequireCompleteIndex(E5IndexProbeResult probe)
+    {
+        if (!probe.IsComplete) throw new E5ArchiveIntegrityException(probe);
+        return probe.Entries;
     }
 
     private static byte[] ReadEntryBytes(byte[] data, E5ImageEntryInfo entry)
@@ -537,15 +931,13 @@ public sealed class E5ImageReplaceService
     {
         if (length <= 0 || string.IsNullOrWhiteSpace(fileName)) return false;
         var name = Path.GetFileName(fileName);
-        var spec = name.Equals("Pmapobj.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 48, FrameHeight: 64) :
-            name.Equals("Unit_atk.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 64, FrameHeight: 64) :
-            name.Equals("Unit_mov.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 48, FrameHeight: 48) :
-            name.Equals("Unit_spc.e5", StringComparison.OrdinalIgnoreCase) ? (Width: 48, FrameHeight: 48) :
-            ((int Width, int FrameHeight)?)null;
-        return spec.HasValue &&
-               length % spec.Value.Width == 0 &&
-               length >= spec.Value.Width * spec.Value.FrameHeight &&
-               (length / spec.Value.Width) % spec.Value.FrameHeight == 0;
+        var expectedLength = name.Equals("Pmapobj.e5", StringComparison.OrdinalIgnoreCase) ? 48 * 64 * 20 :
+            name.Equals("Unit_atk.e5", StringComparison.OrdinalIgnoreCase) ? 64 * 64 * 12 :
+            name.Equals("Unit_mov.e5", StringComparison.OrdinalIgnoreCase) ? 48 * 48 * 11 :
+            name.Equals("Unit_spc.e5", StringComparison.OrdinalIgnoreCase) ? 48 * 48 * 5 :
+            (int?)null;
+        return expectedLength.HasValue && length is var actual &&
+               (actual == expectedLength.Value || actual == expectedLength.Value + 2);
     }
 
     private static IReadOnlyList<string> BuildWarnings(byte[] oldFileBytes, E5ImageEntryInfo entry, ReplacementSourceInfo sourceInfo, long newFileLength, int newOffset)
@@ -666,7 +1058,7 @@ public sealed class E5ImageReplaceService
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var safeRelative = MakeSafeRelativeName(project, filePath);
@@ -694,7 +1086,7 @@ public sealed class E5ImageReplaceService
 
     private static string WriteTextReport(CczProject project, ReplacementPreviewData preview, string backupPath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_E5ImageReplaceReport.txt");
@@ -783,7 +1175,7 @@ public sealed class E5ImageReplaceService
 
     private static string WriteBatchTextReport(CczProject project, BatchReplacementPreviewData preview, string backupPath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_E5ImageBatchReplaceReport.txt");
@@ -860,6 +1252,12 @@ public sealed class E5ImageReplaceService
 
     private sealed record ReplacementSourceInfo(string Kind, int? Width, int? Height);
 
+    private sealed record ResolvedBatchRequest(
+        E5ImageBatchReplaceRequest Request,
+        E5ImageEntryInfo Entry,
+        byte[] SourceBytes,
+        ReplacementSourceInfo SourceInfo);
+
     private sealed record BatchOperationData(
         int ImageNumber,
         int IndexOffset,
@@ -875,8 +1273,10 @@ public sealed class E5ImageReplaceService
         int? SourceWidth,
         int? SourceHeight,
         string Placement,
+        E5ImageWritePlacementPolicy PlacementPolicy,
         IReadOnlyList<string> FormatWarnings,
-        byte[] SourceBytes)
+        byte[] SourceBytes,
+        CharacterImageTargetDescriptor? CharacterTarget)
     {
         public E5ImageBatchOperationPreviewResult ToPreviewResult()
             => new()
@@ -895,7 +1295,8 @@ public sealed class E5ImageReplaceService
                 SourceWidth = SourceWidth,
                 SourceHeight = SourceHeight,
                 Placement = Placement,
-                FormatWarnings = FormatWarnings
+                FormatWarnings = FormatWarnings,
+                CharacterTarget = CharacterTarget
             };
     }
 
@@ -905,6 +1306,8 @@ public sealed class E5ImageReplaceService
         long OldFileSizeBytes,
         long NewFileSizeBytes,
         int ChangedBytesEstimate,
+        int IndexEntriesChanged,
+        int UntouchedEntriesVerified,
         string OldFileSha256,
         string NewFileSha256,
         IReadOnlyList<BatchOperationData> Operations,
@@ -921,6 +1324,8 @@ public sealed class E5ImageReplaceService
                 OldFileSizeBytes = OldFileSizeBytes,
                 NewFileSizeBytes = NewFileSizeBytes,
                 ChangedBytesEstimate = ChangedBytesEstimate,
+                IndexEntriesChanged = IndexEntriesChanged,
+                UntouchedEntriesVerified = UntouchedEntriesVerified,
                 OldFileSha256 = OldFileSha256,
                 NewFileSha256 = NewFileSha256,
                 Operations = Operations.Select(x => x.ToPreviewResult()).ToArray(),
@@ -937,6 +1342,8 @@ public sealed class E5ImageReplaceService
                 OldFileSizeBytes = OldFileSizeBytes,
                 NewFileSizeBytes = NewFileSizeBytes,
                 ChangedBytesEstimate = ChangedBytesEstimate,
+                IndexEntriesChanged = IndexEntriesChanged,
+                UntouchedEntriesVerified = UntouchedEntriesVerified,
                 OldFileSha256 = OldFileSha256,
                 NewFileSha256 = NewFileSha256,
                 Operations = Operations.Select(x => x.ToPreviewResult()).ToArray(),

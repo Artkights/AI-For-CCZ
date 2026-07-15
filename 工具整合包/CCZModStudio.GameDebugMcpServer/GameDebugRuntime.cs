@@ -8,12 +8,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using CCZModStudio.Core;
 
 namespace CCZModStudio.GameDebugMcpServer;
 
 public sealed partial class GameDebugRuntime
 {
-    private const string ExpectedSha256 = "84E3A1DC085AE6F9900D1E8C388A9CD6766379832DDF51BC7BDF780C6615B4A3";
+    private const string ExpectedSha256 = EngineEffectProfileRegistry.Canonical65Sha256;
     internal const string ExpectedSha256Value = ExpectedSha256;
     private const uint ImageBase = 0x00400000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -72,7 +73,9 @@ public sealed partial class GameDebugRuntime
 
     private static readonly IReadOnlyList<InternalProbeTarget> BuiltInProbeTargets =
     [
-        new() { Address = "00484002", Name = "get_char_data_ptr", Phase = "core", ExpectedSemantics = "Data id to character-data pointer; stride 61, base 4A3E77.", TriggerHint = "Title/R/S/battle actor lookups.", EvidenceLevel = "dynamic-hit-on-title", HighFrequency = true },
+        new() { Address = "00484002", Name = "strategy_id_to_record", Phase = "strategy", ExpectedSemantics = "Strategy id to 61H-byte strategy record; base 4A3E77.", TriggerHint = "Strategy initialization and resolution.", EvidenceLevel = "dynamic-hit-on-title-and-static-strategy-call", HighFrequency = true },
+        new() { Address = "004061E4", Name = "data_id_to_runtime_character", Phase = "core", ExpectedSemantics = "16-bit Data id to 48H runtime-character record through pointer slot 4CEA00.", TriggerHint = "Character and battle actor lookups.", EvidenceLevel = "verified-static", HighFrequency = true },
+        new() { Address = "0040658F", Name = "tactical_unit_to_runtime_character", Phase = "battle", ExpectedSemantics = "TacticalUnit pointer to runtime-character record through unit+00 Data id.", TriggerHint = "Battle actor attribute and maximum-value lookups.", EvidenceLevel = "verified-static", HighFrequency = true },
         new() { Address = "004061F9", Name = "get_unit_ptr", Phase = "battle", ExpectedSemantics = "Battle unit id to tactical-unit pointer; stride 30, base 4A7B20.", TriggerHint = "Battle UI, action dispatch, turn loops.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", HighFrequency = true },
         new() { Address = "0041B500", Name = "get_unit_hp", Phase = "battle", ExpectedSemantics = "Read tactical unit current HP at unit+10.", TriggerHint = "Unit panel, target selection, damage calculations.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
         new() { Address = "00450986", Name = "generic_event_dispatch", Phase = "battle", ExpectedSemantics = "Generic event dispatch; suspected HP/combat event path when ECX=100.", TriggerHint = "Damage application, HP changes, event notifications.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
@@ -91,7 +94,9 @@ public sealed partial class GameDebugRuntime
 
     private static readonly IReadOnlyList<FunctionCatalogEntry> BuiltInFunctionCatalog =
     [
-        new() { Address = "00484002", Name = "get_char_data_ptr", Stage = "startup", Category = "character-data", ExpectedSemantics = "Data id to character-data pointer; stride 61, base 4A3E77.", TriggerHint = "Startup/title/R/S/battle actor lookups.", EvidenceLevel = "dynamic-hit-title", Source = "function-index-20260609", HighFrequency = true },
+        new() { Address = "00484002", Name = "strategy_id_to_record", Stage = "startup", Category = "strategy-record", ExpectedSemantics = "Strategy id to 61H-byte strategy record; base 4A3E77.", TriggerHint = "Startup strategy initialization and battle strategy resolution.", EvidenceLevel = "dynamic-hit-title-and-static-strategy-call", Source = "runtime-semantic-registry", HighFrequency = true },
+        new() { Address = "004061E4", Name = "data_id_to_runtime_character", Stage = "battle_entry", Category = "character-data", ExpectedSemantics = "16-bit Data id to 48H runtime-character record through pointer slot 4CEA00.", TriggerHint = "Character and battle actor lookups.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
+        new() { Address = "0040658F", Name = "tactical_unit_to_runtime_character", Stage = "battle_entry", Category = "character-data", ExpectedSemantics = "TacticalUnit pointer to runtime-character record through unit+00 Data id.", TriggerHint = "Battle actor attribute and maximum-value lookups.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
         new() { Address = "0042518F", Name = "ability_check_wrapper", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Wrapper ability check; pre-check then core engine or fallback.", TriggerHint = "Title entry and valid special-effect scenes.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
         new() { Address = "0041301E", Name = "dual_channel_check", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Fallback dual-channel effect check reached from ability_check_wrapper.", TriggerHint = "ability_check_wrapper fallback path.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
         new() { Address = "00413009", Name = "get_effect_value", Stage = "startup", Category = "effect-value", ExpectedSemantics = "Read effect value through the dual-channel chain.", TriggerHint = "dual_channel_check internal effect lookup.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
@@ -13129,10 +13134,10 @@ public sealed partial class GameDebugRuntime
         }
 
         var sha = ComputeSha256(exe);
-        var expected = string.Equals(sha, ExpectedSha256, StringComparison.OrdinalIgnoreCase);
+        var expected = IsKnown65EffectProfileSha(sha);
         if (requireExpectedHash && !expected)
         {
-            throw new InvalidOperationException($"Refusing debug automation for unexpected Ekd5.exe SHA256 {sha}. Expected {ExpectedSha256}.");
+            throw new InvalidOperationException($"Refusing debug automation for unexpected Ekd5.exe SHA256 {sha}. Expected registered 6.5 profile {EngineEffectProfileRegistry.Profile65Id}.");
         }
 
         return new GamePaths(workspaceRoot, toolRoot, root, exe, sha, expected);
@@ -13172,7 +13177,7 @@ public sealed partial class GameDebugRuntime
         {
             try
             {
-                if (string.Equals(ComputeSha256(candidate.FullName), ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+                if (IsKnown65EffectProfileSha(ComputeSha256(candidate.FullName)))
                 {
                     return candidate.DirectoryName ?? string.Empty;
                 }
@@ -13189,6 +13194,9 @@ public sealed partial class GameDebugRuntime
             .Select(c => c.DirectoryName ?? string.Empty)
             .FirstOrDefault() ?? string.Empty;
     }
+
+    internal static bool IsKnown65EffectProfileSha(string sha256)
+        => EngineEffectProfileRegistry.Current65.KnownFullSha256.Contains(sha256, StringComparer.OrdinalIgnoreCase);
 
     private static string ResolveX32dbgPath(string? x32dbgPath, string workspaceRoot)
     {
@@ -13374,7 +13382,7 @@ public sealed partial class GameDebugRuntime
                     gameRoot,
                     exePath,
                     sha,
-                    string.Equals(sha, ExpectedSha256, StringComparison.OrdinalIgnoreCase)));
+                    IsKnown65EffectProfileSha(sha)));
             }
         }
         catch
@@ -13405,12 +13413,17 @@ public sealed partial class GameDebugRuntime
         for (var i = 0; i < count; i++)
         {
             var o = i * profile.UnitStride;
+            var dataId = ReadUnsigned(bytes, o + profile.UnitDataIdOffset, profile.UnitDataIdByteWidth);
+            if (dataId == EngineRuntimeSemanticRegistry.EmptyTacticalUnitDataId)
+            {
+                continue;
+            }
             var hp = ReadUnsigned(bytes, o + profile.UnitCurrentHpOffset, profile.UnitCurrentHpByteWidth);
             var mp = ReadUnsigned(bytes, o + profile.UnitCurrentMpOffset, profile.UnitCurrentMpByteWidth);
             var x = bytes[o + profile.UnitXOffset];
             var y = bytes[o + profile.UnitYOffset];
             var side = bytes[o + profile.UnitSideOffset];
-            var hasSignal = hp > 0 && hp < 999 && x < 80 && y < 80 && side <= 3;
+            var hasSignal = hp > 0 && hp < 10_000_000 && x < 80 && y < 80 && side <= 3;
             if (!hasSignal)
             {
                 continue;
@@ -13419,7 +13432,8 @@ public sealed partial class GameDebugRuntime
             rows.Add(new BattleUnitRow
             {
                 UnitIndex = i,
-                DataIdByte = bytes[o + profile.UnitDataIdOffset],
+                DataId = dataId,
+                DisplayId = ReadUnsigned(bytes, o + profile.UnitDisplayIdOffset, profile.UnitDisplayIdByteWidth),
                 Side = side,
                 X = x,
                 Y = y,

@@ -145,6 +145,28 @@ internal sealed class LegacyMfcDialogSession
         SetComboIndex(id, selectedIndex);
     }
 
+    public void SetPersonComboItems(
+        string id,
+        IReadOnlyList<string> items,
+        LegacyPersonComboKind personKind,
+        int selectedIndex = 0)
+    {
+        if (!_controls.TryGetValue(id, out var control) || control is not ComboBox comboBox)
+        {
+            return;
+        }
+
+        if (comboBox is LegacyPersonComboBox personComboBox)
+        {
+            personComboBox.BindPersonItems(items, personKind, selectedIndex);
+            return;
+        }
+
+        // Compatibility fallback for external fixtures that construct a plain
+        // ComboBox. Production dialogs always use LegacyPersonComboBox.
+        SetComboItems(id, items, selectedIndex);
+    }
+
     public void AddComboItems(string id, IEnumerable<string> items)
     {
         if (!_controls.TryGetValue(id, out var control) || control is not ComboBox comboBox)

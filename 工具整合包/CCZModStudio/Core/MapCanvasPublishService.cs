@@ -13,7 +13,12 @@ public sealed class MapCanvasPublishService
     public MapImageSaveResult PublishToMapImage(CczProject project, MapWorkbenchDraft draft, MapResourceItem target)
         => PublishToMapImage(project, draft, target, Array.Empty<MaterialAsset>());
 
-    public MapImageSaveResult PublishToMapImage(CczProject project, MapWorkbenchDraft draft, MapResourceItem target, IReadOnlyList<MaterialAsset> materials)
+    public MapImageSaveResult PublishToMapImage(
+        CczProject project,
+        MapWorkbenchDraft draft,
+        MapResourceItem target,
+        IReadOnlyList<MaterialAsset> materials,
+        Bitmap? confirmedRender = null)
     {
         if (draft.GridWidth <= 0 || draft.GridHeight <= 0)
         {
@@ -35,7 +40,9 @@ public sealed class MapCanvasPublishService
             oldHeight = oldImage.Height;
         }
 
-        using var bitmap = _composeService.ComposeFinal(draft, materials);
+        using var bitmap = confirmedRender == null
+            ? _composeService.ComposeFinal(draft, materials)
+            : new Bitmap(confirmedRender);
         var newBytes = EncodeJpeg(bitmap, quality: 92L);
         var oldBytes = File.ReadAllBytes(target.Path);
         var oldHash = WriteOperationReportService.ComputeSha256(oldBytes);
@@ -53,10 +60,26 @@ public sealed class MapCanvasPublishService
             ? $"JPEG 图片格式检查通过，尺寸 {bitmap.Width}x{bitmap.Height}。"
             : $"JPEG 图片格式检查通过；{warning}";
 
-        var backupPath = CreateBeforeSaveBackup(project, target.Path);
-        var tempPath = target.Path + ".CCZModStudio.tmp";
+        var tempPath = Path.Combine(Path.GetDirectoryName(target.Path)!, $".{Path.GetFileName(target.Path)}.{Guid.NewGuid():N}.tmp");
         File.WriteAllBytes(tempPath, newBytes);
-        File.Move(tempPath, target.Path, overwrite: true);
+        var stagedBytes = File.ReadAllBytes(tempPath);
+        if (!stagedBytes.AsSpan().SequenceEqual(newBytes) ||
+            !WriteOperationReportService.ComputeSha256(stagedBytes).Equals(newHash, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(tempPath);
+            throw new InvalidOperationException("地图临时输出完整复读或哈希校验失败，目标文件未修改。");
+        }
+        using (var stagedImage = Image.FromFile(tempPath))
+        {
+            if (stagedImage.Width != bitmap.Width || stagedImage.Height != bitmap.Height)
+            {
+                File.Delete(tempPath);
+                throw new InvalidOperationException("地图临时输出尺寸校验失败，目标文件未修改。");
+            }
+        }
+
+        var backupPath = CreateBeforeSaveBackup(project, target.Path);
+        AtomicReplaceMapWithRollback(tempPath, target.Path, backupPath, newBytes, newHash);
 
         var writtenBytes = File.ReadAllBytes(target.Path);
         var writtenHash = WriteOperationReportService.ComputeSha256(writtenBytes);
@@ -117,6 +140,13 @@ public sealed class MapCanvasPublishService
     {
         using var bitmap = _composeService.ComposeFinal(draft, materials);
         var bytes = EncodeJpeg(bitmap, quality: 92L);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+        File.WriteAllBytes(outputPath, bytes);
+    }
+
+    public void ExportJpeg(Bitmap confirmedRender, string outputPath)
+    {
+        var bytes = EncodeJpeg(confirmedRender, quality: 92L);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         File.WriteAllBytes(outputPath, bytes);
     }
@@ -227,9 +257,45 @@ public sealed class MapCanvasPublishService
         }
     }
 
+    private static void AtomicReplaceMapWithRollback(
+        string tempPath,
+        string targetPath,
+        string backupPath,
+        byte[] expected,
+        string expectedHash)
+    {
+        try
+        {
+            try
+            {
+                File.Replace(tempPath, targetPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            }
+            catch (PlatformNotSupportedException)
+            {
+                File.Move(tempPath, targetPath, overwrite: true);
+            }
+
+            var verify = File.ReadAllBytes(targetPath);
+            if (!verify.AsSpan().SequenceEqual(expected) ||
+                !WriteOperationReportService.ComputeSha256(verify).Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("地图原子替换后整文件复读校验失败。");
+            }
+        }
+        catch
+        {
+            File.Copy(backupPath, targetPath, overwrite: true);
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
+    }
+
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var backupPath = Path.Combine(backupRoot, $"{stamp}_{Path.GetFileName(filePath)}");

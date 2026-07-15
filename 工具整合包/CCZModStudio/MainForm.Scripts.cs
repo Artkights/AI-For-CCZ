@@ -2704,6 +2704,7 @@ public sealed partial class MainForm
         if (_currentScriptStructure == null) return false;
         var key = BuildLegacyCommandKey(command);
         if (!_legacyScriptRowByKey.TryGetValue(key, out var row)) return false;
+        MaterializeLegacyScriptCommandPath(LegacyScriptEditorScope.Script, command);
         return SelectScriptTreeNode(row, suppressEvents: true, ensureVisible: ensureVisible);
     }
 
@@ -3123,13 +3124,38 @@ public sealed partial class MainForm
     }
 
     private bool TrySelectLegacyScriptCommand(LegacyScriptEditorScope scope, LegacyScenarioCommandNode command, bool ensureVisible = true)
-        => scope switch
+    {
+        MaterializeLegacyScriptCommandPath(scope, command);
+        return scope switch
         {
             LegacyScriptEditorScope.Script => TrySelectLegacyScriptCommand(command, ensureVisible),
             LegacyScriptEditorScope.Battlefield => TrySelectBattlefieldLegacyScriptCommand(command, ensureVisible),
             LegacyScriptEditorScope.RScene => TrySelectRSceneLegacyScriptCommand(command, ensureVisible),
             _ => false
         };
+    }
+
+    private void MaterializeLegacyScriptCommandPath(LegacyScriptEditorScope scope, LegacyScenarioCommandNode command)
+    {
+        var document = GetCurrentLegacyScriptDocument(scope);
+        var section = document?.Scenes.FirstOrDefault(scene => scene.SceneIndex == command.SceneIndex)?
+            .Sections.FirstOrDefault(candidate => candidate.SectionIndex == command.SectionIndex);
+        if (section == null) return;
+        var sectionNode = FindLegacyScriptSectionTreeNode(GetLegacyScriptTree(scope), section);
+        if (sectionNode?.Nodes.Count != 1 || sectionNode.Nodes[0].Tag is not LegacyScriptTreeBatchState state) return;
+        while (!ContainsLegacyScriptCommandNode(sectionNode, command) && state.NextTopLevelIndex < state.Section.Commands.Count)
+            MaterializeLegacyScriptBatch(sectionNode, state);
+    }
+
+    private static bool ContainsLegacyScriptCommandNode(TreeNode root, LegacyScenarioCommandNode command)
+    {
+        foreach (TreeNode child in root.Nodes)
+        {
+            if (child.Tag is LegacyScenarioItemData { Command: { } current } && ReferenceEquals(current, command)) return true;
+            if (ContainsLegacyScriptCommandNode(child, command)) return true;
+        }
+        return false;
+    }
 
     private void ShowSelectedLegacyScriptTreeNode(LegacyScriptEditorScope scope)
     {
@@ -5352,13 +5378,11 @@ public sealed partial class MainForm
         var activeBlocks = new HashSet<LegacyScenarioCommandBlock>();
         if (flattenedCommands.Count > ScriptLegacyTreeCommandNodeLimitPerSection)
         {
-            sectionNode.Nodes.Add(new TreeNode($"命令列表已折叠 ({flattenedCommands.Count})")
+            sectionNode.Nodes.Add(new TreeNode($"展开后加载首批命令（共 {flattenedCommands.Count} 条）")
             {
-                Tag = sectionRow,
-                ToolTipText = "异常保护：该 Section 命令数量超过界面安全阈值，已停止继续创建 TreeNode。"
+                Tag = new LegacyScriptTreeBatchState(scope, section, rowByKey),
+                ToolTipText = $"命令树按每批 {ScriptLegacyTreeCommandNodeLimitPerSection} 条加载，完整模型仍可搜索和保存。"
             });
-
-            sectionNode.Expand();
             return sectionNode;
         }
 
@@ -5375,6 +5399,69 @@ public sealed partial class MainForm
 
         sectionNode.Expand();
         return sectionNode;
+    }
+
+    private void MaterializeLegacyScriptSectionBatch(LegacyScriptEditorScope scope, TreeNode? node)
+    {
+        if (node == null) return;
+        if (node.Nodes.Count != 1 || node.Nodes[0].Tag is not LegacyScriptTreeBatchState state || state.Scope != scope) return;
+        MaterializeLegacyScriptBatch(node, state);
+    }
+
+    private bool TryLoadLegacyScriptContinuation(LegacyScriptEditorScope scope, TreeNode? selected)
+    {
+        if (selected?.Tag is not LegacyScriptTreeBatchState state || state.Scope != scope || selected.Parent == null) return false;
+        var parent = selected.Parent;
+        MaterializeLegacyScriptBatch(parent, state);
+        var tree = GetLegacyScriptTree(scope);
+        tree.SelectedNode = parent;
+        return true;
+    }
+
+    private void MaterializeLegacyScriptBatch(TreeNode sectionNode, LegacyScriptTreeBatchState state)
+    {
+        var tree = sectionNode.TreeView;
+        var start = state.NextTopLevelIndex;
+        tree?.BeginUpdate();
+        try
+        {
+            foreach (TreeNode child in sectionNode.Nodes.Cast<TreeNode>().Where(child => child.Tag is LegacyScriptTreeBatchState).ToArray())
+                sectionNode.Nodes.Remove(child);
+
+            var end = Math.Min(state.Section.Commands.Count, state.NextTopLevelIndex + ScriptLegacyTreeCommandNodeLimitPerSection);
+            var activeCommands = new HashSet<LegacyScenarioCommandNode>();
+            var activeBlocks = new HashSet<LegacyScenarioCommandBlock>();
+            for (var index = state.NextTopLevelIndex; index < end; index++)
+            {
+                var command = state.Section.Commands[index];
+                if (!state.RowByKey.TryGetValue(BuildLegacyCommandKey(command), out var row)) continue;
+                sectionNode.Nodes.Add(CreateLegacyScriptCommandTreeNode(
+                    state.Scope, command, row, state.RowByKey, depth: 0, activeCommands, activeBlocks));
+            }
+            state.NextTopLevelIndex = end;
+            if (state.NextTopLevelIndex < state.Section.Commands.Count)
+            {
+                sectionNode.Nodes.Add(new TreeNode(
+                    $"继续加载后 {Math.Min(ScriptLegacyTreeCommandNodeLimitPerSection, state.Section.Commands.Count - state.NextTopLevelIndex)} 条…")
+                {
+                    Tag = state,
+                    ForeColor = Color.RoyalBlue
+                });
+            }
+            PerformanceMetrics.Increment("ScriptTree.MaterializedTopLevelNodes", end - start);
+        }
+        finally { tree?.EndUpdate(); }
+    }
+
+    private sealed class LegacyScriptTreeBatchState(
+        LegacyScriptEditorScope scope,
+        LegacyScenarioSection section,
+        IReadOnlyDictionary<string, ScenarioStructureRow> rowByKey)
+    {
+        public LegacyScriptEditorScope Scope { get; } = scope;
+        public LegacyScenarioSection Section { get; } = section;
+        public IReadOnlyDictionary<string, ScenarioStructureRow> RowByKey { get; } = rowByKey;
+        public int NextTopLevelIndex { get; set; }
     }
 
     private TreeNode CreateLegacyScriptCommandTreeNode(
@@ -12239,7 +12326,7 @@ public sealed partial class MainForm
                 }
                 if (gridRow.Index >= 0 && gridRow.Index < _scenarioStructureGrid.RowCount)
                 {
-                    _scenarioStructureGrid.FirstDisplayedScrollingRowIndex = gridRow.Index;
+                    TryScrollGridRowIntoView(_scenarioStructureGrid, gridRow.Index);
                 }
                 break;
             }

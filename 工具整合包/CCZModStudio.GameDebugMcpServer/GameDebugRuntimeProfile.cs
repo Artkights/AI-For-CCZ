@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using CCZModStudio.Core;
 
 namespace CCZModStudio.GameDebugMcpServer;
 
@@ -13,17 +14,20 @@ internal sealed record class GameDebugRuntimeProfile
     public string UnsupportedReason { get; init; } = string.Empty;
     public uint UnitArrayAddress { get; init; }
     public int UnitStride { get; init; }
-    public int UnitDataIdOffset { get; init; } = 0x04;
-    public int UnitSideOffset { get; init; } = 0x05;
-    public int UnitXOffset { get; init; } = 0x06;
-    public int UnitYOffset { get; init; } = 0x07;
-    public int UnitActionOffset { get; init; } = 0x0D;
-    public int UnitCurrentHpOffset { get; init; } = 0x10;
-    public int UnitCurrentHpByteWidth { get; init; } = 2;
-    public int UnitCurrentMpOffset { get; init; } = 0x14;
-    public int UnitCurrentMpByteWidth { get; init; } = 2;
-    public int UnitAttributesOffset { get; init; } = 0x18;
-    public int UnitAttributesLength { get; init; } = 6;
+    public int UnitDataIdOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDataIdOffset;
+    public int UnitDataIdByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDataIdWidth;
+    public int UnitDisplayIdOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDisplayIdOffset;
+    public int UnitDisplayIdByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDisplayIdWidth;
+    public int UnitSideOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitSideOffset;
+    public int UnitXOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitXOffset;
+    public int UnitYOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitYOffset;
+    public int UnitActionOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitActionOffset;
+    public int UnitCurrentHpOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitCurrentHpOffset;
+    public int UnitCurrentHpByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitCurrentValueWidth;
+    public int UnitCurrentMpOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitCurrentMpOffset;
+    public int UnitCurrentMpByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitCurrentValueWidth;
+    public int UnitAttributesOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitAttributesOffset;
+    public int UnitAttributesLength { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitAttributesLength;
     public long? ExeSize { get; init; }
     public string ExeSha256 { get; init; } = string.Empty;
     public string VersionResourceText { get; init; } = string.Empty;
@@ -42,6 +46,12 @@ internal sealed record class GameDebugRuntimeProfile
             unsupported_reason = UnsupportedReason,
             unit_array_address = UnitArrayAddress == 0 ? string.Empty : UnitArrayAddress.ToString("X8", CultureInfo.InvariantCulture),
             unit_stride = UnitStride == 0 ? string.Empty : UnitStride.ToString("X", CultureInfo.InvariantCulture),
+            unit_data_id_offset = UnitDataIdOffset,
+            unit_data_id_width = UnitDataIdByteWidth,
+            unit_display_id_offset = UnitDisplayIdOffset,
+            unit_display_id_width = UnitDisplayIdByteWidth,
+            unit_hp_width = UnitCurrentHpByteWidth,
+            unit_mp_width = UnitCurrentMpByteWidth,
             exe_size = ExeSize,
             exe_sha256 = ExeSha256,
             version_resource_text = VersionResourceText,
@@ -70,8 +80,8 @@ internal sealed record class GameDebugRuntimeProfile
                 IsKnown = true,
                 IsRuntimeBattleLayoutVerified = true,
                 LayoutSource = "current-project-debug-and-old-wrench-comparison",
-                UnitArrayAddress = 0x004A7B20,
-                UnitStride = 0x30
+                UnitArrayAddress = EngineRuntimeSemanticRegistry.TacticalUnitArrayAddress,
+                UnitStride = EngineRuntimeSemanticRegistry.TacticalUnitStride
             },
             "6.6" => new GameDebugRuntimeProfile
             {
@@ -119,7 +129,7 @@ internal sealed record class GameDebugRuntimeProfile
     private static IReadOnlyList<GameDebugRuntimeProfileEvidence> BuildEvidence(long? exeSize, string? versionText, int? lowWord, string? pathHint, string sha256)
     {
         var evidence = new List<GameDebugRuntimeProfileEvidence>();
-        var shaVersion = string.Equals(sha256, GameDebugRuntime.ExpectedSha256Value, StringComparison.OrdinalIgnoreCase) ? "6.5" : string.Empty;
+        var shaVersion = GameDebugRuntime.IsKnown65EffectProfileSha(sha256) ? "6.5" : string.Empty;
         if (!string.IsNullOrWhiteSpace(sha256))
         {
             evidence.Add(new GameDebugRuntimeProfileEvidence("Ekd5.exe SHA256", sha256, shaVersion, 5));

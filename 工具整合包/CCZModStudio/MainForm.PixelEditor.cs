@@ -9,6 +9,58 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
+    private void EditSelectedJobSImagePixels()
+    {
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
+        if (_project == null || _currentJobEditorData == null || _jobEditorGrid.CurrentRow == null)
+        {
+            MessageBox.Show(this, "请先读取兵种并选择一个详细兵种。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var row = _jobEditorGrid.CurrentRow;
+        if (!TryGetJobEditorRowIdentity(row, out var jobId, out var jobName))
+        {
+            MessageBox.Show(this, "当前详细兵种行无法解析 ID。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        using var factionDialog = new PixelFactionSelectionDialog(
+            $"像素编辑兵种S：ID={jobId:D2} {jobName}",
+            allowMultiple: false,
+            new[] { 1 },
+            slot =>
+            {
+                var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(_project, 0, jobId, slot);
+                return mapping.ImageNumbers.Count == 1 ? $"Unit 图号 #{mapping.ImageNumbers[0]}" : mapping.Detail;
+            });
+        if (factionDialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var factionSlot = factionDialog.SelectedSlots[0];
+            var targets = new PixelEditResourceGroupResolver().BuildJobSGroup(_project, jobId, factionSlot);
+            var factionName = CharacterImageResourceService.BuildSPreviewFactionText(factionSlot);
+            OpenPixelEditor(
+                targets[0],
+                _jobEditorInfoBox,
+                () =>
+                {
+                    ClearImageAssignmentCaches();
+                    UpdateJobSImagePreview(row);
+                },
+                scopeDescription: $"详细兵种 ID={jobId:D2} {jobName} {factionName}：移动/攻击/特技全部帧",
+                replacementTargetLoader: _ => targets,
+                initialTargets: targets,
+                showTabs: true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("兵种 S 像素编辑打开失败：" + ex);
+            MessageBox.Show(this, ex.Message, "兵种 S 像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void EditSelectedItemIcon()
     {
         if (_project == null)
@@ -124,7 +176,9 @@ public sealed partial class MainForm
                 _itemIconPreviewService.ClearCache();
                 RefreshSelectedImageResourceEntries(imageNumber);
                 ShowSelectedImageResourceEntry();
-            });
+            },
+            scopeDescription: $"{target.DisplayName} 完整形象组",
+            replacementTargetLoader: _ => new PixelEditResourceGroupResolver().ExpandSemanticGroup(_project, target));
         }
         catch (Exception ex)
         {
@@ -171,11 +225,38 @@ public sealed partial class MainForm
         try
         {
             var target = BuildImageAssignmentEditableTarget(selected);
+            if (!TryGetImageResourceId(row, ImageAssignmentResourceKind.R, out var rImageId) ||
+                !TryGetImageResourceId(row, ImageAssignmentResourceKind.S, out var sImageId))
+            {
+                throw new InvalidOperationException("无法读取当前人物的 R/S 形象编号。");
+            }
+            var jobId = row.Table.Columns.Contains("职业")
+                ? Convert.ToInt32(row["职业"], CultureInfo.InvariantCulture)
+                : (int?)null;
+            var currentFaction = GetImageAssignmentSPreviewFactionSlot();
+            var roleName = TryGetRoleDisplayName(row);
+            var sharedWarning = BuildCharacterPixelGroupSharedUsageWarning(row, rImageId, sImageId, jobId);
             OpenPixelEditor(target, _imageAssignmentInfoBox, () =>
             {
                 ClearImageAssignmentCaches();
                 _imageResourceCatalogService.ClearCache();
                 ShowSelectedImageAssignmentDetail();
+            },
+            scopeDescription: $"人物 {roleName} 的完整 R/S 形象",
+            sharedUsageWarning: sharedWarning,
+            replacementTargetLoader: owner =>
+            {
+                IReadOnlyList<int> factions = new[] { currentFaction };
+                if (sImageId == 0)
+                {
+                    using var factionDialog = new PixelFactionSelectionDialog(
+                        $"选择人物 {roleName} 的 S=0 换色阵营",
+                        allowMultiple: true,
+                        new[] { currentFaction });
+                    if (factionDialog.ShowDialog(owner) != DialogResult.OK) return null;
+                    factions = factionDialog.SelectedSlots;
+                }
+                return new PixelEditResourceGroupResolver().BuildCharacterGroup(_project, rImageId, sImageId, jobId, factions);
             });
         }
         catch (Exception ex)
@@ -185,7 +266,15 @@ public sealed partial class MainForm
         }
     }
 
-    private void OpenPixelEditor(EditableImageTarget target, TextBox infoBox, Action refreshAfterWrite)
+    private void OpenPixelEditor(
+        EditableImageTarget target,
+        TextBox infoBox,
+        Action refreshAfterWrite,
+        string? scopeDescription = null,
+        string sharedUsageWarning = "",
+        Func<IWin32Window, IReadOnlyList<EditableImageTarget>?>? replacementTargetLoader = null,
+        IReadOnlyList<EditableImageTarget>? initialTargets = null,
+        bool showTabs = false)
     {
         if (_project == null) return;
 
@@ -195,11 +284,19 @@ public sealed partial class MainForm
             return;
         }
 
-        EditableImageDocument document;
+        PixelEditResourceGroup group;
         try
         {
             Cursor = Cursors.WaitCursor;
-            document = _editableImageCodecService.Load(_project, target);
+            group = PixelEditResourceGroup.Load(
+                _project,
+                _editableImageCodecService,
+                initialTargets ?? new[] { target },
+                showTabs,
+                scopeDescription ?? target.DisplayName,
+                sharedUsageWarning,
+                replacementTargetLoader,
+                PixelEditResourceGroup.BuildTargetKey(target));
         }
         catch (Exception ex)
         {
@@ -212,16 +309,16 @@ public sealed partial class MainForm
             Cursor = Cursors.Default;
         }
 
-        using (document)
-        using (var dialog = new PixelImageEditorDialog(document))
+        using (group)
+        using (var dialog = new PixelImageEditorDialog(group))
         {
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
-            EditableImageWritePreview preview;
+            PixelEditResourceGroupWritePreview preview;
             try
             {
                 Cursor = Cursors.WaitCursor;
-                preview = _editableImageCodecService.PreviewWrite(_project, target, dialog.EditedBitmap);
+                preview = new PixelEditResourceGroupWriteService(_editableImageCodecService).Preview(_project, group);
             }
             catch (Exception ex)
             {
@@ -234,8 +331,13 @@ public sealed partial class MainForm
                 Cursor = Cursors.Default;
             }
 
-            var previewText = BuildPixelEditorPreviewText(preview);
+            var previewText = BuildPixelEditorGroupPreviewText(preview);
             infoBox.Text = previewText;
+            if (preview.EntryCount == 0)
+            {
+                MessageBox.Show(this, "没有像素变化，不会写入资源文件。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             if (MessageBox.Show(this,
                     previewText + "\r\n\r\n确认后会先备份目标资源，再写回当前像素画布。是否继续？",
                     "确认像素编辑写回",
@@ -248,13 +350,13 @@ public sealed partial class MainForm
             try
             {
                 Cursor = Cursors.WaitCursor;
-                var result = _editableImageCodecService.Write(_project, target, dialog.EditedBitmap);
+                var result = new PixelEditResourceGroupWriteService(_editableImageCodecService).Write(_project, group);
                 _itemIconPreviewService.ClearCache();
                 _imageResourceCatalogService.ClearCache();
                 ClearImageAssignmentCaches();
                 refreshAfterWrite();
-                infoBox.AppendText("\r\n\r\n" + BuildPixelEditorResultText(result));
-                SetStatus("像素编辑写回完成：" + result.TargetRelativePath);
+                infoBox.AppendText("\r\n\r\n" + BuildPixelEditorGroupResultText(result));
+                SetStatus($"整组像素编辑写回完成：{result.EntryCount} 个条目");
             }
             catch (Exception ex)
             {
@@ -420,6 +522,72 @@ public sealed partial class MainForm
             : "\r\n像素编辑提示：\r\n" + string.Join("\r\n", filtered.Take(20).Select(warning => "- " + warning));
     }
 
+    private static string BuildPixelEditorGroupPreviewText(PixelEditResourceGroupWritePreview preview)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine("整组像素编辑写回预览");
+        builder.AppendLine($"范围：{preview.ScopeDescription}");
+        builder.AppendLine($"物理文件：{preview.Files.Count + (preview.SinglePreview == null ? 0 : 1)}；图片条目：{preview.EntryCount}");
+        if (preview.ColorReplacementPreview != null)
+        {
+            builder.AppendLine($"整组换色：{preview.ColorReplacementPreview.Rules.Count} 组；总命中 {preview.ColorReplacementPreview.TotalMatches:N0} 像素");
+            for (var index = 0; index < preview.ColorReplacementPreview.Rules.Count; index++)
+            {
+                var rule = preview.ColorReplacementPreview.Rules[index];
+                builder.AppendLine($"  {index + 1}. {FormatPixelColor(rule.Source)} -> {FormatPixelColor(rule.Target)}：{preview.ColorReplacementPreview.RuleMatchCounts[index]:N0}");
+            }
+        }
+        if (preview.SinglePreview != null)
+        {
+            builder.AppendLine("- " + preview.SinglePreview.Summary);
+        }
+        foreach (var file in preview.Files)
+        {
+            builder.AppendLine($"- {file.TargetRelativePath}: 图号 {string.Join("/", file.Operations.Select(operation => "#" + operation.ImageNumber))}；预计变更 {file.ChangedBytesEstimate:N0} 字节；文件差值 {file.FileSizeDeltaBytes:+#;-#;0}；索引变化 {file.IndexEntriesChanged}；已验证未修改条目 {file.UntouchedEntriesVerified}");
+            foreach (var operation in file.Operations)
+            {
+                builder.AppendLine($"  #{operation.ImageNumber}: {operation.OldKind}->{operation.NewKind}；偏移 0x{operation.OldDataOffset:X}->0x{operation.NewDataOffset:X}；长度 {operation.OldSizeBytes:N0}->{operation.NewSizeBytes:N0}；{operation.Placement}");
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(preview.SharedUsageWarning))
+        {
+            builder.AppendLine();
+            builder.AppendLine(preview.SharedUsageWarning);
+        }
+        if (preview.Warnings.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("编码提示：");
+            foreach (var warning in preview.Warnings.Take(30)) builder.AppendLine("- " + warning);
+        }
+        return builder.ToString();
+    }
+
+    private static string FormatPixelColor(Color color)
+        => color.A == 0 ? "透明" : $"#{color.A:X2}{color.R:X2}{color.G:X2}{color.B:X2}";
+
+    private static string BuildPixelEditorGroupResultText(PixelEditResourceGroupWriteResult result)
+    {
+        var builder = new System.Text.StringBuilder();
+        builder.AppendLine("整组像素编辑写回完成");
+        builder.AppendLine($"范围：{result.ScopeDescription}");
+        builder.AppendLine($"图片条目：{result.EntryCount}");
+        if (result.SingleResult != null)
+        {
+            builder.AppendLine("- " + result.SingleResult.Summary);
+            builder.AppendLine($"  备份：{result.SingleResult.BackupPath}");
+            builder.AppendLine($"  报告：{result.SingleResult.ReportPath}");
+        }
+        foreach (var file in result.Files)
+        {
+            builder.AppendLine($"- {file.TargetRelativePath}: 图号 {string.Join("/", file.Operations.Select(operation => "#" + operation.ImageNumber))}");
+            builder.AppendLine($"  备份：{file.BackupPath}");
+            builder.AppendLine($"  报告：{file.ReportJsonPath}");
+        }
+        builder.AppendLine($"整组报告：{result.AggregateReportPath}");
+        return builder.ToString();
+    }
+
     private void RefreshSelectedImageResourceEntries(int preferredImageNumber)
     {
         var file = GetSelectedImageResourceFile();
@@ -446,5 +614,35 @@ public sealed partial class MainForm
             _imageResourceEntryGrid.CurrentCell = row.Cells.Cast<DataGridViewCell>().FirstOrDefault(cell => cell.Visible) ?? row.Cells[0];
             break;
         }
+    }
+
+    private string BuildCharacterPixelGroupSharedUsageWarning(DataRow selectedRow, int rImageId, int sImageId, int? jobId)
+    {
+        if (_currentImageAssignments == null) return string.Empty;
+        var shared = new List<string>();
+        foreach (DataRow row in _currentImageAssignments.Rows)
+        {
+            if (ReferenceEquals(row, selectedRow) || row.RowState == DataRowState.Deleted) continue;
+            var sameR = int.TryParse(Convert.ToString(row["R形象编号"], CultureInfo.InvariantCulture), out var otherR) && otherR == rImageId;
+            var sameS = sImageId != 0 && int.TryParse(Convert.ToString(row["S形象编号"], CultureInfo.InvariantCulture), out var otherS) && otherS == sImageId;
+            if (!int.TryParse(Convert.ToString(row["S形象编号"], CultureInfo.InvariantCulture), out otherS)) otherS = -1;
+            var sameDefaultJob = sImageId == 0 && otherS == 0 && jobId.HasValue &&
+                                 row.Table.Columns.Contains("职业") &&
+                                 int.TryParse(Convert.ToString(row["职业"], CultureInfo.InvariantCulture), out var otherJob) &&
+                                 otherJob == jobId.Value;
+            if (!sameR && !sameS && !sameDefaultJob) continue;
+            var id = row.Table.Columns.Contains("ID") ? Convert.ToString(row["ID"], CultureInfo.InvariantCulture) : "?";
+            var name = row.Table.Columns.Contains("名称") ? Convert.ToString(row["名称"], CultureInfo.InvariantCulture) : string.Empty;
+            var reasons = new List<string>();
+            if (sameR) reasons.Add($"R={rImageId}");
+            if (sameS && sImageId != 0) reasons.Add($"S={sImageId}");
+            if (sameDefaultJob) reasons.Add($"S=0/职业={jobId}");
+            shared.Add($"人物 {id} {name}（{string.Join("、", reasons)}）");
+        }
+
+        if (shared.Count == 0) return string.Empty;
+        return "共享资源提示：本次整组换色还会影响以下人物：\r\n" +
+               string.Join("\r\n", shared.Take(30).Select(item => "- " + item)) +
+               (shared.Count > 30 ? $"\r\n- ... 另有 {shared.Count - 30} 人" : string.Empty);
     }
 }

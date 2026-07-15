@@ -252,13 +252,7 @@ public sealed partial class MainForm
         var row = grid.Rows[resultIndex];
         row.Selected = true;
         grid.CurrentCell = row.Cells.Cast<DataGridViewCell>().FirstOrDefault(cell => cell.Visible);
-        try
-        {
-            grid.FirstDisplayedScrollingRowIndex = resultIndex;
-        }
-        catch (InvalidOperationException)
-        {
-        }
+        TryScrollGridRowIntoView(grid, resultIndex);
     }
 
     private void ConfigureLegacyScriptSearchResultGrid(DataGridView grid)
@@ -1582,13 +1576,7 @@ public sealed partial class MainForm
         grid.CurrentCell = grid.Rows[match.RowIndex].Cells[match.ColumnIndex];
         grid.ClearSelection();
         grid.Rows[match.RowIndex].Selected = true;
-        try
-        {
-            grid.FirstDisplayedScrollingRowIndex = match.RowIndex;
-        }
-        catch (InvalidOperationException)
-        {
-        }
+        TryScrollGridRowIntoView(grid, match.RowIndex);
     }
 
     private void HandleSearchableGridCellPainting(object? sender, DataGridViewCellPaintingEventArgs e)

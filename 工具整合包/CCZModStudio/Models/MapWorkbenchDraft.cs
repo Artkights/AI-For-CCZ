@@ -2,6 +2,7 @@ namespace CCZModStudio.Models;
 
 public sealed class MapWorkbenchDraft
 {
+    public int SchemaVersion { get; set; } = 2;
     public string DraftId { get; set; } = string.Empty;
     public string BoundMapId { get; set; } = string.Empty;
     public int GridWidth { get; set; } = 30;
@@ -20,6 +21,8 @@ public sealed class MapWorkbenchDraft
     public byte[] TerrainCells { get; set; } = Array.Empty<byte>();
     public string GenerationMode { get; set; } = MapWorkbenchGenerationModes.MaterialDriven;
     public TerrainVisualProfile TerrainVisualProfile { get; set; } = new();
+    public TerrainRenderSettings TerrainRenderSettings { get; set; } = new();
+    public HexzmapBlockBinding? HexzmapBinding { get; set; }
     public bool AutoGenerateMapFromTerrain { get; set; } = true;
     public bool BeautifyGeneratedMap { get; set; }
     public int BeautifyStrength { get; set; } = 2;

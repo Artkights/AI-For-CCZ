@@ -40,6 +40,8 @@ public sealed class SpecialSkillInjectionService
         var personal = NormalizeEffectId(personalEffectId ?? effectId ?? 0);
         var item = NormalizeEffectId(itemEffectId ?? 0);
         var functionBody = BuildDefaultFunctionBody(spec);
+        var executionContract = new HookExecutionContractService().BuildContracts(project)
+            .FirstOrDefault(item => item.HookAddress == spec.HookAddress || item.ContractFamilyId.Equals(spec.ConflictGroup, StringComparison.OrdinalIgnoreCase));
         var draft = new InlineSpecialSkillPatchDraft
         {
             Prompt = prompt ?? string.Empty,
@@ -62,14 +64,22 @@ public sealed class SpecialSkillInjectionService
             ParameterEncodingPolicy = ParameterEncodingPolicy,
             UnitPointerSource = spec.UnitPointerSource,
             FunctionAssemblySource = functionBody,
+            HookContractId = spec.TemplateId,
+            OriginalInstructionPolicy = string.Empty,
+            OriginalInstructionPlacement = OriginalInstructionPlacements.BeforeBody,
+            PreserveFlags = true,
+            ExpectedStackDelta = 0,
+            RequiredSymbols = { "core_effect_engine" },
             RequiredCodeCaveBytes = spec.RequiredCodeCaveBytes,
-            AllowPreview = profile.EngineVersion == "6.5" && profile.IsKnown && spec.AllowAutoPreview,
+            AllowPreview = profile.EngineVersion == "6.5" && profile.IsKnown && spec.AllowAutoPreview && executionContract?.AllowSemanticPreview == true,
             Risks =
             {
-                "Preview only compiles a reviewed four-module scaffold; it is not proof that an arbitrary natural-language mechanic is correct.",
-                spec.SafetyLevel == "known-safe-template"
-                    ? "Known hook template still requires old-byte locks and dynamic validation before formal use."
-                    : "Manual-review template: fill a reviewed FunctionAssemblySource before preview/apply."
+                "预览只编译已经复核的四模块框架，不能据此证明任意自然语言机制都正确。",
+                executionContract == null
+                    ? "没有找到当前 EXE 身份对应的执行契约，只能人工复核。"
+                    : executionContract.AllowSemanticPreview
+                        ? "当前执行契约已通过同一 SHA 动态验证，仍需旧字节锁和写后复读。"
+                        : "当前执行契约尚未动态验证：" + string.Join("；", executionContract.MissingEvidenceZh)
             },
             DynamicValidationPlan = spec.DynamicValidationPlan.ToList(),
             Metadata =
@@ -82,6 +92,8 @@ public sealed class SpecialSkillInjectionService
                 ["PreviewRequiresKnown65"] = "true",
                 ["EngineProfileSha256"] = profile.ExeSha256,
                 ["ConflictGroup"] = spec.ConflictGroup,
+                ["HookExecutionContractId"] = executionContract?.ContractId ?? string.Empty,
+                ["HookExecutionContractHash"] = executionContract?.ContractHash ?? string.Empty,
                 ["DamageSlot"] = spec.DamageSlot,
                 ["SafetyLevel"] = spec.SafetyLevel
             }
@@ -112,8 +124,8 @@ public sealed class SpecialSkillInjectionService
                 CanApply = false,
                 Draft = draft,
                 LogicalPatch = draft.LogicalPatch,
-                Warnings = ["Special-skill draft is not allowed to preview/apply for this profile or hook spec."],
-                Summary = "Special-skill preview rejected before compilation."
+                Warnings = ["当前引擎档案或注入点契约不允许预览和写入该特技草案。"],
+                Summary = "特技草案在编译前被安全策略阻止。"
             };
         }
 
@@ -132,7 +144,7 @@ public sealed class SpecialSkillInjectionService
 
         if (!assemblyPreview.CanApply)
         {
-            result.Summary = "Special-skill preview failed: " + string.Join("; ", result.Warnings.Take(6));
+            result.Summary = "特技预览失败：" + string.Join("；", result.Warnings.Take(6));
             result.LogicalPatch = draft.LogicalPatch;
             result.CanApply = false;
             return result;
@@ -143,18 +155,19 @@ public sealed class SpecialSkillInjectionService
         if (logical.PersonalEffectPatchPoint.ValueAddress == 0 ||
             logical.ItemEffectPatchPoint.ValueAddress == 0)
         {
-            result.Warnings.Add("Compiled special-skill code did not expose both imm32 personal/item parameter patch points.");
+            result.Warnings.Add("编译后的特技代码没有同时暴露 32 位个人号和宝物号参数位。 ");
             result.LogicalPatch = logical;
             result.CanApply = false;
-            result.Summary = "Special-skill preview failed: parameter patch points were not found in compiled code.";
+            result.Summary = "特技预览失败：没有在编译代码中找到完整参数位。";
             return result;
         }
 
         AddLogicalMetadata(assemblyPreview.Package, draft, logical, assemblyPreview);
+        new LockedEffectWriteReceiptService().Issue(project, assemblyPreview.Package, "special-skill-patch");
         result.LogicalPatch = logical;
         result.Package = assemblyPreview.Package;
         result.CanApply = assemblyPreview.PatchPreview.CanApply;
-        result.Summary = $"Special-skill preview: canApply={result.CanApply}, hook={draft.HookPoint}, cave=0x{caveAddress:X8}, segments={result.Package.PatchSegments.Count}.";
+        result.Summary = $"特技预览：可写入={(result.CanApply ? "是" : "否")}，注入点={draft.HookPoint}，代码洞=0x{caveAddress:X8}，写入段={result.Package.PatchSegments.Count} 个。";
         return result;
     }
 
@@ -181,12 +194,6 @@ public sealed class SpecialSkillInjectionService
         }
 
         var effectPackageService = new EffectPackageService();
-        var preview = effectPackageService.PreviewPatch(project, compiledPackage);
-        if (!preview.CanApply)
-        {
-            throw new InvalidOperationException("Special-skill package no longer previews cleanly: " + string.Join("; ", preview.Warnings.Take(8)));
-        }
-
         var apply = effectPackageService.ApplyPatch(project, compiledPackage);
         return new SpecialSkillPatchApplyResult
         {
@@ -273,6 +280,8 @@ public sealed class SpecialSkillInjectionService
         }
 
         var patchPreview = new EffectPackageService().PreviewPatch(project, package);
+        if (patchPreview.CanApply)
+            new LockedEffectWriteReceiptService().Issue(project, package, "effect-patch");
         return new SpecialSkillParamRebindPreviewResult
         {
             CanApply = patchPreview.CanApply,
@@ -334,6 +343,12 @@ public sealed class SpecialSkillInjectionService
             ReturnAddress = draft.ReturnAddress,
             ReturnAddressHex = draft.ReturnAddressHex,
             AssemblySource = BuildAssemblySource(draft),
+            HookContractId = draft.HookContractId,
+            OriginalInstructionPolicy = draft.OriginalInstructionPolicy,
+            OriginalInstructionPlacement = draft.OriginalInstructionPlacement,
+            PreserveFlags = draft.PreserveFlags,
+            ExpectedStackDelta = draft.ExpectedStackDelta,
+            RequiredSymbols = draft.RequiredSymbols.ToList(),
             RequiredCodeCaveBytes = draft.RequiredCodeCaveBytes,
             RegisterStrategy = "Generated inline special-skill scaffold uses pushad/popad around the stub and reviewed body.",
             Dependencies =
@@ -353,6 +368,7 @@ public sealed class SpecialSkillInjectionService
         var itemPush = BuildPushImm32Line("special_skill_item_push", draft.ItemEffectId);
         return string.Join("\n", new[]
         {
+            "pushfd",
             "pushad",
             $"mov ecx, {NormalizeUnitPointerSource(draft.UnitPointerSource)}",
             $"push 0x{draft.EffectValueFlag:X8}",
@@ -365,6 +381,8 @@ public sealed class SpecialSkillInjectionService
             StripOuterWhitespace(draft.FunctionAssemblySource),
             ".special_skill_exit:",
             "popad",
+            "popfd",
+            "{original}",
             "jmp {return}"
         });
     }

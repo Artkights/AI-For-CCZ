@@ -14,20 +14,26 @@ internal sealed class TerrainVisualRegionPlanner
         CurrentMapStyleProfile styleProfile,
         IReadOnlyDictionary<byte, List<MaterialAsset>> candidatesByTerrain,
         Func<IReadOnlyList<MaterialAsset>, TileVisualStats, double> scoreGroup,
-        IReadOnlySet<int>? basePixelExcludedIndexes = null)
+        IReadOnlySet<int>? basePixelExcludedIndexes = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var redrawSeeds = BuildRedrawSeeds(draft, profile, hasValidBaseImage, requestedIndexes);
-        var expanded = ExpandIndexes(draft, redrawSeeds, Math.Max(1, profile.BlendContextRadiusCells));
+        cancellationToken.ThrowIfCancellationRequested();
+        var expanded = ExpandIndexes(draft, redrawSeeds, Math.Max(1, profile.BlendContextRadiusCells), cancellationToken);
         if (!hasValidBaseImage || !profile.RedrawChangedCellsOnly || draft.OriginalTerrainCells.Length != draft.CellCount)
         {
             expanded = Enumerable.Range(0, draft.CellCount).ToHashSet();
         }
 
-        var localStats = BuildLocalStyleStats(draft, profile, baseImage, expanded, styleProfile, basePixelExcludedIndexes);
-        var regions = BuildRegions(draft, profile, expanded, localStats, styleProfile, candidatesByTerrain, scoreGroup);
+        cancellationToken.ThrowIfCancellationRequested();
+        var localStats = BuildLocalStyleStats(draft, profile, baseImage, expanded, styleProfile, basePixelExcludedIndexes, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var regions = BuildRegions(draft, profile, expanded, localStats, styleProfile, candidatesByTerrain, scoreGroup, cancellationToken);
         var regionByCell = new Dictionary<int, TerrainVisualRegionPlan>();
         foreach (var region in regions)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var index in region.CellIndexes)
             {
                 regionByCell[index] = region;
@@ -47,6 +53,9 @@ internal sealed class TerrainVisualRegionPlanner
 
     public static bool IsStructureTerrain(byte terrainId)
         => TerrainVisualSurfaceClassifier.UsesStructureConnection(TerrainVisualSurfaceClassifier.Classify(terrainId));
+
+    private static bool IsStructureTerrain(TerrainVisualProfile profile, byte terrainId)
+        => TerrainVisualSurfaceClassifier.UsesStructureConnection(TerrainVisualSurfaceClassifier.Classify(profile, terrainId));
 
     private static HashSet<int> BuildRedrawSeeds(
         MapWorkbenchDraft draft,
@@ -84,11 +93,12 @@ internal sealed class TerrainVisualRegionPlanner
         return result;
     }
 
-    private static HashSet<int> ExpandIndexes(MapWorkbenchDraft draft, IReadOnlySet<int> indexes, int radius)
+    private static HashSet<int> ExpandIndexes(MapWorkbenchDraft draft, IReadOnlySet<int> indexes, int radius, CancellationToken cancellationToken)
     {
         var result = new HashSet<int>();
         foreach (var index in indexes)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if ((uint)index >= (uint)draft.CellCount) continue;
             var x = index % draft.GridWidth;
             var y = index / draft.GridWidth;
@@ -113,7 +123,8 @@ internal sealed class TerrainVisualRegionPlanner
         Bitmap? baseImage,
         IReadOnlySet<int> expanded,
         CurrentMapStyleProfile styleProfile,
-        IReadOnlySet<int>? basePixelExcludedIndexes)
+        IReadOnlySet<int>? basePixelExcludedIndexes,
+        CancellationToken cancellationToken)
     {
         var result = new Dictionary<int, TileVisualStats>();
         if (baseImage == null)
@@ -125,6 +136,7 @@ internal sealed class TerrainVisualRegionPlanner
         var radius = Math.Clamp(profile.StyleContextRadiusCells, 1, 8);
         foreach (var index in expanded)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var terrain = draft.TerrainCells[index];
             if (basePixelExcludedIndexes?.Contains(index) == true)
             {
@@ -167,22 +179,24 @@ internal sealed class TerrainVisualRegionPlanner
         IReadOnlyDictionary<int, TileVisualStats> localStats,
         CurrentMapStyleProfile styleProfile,
         IReadOnlyDictionary<byte, List<MaterialAsset>> candidatesByTerrain,
-        Func<IReadOnlyList<MaterialAsset>, TileVisualStats, double> scoreGroup)
+        Func<IReadOnlyList<MaterialAsset>, TileVisualStats, double> scoreGroup,
+        CancellationToken cancellationToken)
     {
         var result = new List<TerrainVisualRegionPlan>();
         if (!profile.UseRegionConsistentMaterial)
         {
             foreach (var index in expanded.OrderBy(index => index))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var terrain = draft.TerrainCells[index];
                 var targetStats = BuildRegionTargetStats([index], terrain, localStats, styleProfile);
-                var selected = SelectMaterialGroup(draft, profile, terrain, IsStructureTerrain(terrain), targetStats, candidatesByTerrain, scoreGroup);
+                var selected = SelectMaterialGroup(draft, profile, terrain, IsStructureTerrain(profile, terrain), targetStats, candidatesByTerrain, scoreGroup);
                 result.Add(new TerrainVisualRegionPlan
                 {
                     RegionId = result.Count + 1,
                     TerrainId = terrain,
-                    SurfaceKind = TerrainVisualSurfaceClassifier.Classify(terrain),
-                    IsStructure = IsStructureTerrain(terrain),
+                    SurfaceKind = TerrainVisualSurfaceClassifier.Classify(profile, terrain),
+                    IsStructure = IsStructureTerrain(profile, terrain),
                     CellIndexes = [index],
                     SelectedMaterialGroupKey = selected.GroupKey,
                     CandidatePatches = selected.Assets,
@@ -198,10 +212,11 @@ internal sealed class TerrainVisualRegionPlanner
         var visited = new HashSet<int>();
         foreach (var start in expanded.OrderBy(index => index))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!visited.Add(start)) continue;
 
             var terrain = draft.TerrainCells[start];
-            var surfaceKind = TerrainVisualSurfaceClassifier.Classify(terrain);
+            var surfaceKind = TerrainVisualSurfaceClassifier.Classify(profile, terrain);
             var isStructure = TerrainVisualSurfaceClassifier.UsesStructureConnection(surfaceKind);
             var cells = FloodRegion(draft, expanded, visited, start, terrain, isStructure).ToList();
             cells.Insert(0, start);

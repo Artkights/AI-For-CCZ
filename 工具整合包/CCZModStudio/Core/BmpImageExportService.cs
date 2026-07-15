@@ -47,7 +47,9 @@ public sealed class BmpImageExportService
 
         foreach (var target in request.Targets)
         {
-            var folder = request.SingleMode || UsesFlatBatchLayout(request.Kind)
+            var folder = request.Kind == BmpExportKind.JobSImage
+                ? ResolveBatchTargetFolder(outputRoot, request.Kind, target, usedBatchFolders)
+                : request.SingleMode || UsesFlatBatchLayout(request.Kind)
                 ? outputRoot
                 : ResolveBatchTargetFolder(outputRoot, request.Kind, target, usedBatchFolders);
 
@@ -57,8 +59,10 @@ public sealed class BmpImageExportService
                 switch (request.Kind)
                 {
                     case BmpExportKind.JobSImage:
+                        ExportJobSImage(project, request, target, folder, files, skipped, warnings);
+                        break;
                     case BmpExportKind.SImage:
-                        ExportSImage(project, request, target, folder, files, skipped, warnings);
+                        ExportSImage(project, request, target, folder, request.FactionSlot, files, skipped, warnings);
                         break;
                     case BmpExportKind.RImage:
                         ExportRImage(project, request, target, folder, files, skipped);
@@ -140,6 +144,7 @@ public sealed class BmpImageExportService
         BmpExportRequest request,
         BmpExportTarget target,
         string folder,
+        int factionSlot,
         List<BmpExportedFile> files,
         List<BmpExportSkippedItem> skipped,
         List<string> warnings)
@@ -148,7 +153,7 @@ public sealed class BmpImageExportService
             project,
             target.FieldValue,
             target.JobId,
-            request.FactionSlot);
+            factionSlot);
         if (mapping.ImageNumbers.Count == 0)
         {
             throw new InvalidOperationException(mapping.Detail);
@@ -202,6 +207,23 @@ public sealed class BmpImageExportService
                 CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5"), stageTarget.ImageNumber, E5RawImageCodec.UnitAtkSpec, files, skipped);
             ExportRawEntry(project, request, target, stageFolder, rolePrefix + "spc", "spc.bmp", "Unit_spc.e5",
                 CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5"), stageTarget.ImageNumber, E5RawImageCodec.UnitSpcSpec, files, skipped);
+        }
+    }
+
+    private void ExportJobSImage(
+        CczProject project,
+        BmpExportRequest request,
+        BmpExportTarget target,
+        string jobFolder,
+        List<BmpExportedFile> files,
+        List<BmpExportSkippedItem> skipped,
+        List<string> warnings)
+    {
+        var factionSlots = JobSImageMaterialLayout.NormalizeFactionSlots(request.FactionSlots, request.FactionSlot);
+        foreach (var factionSlot in factionSlots)
+        {
+            var factionFolder = JobSImageMaterialLayout.BuildFactionFolder(jobFolder, factionSlot);
+            ExportSImage(project, request, target, factionFolder, factionSlot, files, skipped, warnings);
         }
     }
 
@@ -629,6 +651,7 @@ public sealed class BmpExportRequest
     public bool SingleMode { get; init; }
     public bool OverwriteExisting { get; init; }
     public int FactionSlot { get; init; } = CharacterImageResourceService.DefaultSPreviewFactionSlot;
+    public IReadOnlyList<int> FactionSlots { get; init; } = Array.Empty<int>();
     public IReadOnlyList<int> SImageStageSlots { get; init; } = Array.Empty<int>();
     public IReadOnlyList<BmpExportTarget> Targets { get; init; } = Array.Empty<BmpExportTarget>();
 }

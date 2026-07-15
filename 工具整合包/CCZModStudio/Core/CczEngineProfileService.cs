@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Collections.Concurrent;
+using System.Text.Json;
 using CCZModStudio.Formats;
 using CCZModStudio.Models;
 
@@ -11,13 +12,53 @@ public sealed class CczEngineProfileService
 {
     public const long Version65ExeSize = 1_196_032;
     public const long Version66ExeSize = 1_130_496;
-    private const string Known65Sha256 = "84E3A1DC085AE6F9900D1E8C388A9CD6766379832DDF51BC7BDF780C6615B4A3";
     private const string Known66Sha256 = "4A4FD8DDBF83E5F0B769D1B97BF8F6E6431C3AB42892024A354228212D3D06A4";
-    private static readonly ConcurrentDictionary<string, CczEngineDetectionEvidence[]> CmfEvidenceCache = new(StringComparer.OrdinalIgnoreCase);
+    private const string ProfileCacheVersion = "engine-profile-v2";
+    private static readonly ConcurrentDictionary<ProjectResourceFingerprint, Lazy<string>> ProfileCache = new();
+    private static readonly ConcurrentDictionary<ProjectResourceFingerprint, CczEngineDetectionEvidence[]> CmfEvidenceCache = new();
+    private static readonly JsonSerializerOptions ProfileJsonOptions = new() { IncludeFields = true };
 
     public CczEngineProfile Detect(CczProject project)
     {
         var exePath = project.ResolveGameFile("Ekd5.exe");
+        var fingerprint = ProjectResourceFingerprint.Create(exePath, ProfileCacheVersion);
+        PruneStaleProfiles(fingerprint);
+        var lazy = ProfileCache.GetOrAdd(fingerprint, _ => new Lazy<string>(
+            () => JsonSerializer.Serialize(BuildProjectProfile(project, exePath), ProfileJsonOptions),
+            LazyThreadSafetyMode.ExecutionAndPublication));
+        try
+        {
+            var created = !lazy.IsValueCreated;
+            var json = lazy.Value;
+            PerformanceMetrics.Increment(created ? "EngineProfile.CacheMisses" : "EngineProfile.CacheHits");
+            return JsonSerializer.Deserialize<CczEngineProfile>(json, ProfileJsonOptions)
+                   ?? throw new InvalidOperationException("引擎版本检测缓存无法还原。");
+        }
+        catch
+        {
+            ProfileCache.TryRemove(new KeyValuePair<ProjectResourceFingerprint, Lazy<string>>(fingerprint, lazy));
+            throw;
+        }
+    }
+
+    public static void Invalidate(string exePath)
+    {
+        var normalized = ProjectResourceFingerprint.Normalize(exePath);
+        ProjectResourceFingerprint.Invalidate(normalized);
+        foreach (var key in ProfileCache.Keys.Where(key => key.Path.Equals(normalized, StringComparison.OrdinalIgnoreCase)))
+            ProfileCache.TryRemove(key, out _);
+        PerformanceMetrics.Increment("EngineProfile.Invalidations");
+    }
+
+    public static void ClearCache()
+    {
+        ProfileCache.Clear();
+        CmfEvidenceCache.Clear();
+    }
+
+    private static CczEngineProfile BuildProjectProfile(CczProject project, string exePath)
+    {
+        using var operation = PerformanceMetrics.Begin("EngineProfile.Build");
         var exeSize = TryGetLength(exePath);
         var versionInfo = TryReadVersionInfo(exePath);
         var pathHint = Extract6xVersionHint(project.GameRoot) ?? Extract6xVersionHint(project.WorkspaceRoot);
@@ -63,6 +104,16 @@ public sealed class CczEngineProfileService
         return profile;
     }
 
+    private static void PruneStaleProfiles(ProjectResourceFingerprint current)
+    {
+        var stale = ProfileCache.Keys
+            .Where(key => key.Path.Equals(current.Path, StringComparison.OrdinalIgnoreCase) && key != current)
+            .OrderByDescending(key => key.LastWriteTimeUtcTicks)
+            .Skip(1)
+            .ToArray();
+        foreach (var key in stale) ProfileCache.TryRemove(key, out _);
+    }
+
     private static void AddCmfEvidenceIfAvailable(CczProject project, CczEngineProfile profile)
     {
         if (!Ccz66RevisedLayout.Is66(profile)) return;
@@ -71,7 +122,10 @@ public sealed class CczEngineProfileService
             : project.WorkspaceRoot;
         if (string.IsNullOrWhiteSpace(key) || !Directory.Exists(key)) return;
 
-        var evidence = CmfEvidenceCache.GetOrAdd(key, BuildCmfEvidence);
+        var sample = CheatMakerCmfProbe.FindDefaultStar66XSample(key);
+        if (string.IsNullOrWhiteSpace(sample)) return;
+        var fingerprint = ProjectResourceFingerprint.Create(sample, "cmf-evidence-v2");
+        var evidence = CmfEvidenceCache.GetOrAdd(fingerprint, _ => BuildCmfEvidence(key));
         profile.DetectionEvidence.AddRange(evidence);
     }
 
@@ -127,7 +181,8 @@ public sealed class CczEngineProfileService
     public static string? InferVersionFromSha256(string? sha256)
         => sha256?.ToUpperInvariant() switch
         {
-            Known65Sha256 => "6.5",
+            EngineEffectProfileRegistry.Canonical65Sha256 => "6.5",
+            EngineEffectProfileRegistry.Known65VariantSha256 => "6.5",
             Known66Sha256 => "6.6",
             _ => null
         };
@@ -283,6 +338,12 @@ public sealed class CczEngineProfileService
                 EnemyCapacity = 190,
                 ItemCapacity = 255,
                 SpecialSkillCatalogOffset = 0x9E800,
+                UnitDataIdOffset = EngineRuntimeSemanticRegistry.TacticalUnitDataIdOffset,
+                UnitDataIdByteWidth = EngineRuntimeSemanticRegistry.TacticalUnitDataIdWidth,
+                UnitDisplayIdOffset = EngineRuntimeSemanticRegistry.TacticalUnitDisplayIdOffset,
+                UnitDisplayIdByteWidth = EngineRuntimeSemanticRegistry.TacticalUnitDisplayIdWidth,
+                UnitCurrentHpByteWidth = EngineRuntimeSemanticRegistry.TacticalUnitCurrentValueWidth,
+                UnitCurrentMpByteWidth = EngineRuntimeSemanticRegistry.TacticalUnitCurrentValueWidth,
                 Applicability = "当前 6.5 已验证战场数组/HP 几何接近旧 6.4；其它运行时地址仍必须动态验证。"
             },
             _ => null
@@ -311,6 +372,9 @@ public sealed class CczEngineProfileService
         return new CczEngineTableHints
         {
             PersonTable = $"{prefix}-0 人物",
+            BiographyTable = $"{prefix}-0-1 人物列传",
+            CriticalQuoteTable = $"{prefix}-0-2 暴击台词",
+            RetreatQuoteTable = $"{prefix}-0-3 撤退台词",
             ItemLowTable = $"{prefix}-1 物品（0-103）",
             ItemHighTable = $"{prefix}-2 物品（104-255）",
             JobTable = $"{prefix}-3 兵种系",
@@ -346,6 +410,12 @@ public sealed class CczEngineProfileService
             FriendlyCapacity = version == "6.4" ? 40 : 19,
             EnemyCapacity = version == "6.4" ? 190 : 80,
             ItemCapacity = itemCapacity,
+            UnitDataIdOffset = version == "6.4" ? EngineRuntimeSemanticRegistry.TacticalUnitDataIdOffset : 0x04,
+            UnitDataIdByteWidth = version == "6.4" ? EngineRuntimeSemanticRegistry.TacticalUnitDataIdWidth : 1,
+            UnitDisplayIdOffset = 0x04,
+            UnitDisplayIdByteWidth = 4,
+            UnitCurrentHpByteWidth = version == "6.4" ? EngineRuntimeSemanticRegistry.TacticalUnitCurrentValueWidth : 2,
+            UnitCurrentMpByteWidth = version == "6.4" ? EngineRuntimeSemanticRegistry.TacticalUnitCurrentValueWidth : 2,
             CharacterMaxHpOffset = version is "6.4" ? 0x1B : 0x1C,
             CharacterMaxHpByteWidth = 4,
             CharacterMaxMpOffset = version is "6.4" ? 0x1F : 0x20,
@@ -413,8 +483,7 @@ public sealed class CczEngineProfileService
         try
         {
             if (!File.Exists(path)) return null;
-            using var stream = File.OpenRead(path);
-            return Convert.ToHexString(SHA256.HashData(stream));
+            return ExecutableAnalysisSnapshotCache.Shared.GetBase(path).Sha256;
         }
         catch
         {

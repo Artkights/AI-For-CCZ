@@ -8,30 +8,39 @@ namespace CCZModStudio.Core;
 
 public sealed class ImageResourceCatalogService
 {
-    private readonly E5ImageReplaceService _e5ImageService = new();
     private readonly E5ImageRenderService _e5ImageRenderService = new();
     private readonly ItemIconPreviewService _iconPreviewService = new();
-    private readonly Dictionary<string, IReadOnlyList<E5ImageEntryInfo>> _indexCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly E5ImageReadSessionPool _readSessions = E5ImageReadSessionPool.Shared;
 
     public void ClearCache()
     {
-        _indexCache.Clear();
         _iconPreviewService.ClearCache();
+        _readSessions.Clear();
+        ImagePreviewCache.Shared.ClearMemory();
     }
+
+    public Task<IReadOnlyList<ImageResourceFileInfo>> BuildCatalogAsync(
+        CczProject project,
+        CancellationToken cancellationToken = default)
+        => Task.Run(() => BuildCatalog(project), cancellationToken);
 
     public IReadOnlyList<ImageResourceFileInfo> BuildCatalog(CczProject project)
     {
         var result = new List<ImageResourceFileInfo>();
         var knownResources = Ccz66RevisedLayout.Is66(project)
-            ? KnownResources.Concat(Known66Resources).Where(resource => !Is66ObsoleteCatalogResource(resource)).ToArray()
+            ? Known66Resources.Concat(KnownResources)
+                .Where(resource => !Is66ObsoleteCatalogResource(resource))
+                .DistinctBy(resource => resource.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
             : KnownResources;
         foreach (var resource in knownResources)
         {
             var path = ResolveResourcePath(project, resource);
             var exists = File.Exists(path);
-            var entries = exists && resource.Kind == ImageResourceKind.E5Indexed
-                ? GetIndex(path)
-                : Array.Empty<E5ImageEntryInfo>();
+            var indexProbe = exists && resource.Kind == ImageResourceKind.E5Indexed
+                ? _readSessions.GetSession(path).ProbeIndex()
+                : null;
+            var entries = indexProbe?.Entries ?? Array.Empty<E5ImageEntryInfo>();
             var externalIconCount = exists && resource.Kind == ImageResourceKind.ExternalIcon
                 ? GetExternalIconCount(project, resource)
                 : 0;
@@ -41,9 +50,12 @@ public sealed class ImageResourceCatalogService
                 : null;
             var entryCount = resource.Kind == ImageResourceKind.ExternalIcon ? externalIconCount : entries.Count;
             var canReplace = entryCount > 0 && resource.CanReplace &&
+                             indexProbe is not { IsComplete: false } &&
                              (resource.Kind == ImageResourceKind.ExternalIcon || entries.Count > 0);
             var kindSummary = BuildKindSummary(resource, entries, externalIconCount, lsInfo);
-            var status = BuildResourceStatus(resource, exists, entries.Count, externalIconCount, lsInfo);
+            var status = indexProbe is { IsComplete: false }
+                ? BuildDamagedIndexStatus(indexProbe)
+                : BuildResourceStatus(resource, exists, entries.Count, externalIconCount, lsInfo);
 
             result.Add(new ImageResourceFileInfo
             {
@@ -61,6 +73,12 @@ public sealed class ImageResourceCatalogService
                 SupportsE5Index = entries.Count > 0,
                 SupportsPreview = resource.Kind != ImageResourceKind.LsStatusOnly && entryCount > 0,
                 CanReplace = canReplace,
+                IsIndexComplete = indexProbe?.IsComplete ?? true,
+                ExpectedEntryCount = indexProbe?.ExpectedEntryCount ?? entryCount,
+                ParsedEntryCount = indexProbe?.ParsedEntryCount ?? entryCount,
+                FirstInvalidImageNumber = indexProbe?.FirstInvalidImageNumber,
+                IndexSha256 = indexProbe?.DirectorySha256 ?? string.Empty,
+                IntegrityDiagnostic = indexProbe is { IsComplete: false } ? indexProbe.Diagnostic : string.Empty,
                 ResourceFormat = resource.Kind switch
                 {
                     ImageResourceKind.ExternalIcon => "DLL图标",
@@ -69,7 +87,9 @@ public sealed class ImageResourceCatalogService
                 },
                 KindSummary = kindSummary,
                 Status = status,
-                SafetyNote = BuildSafetyNote(resource, entryCount, entries.Count, canReplace)
+                SafetyNote = indexProbe is { IsComplete: false }
+                    ? BuildDamagedIndexSafetyNote(indexProbe)
+                    : BuildSafetyNote(resource, entryCount, entries.Count, canReplace)
             });
         }
 
@@ -128,7 +148,16 @@ public sealed class ImageResourceCatalogService
             .ToList();
     }
 
-    public Bitmap? RenderEntryPreview(CczProject project, ImageResourceEntryInfo entry, int canvasWidth = 360, int canvasHeight = 260)
+    public Task<IReadOnlyList<ImageResourceEntryInfo>> ReadEntriesAsync(
+        ImageResourceFileInfo resource,
+        CancellationToken cancellationToken = default)
+        => Task.Run(() => ReadEntries(resource), cancellationToken);
+
+    public Bitmap? RenderEntryPreview(
+        CczProject project,
+        ImageResourceEntryInfo entry,
+        int canvasWidth = 360,
+        int canvasHeight = 260)
     {
         if (!File.Exists(entry.Path)) return null;
 
@@ -141,14 +170,48 @@ public sealed class ImageResourceCatalogService
         byte[] bytes;
         try
         {
-            bytes = _e5ImageService.ReadEntryBytes(entry.Path, entry.ImageNumber);
+            bytes = _readSessions.GetSession(entry.Path).ReadDecodedEntry(entry.ImageNumber);
         }
         catch
         {
             return null;
         }
 
-        return _e5ImageRenderService.RenderEntry(project, entry.FileName, bytes, canvasWidth, canvasHeight, out _);
+        return _e5ImageRenderService.RenderEntry(
+            project, entry.FileName, bytes, canvasWidth, canvasHeight, out _);
+    }
+
+    public async Task<Bitmap?> RenderEntryPreviewAsync(
+        CczProject project,
+        ImageResourceEntryInfo entry,
+        int canvasWidth = 360,
+        int canvasHeight = 260,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (entry.Kind.Equals("DLL鍥炬爣", StringComparison.OrdinalIgnoreCase))
+            return await Task.Run(
+                () => RenderEntryPreview(project, entry, canvasWidth, canvasHeight), cancellationToken).ConfigureAwait(false);
+
+        var session = _readSessions.GetSession(entry.Path);
+        var fingerprint = session.Fingerprint;
+        var key = string.Join("|", "ImageResourceCatalog", "render-v2", Path.GetFullPath(entry.Path).ToUpperInvariant(),
+            fingerprint.Length, fingerprint.LastWriteTimeUtcTicks, fingerprint.IndexSha256,
+            entry.ImageNumber, canvasWidth, canvasHeight);
+        var cached = await ImagePreviewCache.Shared.GetOrCreateAsync(key, async () =>
+        {
+            var bytes = await session.ReadDecodedEntryAsync(entry.ImageNumber, CancellationToken.None).ConfigureAwait(false);
+            using var bitmap = _e5ImageRenderService.RenderEntry(
+                project, entry.FileName, bytes, canvasWidth, canvasHeight, out _);
+            if (bitmap == null) return null;
+            using var stream = new MemoryStream();
+            bitmap.Save(stream, ImageFormat.Png);
+            return stream.ToArray();
+        }, cancellationToken).ConfigureAwait(false);
+        if (cached == null) return null;
+        using var input = new MemoryStream(cached.Bytes, writable: false);
+        using var decoded = new Bitmap(input);
+        return new Bitmap(decoded);
     }
 
     public ImageResourceEntryInfo? TryGetEntry(ImageResourceFileInfo resource, int imageNumber)
@@ -181,6 +244,7 @@ public sealed class ImageResourceCatalogService
 
         if (name.StartsWith("Unit_", StringComparison.OrdinalIgnoreCase))
         {
+            var physicalDescription = CharacterImageTargetResolver.DescribePhysicalUnitImage(imageNumber);
             if (imageNumber <= 180)
             {
                 var job = (imageNumber - 1) / 3;
@@ -198,10 +262,10 @@ public sealed class ImageResourceCatalogService
             if (imageNumber <= 336)
             {
                 var sId = ((imageNumber - 241) / 3) + 1;
-                return $"S 特殊三转形象 S={sId}";
+                return $"S 特殊三转形象 S={sId}。{physicalDescription}";
             }
 
-            return $"S 特殊一转形象 S={imageNumber - 304}";
+            return $"S 特殊一转形象 S={imageNumber - 304}。{physicalDescription}";
         }
 
         if (name.Equals("Hitarea.e5", StringComparison.OrdinalIgnoreCase)) return $"攻击/施法范围字段值 {imageNumber - 1}";
@@ -258,11 +322,18 @@ public sealed class ImageResourceCatalogService
 
     private IReadOnlyList<E5ImageEntryInfo> GetIndex(string path)
     {
-        path = Path.GetFullPath(path);
-        if (_indexCache.TryGetValue(path, out var cached)) return cached;
-        var entries = _e5ImageService.ReadIndex(path);
-        _indexCache[path] = entries;
-        return entries;
+        return _readSessions.GetSession(path).ReadIndex()
+            .Select(entry => new E5ImageEntryInfo
+            {
+                ImageNumber = entry.ImageNumber,
+                IndexOffset = entry.IndexOffset,
+                DataOffset = entry.DataOffset,
+                Length = entry.DecodedLength,
+                StoredLength = entry.StoredLength,
+                DecodedLength = entry.DecodedLength,
+                Kind = entry.Kind
+            })
+            .ToArray();
     }
 
     private static string BuildKindSummary(
@@ -345,7 +416,6 @@ public sealed class ImageResourceCatalogService
             Path.Combine(project.GameRoot, "E5")
         };
 
-        var probe = new E5ImageReplaceService();
         foreach (var dir in candidates.Where(Directory.Exists))
         {
             foreach (var path in Directory.GetFiles(dir, "*.e5").OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase))
@@ -354,7 +424,8 @@ public sealed class ImageResourceCatalogService
                 var fileName = Path.GetFileName(path);
                 if (IsCoreE5File(fileName) || fileName.Equals("Hexzmap.e5", StringComparison.OrdinalIgnoreCase)) continue;
 
-                var entries = probe.ReadIndex(path);
+                var probe = E5ImageReadSessionPool.Shared.GetSession(path).ProbeIndex();
+                var entries = probe.Entries;
                 if (entries.Count == 0) continue;
                 var info = new FileInfo(path);
                 result.Add(new ImageResourceFileInfo
@@ -371,11 +442,21 @@ public sealed class ImageResourceCatalogService
                     EntryCount = entries.Count,
                     SupportsE5Index = true,
                     SupportsPreview = true,
-                    CanReplace = true,
+                    CanReplace = probe.IsComplete,
+                    IsIndexComplete = probe.IsComplete,
+                    ExpectedEntryCount = probe.ExpectedEntryCount,
+                    ParsedEntryCount = probe.ParsedEntryCount,
+                    FirstInvalidImageNumber = probe.FirstInvalidImageNumber,
+                    IndexSha256 = probe.DirectorySha256,
+                    IntegrityDiagnostic = probe.IsComplete ? string.Empty : probe.Diagnostic,
                     ResourceFormat = "E5索引",
                     KindSummary = string.Join(" / ", entries.GroupBy(x => x.Kind).Select(x => $"{x.Key}:{x.Count()}")),
-                    Status = $"可读取 {entries.Count} 个 0x110 图片条目",
-                    SafetyNote = "可按单条 E5 图片索引替换；用途未确认时建议先在测试副本验证。"
+                    Status = probe.IsComplete
+                        ? $"可读取 {entries.Count} 个 0x110 图片条目"
+                        : BuildDamagedIndexStatus(probe),
+                    SafetyNote = probe.IsComplete
+                        ? "可按单条 E5 图片索引替换；用途未确认时建议先在测试副本验证。"
+                        : BuildDamagedIndexSafetyNote(probe)
                 });
             }
         }
@@ -421,8 +502,14 @@ public sealed class ImageResourceCatalogService
         {
             using var memory = new MemoryStream(bytes, writable: false);
             using var raw = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: false);
-            var bitmap = new Bitmap(raw);
-            ApplyMagentaTransparency(bitmap);
+            var bitmap = new Bitmap(raw.Width, raw.Height, PixelFormat.Format32bppArgb);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.CompositingMode = CompositingMode.SourceCopy;
+                graphics.DrawImage(raw, new Rectangle(Point.Empty, bitmap.Size));
+            }
+            if (!isPng) ApplyMagentaTransparency(bitmap);
             return bitmap;
         }
         catch
@@ -518,6 +605,8 @@ public sealed class ImageResourceCatalogService
         if (height <= 0) height = Math.Min(frameHeight, strip.Height);
         var frame = new Bitmap(strip.Width, height, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(frame);
+        g.Clear(Color.Transparent);
+        g.CompositingMode = CompositingMode.SourceCopy;
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImage(strip, new Rectangle(0, 0, frame.Width, frame.Height), new Rectangle(0, y, frame.Width, frame.Height), GraphicsUnit.Pixel);
@@ -637,6 +726,14 @@ public sealed class ImageResourceCatalogService
             ? "可替换单个 0x110 图片索引条目；写入前备份，写后复读。战场地图底图仍走地图制作模块。"
             : "已能读取 0x110 图片索引表，但当前资源写回语义仍需实机确认，默认不开放替换。";
     }
+
+    private static string BuildDamagedIndexStatus(E5IndexProbeResult probe)
+        => $"档案索引损坏：理论 {probe.ExpectedEntryCount} 项，只安全解析 {probe.ParsedEntryCount} 项；" +
+           $"首个异常图号 #{probe.FirstInvalidImageNumber?.ToString() ?? "?"}：{probe.FailureReason}";
+
+    private static string BuildDamagedIndexSafetyNote(E5IndexProbeResult probe)
+        => BuildDamagedIndexStatus(probe) +
+           "。当前只允许查看已安全解析的前段和导出诊断；像素编辑、导入和替换全部禁用，必须先使用 R/S 档案修复工具恢复完整索引。";
 
     private static bool Is66ObsoleteCatalogResource(ImageResourceDefinition resource)
         => resource.FileName.Equals("Itemicon.dll", StringComparison.OrdinalIgnoreCase) ||

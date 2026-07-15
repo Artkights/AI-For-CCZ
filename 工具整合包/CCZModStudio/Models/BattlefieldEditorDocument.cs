@@ -3,6 +3,7 @@ namespace CCZModStudio.Models;
 public sealed class BattlefieldEditorDocument
 {
     public required ScenarioFileInfo Scenario { get; init; }
+    public BattlefieldMapReference MapReference { get; init; } = BattlefieldMapReference.Unresolved;
     public IReadOnlyList<ScenarioTextEntry> TextEntries { get; init; } = Array.Empty<ScenarioTextEntry>();
     public ScenarioTextEntry? TitleEntry { get; init; }
     public int CampaignId { get; init; } = -1;

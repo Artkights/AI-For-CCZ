@@ -657,7 +657,9 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         var baseImage = GetCachedImage(draft.BaseLayerPath);
         if (baseImage != null)
         {
-            g.DrawImage(baseImage, new Rectangle(0, 0, width, height), new Rectangle(0, 0, Math.Min(width, baseImage.Width), Math.Min(height, baseImage.Height)), GraphicsUnit.Pixel);
+            var copyWidth = Math.Min(width, baseImage.Width);
+            var copyHeight = Math.Min(height, baseImage.Height);
+            g.DrawImage(baseImage, new Rectangle(0, 0, copyWidth, copyHeight), new Rectangle(0, 0, copyWidth, copyHeight), GraphicsUnit.Pixel);
             return;
         }
 
@@ -672,12 +674,20 @@ public sealed class MaterialDrivenTerrainService : IDisposable
         var baseImage = GetCachedImage(draft.BaseLayerPath);
         if (baseImage != null)
         {
+            var clipped = Rectangle.Intersect(rect, new Rectangle(0, 0, baseImage.Width, baseImage.Height));
+            if (clipped.Width <= 0 || clipped.Height <= 0)
+            {
+                using var blankBrush = new SolidBrush(Color.FromArgb(42, 42, 42));
+                g.FillRectangle(blankBrush, rect);
+                return;
+            }
+
             var sourceRect = new Rectangle(
-                Math.Clamp(rect.X, 0, Math.Max(0, baseImage.Width - 1)),
-                Math.Clamp(rect.Y, 0, Math.Max(0, baseImage.Height - 1)),
-                Math.Min(rect.Width, Math.Max(1, baseImage.Width - rect.X)),
-                Math.Min(rect.Height, Math.Max(1, baseImage.Height - rect.Y)));
-            g.DrawImage(baseImage, rect, sourceRect, GraphicsUnit.Pixel);
+                clipped.X,
+                clipped.Y,
+                clipped.Width,
+                clipped.Height);
+            g.DrawImage(baseImage, clipped, sourceRect, GraphicsUnit.Pixel);
             return;
         }
 

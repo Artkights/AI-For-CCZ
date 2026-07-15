@@ -39,6 +39,8 @@ public sealed class TerrainVisualSynthesisService : IDisposable
 
     public TerrainVisualSynthesisResult Synthesize(TerrainVisualSynthesisRequest request)
     {
+        var cancellationToken = request.CancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
         var totalWatch = Stopwatch.StartNew();
         var draft = request.Draft ?? throw new InvalidOperationException("Map draft is required.");
         ValidateDraft(draft);
@@ -53,6 +55,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         var cacheKey = profile.UseSynthesisCaches
             ? BuildSynthesisCacheKey(draft, profile, allMaterials, styleProfile, request.RedrawIndexes)
             : string.Empty;
+        cancellationToken.ThrowIfCancellationRequested();
         if (profile.UseSynthesisCaches && TryGetCachedSynthesis(cacheKey, out var cached))
         {
             return cached;
@@ -75,6 +78,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         var objectGroundPlan = profile.UseObjectGroundInpaint
             ? _objectGroundInpaintPlanner.Build(draft, profile)
             : CreateEmptyObjectGroundInpaintPlan(draft);
+        cancellationToken.ThrowIfCancellationRequested();
         var groundDraft = objectGroundPlan.ObjectFootprintIndexes.Count > 0
             ? CreateVisualGroundDraft(draft, objectGroundPlan.VisualGroundTerrainCells)
             : draft;
@@ -100,20 +104,35 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             styleProfile,
             candidatesByTerrain,
             ScoreCandidateGroup,
-            objectGroundPlan.ObjectFootprintIndexes);
+            objectGroundPlan.ObjectFootprintIndexes,
+            cancellationToken);
+        var semanticPlan = ReferenceEquals(groundDraft, draft)
+            ? plan
+            : _regionPlanner.BuildPlan(
+                draft,
+                profile,
+                baseImage,
+                baseImage != null,
+                requestedRedrawIndexes,
+                styleProfile,
+                candidatesByTerrain,
+                ScoreCandidateGroup,
+                objectGroundPlan.ObjectFootprintIndexes,
+                cancellationToken);
         planWatch.Stop();
+        cancellationToken.ThrowIfCancellationRequested();
 
         var diagnostics = new TerrainVisualSynthesisDiagnostics
         {
             FastPipelineEnabled = profile.UseFastPixelPipeline,
-            UsedCurrentMapStyle = styleProfile.SampleCount > 0 && plan.Regions.Any(region => region.UsedCurrentMapStyle),
+            UsedCurrentMapStyle = styleProfile.SampleCount > 0 && semanticPlan.Regions.Any(region => region.UsedCurrentMapStyle),
             StyleSampleCount = styleProfile.SampleCount,
             RedrawnCellCount = plan.ExpandedRedrawIndexes.Count,
             ExpandedRedrawCellCount = plan.ExpandedRedrawIndexes.Count,
             PreservedCellCount = Math.Max(0, draft.CellCount - plan.ExpandedRedrawIndexes.Count),
-            RegionCount = plan.Regions.Count,
-            RegionLockedMaterialCount = plan.Regions.Count(region => region.HasMaterial),
-            FallbackGroupCount = plan.Regions.Count(region => !region.HasMaterial),
+            RegionCount = semanticPlan.Regions.Count,
+            RegionLockedMaterialCount = semanticPlan.Regions.Count(region => region.HasMaterial),
+            FallbackGroupCount = semanticPlan.Regions.Count(region => !region.HasMaterial),
             PlanMs = planWatch.ElapsedMilliseconds,
             BuildingGroundRedrawCellCount = CountBuildingGroundRedrawCells(draft, requestedRedrawIndexes),
             BuildingOverlayCellCount = draft.BuildingOverlayCells.Count,
@@ -133,9 +152,22 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             groundDraft,
             profile,
             plan,
-            out var naturalizedRegions,
-            out var repeatedPenaltyCount,
-            out var structureSkippedCount);
+            out var renderedNaturalizedRegions,
+            out var renderedRepeatedPenaltyCount,
+            out var renderedStructureSkippedCount);
+        var naturalizedRegions = renderedNaturalizedRegions;
+        var repeatedPenaltyCount = renderedRepeatedPenaltyCount;
+        var structureSkippedCount = renderedStructureSkippedCount;
+        if (!ReferenceEquals(semanticPlan, plan))
+        {
+            _ = _interiorPlanner.BuildPlan(
+                draft,
+                profile,
+                semanticPlan,
+                out naturalizedRegions,
+                out repeatedPenaltyCount,
+                out structureSkippedCount);
+        }
         diagnostics.NaturalizedRegionCount = naturalizedRegions;
         diagnostics.RepeatedPatchPenaltyCount = repeatedPenaltyCount;
         diagnostics.StructureTransformSkippedCount = structureSkippedCount;
@@ -149,7 +181,8 @@ public sealed class TerrainVisualSynthesisService : IDisposable
                 plan,
                 (material, index, targetStats) => CreateMaterialTile(groundDraft, material, targetStats, profile, index),
                 GetMaterialStats,
-                out var regionTextureStats);
+                out var regionTextureStats,
+                cancellationToken);
             regionTextureWatch.Stop();
             diagnostics.InteriorBlendMs += regionTextureWatch.ElapsedMilliseconds;
             diagnostics.RegionTextureCanvasCount = regionTextureStats.RegionTextureCanvasCount;
@@ -166,6 +199,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         {
             foreach (var index in plan.ExpandedRedrawIndexes.OrderBy(index => index))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var tileWatch = Stopwatch.StartNew();
                 var tile = profile.UseGlobalTransitionField
                     ? RenderBaseTerrainTileForGlobalField(groundDraft, profile, plan, baseImage, index, diagnostics)
@@ -183,7 +217,8 @@ public sealed class TerrainVisualSynthesisService : IDisposable
                         groundDraft,
                         profile,
                         index,
-                        plan.RegionByCell.GetValueOrDefault(index));
+                        plan.RegionByCell.GetValueOrDefault(index),
+                        cancellationToken);
                     seamWatch.Stop();
                     diagnostics.InteriorBlendMs += seamWatch.ElapsedMilliseconds;
                 }
@@ -216,8 +251,10 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             baseImage,
             draft,
             profile,
-            plan.ColorTransferIndexes);
+            plan.ColorTransferIndexes,
+            cancellationToken);
         colorWatch.Stop();
+        cancellationToken.ThrowIfCancellationRequested();
         diagnostics.ColorTransferMs = colorWatch.ElapsedMilliseconds;
         OverlayTerrainObjectFootprints(output, draft, profile, objectGroundPlan, candidatesByTerrain, diagnostics);
         diagnostics.BoundaryBlendCount = diagnostics.MixedTerrainCellCount;
@@ -232,7 +269,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             diagnostics.Notes.Add($"Region material lock: {diagnostics.RegionLockedMaterialCount}/{diagnostics.RegionCount} regions used a locked material group.");
         }
 
-        diagnostics.MaterialLibraryFallbackCount = plan.Regions.Count(region => region.HasMaterial && !region.UsedCurrentMapStyle);
+        diagnostics.MaterialLibraryFallbackCount = semanticPlan.Regions.Count(region => region.HasMaterial && !region.UsedCurrentMapStyle);
         if (diagnostics.CurrentMapSampleRejectedCount > 0)
         {
             diagnostics.Notes.Add($"Rejected {diagnostics.CurrentMapSampleRejectedCount} current-map samples because they were object-covered, changed, or visually contaminated.");
@@ -467,7 +504,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             return CreateFallbackTile(material.TerrainId ?? 0, tileSize);
         }
 
-        var sourceRect = BuildSourceRect(material, source);
+        var sourceRect = BuildSourceRect(material, source, index, profile.Seed);
         var tile = new Bitmap(tileSize, tileSize, PixelFormat.Format32bppArgb);
         using (var tileGraphics = CreateGraphics(tile))
         {
@@ -1017,6 +1054,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
     private static MapWorkbenchDraft CreateVisualGroundDraft(MapWorkbenchDraft draft, byte[] visualGroundTerrainCells)
         => new()
         {
+            SchemaVersion = draft.SchemaVersion,
             DraftId = draft.DraftId,
             BoundMapId = draft.BoundMapId,
             GridWidth = draft.GridWidth,
@@ -1037,6 +1075,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             TerrainCells = visualGroundTerrainCells.ToArray(),
             GenerationMode = draft.GenerationMode,
             TerrainVisualProfile = draft.TerrainVisualProfile,
+            TerrainRenderSettings = draft.TerrainRenderSettings,
             AutoGenerateMapFromTerrain = draft.AutoGenerateMapFromTerrain,
             BeautifyGeneratedMap = draft.BeautifyGeneratedMap,
             BeautifyStrength = draft.BeautifyStrength,
@@ -1267,40 +1306,40 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         diagnostics.TransitionFieldPixelCount += field.Pixels.Count;
         diagnostics.MixedTerrainCellCount = Math.Max(
             diagnostics.MixedTerrainCellCount,
-            plan.ExpandedRedrawIndexes.Count(index => HasDifferentNaturalNeighbor(draft, index)));
+            plan.ExpandedRedrawIndexes.Count(index => HasDifferentNaturalNeighbor(draft, profile, index)));
         diagnostics.BoundaryBlendCount = diagnostics.MixedTerrainCellCount;
         diagnostics.MultiTerrainJunctionPixels += field.MultiTerrainJunctionPixels;
         diagnostics.RepeatedBoundaryBlendPreventedCount += field.RepeatedBoundaryBlendPreventedCount;
     }
 
-    private static bool HasDifferentNaturalNeighbor(MapWorkbenchDraft draft, int index)
+    private static bool HasDifferentNaturalNeighbor(MapWorkbenchDraft draft, TerrainVisualProfile profile, int index)
     {
         if ((uint)index >= (uint)draft.CellCount) return false;
         var terrain = draft.TerrainCells[index];
-        if (!CanParticipateInGlobalTransition(terrain))
+        if (!CanParticipateInGlobalTransition(profile, terrain))
         {
             return false;
         }
 
         var x = index % draft.GridWidth;
         var y = index / draft.GridWidth;
-        return IsDifferentNaturalTerrain(draft, x - 1, y, terrain) ||
-               IsDifferentNaturalTerrain(draft, x + 1, y, terrain) ||
-               IsDifferentNaturalTerrain(draft, x, y - 1, terrain) ||
-               IsDifferentNaturalTerrain(draft, x, y + 1, terrain);
+        return IsDifferentNaturalTerrain(draft, profile, x - 1, y, terrain) ||
+               IsDifferentNaturalTerrain(draft, profile, x + 1, y, terrain) ||
+               IsDifferentNaturalTerrain(draft, profile, x, y - 1, terrain) ||
+               IsDifferentNaturalTerrain(draft, profile, x, y + 1, terrain);
     }
 
-    private static bool IsDifferentNaturalTerrain(MapWorkbenchDraft draft, int x, int y, byte terrain)
+    private static bool IsDifferentNaturalTerrain(MapWorkbenchDraft draft, TerrainVisualProfile profile, int x, int y, byte terrain)
     {
         if (x < 0 || y < 0 || x >= draft.GridWidth || y >= draft.GridHeight) return false;
         var other = draft.TerrainCells[y * draft.GridWidth + x];
         if (other == terrain) return false;
-        return CanParticipateInGlobalTransition(other);
+        return CanParticipateInGlobalTransition(profile, other);
     }
 
-    private static bool CanParticipateInGlobalTransition(byte terrain)
+    private static bool CanParticipateInGlobalTransition(TerrainVisualProfile profile, byte terrain)
     {
-        var kind = TerrainVisualSurfaceClassifier.Classify(terrain);
+        var kind = TerrainVisualSurfaceClassifier.Classify(profile, terrain);
         return kind is not TerrainVisualSurfaceKind.StructureTerrain
             and not TerrainVisualSurfaceKind.BuildingOverlay;
     }
@@ -1460,8 +1499,27 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         return bitmap;
     }
 
-    private static Rectangle BuildSourceRect(MaterialAsset asset, Image image)
+    private static Rectangle BuildSourceRect(MaterialAsset asset, Image image, int index = 0, string? seed = null)
     {
+        if (asset.SamplingMode == MaterialSamplingMode.FullCanvasPatches)
+        {
+            var boundsX = Math.Clamp(asset.SampleBoundsX, 0, Math.Max(0, image.Width - 1));
+            var boundsY = Math.Clamp(asset.SampleBoundsY, 0, Math.Max(0, image.Height - 1));
+            var boundsWidth = asset.SampleBoundsWidth <= 0 ? image.Width - boundsX : Math.Min(asset.SampleBoundsWidth, image.Width - boundsX);
+            var boundsHeight = asset.SampleBoundsHeight <= 0 ? image.Height - boundsY : Math.Min(asset.SampleBoundsHeight, image.Height - boundsY);
+            var border = Math.Clamp(asset.SafeBorder, 0, Math.Max(0, Math.Min(boundsWidth, boundsHeight) / 4));
+            var patchWidth = Math.Clamp(asset.PreferredPatchWidth <= 0 ? MapResourceItem.MapTilePixelSize : asset.PreferredPatchWidth, 1, Math.Max(1, boundsWidth - border * 2));
+            var patchHeight = Math.Clamp(asset.PreferredPatchHeight <= 0 ? MapResourceItem.MapTilePixelSize : asset.PreferredPatchHeight, 1, Math.Max(1, boundsHeight - border * 2));
+            var minX = boundsX + border;
+            var minY = boundsY + border;
+            var rangeX = Math.Max(0, boundsWidth - border * 2 - patchWidth);
+            var rangeY = Math.Max(0, boundsHeight - border * 2 - patchHeight);
+            var hash = StableHash((seed ?? string.Empty) + "|" + asset.FilePath, index, asset.TerrainId ?? 0, 0x517CC1B7u);
+            var sampledX = minX + (rangeX == 0 ? 0 : (int)(hash % (uint)(rangeX + 1)));
+            var sampledY = minY + (rangeY == 0 ? 0 : (int)(RotateHash(hash) % (uint)(rangeY + 1)));
+            return new Rectangle(sampledX, sampledY, patchWidth, patchHeight);
+        }
+
         var x = Math.Clamp(asset.SourceX, 0, Math.Max(0, image.Width - 1));
         var y = Math.Clamp(asset.SourceY, 0, Math.Max(0, image.Height - 1));
         var width = asset.SourceWidth <= 0 ? Math.Min(MapResourceItem.MapTilePixelSize, image.Width - x) : asset.SourceWidth;
@@ -1470,6 +1528,9 @@ public sealed class TerrainVisualSynthesisService : IDisposable
         height = Math.Clamp(height, 1, Math.Max(1, image.Height - y));
         return new Rectangle(x, y, width, height);
     }
+
+    private static uint RotateHash(uint value)
+        => (value << 13) | (value >>> 19);
 
     private static Rectangle GetTileRectangle(MapWorkbenchDraft draft, int index)
     {
@@ -1547,6 +1608,7 @@ public sealed class TerrainVisualSynthesisService : IDisposable
     {
         var builder = new System.Text.StringBuilder();
         builder.Append(draft.DraftId).Append('|')
+            .Append(draft.SchemaVersion).Append('|')
             .Append(draft.BoundMapId).Append('|')
             .Append(draft.GridWidth).Append('x').Append(draft.GridHeight).Append('|')
             .Append(draft.TileSize).Append('|')
@@ -1556,6 +1618,12 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             .Append(BuildCellOverrideCacheKey(draft.BuildingOverlayCells)).Append('|')
             .Append(BuildCellOverrideCacheKey(draft.SceneryOverlayCells)).Append('|')
             .Append(BuildSceneryOverlayCacheKey(draft.SceneryOverlays)).Append('|')
+            .Append(draft.TerrainRenderSettings.StyleSelectionMode).Append('|')
+            .Append(draft.TerrainRenderSettings.StylePackId).Append('|')
+            .Append(draft.TerrainRenderSettings.Seed).Append('|')
+            .Append(draft.TerrainRenderSettings.ObjectPolicy).Append('|')
+            .Append(draft.TerrainRenderSettings.ToneProfile).Append('|')
+            .Append(draft.TerrainRenderSettings.ToneAmount.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)).Append('|')
             .Append(redrawIndexes == null ? "*" : string.Join(",", redrawIndexes.OrderBy(index => index))).Append('|')
             .Append(styleProfile.SampleCount).Append('|')
             .Append(styleProfile.RejectedSampleCount).Append('|')
@@ -1573,7 +1641,10 @@ public sealed class TerrainVisualSynthesisService : IDisposable
                 .Append(material.AutoTileRole).Append(':')
                 .Append(material.AutoTileMask?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty).Append(':')
                 .Append(material.AutoTileMode).Append(':')
-                .Append(material.SourceX).Append(',').Append(material.SourceY).Append(',').Append(material.SourceWidth).Append(',').Append(material.SourceHeight).Append(';');
+                .Append(material.SourceX).Append(',').Append(material.SourceY).Append(',').Append(material.SourceWidth).Append(',').Append(material.SourceHeight).Append(':')
+                .Append(material.SamplingMode).Append(':').Append(material.SampleBoundsX).Append(',').Append(material.SampleBoundsY).Append(',')
+                .Append(material.SampleBoundsWidth).Append(',').Append(material.SampleBoundsHeight).Append(':').Append(material.SafeBorder).Append(':')
+                .Append(material.PreferredPatchWidth).Append(',').Append(material.PreferredPatchHeight).Append(':').Append(material.StylePackId).Append(';');
         }
 
         return builder.ToString();
@@ -1659,7 +1730,10 @@ public sealed class TerrainVisualSynthesisService : IDisposable
             profile.IgnoreBasePixelsUnderObjects,
             string.Join(";", (profile.MaterialOverrides ?? new List<TerrainVisualMaterialOverride>())
                 .OrderBy(item => item.TerrainId)
-                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.MaterialRelativePath)));
+                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.MaterialRelativePath)),
+            string.Join(";", (profile.SurfaceOverrides ?? new List<TerrainSurfaceOverride>())
+                .OrderBy(item => item.TerrainId)
+                .Select(item => item.TerrainId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "=" + item.SurfaceKind)));
 
     private static string NormalizePathKey(string path)
     {

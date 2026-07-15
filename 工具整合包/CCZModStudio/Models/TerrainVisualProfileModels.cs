@@ -83,6 +83,7 @@ public sealed class TerrainVisualProfile
     public bool IgnoreBasePixelsUnderObjects { get; set; } = true;
     public string StyleSampleRoot { get; set; } = string.Empty;
     public List<TerrainVisualMaterialOverride> MaterialOverrides { get; set; } = new();
+    public List<TerrainSurfaceOverride> SurfaceOverrides { get; set; } = new();
 
     public TerrainVisualProfile Clone()
         => new()
@@ -144,8 +145,18 @@ public sealed class TerrainVisualProfile
             PreferCurrentMapSamplesStrictly = PreferCurrentMapSamplesStrictly,
             IgnoreBasePixelsUnderObjects = IgnoreBasePixelsUnderObjects,
             StyleSampleRoot = StyleSampleRoot,
-            MaterialOverrides = MaterialOverrides.Select(item => item.Clone()).ToList()
+            MaterialOverrides = MaterialOverrides.Select(item => item.Clone()).ToList(),
+            SurfaceOverrides = SurfaceOverrides.Select(item => item.Clone()).ToList()
         };
+}
+
+public sealed class TerrainSurfaceOverride
+{
+    public byte TerrainId { get; set; }
+    public TerrainVisualSurfaceKind SurfaceKind { get; set; }
+
+    public TerrainSurfaceOverride Clone()
+        => new() { TerrainId = TerrainId, SurfaceKind = SurfaceKind };
 }
 
 public sealed class TerrainVisualMaterialOverride
@@ -167,6 +178,7 @@ public sealed class TerrainVisualSynthesisRequest
     public IReadOnlyList<MaterialAsset> Materials { get; init; } = Array.Empty<MaterialAsset>();
     public CurrentMapStyleProfile? StyleProfile { get; init; }
     public IReadOnlyCollection<int>? RedrawIndexes { get; init; }
+    public CancellationToken CancellationToken { get; init; }
 }
 
 public sealed class TerrainVisualSynthesisResult : IDisposable

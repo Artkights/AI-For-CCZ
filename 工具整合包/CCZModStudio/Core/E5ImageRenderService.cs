@@ -17,6 +17,35 @@ public sealed class E5ImageRenderService
         int canvasHeight,
         out string renderMode)
     {
+        var rsLayout = new RsFrameLayoutResolver().TryResolve(fileName);
+        if (rsLayout != null)
+        {
+            var probe = RsStripLayoutService.Probe(fileName, DetectStorageKind(bytes), bytes);
+            if (!probe.IsSupportedLayout)
+            {
+                renderMode = probe.Detail;
+                return null;
+            }
+
+            using var decodedStrip = TryDecodeStandardImage(bytes);
+            if (decodedStrip != null)
+            {
+                using var frame = CropRsRepresentativeFrame(decodedStrip, rsLayout);
+                renderMode = probe.Detail;
+                return RenderToCanvas(frame, canvasWidth, canvasHeight);
+            }
+
+            using var rawFrame = TryRenderKnownRawEntry(project, fileName, bytes);
+            if (rawFrame != null)
+            {
+                renderMode = probe.Detail;
+                return RenderToCanvas(rawFrame, canvasWidth, canvasHeight);
+            }
+
+            renderMode = "R/S 帧条解码失败";
+            return null;
+        }
+
         using var decoded = TryDecodeStandardImage(bytes);
         if (decoded != null)
         {
@@ -50,8 +79,8 @@ public sealed class E5ImageRenderService
         {
             using var memory = new MemoryStream(bytes, writable: false);
             using var raw = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: false);
-            var bitmap = new Bitmap(raw);
-            ApplyMagentaTransparency(bitmap);
+            var bitmap = CloneArgb(raw);
+            if (!IsPng(bytes)) ApplyMagentaTransparency(bitmap);
             return bitmap;
         }
         catch
@@ -60,7 +89,12 @@ public sealed class E5ImageRenderService
         }
     }
 
-    public Bitmap RenderToCanvas(Image source, int canvasWidth, int canvasHeight, Color? background = null, bool drawGrid = false)
+    public Bitmap RenderToCanvas(
+        Image source,
+        int canvasWidth,
+        int canvasHeight,
+        Color? background = null,
+        bool drawGrid = false)
     {
         var width = Math.Max(96, canvasWidth);
         var height = Math.Max(96, canvasHeight);
@@ -89,7 +123,8 @@ public sealed class E5ImageRenderService
         var drawHeight = Math.Max(1, (int)Math.Round(source.Height * scale));
         var drawX = rect.Left + (rect.Width - drawWidth) / 2;
         var drawY = rect.Top + (rect.Height - drawHeight) / 2;
-        g.DrawImage(source, new Rectangle(drawX, drawY, drawWidth, drawHeight));
+        var destination = new Rectangle(drawX, drawY, drawWidth, drawHeight);
+        g.DrawImage(source, destination);
         return canvas;
     }
 
@@ -99,7 +134,13 @@ public sealed class E5ImageRenderService
             (bytes[0] == 0xFF && bytes[1] == 0xD8) ||
             (bytes.Length >= PngMagic.Length && bytes.AsSpan(0, PngMagic.Length).SequenceEqual(PngMagic)));
 
-    private static Bitmap? TryRenderKnownRawEntry(CczProject project, string fileName, byte[] bytes)
+    private static bool IsPng(byte[] bytes)
+        => bytes.Length >= PngMagic.Length && bytes.AsSpan(0, PngMagic.Length).SequenceEqual(PngMagic);
+
+    private static Bitmap? TryRenderKnownRawEntry(
+        CczProject project,
+        string fileName,
+        byte[] bytes)
     {
         var spec = ResolveRawSpec(fileName);
         if (spec == null) return null;
@@ -126,7 +167,8 @@ public sealed class E5ImageRenderService
             }
         }
 
-        return CropRepresentativeFrame(strip, spec.Value.FrameHeight);
+        var layout = new RsFrameLayoutResolver().Resolve(fileName);
+        return CropRsRepresentativeFrame(strip, layout);
     }
 
     private static Bitmap? TryRenderByteMap(CczProject project, byte[] bytes)
@@ -156,7 +198,7 @@ public sealed class E5ImageRenderService
             }
         }
 
-        return CropRepresentativeFrame(map, Math.Min(height, GuessByteMapFrameHeight(width, height)));
+        return CropGenericRepresentativeFrame(map, Math.Min(height, GuessByteMapFrameHeight(width, height)));
     }
 
     private static int GuessByteMapWidth(int length)
@@ -210,7 +252,26 @@ public sealed class E5ImageRenderService
         return colors;
     }
 
-    private static Bitmap CropRepresentativeFrame(Bitmap strip, int frameHeight)
+    private static Bitmap CropRsRepresentativeFrame(Bitmap strip, RsFrameLayout layout)
+    {
+        Bitmap? fallback = null;
+        for (var frameIndex = 0; frameIndex < layout.ExpectedFrameCount; frameIndex++)
+        {
+            var frame = RsStripLayoutService.CropFrame(strip, layout, frameIndex);
+            if (CountVisiblePixels(frame) > Math.Max(12, frame.Width * frame.Height / 80))
+            {
+                fallback?.Dispose();
+                return frame;
+            }
+
+            if (fallback == null) fallback = frame;
+            else frame.Dispose();
+        }
+
+        return fallback ?? RsStripLayoutService.CropFrame(strip, layout, 0);
+    }
+
+    private static Bitmap CropGenericRepresentativeFrame(Bitmap strip, int frameHeight)
     {
         var frameCount = Math.Max(1, strip.Height / Math.Max(1, frameHeight));
         Bitmap? fallback = null;
@@ -236,11 +297,31 @@ public sealed class E5ImageRenderService
         if (height <= 0) height = Math.Min(frameHeight, strip.Height);
         var frame = new Bitmap(strip.Width, height, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(frame);
+        g.Clear(Color.Transparent);
+        g.CompositingMode = CompositingMode.SourceCopy;
         g.InterpolationMode = InterpolationMode.NearestNeighbor;
         g.PixelOffsetMode = PixelOffsetMode.Half;
         g.DrawImage(strip, new Rectangle(0, 0, frame.Width, frame.Height), new Rectangle(0, y, frame.Width, frame.Height), GraphicsUnit.Pixel);
         ApplyMagentaTransparency(frame);
         return frame;
+    }
+
+    private static Bitmap CloneArgb(Image image)
+    {
+        var bitmap = new Bitmap(image.Width, image.Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.Transparent);
+        graphics.CompositingMode = CompositingMode.SourceCopy;
+        graphics.DrawImage(image, new Rectangle(Point.Empty, bitmap.Size));
+        return bitmap;
+    }
+
+    private static string DetectStorageKind(byte[] bytes)
+    {
+        if (bytes.Length >= 2 && bytes[0] == (byte)'B' && bytes[1] == (byte)'M') return "BMP";
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xD8) return "JPG";
+        if (IsPng(bytes)) return "PNG";
+        return "RAW";
     }
 
     private static void ApplyMagentaTransparency(Bitmap bitmap)

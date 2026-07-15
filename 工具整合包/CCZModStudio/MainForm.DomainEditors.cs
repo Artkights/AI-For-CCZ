@@ -177,7 +177,7 @@ public sealed partial class MainForm
         output.Columns.Add("S资源状态", typeof(string));
 
         var itemNames = BuildItemNameLookup(project, tables);
-        var itemClassifications = new ItemClassificationService().BuildLookup(project, tables);
+        var itemClassifications = DomainReferenceCatalog.Shared.GetSnapshot(project, tables, DomainReferenceSlice.Items).ItemClassifications;
         var count = Math.Min(personRead.Data.Rows.Count, Math.Min(rRead.Data.Rows.Count, sRead.Data.Rows.Count));
         for (var i = 0; i < count; i++)
         {
@@ -211,9 +211,10 @@ public sealed partial class MainForm
     private void LoadRoleTextTables()
     {
         if (_project == null) return;
-        _roleBiographyRead = _tableReader.Read(_project, FindTable(_tables, "6.5-0-1 人物列传"), _tables);
-        _roleCriticalQuoteRead = _tableReader.Read(_project, FindTable(_tables, "6.5-0-2 暴击台词"), _tables);
-        _roleRetreatQuoteRead = _tableReader.Read(_project, FindTable(_tables, "6.5-0-3 撤退台词"), _tables);
+        var hints = new CczEngineProfileService().Detect(_project).TableHints;
+        _roleBiographyRead = _tableReader.Read(_project, FindTable(_tables, hints.BiographyTable), _tables);
+        _roleCriticalQuoteRead = _tableReader.Read(_project, FindTable(_tables, hints.CriticalQuoteTable), _tables);
+        _roleRetreatQuoteRead = _tableReader.Read(_project, FindTable(_tables, hints.RetreatQuoteTable), _tables);
         _saveRoleTextDetailButton.Enabled =
             _roleBiographyRead.Validation.IsUsable &&
             _roleCriticalQuoteRead.Validation.IsUsable &&
@@ -328,9 +329,10 @@ public sealed partial class MainForm
     private void ReplaceRoleEquipmentColumnsWithCombos()
     {
         if (_project == null) return;
-        var boundary = ItemCategoryBoundaryService.Resolve(_project);
+        var domainReferences = DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items);
+        var boundary = domainReferences.ItemBoundary;
         var itemNames = BuildItemNameLookup(_project, _tables);
-        var classifications = new ItemClassificationService().BuildLookup(_project, _tables);
+        var classifications = domainReferences.ItemClassifications;
         ReplaceRoleEquipmentColumnWithCombo("武器", BuildRoleEquipmentLookup(RoleEquipmentSlot.Weapon, boundary, itemNames, classifications));
         ReplaceRoleEquipmentColumnWithCombo("防具", BuildRoleEquipmentLookup(RoleEquipmentSlot.Armor, boundary, itemNames, classifications));
         ReplaceRoleEquipmentColumnWithCombo("辅助", BuildRoleEquipmentLookup(RoleEquipmentSlot.Assist, boundary, itemNames, classifications));
@@ -344,9 +346,10 @@ public sealed partial class MainForm
             return;
         }
 
-        var boundary = ItemCategoryBoundaryService.Resolve(_project);
+        var domainReferences = DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items);
+        var boundary = domainReferences.ItemBoundary;
         var itemNames = BuildItemNameLookup(_project, _tables);
-        var classifications = new ItemClassificationService().BuildLookup(_project, _tables);
+        var classifications = domainReferences.ItemClassifications;
 
         _updatingRoleEquipmentDetailControls = true;
         try
@@ -503,8 +506,18 @@ public sealed partial class MainForm
         if (columnName == "头像说明") return "根据人物表“头像”编号生成的头像映射说明：Data 头像号 -> Face.e5 小头像号（0 号使用 1-8 候选）以及 Tou.dll 真彩资源号（=小头像号+300，语言2052）。";
         if (columnName is "武器" or "防具" or "辅助") return BuildRoleEquipmentColumnAnnotation(columnName);
         if (columnName is "武器名" or "防具名" or "辅助名") return "只读显示列：根据人物默认装备物品 ID 和当前物品表解析名称。";
-        if (columnName == "暴击台词") return "暴击台词类型号，不是直接文本行号。若人物命中 Ekd5.exe @ 0x89C30 的 21 组特殊人物表，则使用对应特殊台词行 #0..#20；否则按 `21 + 类型号 * 3` 起连续 3 行作为普通暴击随机台词。";
-        if (columnName == "撤退台词") return "6.5 实机显示撤退台词时通常按人物行 ID 读取 `6.5-0-3 撤退台词` 同 ID 行（仅 0..48），不是直接使用该字段值定位文本行；该字段保留为兼容/旧工具数据。";
+        if (columnName == "暴击台词")
+        {
+            var component = _project == null ? null : _roleQuoteMappingService.ResolveLayout(_project).SpecialCriticalMapping;
+            var location = component == null ? "版本布局中的特殊暴击人物表" : $"{component.FileName} @ {component.OffsetHex}（{component.Status}）";
+            return $"暴击台词类型号，不是直接文本行号。若人物命中 {location} 的特殊人物表，则使用对应特殊台词行 #0..#20；否则按 `21 + 类型号 * 3` 起连续 3 行作为普通暴击随机台词。";
+        }
+        if (columnName == "撤退台词")
+        {
+            var layout = _project == null ? null : _roleQuoteMappingService.ResolveLayout(_project);
+            var location = layout == null ? "当前版本撤退台词表" : $"{layout.RetreatText.FileName} @ {layout.RetreatText.OffsetHex}（{layout.Version}，{layout.RetreatText.Status}）";
+            return $"实机通常按人物行 ID 读取 {location} 同 ID 行（仅 0..48），不是直接使用该字段值定位文本行；该字段保留为兼容/旧工具数据。";
+        }
         if (columnName is "R形象编号") return "人物 R 形象编号：对应 Pmapobj.e5 的正/反两张图（正=2n+1，反=2n+2，按 1-based 图号解释）。";
         if (columnName is "S形象编号") return "人物 S 形象紧凑编号：S=0 按职业和预览阵营取默认兵种图；S=1..32 对应三转特殊三张图；S>=33 从 Unit 图337 起对应一转特殊单张图。";
         if (columnName is "R资源状态" or "S资源状态") return "状态列用于提示相关资源文件是否已定位（例如 Pmapobj.e5、Unit_*.e5）。";
@@ -528,7 +541,7 @@ public sealed partial class MainForm
     private string BuildRoleEquipmentColumnAnnotation(string columnName)
     {
         var boundary = _project != null
-            ? ItemCategoryBoundaryService.Resolve(_project)
+            ? DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items).ItemBoundary
             : new ItemCategoryBoundary(ItemCategoryBoundaryService.MinItemId, ItemCategoryBoundaryService.DefaultDefenseStartId, ItemCategoryBoundaryService.DefaultAccessoryStartId, "默认边界", IsFallback: true);
         var range = columnName switch
         {
@@ -550,13 +563,14 @@ public sealed partial class MainForm
             ReadRoleEquipmentCell(row, "防具") != 255 ||
             ReadRoleEquipmentCell(row, "辅助") != 255);
         var boundary = _project != null
-            ? ItemCategoryBoundaryService.Resolve(_project).DisplayText
+            ? DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items).ItemBoundary.DisplayText
             : "DefID=70, AssID=109";
         return
             $"角色设定已读取：总行 {data.Rows.Count}，有名称 {named}。\r\n" +
             $"R 资源缺失 {missingR}，S 资源缺失 {missingS}。\r\n" +
             $"人物默认装备：已设置 {equipped} 行；武器/防具/辅助为 Data.e5 绝对物品 ID，255 为空。装备分段：{boundary}。\r\n" +
-            "可编辑字段来自 `6.5-0 人物`、`6.5-0-4 R形象`、`6.5-0-5 S形象`；保存前自动备份 Data.e5/Ekd5.exe，保存后重新读取校验。";
+            "可编辑字段按当前引擎的 6.X 语义表解析；保存前自动备份 Data.e5/Ekd5.exe，保存后重新读取校验。" +
+            (_project == null ? string.Empty : "\r\n台词布局：" + RoleQuoteLayoutService.BuildSummary(_roleQuoteMappingService.ResolveLayout(_project)));
     }
 
     private void ApplyRoleEditorFilter()
@@ -710,10 +724,8 @@ public sealed partial class MainForm
     private void RefreshRoleEquipmentNameCells(DataRow row)
     {
         if (_project == null) return;
-        RefreshRoleEquipmentNameCells(
-            row,
-            BuildItemNameLookup(_project, _tables),
-            new ItemClassificationService().BuildLookup(_project, _tables));
+        var references = DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items);
+        RefreshRoleEquipmentNameCells(row, references.ItemNames, references.ItemClassifications);
     }
 
     private static void RefreshRoleEquipmentNameCells(
@@ -923,7 +935,8 @@ public sealed partial class MainForm
         if (!IsRoleEquipmentColumn(columnName)) return true;
         if (value == 255) return true;
 
-        var boundary = ItemCategoryBoundaryService.Resolve(_project);
+        var references = DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items);
+        var boundary = references.ItemBoundary;
         var slot = columnName switch
         {
             "武器" => RoleEquipmentSlot.Weapon,
@@ -946,7 +959,7 @@ public sealed partial class MainForm
 
         if (slot == RoleEquipmentSlot.Assist)
         {
-            var classifications = new ItemClassificationService().BuildLookup(_project, _tables);
+            var classifications = references.ItemClassifications;
             if (classifications.TryGetValue(value, out var classification) &&
                 classification.Kind is ItemKind.Consumable or ItemKind.Reserved)
             {
@@ -1380,6 +1393,7 @@ public sealed partial class MainForm
 
         var preview =
             $"角色：{roleId} {roleName}\r\n" +
+            $"台词布局：{RoleQuoteLayoutService.BuildSummary(_roleQuoteMappingService.ResolveLayout(_project))}\r\n" +
             $"列传 GBK：{EncodingService.GetGbkByteCount(_roleBiographyBox.Text)}/200\r\n" +
             assignmentPreview.Summary + "\r\n" +
             $"暴击台词：{string.Join(", ", criticalMapping.QuoteIds.Select(id => "#" + id.ToString(CultureInfo.InvariantCulture)))} {BuildCriticalQuoteByteHint(criticalMapping)}\r\n" +
@@ -1677,7 +1691,7 @@ public sealed partial class MainForm
         LoadJobEditor();
     }
 
-    private void OpenJobEffectEditor()
+    private void OpenJobEffectEditor(int? effectId = null)
     {
         if (_project == null)
         {
@@ -1701,6 +1715,7 @@ public sealed partial class MainForm
         }
 
         LoadJobEffectEditor();
+        if (effectId.HasValue) SelectEffectRow(_jobEffectEditorGrid, "ID", effectId.Value);
     }
 
     private void OpenRolePersonalEffectEditor()
@@ -1731,7 +1746,7 @@ public sealed partial class MainForm
         }
     }
 
-    private void OpenRolePersonalEffectTableEditor()
+    private void OpenRolePersonalEffectTableEditor(int? effectId = null)
     {
         if (_project == null)
         {
@@ -1749,7 +1764,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var data = BuildRolePersonalEffectEditorData(_project, _tables);
             Cursor = Cursors.Default;
-            ShowRolePersonalEffectEditorDialog(data);
+            ShowRolePersonalEffectEditorDialog(data, effectId);
         }
         catch (Exception ex)
         {
@@ -2493,18 +2508,7 @@ public sealed partial class MainForm
 
     private IReadOnlyDictionary<int, string> BuildItemNameLookup(CczProject project, IReadOnlyList<HexTableDefinition> tables)
     {
-        var result = new Dictionary<int, string>();
-        foreach (var tableName in new[] { "6.5-1 物品（0-103）", "6.5-2 物品（104-255）" })
-        {
-            var read = _tableReader.Read(project, FindTable(tables, tableName), tables);
-            if (!read.Validation.IsUsable || !read.Data.Columns.Contains("名称")) continue;
-            foreach (DataRow row in read.Data.Rows)
-            {
-                var id = Convert.ToInt32(row["ID"], CultureInfo.InvariantCulture);
-                result[id] = Convert.ToString(row["名称"], CultureInfo.InvariantCulture) ?? string.Empty;
-            }
-        }
-        return result;
+        return DomainReferenceCatalog.Shared.GetSnapshot(project, tables, DomainReferenceSlice.Items).ItemNames;
     }
 
     private string BuildRolePersonalEffectName(int id, DataRow sourceRow)
@@ -2569,7 +2573,7 @@ public sealed partial class MainForm
             : $"{id}：未找到物品名";
     }
 
-    private void ShowRolePersonalEffectEditorDialog(DataTable data)
+    private void ShowRolePersonalEffectEditorDialog(DataTable data, int? effectId = null)
     {
         using var dialog = new Form
         {
@@ -2704,6 +2708,7 @@ public sealed partial class MainForm
         closeButton.Click += (_, _) => dialog.Close();
 
         RefreshRolePersonalEffectRowStyles(grid);
+        if (effectId.HasValue) SelectEffectRow(grid, "ID", effectId.Value);
         ShowSelectedCell();
         dialog.ShowDialog(this);
     }
@@ -2820,6 +2825,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             var saves = SaveRolePersonalEffectEditorData(_project, data);
+            EffectInventoryService.Invalidate(_project);
             data.AcceptChanges();
             RefreshRolePersonalEffectRowStyles(grid);
             var changedBytes = saves.Sum(x => x.ChangedBytes);
@@ -2889,6 +2895,9 @@ public sealed partial class MainForm
             _saveJobEditorButton.Enabled = true;
             _editAccessoryJobGroupsButton.Enabled = _currentAccessoryJobGroupProfile != null;
             _replaceJobSImageButton.Enabled = true;
+            _playJobSImageButton.Enabled = true;
+            _viewJobSSingleFramesButton.Enabled = true;
+            _editJobSImagePixelsButton.Enabled = true;
             _batchReplaceJobSImageButton.Enabled = true;
             _exportJobSImageBmpButton.Enabled = true;
             _exportJobEditorCsvButton.Enabled = true;
@@ -4444,7 +4453,8 @@ public sealed partial class MainForm
 
         try
         {
-            var preview = _imageAssignmentPreviewService.TryRenderSImageFactionStackPreview(_project, 0, jobId, out _);
+            var preview = _imageAssignmentPreviewService.TryRenderSImageFactionStackPreview(
+                _project, 0, jobId, out _);
             SetPictureBoxImage(_jobAreaPreviewBox, preview);
             SetStatus($"兵种 S 形象预览：ID={jobId:D2} {name}");
         }
@@ -4467,6 +4477,57 @@ public sealed partial class MainForm
 
         name = Convert.ToString(row.Cells["名称"].Value, CultureInfo.InvariantCulture) ?? string.Empty;
         return true;
+    }
+
+    private void PlaySelectedJobSImage()
+    {
+        if (!CommitJobDescriptionBoxEdit(showValidationMessage: true)) return;
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_currentJobEditorData == null)
+        {
+            MessageBox.Show(this, "请先读取兵种。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_jobEditorGrid.CurrentCell == null)
+        {
+            MessageBox.Show(this, "请先选择一个详细兵种。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var row = _jobEditorGrid.Rows[_jobEditorGrid.CurrentCell.RowIndex];
+        if (!TryGetJobEditorRowIdentity(row, out var jobId, out _))
+        {
+            MessageBox.Show(this, "当前兵种行无法解析 ID。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var factionSlot = GetImageAssignmentSPreviewFactionSlot();
+        var preview = _imageAssignmentPreviewService.BuildSAnimationPreview(_project, 0, jobId, factionSlot, stageSlot: 1);
+        ShowImageAssignmentAnimationDialog(
+            preview,
+            (int)_imageAssignmentAnimationIntervalInput.Value,
+            optionLabel: "阵营：",
+            optionTextProvider: CharacterImageResourceService.BuildSPreviewFactionText,
+            selectedOption: factionSlot,
+            optionPreviewFactory: selectedFactionSlot => _imageAssignmentPreviewService.BuildSAnimationPreview(_project, 0, jobId, selectedFactionSlot, stageSlot: 1),
+            optionValues: Enumerable.Range(1, CharacterImageLayoutService.DefaultFactionSlots).ToArray(),
+            viewAllFrames: selectedFaction => OpenRsSingleFrameCatalog(
+                _project,
+                ImageAssignmentResourceKind.S,
+                0,
+                jobId,
+                selectedFaction,
+                1,
+                $"兵种 {jobId}",
+                editable: true,
+                sharedUsageWarning: "S=0 的 Unit 图可能被同职业、同阵营的多个人物共享引用。"));
+        SetStatus($"播放兵种S：{jobId}");
     }
 
     private void ReplaceSelectedJobSImage()
@@ -4621,22 +4682,15 @@ public sealed partial class MainForm
             }
         }
 
-        using var folderDialog = new FolderBrowserDialog
-        {
-            Description = "选择兵种 S 形象批量素材根目录；子目录使用 Job12，且包含 mov.bmp / atk.bmp / spc.bmp。",
-            UseDescriptionForTitle = true
-        };
-        if (folderDialog.ShowDialog(this) != DialogResult.OK) return;
-
-        var slots = SelectJobSBatchFactionSlots();
-        if (slots.Count == 0) return;
+        using var dialog = new JobSImageBatchDialog(JobSImageBatchDialogMode.Import, jobIds);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
         var request = new BatchJobSImageReplaceRequest
         {
-            MaterialRoot = folderDialog.SelectedPath,
+            MaterialRoot = dialog.SelectedFolder,
             AllowedJobIds = jobIds,
             IncludeOnlySelectedOrFiltered = jobIds.Count > 0,
-            FactionSlots = slots,
+            FactionSlots = dialog.FactionSlots,
             WriteMode = _project.IsTestCopy ? "test_copy" : "direct"
         };
 
@@ -4699,38 +4753,6 @@ public sealed partial class MainForm
         }
     }
 
-    private IReadOnlyList<int> SelectJobSBatchFactionSlots()
-    {
-        using var dialog = new Form
-        {
-            Text = "选择写入阵营",
-            StartPosition = FormStartPosition.CenterParent,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            ClientSize = new Size(260, 180)
-        };
-        var list = new CheckedListBox
-        {
-            Dock = DockStyle.Top,
-            Height = 110,
-            CheckOnClick = true
-        };
-        list.Items.Add(CharacterImageResourceService.BuildSPreviewFactionText(1), true);
-        list.Items.Add(CharacterImageResourceService.BuildSPreviewFactionText(2), true);
-        list.Items.Add(CharacterImageResourceService.BuildSPreviewFactionText(3), true);
-        var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, Left = 70, Top = 125, Width = 75 };
-        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Left = 155, Top = 125, Width = 75 };
-        dialog.Controls.Add(list);
-        dialog.Controls.Add(ok);
-        dialog.Controls.Add(cancel);
-        dialog.AcceptButton = ok;
-        dialog.CancelButton = cancel;
-        if (dialog.ShowDialog(this) != DialogResult.OK) return Array.Empty<int>();
-
-        return list.CheckedIndices.Cast<int>().Select(index => index + 1).ToArray();
-    }
-
     private static string BuildBatchJobSImageReplacePreviewText(BatchJobSImageReplacePreviewResult preview)
     {
         var builder = new StringBuilder();
@@ -4741,7 +4763,10 @@ public sealed partial class MainForm
         builder.AppendLine($"写入条目：{preview.TotalOperationCount}");
         foreach (var item in preview.Items.Take(30))
         {
-            builder.AppendLine($"- Job{item.JobId}: {item.MaterialFolder} -> {item.Preview.TotalOperationCount} 条");
+            builder.AppendLine(
+                $"- Job{item.JobId}/Faction{item.FactionSlot} {CharacterImageResourceService.BuildSPreviewFactionText(item.FactionSlot)}: " +
+                $"{item.MaterialFolder} -> {item.Preview.TotalOperationCount} 条" +
+                (item.UsesLegacyFlatLayout ? "（旧式平铺兼容）" : string.Empty));
         }
 
         AppendBatchImageImportIssues(builder, preview.SkippedItems, preview.Warnings);
@@ -4756,7 +4781,10 @@ public sealed partial class MainForm
         builder.AppendLine($"写入条目：{result.Results.Sum(item => item.Result.TotalOperationCount)}");
         foreach (var item in result.Results.Take(30))
         {
-            builder.AppendLine($"- Job{item.JobId}: {item.Result.TotalOperationCount} 条");
+            builder.AppendLine(
+                $"- Job{item.JobId}/Faction{item.FactionSlot} {CharacterImageResourceService.BuildSPreviewFactionText(item.FactionSlot)}: " +
+                $"{item.Result.TotalOperationCount} 条" +
+                (item.UsesLegacyFlatLayout ? "（旧式平铺兼容）" : string.Empty));
         }
 
         AppendBatchImageImportIssues(builder, result.SkippedItems, result.Warnings);
@@ -5297,6 +5325,7 @@ public sealed partial class MainForm
             _itemEditorGrid.DataSource = _currentItemEditorData;
             ConfigureItemEditorGrid();
             _saveItemEditorButton.Enabled = true;
+            _queryItemIconButton.Enabled = true;
             _batchImportItemIconButton.Enabled = true;
             _editItemIconButton.Enabled = true;
             _exportItemIconBmpButton.Enabled = true;
@@ -5389,7 +5418,7 @@ public sealed partial class MainForm
         output.Columns.Add("介绍", typeof(string));
         output.Columns.Add("来源文件", typeof(string));
 
-        var boundary = ItemCategoryBoundaryService.Resolve(project);
+        var boundary = DomainReferenceCatalog.Shared.GetSnapshot(project, tables, DomainReferenceSlice.Items).ItemBoundary;
         AddItemEditorRows(output, _itemBaseLowRead, _itemDescriptionLowRead, "0-103", boundary);
         AddItemEditorRows(output, _itemBaseHighRead, _itemDescriptionHighRead, "104-255", boundary);
 
@@ -5509,7 +5538,7 @@ public sealed partial class MainForm
         return _itemEffectResolutionService.Resolve(_project, _tables, majorCategory, typeId, effectId);
     }
 
-    private void OpenItemEffectCatalogEditor()
+    private void OpenItemEffectCatalogEditor(int? effectId = null)
     {
         if (_project == null)
         {
@@ -5585,6 +5614,7 @@ public sealed partial class MainForm
         if (grid.Columns.Contains("特效名")) grid.Columns["特效名"]!.FillWeight = 28;
         if (grid.Columns.Contains("特效说明")) grid.Columns["特效说明"]!.FillWeight = 54;
         layout.Controls.Add(grid, 0, 1);
+        if (effectId.HasValue) SelectEffectRow(grid, "特效号", effectId.Value);
 
         var infoBox = new TextBox
         {
@@ -5651,6 +5681,7 @@ public sealed partial class MainForm
                     .ToList();
 
                 var storePath = _itemEffectCatalogService.Save(_project, entries);
+                EffectInventoryService.Invalidate(_project);
                 _itemEffectNames = BuildItemEffectNameLookup(_project, _tables);
                 if (_currentItemEditorData != null)
                 {
@@ -5672,6 +5703,20 @@ public sealed partial class MainForm
 
         closeButton.Click += (_, _) => dialog.Close();
         dialog.ShowDialog(this);
+    }
+
+    private static bool SelectEffectRow(DataGridView grid, string columnName, int effectId)
+    {
+        if (!grid.Columns.Contains(columnName)) return false;
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            if (row.IsNewRow || !int.TryParse(Convert.ToString(row.Cells[columnName].Value, CultureInfo.InvariantCulture), out var id) || id != effectId) continue;
+            grid.CurrentCell = row.Cells[columnName];
+            row.Selected = true;
+            TryScrollGridRowIntoView(grid, row.Index);
+            return true;
+        }
+        return false;
     }
 
     private string BuildItemTypeDescription(int typeId, string majorCategory, int catalog)
@@ -7005,7 +7050,7 @@ public sealed partial class MainForm
     {
         if (!row.Table.Columns.Contains("物品大类")) return;
         var boundary = _project != null
-            ? ItemCategoryBoundaryService.Resolve(_project)
+            ? DomainReferenceCatalog.Shared.GetSnapshot(_project, _tables, DomainReferenceSlice.Items).ItemBoundary
             : new ItemCategoryBoundary(
                 ItemCategoryBoundaryService.MinItemId,
                 ItemCategoryBoundaryService.DefaultDefenseStartId,
@@ -7671,6 +7716,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var changedCells = GetChangedCellKeys(_currentItemEditorData);
             var saves = SaveItemEditorData(_project, _currentItemEditorData);
+            EffectInventoryService.Invalidate(_project);
             AcceptSavedDataTable(_currentItemEditorData);
             RefreshChangedGridCells(_itemEditorGrid, changedCells, UpdateItemEditorDerivedCells);
             RefreshChangedGridRowsOnly(_itemEditorGrid, changedCells, RefreshItemEditorRowStyle);
@@ -12832,6 +12878,7 @@ public sealed partial class MainForm
             Cursor = Cursors.WaitCursor;
             var changedCells = GetChangedCellKeys(_currentJobEffectData);
             var saves = SaveJobEffectEditorData(_project, _currentJobEffectData);
+            EffectInventoryService.Invalidate(_project);
             AcceptSavedDataTable(_currentJobEffectData);
             RefreshJobEffectCellsAfterEdit(changedCells);
             var changedBytes = saves.Sum(x => x.ChangedBytes);

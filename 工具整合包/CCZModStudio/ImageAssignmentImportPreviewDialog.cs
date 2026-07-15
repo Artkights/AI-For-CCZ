@@ -11,8 +11,8 @@ internal sealed class ImageAssignmentImportPreviewDialog : Form
     private readonly ImageAssignmentImportPreviewDialogModel _model;
     private readonly ImageAssignmentImportPreviewRenderer _renderer = new();
     private readonly DataGridView _grid = new();
-    private readonly PictureBox _currentBox = new();
-    private readonly PictureBox _outputBox = new();
+    private readonly AspectRatioPictureBox _currentBox = new();
+    private readonly AspectRatioPictureBox _outputBox = new();
     private readonly TextBox _detailBox = new();
     private readonly Button _confirmButton = new();
     private readonly Button _cancelButton = new();
@@ -27,13 +27,12 @@ internal sealed class ImageAssignmentImportPreviewDialog : Form
         MinimizeBox = false;
         MaximizeBox = true;
         ShowInTaskbar = false;
-        Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
-        ClientSize = new Size(1120, 720);
-        MinimumSize = new Size(920, 620);
+        ImportExportDialogLayout.Apply(this, new Size(1120, 720), new Size(920, 620));
 
         BuildLayout();
         LoadRows();
         ScheduleSelectionPreviewRefresh();
+        DpiChanged += (_, _) => ScheduleSelectionPreviewRefresh();
     }
 
     private void BuildLayout()
@@ -185,13 +184,12 @@ internal sealed class ImageAssignmentImportPreviewDialog : Form
             Padding = new Padding(0, 0, 0, 6)
         };
 
-    private static void ConfigurePreviewPictureBox(PictureBox box)
+    private static void ConfigurePreviewPictureBox(AspectRatioPictureBox box)
     {
         box.Dock = DockStyle.Fill;
-        box.SizeMode = PictureBoxSizeMode.Normal;
         box.BackColor = Color.FromArgb(24, 26, 28);
         box.BorderStyle = BorderStyle.FixedSingle;
-        box.SizeChanged += (_, _) =>
+        box.ClientSizeChanged += (_, _) =>
         {
             if (box.FindForm() is ImageAssignmentImportPreviewDialog dialog)
             {
@@ -279,6 +277,11 @@ internal sealed class ImageAssignmentImportPreviewDialog : Form
 
     private void UpdateSelectionPreview()
     {
+        if (!HasUsablePreviewSize(_currentBox) || !HasUsablePreviewSize(_outputBox))
+        {
+            return;
+        }
+
         var index = GetSelectedIndex();
         if (index < 0 || index >= _model.Items.Count)
         {
@@ -289,8 +292,10 @@ internal sealed class ImageAssignmentImportPreviewDialog : Form
         }
 
         var item = _model.Items[index];
-        SetPicture(_currentBox, _renderer.RenderCurrentTarget(_project, item, GetPreviewTargetSize(_currentBox)));
-        SetPicture(_outputBox, _renderer.RenderOutputPreview(item, GetPreviewTargetSize(_outputBox)));
+        SetPicture(_currentBox, _renderer.RenderCurrentTarget(
+            _project, item, GetPreviewTargetSize(_currentBox)));
+        SetPicture(_outputBox, _renderer.RenderOutputPreview(
+            item, GetPreviewTargetSize(_outputBox)));
         _detailBox.Text = BuildDetailText(item, index);
     }
 
@@ -298,10 +303,11 @@ internal sealed class ImageAssignmentImportPreviewDialog : Form
     {
         var width = box.ClientSize.Width;
         var height = box.ClientSize.Height;
-        return width <= 1 || height <= 1
-            ? new Size(320, 420)
-            : new Size(width, height);
+        return new Size(Math.Max(1, width), Math.Max(1, height));
     }
+
+    private static bool HasUsablePreviewSize(PictureBox box)
+        => box.ClientSize.Width > 1 && box.ClientSize.Height > 1;
 
     private int GetSelectedIndex()
     {

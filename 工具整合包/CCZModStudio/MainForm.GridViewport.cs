@@ -358,6 +358,16 @@ public sealed partial class MainForm
 
         VerifySavedTableMatchesCurrentData(read.Table, read.Data, verifyRead.Data, changedRows);
         AcceptSavedDataTable(read.Data);
+        var changedPath = _project.ResolveGameFile(read.Table.FileName);
+        ProjectResourceInvalidationBus.Publish([changedPath], ProjectResourceKind.HexTable);
+        DomainReferenceCatalog.Shared.Invalidate(_project);
+        if (read.Table.FileName.Equals("Ekd5.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            CczEngineProfileService.Invalidate(changedPath);
+            InjectedEffectDiscoveryService.Invalidate(changedPath);
+            ExecutableAnalysisSnapshotCache.Shared.Invalidate([changedPath]);
+            EffectInventoryService.Invalidate(_project);
+        }
         return save;
     }
 
@@ -469,14 +479,43 @@ public sealed partial class MainForm
 
             if (rowIndex < grid.Rows.Count)
             {
-                try
-                {
-                    grid.FirstDisplayedScrollingRowIndex = rowIndex;
-                }
-                catch (InvalidOperationException)
-                {
-                }
+                TryScrollGridRowIntoView(grid, rowIndex);
             }
+        }
+    }
+
+    internal static bool TryScrollGridRowIntoView(DataGridView grid, int rowIndex)
+    {
+        if (grid == null ||
+            grid.IsDisposed ||
+            !grid.IsHandleCreated ||
+            !grid.Visible ||
+            grid.ClientSize.Height <= 0 ||
+            rowIndex < 0 ||
+            rowIndex >= grid.Rows.Count ||
+            !grid.Rows[rowIndex].Visible)
+        {
+            return false;
+        }
+
+        try
+        {
+            // A hidden tab or an in-progress DPI/layout pass can leave only the
+            // column header visible. DataGridView throws instead of treating
+            // scrolling as a no-op when no data row fits in that viewport.
+            if (grid.DisplayedRowCount(includePartialRow: true) <= 0)
+            {
+                return false;
+            }
+
+            grid.FirstDisplayedScrollingRowIndex = rowIndex;
+            return grid.FirstDisplayedScrollingRowIndex == rowIndex;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            // Scrolling is best effort. Selection remains valid even if the
+            // control is hidden or its bounds change during this operation.
+            return false;
         }
     }
 

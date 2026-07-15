@@ -17,6 +17,12 @@ public sealed partial class MainForm
 
     private void ExportSelectedJobSImagesBmp()
     {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "导出兵种 S", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         var targets = new List<BmpExportTarget>();
         foreach (var row in GetSelectedRowsForBmpExport(_jobEditorGrid))
         {
@@ -30,7 +36,30 @@ public sealed partial class MainForm
             });
         }
 
-        ExecuteBmpExport(BmpExportKind.JobSImage, targets, CharacterImageResourceService.DefaultSPreviewFactionSlot, Array.Empty<int>(), _jobAreaPreviewInfoBox, "导出兵种S形象BMP");
+        targets = targets
+            .GroupBy(target => target.JobId ?? target.RowId)
+            .Select(group => group.First())
+            .ToList();
+        if (targets.Count == 0)
+        {
+            MessageBox.Show(this, "请先选择要导出的有效兵种行。", "导出兵种 S", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new JobSImageBatchDialog(
+            JobSImageBatchDialogMode.Export,
+            targets.Select(target => target.JobId ?? target.RowId).ToArray());
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        ExecuteBmpExportRequest(new BmpExportRequest
+        {
+            Kind = BmpExportKind.JobSImage,
+            OutputRoot = dialog.SelectedFolder,
+            SingleMode = false,
+            OverwriteExisting = dialog.OverwriteExisting,
+            FactionSlots = dialog.FactionSlots,
+            Targets = targets
+        }, _jobAreaPreviewInfoBox, "导出兵种 S");
     }
 
     private void ExportSelectedItemIconsBmp()

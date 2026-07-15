@@ -181,13 +181,15 @@ internal partial class Program
         }
     
         var result = service.Replace(testProject, unitMovTarget, 554, replacementPng);
-        if (!File.Exists(result.BackupPath) ||
-            !File.Exists(result.ReportPath) ||
-            !File.Exists(result.ReportJsonPath) ||
-            !File.ReadAllText(result.ReportJsonPath).Contains("E5图片条目替换", StringComparison.Ordinal) ||
-            !service.ReadEntryBytes(unitMovTarget, 554).SequenceEqual(File.ReadAllBytes(replacementPng)))
+        var backupExists = File.Exists(result.BackupPath);
+        var reportExists = File.Exists(result.ReportPath);
+        var reportJsonExists = File.Exists(result.ReportJsonPath);
+        var reportKindMatches = reportJsonExists && File.ReadAllText(result.ReportJsonPath).Contains("E5图片条目替换", StringComparison.Ordinal);
+        var entryBytesMatch = service.ReadEntryBytes(unitMovTarget, 554).SequenceEqual(File.ReadAllBytes(replacementPng));
+        if (!backupExists || !reportExists || !reportJsonExists || !reportKindMatches || !entryBytesMatch)
         {
-            throw new InvalidOperationException("E5 图片条目替换写入、复读或报告断言失败。");
+            throw new InvalidOperationException(
+                $"E5 图片条目替换写入、复读或报告断言失败：backup={backupExists}, report={reportExists}, json={reportJsonExists}, kind={reportKindMatches}, bytes={entryBytesMatch}, backupPath={result.BackupPath}。");
         }
     
         Console.WriteLine($"E5_IMAGE_REPLACE_SMOKE OK target={Path.GetFileName(result.TargetPath)} image={result.ImageNumber} kind={result.OldKind}->{result.NewKind} size={result.OldSizeBytes}->{result.NewSizeBytes} backup={Path.GetFileName(result.BackupPath)} json={Path.GetFileName(result.ReportJsonPath)}");
@@ -380,7 +382,7 @@ internal partial class Program
             bitmap.Save(mgcBatchPng2, System.Drawing.Imaging.ImageFormat.Png);
         }
 
-        var backupRoot = Path.Combine(smokeRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(testProject);
         var mgcBackupsBefore = Directory.Exists(backupRoot)
             ? Directory.GetFiles(backupRoot, "*Mgcicon.dll*", SearchOption.TopDirectoryOnly).Length
             : 0;

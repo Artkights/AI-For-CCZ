@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\CCZModStudio\CCZModStudio.csproj" />
+    <ProjectReference Include="..\CCZModStudio\CCZModStudio.csproj">
+      <AdditionalProperties Condition="'$(BuildingSolutionFile)' != 'true'">CczSkipStandaloneBuildLayout=true</AdditionalProperties>
+    </ProjectReference>
   </ItemGroup>
 
   <PropertyGroup>

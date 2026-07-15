@@ -441,6 +441,14 @@ public sealed class BattlefieldUnitStatusWriteService
     {
         var draft = CloneStatusDraft(current);
         draft.DataDefaults = dataDefaults;
+        // This API builds an equipment/job/ability delta from the effective values shown
+        // by the console. Deployment fields belong to the placement/deployment delta and
+        // must not leak from the full source draft into an otherwise empty status delta.
+        // Leaving these populated caused a placement-only commit to invoke Apply with
+        // values that had already been written by BattlefieldDeploymentWriteService.
+        draft.LevelBonus = null;
+        draft.JobLevel = null;
+        draft.AiPolicy = null;
         draft.Weapon = null;
         draft.WeaponLevel = null;
         draft.Armor = null;

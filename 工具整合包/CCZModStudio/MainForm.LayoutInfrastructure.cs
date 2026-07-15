@@ -1572,9 +1572,18 @@ public sealed partial class MainForm
         _mapMakerDirtyBaseRefreshTimer.Dispose();
         CancelPendingMapMakerBeautify();
         _terrainVisualSynthesisService.Dispose();
+        _terrainRenderService.Dispose();
+        _mapMakerConfirmedFinalRender?.Dispose();
+        _mapMakerConfirmedFinalRender = null;
         ClearMapWorkbenchMaterialThumbnailCache();
         ClearBattlefieldUnitFrameCache();
         ClearBattlefieldMapPreviewImages();
+        _imageResourceLoadCts?.Cancel();
+        _imageResourceLoadCts?.Dispose();
+        _imageResourceLoadCts = null;
+        _asyncLoadCoordinator.Dispose();
+        _debouncedUiAction.Dispose();
+        _materialLibraryCache.Dispose();
         SaveCurrentUiLayoutSettings();
         base.OnFormClosing(e);
     }

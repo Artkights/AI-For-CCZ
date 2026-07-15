@@ -285,7 +285,7 @@ public sealed class ResourceReplaceService
 
     private static string CreateBeforeSaveBackup(CczProject project, string filePath)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.EnsureBackupRootWritable(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var safeRelative = MakeSafeRelativeName(project, filePath);
@@ -301,7 +301,7 @@ public sealed class ResourceReplaceService
 
     private static string WriteReport(CczProject project, string targetPath, string replacementPath, string backupPath, ReplacementPreviewData preview)
     {
-        var reportRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var reportRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(reportRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(reportRoot, $"{stamp}_ResourceReplaceReport.txt");

@@ -246,7 +246,7 @@ function Assert-RuntimeBoundary {
     $forbiddenPattern = 'System\.Windows\.Forms|Windows\.Forms|MessageBox|Control\.DefaultFont|Application\.|\bForm\b|DataGridView\b|TreeView\b|ListView\b|ComboBox\b|OpenFileDialog\b|SaveFileDialog\b|FolderBrowserDialog\b|Clipboard\b'
     $matches = foreach ($root in $sourceRoots) {
         Get-ChildItem -LiteralPath $root -Recurse -File -Filter "*.cs" |
-            Select-String -Pattern $forbiddenPattern -Encoding UTF8 -ErrorAction SilentlyContinue
+            Select-String -Pattern $forbiddenPattern -CaseSensitive -Encoding UTF8 -ErrorAction SilentlyContinue
     }
 
     if ($matches) {

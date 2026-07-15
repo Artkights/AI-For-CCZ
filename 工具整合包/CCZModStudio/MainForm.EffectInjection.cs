@@ -17,23 +17,8 @@ public sealed partial class MainForm
         };
         page.Controls.Add(tabs);
 
-        var patchGrid = CreateEffectInjectionGrid();
-        var moduleGrid = CreateEffectInjectionGrid();
-        var hookGrid = CreateEffectInjectionGrid();
-        tabs.TabPages.Add(BuildEffectInjectionDiscoveryPage(patchGrid, moduleGrid, hookGrid));
-
-        var caveGrid = CreateEffectInjectionGrid();
-        var caveInfoBox = CreateEffectInjectionInfoBox();
-        tabs.TabPages.Add(BuildEffectInjectionCodeCavePage(caveGrid, caveInfoBox));
-
-        var previewSummaryBox = CreateEffectInjectionInfoBox();
-        var previewSegmentsGrid = CreateEffectInjectionGrid();
-        var previewWarningsGrid = CreateEffectInjectionGrid();
-        var assemblyControls = new EffectInjectionAssemblyControls();
-        tabs.TabPages.Add(BuildEffectInjectionAssemblyPage(assemblyControls, previewSummaryBox, previewSegmentsGrid, previewWarningsGrid));
-
-        var applyReportBox = CreateEffectInjectionInfoBox();
-        tabs.TabPages.Add(BuildEffectInjectionApplyPage(applyReportBox));
+        tabs.TabPages.Add(BuildCurrentEffectsWorkbenchPage());
+        tabs.TabPages.Add(BuildCompositeEffectPage());
 
         return page;
     }
@@ -51,11 +36,19 @@ public sealed partial class MainForm
         ConfigureToolbarButton(scanButton, 128);
         var showAllJumpsCheck = new CheckBox { Text = "显示全部跳转候选" };
         ConfigureToolbarCheckBox(showAllJumpsCheck);
+        var detectionLevelFilter = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 136,
+            Margin = new Padding(3)
+        };
+        detectionLevelFilter.Items.AddRange(new object[] { "全部", "已确认", "变体", "语义候选", "诊断" });
+        detectionLevelFilter.SelectedIndex = 0;
         var summaryLabel = CreateToolbarLabel("尚未扫描", 12);
         summaryLabel.AutoSize = true;
 
         var toolbar = CreateToolbarStack(1);
-        AddToolbarRow(toolbar, 0, scanButton, showAllJumpsCheck, summaryLabel);
+        AddToolbarRow(toolbar, 0, scanButton, showAllJumpsCheck, CreateToolbarLabel("分级", 0), detectionLevelFilter, summaryLabel);
         layout.Controls.Add(toolbar, 0, 0);
 
         var split = CreateResizableSplit(
@@ -78,6 +71,20 @@ public sealed partial class MainForm
 
         List<InjectedEffectCandidate> currentCandidates = [];
         InjectedEffectDiscoveryReport? currentReport = null;
+
+        void RefreshPatchGrid()
+        {
+            currentCandidates = currentReport == null
+                ? []
+                : ApplyDetectionLevelFilter(currentReport.Candidates, detectionLevelFilter.SelectedIndex).ToList();
+            patchGrid.DataSource = BuildInjectedEffectPatchTable(currentCandidates);
+            ConfigureEffectInjectionGrid(patchGrid);
+            UpdateModuleGrid();
+            if (currentReport != null)
+            {
+                summaryLabel.Text = BuildDiscoverySummary(currentReport, showAllJumpsCheck.Checked);
+            }
+        }
 
         void UpdateModuleGrid()
         {
@@ -122,20 +129,20 @@ public sealed partial class MainForm
 
         patchGrid.SelectionChanged += (_, _) => UpdateModuleGrid();
         showAllJumpsCheck.CheckedChanged += (_, _) => UpdateHookVisibility();
+        detectionLevelFilter.SelectedIndexChanged += (_, _) => RefreshPatchGrid();
 
-        scanButton.Click += (_, _) =>
+        scanButton.Click += async (_, _) =>
         {
             if (!TryGetEffectInjectionProject(out var project)) return;
 
             try
             {
-                Cursor = Cursors.WaitCursor;
-                var report = _injectedEffectDiscoveryService.Discover(project);
+                scanButton.Enabled = false;
+                summaryLabel.Text = "正在后台读取 EXE、匹配签名并分析跳转……";
+                var report = await Task.Run(() => _injectedEffectDiscoveryService.Discover(project));
+                if (IsDisposed || !ReferenceEquals(_project, project)) return;
                 currentReport = report;
-                currentCandidates = report.Candidates.ToList();
-                patchGrid.DataSource = BuildInjectedEffectPatchTable(currentCandidates);
-                ConfigureEffectInjectionGrid(patchGrid);
-                UpdateModuleGrid();
+                RefreshPatchGrid();
                 UpdateHookVisibility();
                 SetStatus(BuildDiscoverySummary(report, showAllJumpsCheck.Checked));
             }
@@ -148,6 +155,66 @@ public sealed partial class MainForm
                 hookGrid.DataSource = null;
                 summaryLabel.Text = "扫描失败：" + ex.Message;
                 MessageBox.Show(this, ex.Message, "扫描已注入特效失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                if (!IsDisposed) scanButton.Enabled = true;
+            }
+        };
+
+        return page;
+    }
+
+    private TabPage BuildEffectSemanticAnalysisPage(
+        DataGridView functionGrid,
+        DataGridView effectGrid,
+        TextBox agentContextBox)
+    {
+        var page = new TabPage("\u8bed\u4e49\u63a8\u5bfc");
+        var layout = CreateEffectInjectionPageLayout();
+        page.Controls.Add(layout);
+
+        var analyzeButton = new Button { Text = "\u5206\u6790\u7279\u6548\u8bed\u4e49" };
+        ConfigureToolbarButton(analyzeButton, 132);
+        var summaryLabel = CreateToolbarLabel("\u672a\u5206\u6790", 12);
+        summaryLabel.AutoSize = true;
+
+        var toolbar = CreateToolbarStack(1);
+        AddToolbarRow(toolbar, 0, analyzeButton, summaryLabel);
+        layout.Controls.Add(toolbar, 0, 0);
+
+        var tabs = new TabControl
+        {
+            Dock = DockStyle.Fill
+        };
+        tabs.TabPages.Add(CreateControlTabPage("\u51fd\u6570\u8bed\u4e49\u56fe\u8c31", functionGrid));
+        tabs.TabPages.Add(CreateControlTabPage("\u7279\u6548\u5b9e\u9645\u542b\u4e49", effectGrid));
+        tabs.TabPages.Add(CreateControlTabPage("\u672c\u5730 Agent \u6ce8\u5165\u77e5\u8bc6\u5305", agentContextBox));
+        layout.Controls.Add(tabs, 0, 1);
+
+        analyzeButton.Click += (_, _) =>
+        {
+            if (!TryGetEffectInjectionProject(out var project)) return;
+
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                var catalog = _effectKnowledgeFusionService.Build(project);
+                functionGrid.DataSource = BuildFunctionSemanticTable(catalog.Functions);
+                ConfigureEffectInjectionGrid(functionGrid);
+                effectGrid.DataSource = BuildEffectMeaningTable(catalog.Effects);
+                ConfigureEffectInjectionGrid(effectGrid);
+                agentContextBox.Text = BuildAgentSpecialEffectKnowledgeText(catalog);
+                summaryLabel.Text = BuildEffectSemanticSummary(catalog);
+                SetStatus(summaryLabel.Text);
+            }
+            catch (Exception ex)
+            {
+                functionGrid.DataSource = null;
+                effectGrid.DataSource = null;
+                agentContextBox.Text = ex.ToString();
+                summaryLabel.Text = "\u8bed\u4e49\u5206\u6790\u5931\u8d25: " + ex.Message;
+                MessageBox.Show(this, ex.Message, "\u7279\u6548\u8bed\u4e49\u5206\u6790\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -656,7 +723,7 @@ public sealed partial class MainForm
             table.Rows.Add(
                 index.ToString(CultureInfo.InvariantCulture),
                 FirstNonEmpty(candidate.Name, "未知特技补丁"),
-                FirstNonEmpty(candidate.StructureDiagnosis, candidate.UserReadableDiagnosis, FormatDiscoveryType(candidate.Type)),
+                BuildCandidateDiagnosis(candidate),
                 FormatPatchCategory(candidate.PatchCategory, candidate.PatternKind, candidate.Type),
                 candidate.CheckGroups.Count.ToString(CultureInfo.InvariantCulture),
                 FormatParameterSlotSummary(candidate.ParameterSlots),
@@ -671,6 +738,19 @@ public sealed partial class MainForm
 
         return table;
     }
+
+    private static IEnumerable<InjectedEffectCandidate> ApplyDetectionLevelFilter(
+        IEnumerable<InjectedEffectCandidate> candidates,
+        int selectedIndex)
+        => selectedIndex switch
+        {
+            1 => candidates.Where(candidate => candidate.DetectionLevel.Equals("KnownExact", StringComparison.OrdinalIgnoreCase)),
+            2 => candidates.Where(candidate => candidate.DetectionLevel.Equals("KnownVariant", StringComparison.OrdinalIgnoreCase)),
+            3 => candidates.Where(candidate => candidate.DetectionLevel.Equals("SemanticCandidate", StringComparison.OrdinalIgnoreCase)),
+            4 => candidates.Where(candidate => candidate.DetectionLevel.Equals("DiagnosticOnly", StringComparison.OrdinalIgnoreCase) ||
+                                               candidate.DetectionScore < 60),
+            _ => candidates
+        };
 
     private static DataTable BuildInjectedEffectModuleTable(IEnumerable<InjectedEffectModuleInfo> modules)
     {
@@ -715,6 +795,88 @@ public sealed partial class MainForm
                 FormatHookClassification(hook.Classification),
                 FormatHookRisk(hook.Risk),
                 FormatEvidence(hook.Evidence));
+        }
+
+        return table;
+    }
+
+    private static DataTable BuildFunctionSemanticTable(IEnumerable<FunctionSemanticRecord> functions)
+    {
+        var table = new DataTable();
+        table.Columns.Add("Address");
+        table.Columns.Add("FileOffset");
+        table.Columns.Add("Name");
+        table.Columns.Add("Phase");
+        table.Columns.Add("Kind");
+        table.Columns.Add("Score");
+        table.Columns.Add("EvidenceLevel");
+        table.Columns.Add("Role");
+        table.Columns.Add("Calls");
+        table.Columns.Add("CalledBy");
+        table.Columns.Add("Reads");
+        table.Columns.Add("Writes");
+        table.Columns.Add("MatchedEvidence");
+        table.Columns.Add("MissingEvidence");
+        table.Columns.Add("Source");
+
+        foreach (var function in functions)
+        {
+            table.Rows.Add(
+                function.AddressHex,
+                function.FileOffsetHex,
+                function.Name,
+                function.Phase,
+                function.SemanticKind,
+                function.ConfidenceScore.ToString(CultureInfo.InvariantCulture),
+                function.EvidenceLevel,
+                function.Role,
+                FormatAddressList(function.Calls),
+                FormatAddressList(function.CalledBy),
+                string.Join("; ", function.Reads.Take(4)),
+                string.Join("; ", function.Writes.Take(4)),
+                string.Join("; ", function.MatchedEvidence.Take(6)),
+                string.Join("; ", function.MissingEvidence.Take(6)),
+                function.SourceSummary);
+        }
+
+        return table;
+    }
+
+    private static DataTable BuildEffectMeaningTable(IEnumerable<EffectMeaningRecord> effects)
+    {
+        var table = new DataTable();
+        table.Columns.Add("EffectId");
+        table.Columns.Add("Channel");
+        table.Columns.Add("Names");
+        table.Columns.Add("ObservedMeaning");
+        table.Columns.Add("Kind");
+        table.Columns.Add("Score");
+        table.Columns.Add("EvidenceLevel");
+        table.Columns.Add("ValueFlag");
+        table.Columns.Add("Stacking");
+        table.Columns.Add("TriggerPhase");
+        table.Columns.Add("Implementation");
+        table.Columns.Add("InjectionTemplate");
+        table.Columns.Add("MatchedEvidence");
+        table.Columns.Add("MissingEvidence");
+
+        foreach (var effect in effects)
+        {
+            table.Rows.Add(
+                effect.EffectIdHex + " / " + effect.EffectId.ToString(CultureInfo.InvariantCulture),
+                effect.Channel,
+                string.Join(" / ", effect.NameCandidates.Take(4)),
+                effect.ObservedMeaning,
+                effect.SemanticKind,
+                effect.ConfidenceScore.ToString(CultureInfo.InvariantCulture),
+                effect.EvidenceLevel,
+                effect.ValueFlagMeaning,
+                effect.StackingMeaning,
+                effect.TriggerPhase,
+                effect.ImplementationFunction,
+                effect.RecommendedInjectionTemplate,
+                string.Join("; ", effect.MatchedEvidence.Take(6)),
+                string.Join("; ", effect.MissingEvidence.Take(6)));
         }
 
         return table;
@@ -1100,6 +1262,35 @@ public sealed partial class MainForm
             : $"识别完成：已识别 {structures} 个补丁结构，低置信 Hook 候选 {hidden} 条已隐藏";
     }
 
+    private static string BuildEffectSemanticSummary(FunctionSemanticCatalog catalog)
+    {
+        var verified = catalog.Functions.Count(function =>
+            function.EvidenceLevel is EffectSemanticEvidenceLevel.VerifiedDynamic or EffectSemanticEvidenceLevel.VerifiedStatic);
+        var reports = catalog.ReportPaths.Count;
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"\u8bed\u4e49\u5206\u6790\u5b8c\u6210: functions={catalog.Functions.Count}, verified={verified}, effects={catalog.Effects.Count}, agentTemplates={catalog.AgentKnowledge.EffectTemplates.Count}, reports={reports}");
+    }
+
+    private static string BuildAgentSpecialEffectKnowledgeText(FunctionSemanticCatalog catalog)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("Target: " + catalog.TargetFilePath);
+        builder.AppendLine("SHA256: " + catalog.ExeSha256);
+        builder.AppendLine("ImageBase: " + catalog.ImageBaseHex);
+        builder.AppendLine("Summary: " + catalog.Summary);
+        AppendLines(builder, "Reports", catalog.ReportPaths);
+        AppendLines(builder, "Warnings", catalog.Warnings);
+        AppendLines(builder, "Sources", catalog.SourceDocuments);
+        builder.AppendLine();
+        builder.AppendLine("Local agent knowledge:");
+        builder.AppendLine(catalog.AgentKnowledge.AgentContext);
+        return builder.ToString();
+    }
+
+    private static string FormatAddressList(IEnumerable<uint> addresses)
+        => string.Join(", ", addresses.Take(8).Select(address => $"0x{address:X8}"));
+
     private static string BuildDamageTemplateAssemblySource(EffectInjectionAssemblyControls controls)
     {
         var equipment = decimal.ToInt32(controls.EquipmentIdInput.Value);
@@ -1180,6 +1371,56 @@ public sealed partial class MainForm
         if (config > 0) parts.Add($"其它配置 {config}");
         return string.Join("，", parts);
     }
+
+    private static string BuildCandidateDiagnosis(InjectedEffectCandidate candidate)
+    {
+        var parts = new List<string>
+        {
+            FirstNonEmpty(candidate.StructureDiagnosis, candidate.UserReadableDiagnosis, FormatDiscoveryType(candidate.Type))
+        };
+
+        if (!string.IsNullOrWhiteSpace(candidate.DetectionLevel) || candidate.DetectionScore > 0)
+        {
+            parts.Add($"level={FormatDetectionLevel(candidate.DetectionLevel)} score={candidate.DetectionScore.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate.NormalizedSignatureId))
+        {
+            parts.Add("signature=" + candidate.NormalizedSignatureId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate.RelocationEvidence))
+        {
+            parts.Add("relocation=" + candidate.RelocationEvidence);
+        }
+
+        if (candidate.MatchedAnchors.Count > 0)
+        {
+            parts.Add("matched=" + string.Join(", ", candidate.MatchedAnchors.Take(4)));
+        }
+
+        if (candidate.MissingAnchors.Count > 0)
+        {
+            parts.Add("missing=" + string.Join(", ", candidate.MissingAnchors.Take(4)));
+        }
+
+        if (candidate.FailureReasons.Count > 0)
+        {
+            parts.Add("failure=" + string.Join(", ", candidate.FailureReasons.Take(3)));
+        }
+
+        return string.Join(" | ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string FormatDetectionLevel(string level)
+        => level switch
+        {
+            "KnownExact" => "已确认",
+            "KnownVariant" => "变体",
+            "SemanticCandidate" => "语义候选",
+            "DiagnosticOnly" => "诊断",
+            _ => string.IsNullOrWhiteSpace(level) ? "未分级" : TranslateTechnicalText(level)
+        };
 
     private static string FormatConfidence(string confidence)
         => confidence switch

@@ -31,9 +31,7 @@ internal sealed class SImageReplaceDialog : Form
 
         Text = $"一键替换人物 S 形象：S={sImageId}";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(800, 380);
-        MinimumSize = new Size(760, 420);
-        Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        ImportExportDialogLayout.Apply(this, new Size(800, 380), new Size(760, 420));
         KeyPreview = true;
 
         BuildLayout();
@@ -307,9 +305,7 @@ internal sealed class SImageExportDialog : Form
 
         Text = "导出人物 S 形象 BMP";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(800, 380);
-        MinimumSize = new Size(760, 420);
-        Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        ImportExportDialogLayout.Apply(this, new Size(800, 380), new Size(760, 420));
         KeyPreview = true;
 
         BuildLayout();
@@ -585,9 +581,7 @@ internal sealed class SImageStageSelectionDialog : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MinimizeBox = false;
         MaximizeBox = false;
-        ClientSize = new Size(800, 260);
-        MinimumSize = new Size(760, 300);
-        Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        ImportExportDialogLayout.Apply(this, new Size(800, 260), new Size(760, 300));
         KeyPreview = true;
         BuildLayout(availableStages, description);
     }

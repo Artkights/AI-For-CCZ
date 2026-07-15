@@ -3,6 +3,7 @@ using CCZModStudio.Formats;
 using CCZModStudio.Models;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace CCZModStudio;
@@ -147,7 +148,7 @@ public sealed partial class MainForm
             {
                 grid.EndEdit();
                 if (grid.DataSource is BindingSource bindingSource) bindingSource.EndEdit();
-                if (grid.BindingContext?[grid.DataSource] is CurrencyManager manager) manager.EndCurrentEdit();
+                if (grid.DataSource != null && grid.BindingContext?[grid.DataSource] is CurrencyManager manager) manager.EndCurrentEdit();
             }
             catch (Exception ex)
             {
@@ -155,8 +156,14 @@ public sealed partial class MainForm
             }
         }
 
+        CommitJobDescriptionBoxEdit();
+        CommitJobEquipmentEditorChanges();
+        CommitJobStrategyDescriptionBoxEdit(showMessage: false, restoreSelectionOnFailure: true);
+        CommitJobStrategyLearningEditorChanges(showMessage: false, restoreSelectionOnFailure: true);
         CommitItemEquipmentTypeJobGridEdits();
+        CommitCmSettingsEditors();
         SyncSelectedRoleTextDetailsIntoTables();
+        SyncMapWorkbenchDraftFromEditor();
     }
 
     private IEnumerable<DataGridView> EnumerateEditableGrids()
@@ -190,12 +197,63 @@ public sealed partial class MainForm
 
         var items = new List<UnsavedEditorItem>();
         AddDataTableUnsavedItems(items);
+        AddItemEquipmentTypeUnsavedItem(items);
+        AddCmSettingsUnsavedItem(items);
         AddScenarioTextUnsavedItems(items);
         AddCurrentMapWorkbenchUnsavedItem(items);
         AddScriptSessionUnsavedItems(items);
         AddBattlefieldSessionUnsavedItems(items);
         AddRSceneSessionUnsavedItems(items);
         return items;
+    }
+
+    private void AddItemEquipmentTypeUnsavedItem(List<UnsavedEditorItem> items)
+    {
+        if (!IsItemEquipmentTypeSettingsDirty(out var summary)) return;
+        items.Add(new UnsavedEditorItem
+        {
+            Page = "宝物设定",
+            Target = "装备类型设置",
+            Summary = summary,
+            SaveAsync = SaveItemEquipmentTypeSettingsSilentlyAsync,
+            Discard = LoadItemEquipmentTypeSettings
+        });
+    }
+
+    private bool IsItemEquipmentTypeSettingsDirty(out string summary)
+    {
+        summary = string.Empty;
+        if (_project == null || _currentItemEquipmentTypeDocument == null || _currentItemEquipmentTypeData == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            CommitItemEquipmentTypeJobGridEdits();
+            var preview = _itemEquipmentTypeSettingsService.Preview(_project, _tables, BuildItemEquipmentTypeUpdate());
+            if (preview.Count == 0) return false;
+            summary = $"{preview.Count} 项改动";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            summary = "存在未提交或无效编辑：" + ex.Message;
+            return true;
+        }
+    }
+
+    private void AddCmSettingsUnsavedItem(List<UnsavedEditorItem> items)
+    {
+        if (!IsCmSettingsDirty(out var summary)) return;
+        items.Add(new UnsavedEditorItem
+        {
+            Page = "全局设定",
+            Target = "全局参数/标题/CM 设置",
+            Summary = summary,
+            SaveAsync = SaveCmSettingsSilentlyAsync,
+            Discard = () => ReloadCmSettingsPage(showErrorMessage: false)
+        });
     }
 
     private void AddDataTableUnsavedItems(List<UnsavedEditorItem> items)
@@ -338,6 +396,30 @@ public sealed partial class MainForm
 
     private void AddBattlefieldSessionUnsavedItems(List<UnsavedEditorItem> items)
     {
+        if (_battlefieldUnsyncedDraftState != null)
+        {
+            var state = _battlefieldUnsyncedDraftState;
+            items.Add(new UnsavedEditorItem
+            {
+                Page = "战场编辑",
+                Target = string.IsNullOrWhiteSpace(state.ScenarioFileName) ? "未同步草稿" : state.ScenarioFileName,
+                Summary = $"写回失败的未同步草稿（阶段：{state.Stage}，目标：{state.TargetKeys.Count}）",
+                SaveAsync = () =>
+                {
+                    RetryBattlefieldUnsyncedDraft();
+                    if (_battlefieldUnsyncedDraftState != null)
+                    {
+                        throw new InvalidOperationException("未同步战场草稿重试失败，请返回战场控制台查看具体原因并手动处理。");
+                    }
+                    return Task.CompletedTask;
+                },
+                Discard = DiscardBattlefieldUnsyncedDraftFromScript
+            });
+            // The live battlefield session below already represents the same map/control
+            // values. Do not add a second close-dialog item for the same failed draft.
+            return;
+        }
+
         foreach (var session in _battlefieldEditorSessions.Values.Where(IsBattlefieldSessionDirty))
         {
             items.Add(new UnsavedEditorItem
@@ -444,6 +526,7 @@ public sealed partial class MainForm
             _scriptEditorSessions.Clear();
             _battlefieldEditorSessions.Clear();
             _rSceneEditorSessions.Clear();
+            _tableEditorSessions.Clear();
         }
         finally
         {
@@ -535,12 +618,6 @@ public sealed partial class MainForm
             Padding = new Padding(0, 10, 0, 0)
         };
         root.Controls.Add(buttons, 0, 2);
-#if false
-
-        var cancelCloseButton = new Button { Text = "取消关闭", AutoSize = true, DialogResult = DialogResult.Cancel };
-        var discardButton = new Button { Text = "放弃改动", AutoSize = true, DialogResult = DialogResult.No };
-        var saveButton = new Button { Text = "保存全部", AutoSize = true, DialogResult = DialogResult.Yes };
-#endif
         var cancelCloseButton = new Button { Text = "取消关闭", AutoSize = true, DialogResult = DialogResult.Cancel };
         var discardButton = new Button { Text = "放弃改动", AutoSize = true, DialogResult = DialogResult.No };
         var saveButton = new Button { Text = "保存全部", AutoSize = true, DialogResult = DialogResult.Yes };
@@ -574,6 +651,103 @@ public sealed partial class MainForm
         var retreatMapping = _roleQuoteMappingService.ResolveRetreatQuote(roleRow, _roleRetreatQuoteRead.Data);
 
         ApplyRoleTextEditorToRows(bioRow, criticalMapping, retreatMapping);
+    }
+
+    private bool ConfirmPageReloadIfUnsaved(string page, params string[] targets)
+    {
+        var matchingItems = CollectUnsavedItems()
+            .Where(item => item.Page.Equals(page, StringComparison.Ordinal) &&
+                           (targets.Length == 0 || targets.Contains(item.Target, StringComparer.Ordinal)))
+            .ToList();
+        return ConfirmReloadUnsavedItems(matchingItems);
+    }
+
+    private bool ConfirmProjectReloadIfUnsaved()
+        => ConfirmReloadUnsavedItems(CollectUnsavedItems());
+
+    private bool ConfirmReloadUnsavedItems(IReadOnlyList<UnsavedEditorItem> items)
+    {
+        if (items.Count == 0) return true;
+
+        var details = string.Join("\r\n", items.Take(8).Select(item => "- " + item.DisplayText));
+        if (items.Count > 8) details += $"\r\n- 另有 {items.Count - 8} 项";
+        return MessageBox.Show(
+                   this,
+                   $"重新读取会丢弃以下未保存改动：\r\n\r\n{details}\r\n\r\n是否继续？",
+                   "确认重新读取",
+                   MessageBoxButtons.YesNo,
+                   MessageBoxIcon.Warning) == DialogResult.Yes;
+    }
+
+    private void CacheCurrentPageSession(string pageText)
+    {
+        switch (pageText)
+        {
+            case "数据表编辑":
+                CacheCurrentTableEditorSession();
+                break;
+            case "剧本编辑":
+                CacheCurrentScriptEditorSession();
+                break;
+            case "战场编辑":
+                CacheCurrentBattlefieldEditorSession();
+                break;
+            case "场景编辑":
+                CacheCurrentRSceneEditorSession();
+                break;
+            case "角色设定":
+                CommitPageGridEdits(_roleEditorGrid);
+                SyncSelectedRoleTextDetailsIntoTables();
+                break;
+            case "兵种设定":
+                CommitPageGridEdits(
+                    _jobEditorGrid,
+                    _jobTerrainGrid,
+                    _jobRestraintGrid,
+                    _jobAttributeGrid,
+                    _jobStrategyEditorGrid,
+                    _jobStrategyLearningEditorGrid,
+                    _jobEffectEditorGrid);
+                CommitJobDescriptionBoxEdit();
+                CommitJobEquipmentEditorChanges();
+                CommitJobStrategyDescriptionBoxEdit(showMessage: false, restoreSelectionOnFailure: true);
+                CommitJobStrategyLearningEditorChanges(showMessage: false, restoreSelectionOnFailure: true);
+                break;
+            case "宝物设定":
+                CommitPageGridEdits(_itemEditorGrid, _itemEquipmentTypeGrid, _itemEquipmentTypeJobGrid);
+                CommitItemEquipmentTypeJobGridEdits();
+                break;
+            case "商店编辑":
+                CommitPageGridEdits(_shopEditorGrid);
+                break;
+            case "图片设定":
+                CommitPageGridEdits(_imageAssignmentGrid);
+                break;
+            case "地图编辑":
+                SyncMapWorkbenchDraftFromEditor();
+                break;
+            case "全局设定":
+                CommitCmSettingsEditors();
+                break;
+        }
+    }
+
+    private void CommitPageGridEdits(params DataGridView[] grids)
+    {
+        foreach (var grid in grids)
+        {
+            try
+            {
+                if (grid.IsCurrentCellDirty) grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+                grid.EndEdit();
+                if (grid.DataSource is BindingSource bindingSource) bindingSource.EndEdit();
+                if (grid.DataSource != null && grid.BindingContext?[grid.DataSource] is CurrencyManager manager) manager.EndCurrentEdit();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Commit page editor failed: " + ex.Message);
+            }
+        }
     }
 
     private Task SaveCurrentTableSilentlyAsync()
@@ -730,6 +904,26 @@ public sealed partial class MainForm
         AcceptSavedDataTable(_currentShopEditorData);
         RefreshShopEditorCellsAfterEdit(changedCells);
         SetStatus($"商店已保存：{saves.Sum(x => x.ChangedBytes)} 字节变化");
+        return Task.CompletedTask;
+    }
+
+    private Task SaveItemEquipmentTypeSettingsSilentlyAsync()
+    {
+        if (_project == null || _currentItemEquipmentTypeDocument == null || _currentItemEquipmentTypeData == null)
+        {
+            return Task.CompletedTask;
+        }
+
+        CommitPageGridEdits(_itemEquipmentTypeGrid, _itemEquipmentTypeJobGrid);
+        CommitItemEquipmentTypeJobGridEdits();
+        var update = BuildItemEquipmentTypeUpdate();
+        if (_itemEquipmentTypeSettingsService.Preview(_project, _tables, update).Count == 0) return Task.CompletedTask;
+
+        var result = _itemEquipmentTypeSettingsService.Save(_project, _tables, update);
+        RefreshItemEquipmentTypeProfileAndItemData();
+        LoadItemEquipmentTypeSettings();
+        _itemEquipmentTypeInfoBox.Text = result.Summary;
+        SetStatus(result.Summary);
         return Task.CompletedTask;
     }
 

@@ -28,6 +28,7 @@ public sealed class HexzmapProbeReader
 
         var mapInfos = ReadMapInfos(project);
         var directoryEntries = ReadDirectoryEntries(bytes, BuildMapCellLookup(mapInfos));
+        var bindings = BuildBindings(mapInfos, directoryEntries);
         var blocks = new List<HexzmapBlockInfo>();
 
         foreach (var map in mapInfos.OrderBy(x => x.MapNumber).ThenBy(x => x.FileName, StringComparer.CurrentCultureIgnoreCase))
@@ -81,6 +82,7 @@ public sealed class HexzmapProbeReader
                 MapPixelWidth = map.PixelWidth,
                 MapPixelHeight = map.PixelHeight,
                 CanEdit = entry.SegmentLength == entry.DecodedLength && entry.DecodedLength == map.CellCount + TerrainHeaderSize,
+                Binding = bindings.First(binding => binding.MapId.Equals(map.MapId, StringComparison.OrdinalIgnoreCase)),
                 Width = map.GridWidth,
                 Height = map.GridHeight,
                 BytesRead = map.CellCount,
@@ -111,8 +113,53 @@ public sealed class HexzmapProbeReader
             Payload = payload,
             DirectoryTableOffset = DirectoryOffset,
             DirectoryEntries = directoryEntries,
-            Blocks = blocks
+            Blocks = blocks,
+            Bindings = bindings
         };
+    }
+
+    private static IReadOnlyList<HexzmapBlockBinding> BuildBindings(
+        IReadOnlyList<HexzmapMapInfo> maps,
+        IReadOnlyList<HexzmapDirectoryEntry> entries)
+    {
+        var result = new List<HexzmapBlockBinding>(maps.Count);
+        foreach (var map in maps.OrderBy(item => item.MapNumber))
+        {
+            var exact = entries.FirstOrDefault(entry => entry.Index == map.MapNumber);
+            if (exact != null && exact.DecodedLength == map.CellCount + TerrainHeaderSize)
+            {
+                result.Add(new HexzmapBlockBinding
+                {
+                    MapId = map.MapId,
+                    DirectoryEntryIndex = exact.Index,
+                    Width = map.GridWidth,
+                    Height = map.GridHeight,
+                    Source = HexzmapBindingSource.ExactMapNumber,
+                    Confidence = 1f,
+                    Evidence = $"地图编号 {map.MapNumber} 与目录项索引一致，解码长度 {exact.DecodedLength} 与 {map.GridWidth}x{map.GridHeight}+2 一致。"
+                });
+                continue;
+            }
+
+            var sizeCandidates = entries
+                .Where(entry => entry.DecodedLength == map.CellCount + TerrainHeaderSize)
+                .OrderBy(entry => entry.Index)
+                .ToList();
+            result.Add(new HexzmapBlockBinding
+            {
+                MapId = map.MapId,
+                DirectoryEntryIndex = sizeCandidates.FirstOrDefault()?.Index ?? -1,
+                Width = map.GridWidth,
+                Height = map.GridHeight,
+                Source = sizeCandidates.Count == 0 ? HexzmapBindingSource.Unresolved : HexzmapBindingSource.SizeSuggestion,
+                Confidence = sizeCandidates.Count == 0 ? 0f : 1f / sizeCandidates.Count,
+                Evidence = sizeCandidates.Count == 0
+                    ? "没有目录项的解码长度与地图格数匹配。"
+                    : $"仅按尺寸找到 {sizeCandidates.Count} 个候选目录项：{string.Join(", ", sizeCandidates.Select(item => item.Index))}；未授权写入。"
+            });
+        }
+
+        return result;
     }
 
     public byte[] GetBlockCells(HexzmapProbeResult result, HexzmapBlockInfo block)

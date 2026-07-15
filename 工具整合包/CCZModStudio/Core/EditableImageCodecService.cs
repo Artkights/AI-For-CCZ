@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using CCZModStudio.Models;
 
 namespace CCZModStudio.Core;
@@ -11,21 +12,24 @@ public sealed class EditableImageCodecService
     private const int RtBitmap = 2;
     private static readonly byte[] PngMagic = [0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A];
     private readonly E5ImageReplaceService _e5 = new();
-    private readonly E5TrueColorImageCodec _trueColor = new();
+    private readonly E5RawImageCodec _raw = new();
+    private readonly E5RawPaletteService _rawPalette = new();
+    private readonly EditableImageStorageService _storage = new();
     private readonly IconResourceReplaceService _icons = new();
     private readonly ItemIconRasterNormalizeService _itemIconNormalizer = new();
     private readonly DllBitmapIconCodecService _dllIconCodec = new();
 
     public EditableImageDocument Load(CczProject project, EditableImageTarget target)
     {
-        var effectiveKind = ResolveEffectiveKind(target);
+        var storage = target.StorageInfo ?? _storage.Inspect(target);
+        var effectiveKind = ResolveEffectiveKind(target, storage);
         var loadNote = string.Empty;
         var bitmap = effectiveKind switch
         {
             EditableImageTargetKind.DllBitmapIcon => LoadDllBitmap(target),
             EditableImageTargetKind.E5RawStrip => LoadRawStrip(project, target),
-            _ when target.IsItemIconPair => LoadItemIconPair(target, out loadNote),
-            _ => LoadStandardE5(target)
+            _ when target.IsItemIconPair => LoadItemIconPair(target, storage, out loadNote),
+            _ => LoadStandardE5(target, storage)
         };
         var palettePath = string.Empty;
         IReadOnlyList<Color> rawPalette = Array.Empty<Color>();
@@ -40,7 +44,16 @@ public sealed class EditableImageCodecService
 
         if (rawPalette.Count < 256) palettePath = string.Empty;
 
-        var effectiveTarget = CloneTargetWithKind(target, effectiveKind);
+        var relatedEntrySources = target.RelatedEntrySources;
+        if (target.IsItemIconPair && relatedEntrySources.Count == 0)
+            relatedEntrySources = CaptureItemIconPairSources(project, target);
+        var sourceSnapshot = target.SourceSnapshot ?? CaptureSourceSnapshot(
+            target,
+            bitmap,
+            storage,
+            rawPalette,
+            palettePath);
+        var effectiveTarget = CloneTargetWithKind(target, effectiveKind, storage, sourceSnapshot, relatedEntrySources);
         return new EditableImageDocument
         {
             Target = effectiveTarget,
@@ -48,19 +61,26 @@ public sealed class EditableImageCodecService
             OriginalBitmap = CloneArgb(bitmap),
             Palette = rawPalette,
             PalettePath = palettePath,
-            RestrictToPalette = effectiveKind == EditableImageTargetKind.DllBitmapIcon && rawPalette.Count > 0,
-            PaletteRole = effectiveKind == EditableImageTargetKind.DllBitmapIcon ? "Itemicon.dll storage palette" : string.Empty,
-            FrameWidth = effectiveKind == EditableImageTargetKind.E5RawStrip ? target.FrameWidth : null,
-            FrameHeight = effectiveKind == EditableImageTargetKind.E5RawStrip ? target.FrameHeight : null,
-            LoadDetail = BuildLoadDetail(effectiveTarget, bitmap, loadNote)
+            RestrictToPalette = (effectiveKind == EditableImageTargetKind.DllBitmapIcon || storage.Kind == EditableImageStorageKind.Raw) && rawPalette.Count > 0,
+            PaletteRole = effectiveKind == EditableImageTargetKind.DllBitmapIcon
+                ? "Itemicon.dll storage palette"
+                : storage.Kind == EditableImageStorageKind.Raw ? "R/S RAW storage palette" : string.Empty,
+            FrameWidth = target.FrameWidth,
+            FrameHeight = target.FrameHeight,
+            LoadDetail = BuildLoadDetail(effectiveTarget, bitmap, loadNote) + $"；原存储 {storage.DisplayKind}",
+            StorageInfo = storage,
+            SourceSnapshot = sourceSnapshot
         };
     }
 
     public EditableImageWritePreview PreviewWrite(CczProject project, EditableImageTarget target, Bitmap bitmap)
     {
-        target = CloneTargetWithKind(target, ResolveEffectiveKind(target));
+        var storage = target.StorageInfo ?? _storage.Inspect(target);
+        target = CloneTargetWithKind(target, ResolveEffectiveKind(target, storage), storage);
+        EnsureBitmapChanged(target, bitmap);
         if (target.Kind == EditableImageTargetKind.DllBitmapIcon)
         {
+            EnsureDllSnapshotUnchanged(target);
             var palette = LoadDllIconPalette(target, out _);
             using var writeBitmap = palette.Count > 0
                 ? DllBitmapIconCodecService.QuantizeBitmapToPalette(bitmap, palette)
@@ -85,10 +105,10 @@ public sealed class EditableImageCodecService
         if (target.IsItemIconPair)
         {
             var pair = _itemIconNormalizer.NormalizePair(bitmap, target.DisplayName);
-            var e5Requests = BuildItemIconPairRequests(target, pair);
+            var e5Requests = BuildItemIconPairRequests(project, target, pair);
             var pairPreview = _e5.PreviewBatchReplacement(project, target.TargetPath, e5Requests);
-            var smallNumber = e5Requests[0].ImageNumber;
-            var largeNumber = e5Requests[1].ImageNumber;
+            var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
+            var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
             return new EditableImageWritePreview
             {
                 TargetRelativePath = pairPreview.TargetRelativePath,
@@ -98,15 +118,7 @@ public sealed class EditableImageCodecService
             };
         }
 
-        var sourceBytes = BuildE5SourceBytes(project, target, bitmap, out var warnings);
-        var e5Request = new E5ImageBatchReplaceRequest
-        {
-            ImageNumber = target.ImageNumber,
-            SourceBytes = sourceBytes,
-            SourceBytesAreRaw = false,
-            SourceLabel = target.DisplayName,
-            OperationKind = target.OperationKind
-        };
+        var e5Request = BuildE5Request(project, target, bitmap, storage, out var warnings);
         var e5Preview = _e5.PreviewBatchReplacement(project, target.TargetPath, [e5Request]);
         return new EditableImageWritePreview
         {
@@ -119,9 +131,12 @@ public sealed class EditableImageCodecService
 
     public EditableImageWriteResult Write(CczProject project, EditableImageTarget target, Bitmap bitmap)
     {
-        target = CloneTargetWithKind(target, ResolveEffectiveKind(target));
+        var storage = target.StorageInfo ?? _storage.Inspect(target);
+        target = CloneTargetWithKind(target, ResolveEffectiveKind(target, storage), storage);
+        EnsureBitmapChanged(target, bitmap);
         if (target.Kind == EditableImageTargetKind.DllBitmapIcon)
         {
+            EnsureDllSnapshotUnchanged(target);
             var palette = LoadDllIconPalette(target, out _);
             using var writeBitmap = palette.Count > 0
                 ? DllBitmapIconCodecService.QuantizeBitmapToPalette(bitmap, palette)
@@ -147,10 +162,10 @@ public sealed class EditableImageCodecService
         if (target.IsItemIconPair)
         {
             var pair = _itemIconNormalizer.NormalizePair(bitmap, target.DisplayName);
-            var e5Requests = BuildItemIconPairRequests(target, pair);
+            var e5Requests = BuildItemIconPairRequests(project, target, pair);
             var pairResult = _e5.ReplaceBatch(project, target.TargetPath, e5Requests);
-            var smallNumber = e5Requests[0].ImageNumber;
-            var largeNumber = e5Requests[1].ImageNumber;
+            var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
+            var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
             return new EditableImageWriteResult
             {
                 TargetRelativePath = pairResult.TargetRelativePath,
@@ -161,15 +176,7 @@ public sealed class EditableImageCodecService
             };
         }
 
-        var sourceBytes = BuildE5SourceBytes(project, target, bitmap, out _);
-        var e5Request = new E5ImageBatchReplaceRequest
-        {
-            ImageNumber = target.ImageNumber,
-            SourceBytes = sourceBytes,
-            SourceBytesAreRaw = false,
-            SourceLabel = target.DisplayName,
-            OperationKind = target.OperationKind
-        };
+        var e5Request = BuildE5Request(project, target, bitmap, storage, out _);
         var e5Result = _e5.ReplaceBatch(project, target.TargetPath, [e5Request]);
         return new EditableImageWriteResult
         {
@@ -181,22 +188,58 @@ public sealed class EditableImageCodecService
         };
     }
 
-    private Bitmap LoadStandardE5(EditableImageTarget target)
+    private Bitmap LoadStandardE5(EditableImageTarget target, EditableImageStorageInfo storage)
     {
         var bytes = _e5.ReadEntryBytes(target.TargetPath, target.ImageNumber);
         using var memory = new MemoryStream(bytes, writable: false);
         using var raw = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: true);
         var bitmap = CloneArgb(raw);
-        ApplyMagentaTransparency(bitmap);
+        if (storage.Kind is EditableImageStorageKind.Bmp24 or EditableImageStorageKind.Jpeg)
+            ApplyBackgroundKeyTransparency(bitmap, storage.BackgroundKeyColor, storage.Kind == EditableImageStorageKind.Jpeg ? 28 : 2);
         return bitmap;
     }
 
-    private Bitmap LoadItemIconPair(EditableImageTarget target, out string loadNote)
+    public EditableImagePreparedE5Write PrepareE5Write(CczProject project, EditableImageTarget target, Bitmap bitmap)
+    {
+        var storage = target.StorageInfo ?? _storage.Inspect(target);
+        target = CloneTargetWithKind(target, ResolveEffectiveKind(target, storage), storage);
+        if (target.Kind == EditableImageTargetKind.DllBitmapIcon)
+        {
+            throw new InvalidOperationException("DLL 图标不能加入 E5 资源组写回。");
+        }
+
+        if (target.IsItemIconPair)
+        {
+            var pair = _itemIconNormalizer.NormalizePair(bitmap, target.DisplayName);
+            return new EditableImagePreparedE5Write
+            {
+                Target = target,
+                TargetPath = target.TargetPath,
+                Requests = BuildItemIconPairRequests(project, target, pair)
+            };
+        }
+
+        var request = BuildE5Request(project, target, bitmap, storage, out var warnings);
+        return new EditableImagePreparedE5Write
+        {
+            Target = target,
+            TargetPath = target.TargetPath,
+            Requests =
+            [
+                request
+            ],
+            Warnings = warnings
+        };
+    }
+
+    private Bitmap LoadItemIconPair(
+        EditableImageTarget target,
+        EditableImageStorageInfo storage,
+        out string loadNote)
     {
         var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
         var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
-        var bytes = _e5.ReadEntryBytes(target.TargetPath, largeNumber);
-        var decoded = ItemIconRasterNormalizeService.DecodeGameIconBmp(bytes);
+        var decoded = LoadStandardE5(target, storage);
         if (decoded.Width == ItemIconRasterNormalizeService.LargeIconSize &&
             decoded.Height == ItemIconRasterNormalizeService.LargeIconSize)
         {
@@ -225,7 +268,7 @@ public sealed class EditableImageCodecService
         }
 
         var height = rawLength / spec.Width;
-        var bitmap = new Bitmap(spec.Width, height, PixelFormat.Format32bppArgb);
+        var pixels = new int[checked(spec.Width * height)];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < spec.Width; x++)
@@ -233,22 +276,26 @@ public sealed class EditableImageCodecService
                 var value = bytes[y * spec.Width + x];
                 if (value == 0)
                 {
-                    bitmap.SetPixel(x, y, Color.Transparent);
+                    pixels[y * spec.Width + x] = Color.Transparent.ToArgb();
                     continue;
                 }
 
                 var color = value < palette.Count ? palette[value] : Color.FromArgb(255, value, value, value);
-                bitmap.SetPixel(x, y, IsMagentaKey(color) ? Color.Transparent : color);
+                pixels[y * spec.Width + x] = (IsMagentaKey(color) ? Color.Transparent : color).ToArgb();
             }
         }
 
-        return bitmap;
+        return BitmapArgbSnapshot.Create(spec.Width, height, pixels);
     }
 
     private Bitmap LoadDllBitmap(EditableImageTarget target)
     {
         var resources = _dllIconCodec.ParseBitmapResources(target.TargetPath);
         var pair = _dllIconCodec.ResolveBitmapResourcePair(resources, target.IconIndex);
+        var unsupported = pair.AllVariants.FirstOrDefault(resource => resource.BitCount is not (8 or 24 or 32));
+        if (unsupported != null)
+            throw new InvalidOperationException(
+                $"RT_BITMAP ID={unsupported.Id} LANG={unsupported.LanguageId} is {unsupported.BitCount}bpp. Pixel editing is read-only for formats other than uncompressed 8/24/32bpp DIB.");
         var selected = _dllIconCodec.SelectDisplayVariant(pair.LargeVariants)
                        ?? _dllIconCodec.SelectDisplayVariant(pair.SmallVariants)
                        ?? throw new InvalidOperationException($"图标编号 {target.IconIndex} 没有可编辑的 RT_BITMAP 资源。");
@@ -271,45 +318,151 @@ public sealed class EditableImageCodecService
         return _dllIconCodec.ResolveStoragePalette(resources, pair);
     }
 
-    private byte[] BuildE5SourceBytes(CczProject project, EditableImageTarget target, Bitmap bitmap, out IReadOnlyList<string> warnings)
+    private E5ImageBatchReplaceRequest BuildE5Request(
+        CczProject project,
+        EditableImageTarget target,
+        Bitmap bitmap,
+        EditableImageStorageInfo storage,
+        out IReadOnlyList<string> warnings)
     {
-        if (target.Kind == EditableImageTargetKind.E5RawStrip)
+        if (!storage.CanEdit)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(storage.ReadOnlyReason)
+                ? $"当前 {storage.DisplayKind} 条目不支持安全像素写回。"
+                : storage.ReadOnlyReason);
+
+        byte[] sourceBytes;
+        var sourceIsRaw = false;
+        var policy = E5ImageWritePlacementPolicy.RequireExactInPlace;
+        var snapshot = target.SourceSnapshot
+                       ?? throw new InvalidOperationException("Pixel writeback is missing its source snapshot. Reload the image before saving.");
+        if (snapshot.Width != bitmap.Width || snapshot.Height != bitmap.Height)
+            throw new InvalidOperationException("The editable image dimensions changed after loading.");
+        if (storage.Kind == EditableImageStorageKind.Raw)
         {
             var spec = ResolveRawSpec(target.TargetPath);
-            var encode = _trueColor.EncodeBitmap(project, bitmap, target.DisplayName, spec, strictHeight: false);
+            var currentPalette = LoadRawPalette(project, out var currentPalettePath);
+            var currentPaletteSha = ComputePaletteSha256(currentPalette, currentPalettePath);
+            if (!currentPaletteSha.Equals(snapshot.PaletteSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The RAW palette changed after the pixel editor loaded the image. Reload before saving.");
+            var encode = _raw.EncodeBitmapPreservingIndices(
+                bitmap,
+                target.DisplayName,
+                spec,
+                snapshot.Palette,
+                currentPalettePath,
+                snapshot.DecodedBytes,
+                snapshot.OriginalArgbPixels,
+                snapshot.TrailingByteCount);
+            sourceBytes = encode.RawBytes;
+            if (sourceBytes.Length != storage.OriginalStoredLength)
+                throw new InvalidOperationException($"RAW 写回长度必须保持 {storage.OriginalStoredLength:N0} 字节，当前编码为 {sourceBytes.Length:N0} 字节。");
             warnings = encode.Warnings;
-            return encode.ImageBytes;
+            sourceIsRaw = true;
+        }
+        else if (storage.Kind == EditableImageStorageKind.Bmp24)
+        {
+            sourceBytes = _storage.EncodeBmp24PreservingUnchangedPixels(
+                storage,
+                snapshot.DecodedBytes,
+                bitmap,
+                snapshot.OriginalArgbPixels);
+            if (sourceBytes.Length != storage.OriginalStoredLength)
+                throw new InvalidOperationException("BMP 原格式编码改变了条目长度，已拒绝写回。");
+            warnings = Array.Empty<string>();
+        }
+        else if (storage.Kind == EditableImageStorageKind.Png)
+        {
+            using var memory = new MemoryStream();
+            bitmap.Save(memory, ImageFormat.Png);
+            sourceBytes = memory.ToArray();
+            warnings = Array.Empty<string>();
+            policy = E5ImageWritePlacementPolicy.RequireStableOffset;
+        }
+        else
+        {
+            throw new InvalidOperationException(storage.ReadOnlyReason);
         }
 
-        warnings = Array.Empty<string>();
-        using var memory = new MemoryStream();
-        bitmap.Save(memory, ImageFormat.Png);
-        return memory.ToArray();
+        return new E5ImageBatchReplaceRequest
+        {
+            ImageNumber = target.ImageNumber,
+            SourceBytes = sourceBytes,
+            SourceBytesAreRaw = sourceIsRaw,
+            SourceLabel = target.DisplayName,
+            OperationKind = target.OperationKind,
+            ExpectedTargetKind = storage.ExpectedE5Kind,
+            ExpectedTargetSha256 = storage.EntrySha256,
+            ExpectedArchiveSha256 = snapshot.ArchiveSha256,
+            ExpectedIndexSha256 = snapshot.IndexSha256,
+            PlacementPolicy = policy,
+            CharacterTarget = target.CharacterTarget
+        };
     }
 
-    private static IReadOnlyList<E5ImageBatchReplaceRequest> BuildItemIconPairRequests(
+    private IReadOnlyList<E5ImageBatchReplaceRequest> BuildItemIconPairRequests(
+        CczProject project,
         EditableImageTarget target,
         ItemIconRasterPair pair)
     {
         var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
         var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
-        return
-        [
-            new E5ImageBatchReplaceRequest
-            {
-                ImageNumber = smallNumber,
-                SourceBytes = pair.Small.BmpBytes,
-                SourceLabel = $"{target.DisplayName} (normalized small 16x16)",
-                OperationKind = "item icon pixel edit small normalized"
-            },
-            new E5ImageBatchReplaceRequest
-            {
-                ImageNumber = largeNumber,
-                SourceBytes = pair.Large.BmpBytes,
-                SourceLabel = $"{target.DisplayName} (normalized large 32x32)",
-                OperationKind = "item icon pixel edit large normalized"
-            }
-        ];
+        if (!target.RelatedEntrySources.TryGetValue(smallNumber, out var smallSource) ||
+            !target.RelatedEntrySources.TryGetValue(largeNumber, out var largeSource))
+            throw new InvalidOperationException("Item.e5 pair writeback is missing the small/large source snapshots. Reload before saving.");
+
+        using var smallBitmap = pair.Small.CreateTransparentBitmap();
+        using var largeBitmap = pair.Large.CreateTransparentBitmap();
+        var smallTarget = BuildRelatedEntryTarget(target, smallSource, "small 16x16");
+        var largeTarget = BuildRelatedEntryTarget(target, largeSource, "large 32x32");
+        var requests = new List<E5ImageBatchReplaceRequest>();
+        if (!BitmapMatchesSnapshot(smallBitmap, smallSource.Snapshot))
+            requests.Add(BuildE5Request(project, smallTarget, smallBitmap, smallSource.StorageInfo, out _));
+        if (!BitmapMatchesSnapshot(largeBitmap, largeSource.Snapshot))
+            requests.Add(BuildE5Request(project, largeTarget, largeBitmap, largeSource.StorageInfo, out _));
+        if (requests.Count == 0)
+            throw new InvalidOperationException("The normalized Item.e5 small/large icons contain no pixel changes.");
+        return requests;
+    }
+
+    private static EditableImageTarget BuildRelatedEntryTarget(
+        EditableImageTarget pairTarget,
+        EditableImageEntrySource source,
+        string role)
+        => new()
+        {
+            Kind = EditableImageTargetKind.E5Standard,
+            DisplayName = $"{pairTarget.DisplayName} ({role})",
+            TargetPath = pairTarget.TargetPath,
+            ImageNumber = source.ImageNumber,
+            ResourceFormat = source.StorageInfo.DisplayKind,
+            OperationKind = pairTarget.OperationKind,
+            CharacterTarget = pairTarget.CharacterTarget,
+            StorageInfo = source.StorageInfo,
+            SourceSnapshot = source.Snapshot
+        };
+
+    private static bool BitmapMatchesSnapshot(Bitmap bitmap, EditableImageSourceSnapshot snapshot)
+    {
+        if (bitmap.Width != snapshot.Width || bitmap.Height != snapshot.Height ||
+            snapshot.OriginalArgbPixels.Length != checked(bitmap.Width * bitmap.Height)) return false;
+        var currentPixels = BitmapArgbSnapshot.Capture(bitmap);
+        for (var index = 0; index < currentPixels.Length; index++)
+        {
+            if (!PixelsEquivalent(currentPixels[index], snapshot.OriginalArgbPixels[index])) return false;
+        }
+        return true;
+    }
+
+    private static bool PixelsEquivalent(int currentArgb, int originalArgb)
+        => currentArgb == originalArgb ||
+           (((uint)currentArgb >> 24) == 0 && ((uint)originalArgb >> 24) == 0);
+
+    private static void EnsureBitmapChanged(EditableImageTarget target, Bitmap bitmap)
+    {
+        var snapshot = target.SourceSnapshot
+                       ?? throw new InvalidOperationException("Pixel writeback is missing its source snapshot. Reload before saving.");
+        if (BitmapMatchesSnapshot(bitmap, snapshot))
+            throw new InvalidOperationException("No pixel changes were detected; the resource file was not written.");
     }
 
     private static string BuildLoadDetail(EditableImageTarget target, Bitmap bitmap, string loadNote = "")
@@ -346,10 +499,123 @@ public sealed class EditableImageCodecService
 
     public EditableImageTargetKind ResolveEffectiveKind(EditableImageTarget target)
     {
-        if (target.Kind != EditableImageTargetKind.E5RawStrip) return target.Kind;
+        var storage = target.StorageInfo ?? _storage.Inspect(target);
+        return ResolveEffectiveKind(target, storage);
+    }
 
-        var bytes = _e5.ReadEntryBytes(target.TargetPath, target.ImageNumber);
-        return IsStandardImage(bytes) ? EditableImageTargetKind.E5Standard : EditableImageTargetKind.E5RawStrip;
+    private EditableImageTargetKind ResolveEffectiveKind(EditableImageTarget target, EditableImageStorageInfo storage)
+    {
+        if (target.Kind == EditableImageTargetKind.DllBitmapIcon) return target.Kind;
+        if (storage.Kind == EditableImageStorageKind.Raw) return EditableImageTargetKind.E5RawStrip;
+        if (storage.Kind == EditableImageStorageKind.Ls12)
+        {
+            var decoded = _e5.ReadEntryBytes(target.TargetPath, target.ImageNumber);
+            return IsStandardImage(decoded) ? EditableImageTargetKind.E5Standard : EditableImageTargetKind.E5RawStrip;
+        }
+        return EditableImageTargetKind.E5Standard;
+    }
+
+    private IReadOnlyDictionary<int, EditableImageEntrySource> CaptureItemIconPairSources(
+        CczProject project,
+        EditableImageTarget target)
+    {
+        var smallNumber = target.SmallImageNumber > 0 ? target.SmallImageNumber : Math.Max(1, target.ImageNumber - 1);
+        var largeNumber = target.LargeImageNumber > 0 ? target.LargeImageNumber : target.ImageNumber;
+        var result = new Dictionary<int, EditableImageEntrySource>();
+        foreach (var pairEntry in new[] { (Number: smallNumber, Size: ItemIconRasterNormalizeService.SmallIconSize), (Number: largeNumber, Size: ItemIconRasterNormalizeService.LargeIconSize) })
+        {
+            var entryTarget = new EditableImageTarget
+            {
+                Kind = EditableImageTargetKind.E5Standard,
+                DisplayName = target.DisplayName,
+                TargetPath = target.TargetPath,
+                ImageNumber = pairEntry.Number,
+                OperationKind = target.OperationKind
+            };
+            var entryStorage = _storage.Inspect(entryTarget);
+            if (entryStorage.Kind is not (EditableImageStorageKind.Bmp24 or EditableImageStorageKind.Png) || !entryStorage.CanEdit)
+                throw new InvalidOperationException(
+                    $"Item.e5 image #{pairEntry.Number} is {entryStorage.DisplayKind}; both icon entries must be editable BMP24 or PNG without format conversion.");
+            using var original = LoadStandardE5(entryTarget, entryStorage);
+            if (original.Width != pairEntry.Size || original.Height != pairEntry.Size)
+                throw new InvalidOperationException(
+                    $"Item.e5 image #{pairEntry.Number} must remain {pairEntry.Size}x{pairEntry.Size}; actual {original.Width}x{original.Height}.");
+            result[pairEntry.Number] = new EditableImageEntrySource
+            {
+                ImageNumber = pairEntry.Number,
+                StorageInfo = entryStorage,
+                Snapshot = CaptureSourceSnapshot(entryTarget, original, entryStorage, Array.Empty<Color>(), string.Empty)
+            };
+        }
+        return result;
+    }
+
+    private EditableImageSourceSnapshot CaptureSourceSnapshot(
+        EditableImageTarget target,
+        Bitmap bitmap,
+        EditableImageStorageInfo storage,
+        IReadOnlyList<Color> palette,
+        string palettePath)
+    {
+        var originalArgb = CaptureArgb(bitmap);
+        if (target.Kind == EditableImageTargetKind.DllBitmapIcon)
+        {
+            return new EditableImageSourceSnapshot
+            {
+                OriginalArgbPixels = originalArgb,
+                Width = bitmap.Width,
+                Height = bitmap.Height,
+                ArchiveSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target.TargetPath)))
+            };
+        }
+
+        var stored = _e5.ReadStoredEntryBytes(target.TargetPath, target.ImageNumber);
+        var decoded = _e5.ReadEntryBytes(target.TargetPath, target.ImageNumber);
+        var trailing = 0;
+        if (storage.Kind == EditableImageStorageKind.Raw)
+        {
+            var probe = RsStripLayoutService.Probe(target.TargetPath, "RAW", decoded);
+            if (!probe.IsSupportedLayout) throw new InvalidOperationException(probe.Detail);
+            trailing = probe.TrailingByteCount;
+        }
+
+        return new EditableImageSourceSnapshot
+        {
+            StoredBytes = stored,
+            DecodedBytes = decoded,
+            OriginalArgbPixels = originalArgb,
+            Width = bitmap.Width,
+            Height = bitmap.Height,
+            TrailingByteCount = trailing,
+            ArchiveSha256 = _e5.ComputeArchiveSha256(target.TargetPath),
+            IndexSha256 = _e5.ComputeIndexSha256(target.TargetPath),
+            PaletteSha256 = ComputePaletteSha256(palette, palettePath),
+            Palette = palette.ToArray()
+        };
+    }
+
+    private static int[] CaptureArgb(Bitmap bitmap)
+        => BitmapArgbSnapshot.Capture(bitmap);
+
+    private static string ComputePaletteSha256(IReadOnlyList<Color> palette, string palettePath)
+    {
+        if (!string.IsNullOrWhiteSpace(palettePath) && File.Exists(palettePath))
+            return Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(palettePath)));
+        if (palette.Count == 0) return string.Empty;
+        var bytes = new byte[checked(palette.Count * sizeof(int))];
+        for (var index = 0; index < palette.Count; index++)
+            BitConverter.GetBytes(palette[index].ToArgb()).CopyTo(bytes, index * sizeof(int));
+        return Convert.ToHexString(SHA256.HashData(bytes));
+    }
+
+    private static void EnsureDllSnapshotUnchanged(EditableImageTarget target)
+    {
+        var expected = target.SourceSnapshot?.ArchiveSha256;
+        if (string.IsNullOrWhiteSpace(expected))
+            throw new InvalidOperationException("DLL pixel writeback is missing its source snapshot. Reload the icon before saving.");
+        var current = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target.TargetPath)));
+        if (!current.Equals(expected, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The DLL changed after the pixel editor loaded it. Reload before saving.");
     }
 
     private static bool IsStandardImage(byte[] bytes)
@@ -358,7 +624,12 @@ public sealed class EditableImageCodecService
             (bytes[0] == 0xFF && bytes[1] == 0xD8) ||
             (bytes.Length >= PngMagic.Length && bytes.AsSpan(0, PngMagic.Length).SequenceEqual(PngMagic)));
 
-    private static EditableImageTarget CloneTargetWithKind(EditableImageTarget target, EditableImageTargetKind kind)
+    private static EditableImageTarget CloneTargetWithKind(
+        EditableImageTarget target,
+        EditableImageTargetKind kind,
+        EditableImageStorageInfo? storage = null,
+        EditableImageSourceSnapshot? sourceSnapshot = null,
+        IReadOnlyDictionary<int, EditableImageEntrySource>? relatedEntrySources = null)
         => new()
         {
             Kind = kind,
@@ -367,51 +638,45 @@ public sealed class EditableImageCodecService
             ImageNumber = target.ImageNumber,
             IconIndex = target.IconIndex,
             ResourceFormat = target.ResourceFormat,
-            FrameWidth = kind == EditableImageTargetKind.E5RawStrip ? target.FrameWidth : null,
-            FrameHeight = kind == EditableImageTargetKind.E5RawStrip ? target.FrameHeight : null,
+            FrameWidth = target.FrameWidth,
+            FrameHeight = target.FrameHeight,
             IsItemIconPair = target.IsItemIconPair,
             SmallImageNumber = target.SmallImageNumber,
             LargeImageNumber = target.LargeImageNumber,
-            OperationKind = target.OperationKind
+            OperationKind = target.OperationKind,
+            StorageInfo = storage ?? target.StorageInfo,
+            SourceSnapshot = sourceSnapshot ?? target.SourceSnapshot,
+            RelatedEntrySources = relatedEntrySources ?? target.RelatedEntrySources
         };
 
-    private static IReadOnlyList<Color> LoadRawPalette(CczProject project, out string palettePath)
+    private IReadOnlyList<Color> LoadRawPalette(CczProject project, out string palettePath)
     {
-        var candidates = new[]
-        {
-            PortableInstallPaths.PaletteTsbPath,
-            Path.Combine(project.GameRoot, "tsb")
-        };
-
-        palettePath = candidates.FirstOrDefault(path => File.Exists(path) && new FileInfo(path).Length >= 256 * 4) ?? candidates[0];
-        if (!File.Exists(palettePath)) return Array.Empty<Color>();
-
-        var bytes = File.ReadAllBytes(palettePath);
-        var colors = new Color[256];
-        for (var i = 0; i < colors.Length; i++)
-        {
-            var offset = i * 4;
-            colors[i] = Color.FromArgb(255, bytes[offset + 2], bytes[offset + 1], bytes[offset]);
-        }
-
-        return colors;
+        var palette = _rawPalette.Load(project);
+        palettePath = palette.Path;
+        return palette.Colors;
     }
 
     private static Bitmap CloneArgb(Image raw)
     {
         var bitmap = new Bitmap(raw.Width, raw.Height, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
+        g.Clear(Color.Transparent);
+        g.CompositingMode = CompositingMode.SourceCopy;
         g.DrawImage(raw, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
         return bitmap;
     }
 
-    private static void ApplyMagentaTransparency(Bitmap bitmap)
+    private static void ApplyBackgroundKeyTransparency(Bitmap bitmap, Color key, int tolerance)
     {
         for (var y = 0; y < bitmap.Height; y++)
         {
             for (var x = 0; x < bitmap.Width; x++)
             {
-                if (IsMagentaKey(bitmap.GetPixel(x, y)))
+                var color = bitmap.GetPixel(x, y);
+                if (color.A == 0 ||
+                    Math.Abs(color.R - key.R) <= tolerance &&
+                    Math.Abs(color.G - key.G) <= tolerance &&
+                    Math.Abs(color.B - key.B) <= tolerance)
                 {
                     bitmap.SetPixel(x, y, Color.Transparent);
                 }

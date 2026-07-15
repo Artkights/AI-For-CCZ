@@ -8,12 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="CCZModStudio.McpServer">
-      <HintPath>..\CCZModStudio.McpServer\bin\Debug\net8.0-windows\CCZModStudio.McpServer.dll</HintPath>
-    </Reference>
-    <Reference Include="CCZModStudio.Runtime">
-      <HintPath>..\CCZModStudio.McpServer\bin\Debug\net8.0-windows\CCZModStudio.Runtime.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\CCZModStudio.McpServer\CCZModStudio.McpServer.csproj" />
+    <ProjectReference Include="..\CCZModStudio.Runtime\CCZModStudio.Runtime.csproj" />
   </ItemGroup>
 
 </Project>

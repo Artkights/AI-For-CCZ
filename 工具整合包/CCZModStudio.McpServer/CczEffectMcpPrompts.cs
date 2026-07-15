@@ -16,7 +16,7 @@ public sealed class CczEffectMcpPrompts(CczMcpRuntime runtime)
     };
 
     [McpServerPrompt(Name = "make_ccz_effect", Title = "Make CCZ EffectPackage")]
-    [Description("Turn a natural-language CCZ 6.5 effect request into a safe EffectPackage draft.")]
+    [Description("Guide a local agent to turn a CCZ 6.5 effect request into a safe EffectPackage or injectable patch draft.")]
     public string MakeCczEffect(
         [Description("Natural-language request for the effect to make.")]
         string request)
@@ -41,18 +41,20 @@ public sealed class CczEffectMcpPrompts(CczMcpRuntime runtime)
         var prompt = runtime.ReadEffectPrompt(name);
         return string.Join(Environment.NewLine, new[]
         {
-            "Use the following CCZModStudio effect prompt instructions.",
+            "Use the following CCZModStudio effect instructions. The local agent generates drafts; CCZModStudio validates, previews, applies, backs up, and reports.",
             JsonSerializer.Serialize(prompt, JsonOptions),
             string.Empty,
             "User input:",
             userInput ?? string.Empty,
             string.Empty,
             "Required workflow:",
-            "1. Read ccz://effects/schema and ccz://knowledge/effects.",
-            "2. Use list_effects/list_effect_templates before creating or changing a package.",
-            "3. Prefer item/job/personal configuration packages. Use patch packages only when existing effect ids cannot express the request.",
-            "4. Always call preview_effect_package or preview_effect_patch before apply_effect_package/apply_effect_patch.",
-            "5. For patch bytes, require address mapping, expected old bytes, conflict checks, manifest output, and manual recovery notes."
+            "1. Read ccz://effects/schema, ccz://knowledge/effects, and ccz://knowledge/effects/agent-special-effect.",
+            "2. Call list_effect_modules and prefer a validated ModularCompositeEffectBlueprint when the request can be expressed by verified modules.",
+            "3. Use scan_effect_id_locations for summaries, then read_effect_id_location only for the selected LocationId; do not load every diagnostic location into context.",
+            "4. Prefer item/job/personal configuration packages. Use patch packages only when existing effect ids cannot express the request.",
+            "5. For modular composites, call validate_effect_blueprint then preview_modular_effect. For custom assembly, call preview_assembly_patch.",
+            "6. Apply only a compiled EffectPackage returned by a successful preview tool.",
+            "7. For patch bytes, require address mapping, exact operand provenance, expected old bytes, conflict checks, manifest output, and manual recovery notes."
         });
     }
 }

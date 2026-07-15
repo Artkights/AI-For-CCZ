@@ -93,7 +93,7 @@ public sealed partial class MainForm
             var cell = row.Cells[fieldName];
             _dataGrid.CurrentCell = cell;
             cell.Selected = true;
-            if (row.Index >= 0 && row.Index < _dataGrid.RowCount) _dataGrid.FirstDisplayedScrollingRowIndex = row.Index;
+            TryScrollGridRowIntoView(_dataGrid, row.Index);
             ShowSelectedDataCellAnnotation(row.Index, cell.ColumnIndex);
             return true;
         }
@@ -138,15 +138,16 @@ public sealed partial class MainForm
         return false;
     }
 
-    private static bool SelectGridRow<T>(DataGridView grid, Func<T, bool> predicate)
+    internal static bool SelectGridRow<T>(DataGridView grid, Func<T, bool> predicate)
     {
         foreach (DataGridViewRow row in grid.Rows)
         {
             if (row.DataBoundItem is not T item || !predicate(item)) continue;
             grid.ClearSelection();
             row.Selected = true;
-            if (row.Cells.Count > 0) grid.CurrentCell = row.Cells[0];
-            if (row.Index >= 0 && row.Index < grid.RowCount) grid.FirstDisplayedScrollingRowIndex = row.Index;
+            var firstVisibleCell = row.Cells.Cast<DataGridViewCell>().FirstOrDefault(cell => cell.Visible);
+            if (firstVisibleCell != null) grid.CurrentCell = firstVisibleCell;
+            TryScrollGridRowIntoView(grid, row.Index);
             return true;
         }
 

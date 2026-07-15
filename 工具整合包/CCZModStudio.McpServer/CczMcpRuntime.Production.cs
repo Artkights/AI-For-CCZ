@@ -14,6 +14,8 @@ public sealed partial class CczMcpRuntime
     private readonly MapResourceIndexer _mapResourceIndexer = new();
     private readonly MapCanvasComposeService _mapCanvasComposeService = new();
     private readonly MapCanvasPublishService _mapCanvasPublishService = new();
+    private readonly MapSlotPublishService _mapSlotPublishService = new();
+    private readonly MapResizeService _mapResizeService = new();
     private readonly MaterialLibraryMigrationService _materialLibraryMigrationService = new();
     private readonly MaterialDrivenTerrainService _materialDrivenTerrainService = new();
     private readonly TerrainDrivenMapGenerationService _terrainDrivenMapGenerationService = new();
@@ -153,51 +155,183 @@ public sealed partial class CczMcpRuntime
         };
     }
 
-    public object PublishMapWorkbenchBundle(string? gameRoot, string draftId, string? mapId)
+    public object ListMapSlots(string? gameRoot)
     {
         var project = LoadProject(gameRoot);
-        EnsureWriteMode(project, "direct");
-        var draft = _mapDraftService.LoadDraft(project, draftId);
-        var target = ResolveMapResource(project, string.IsNullOrWhiteSpace(mapId) ? draft.BoundMapId : mapId);
-        var materials = LoadMaterialsForDraft(project, draft);
-        var mapResult = _mapCanvasPublishService.PublishToMapImage(project, draft, target, materials);
-
-        var terrainLookup = BuildTerrainNameLookup(project);
-        var probe = _hexzmapProbeReader.Read(project, terrainLookup);
-        var block = probe.Blocks.FirstOrDefault(x => x.MapId.Equals(target.Id, StringComparison.OrdinalIgnoreCase) ||
-                                                     x.MapId.Equals("M" + target.Id, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException($"Hexzmap block for map {target.Id} was not found.");
-        if (draft.TerrainCells.Length != block.Width * block.Height)
+        var slots = _mapSlotPublishService.ListSlots(project);
+        return new
         {
-            throw new InvalidOperationException($"Draft terrain cell count {draft.TerrainCells.Length} does not match Hexzmap block {block.MapId} size {block.Width}x{block.Height}.");
-        }
-
-        var currentCells = _hexzmapProbeReader.GetBlockCells(probe, block);
-        object? terrainResult;
-        if (currentCells.SequenceEqual(draft.TerrainCells))
-        {
-            terrainResult = new
+            project.GameRoot,
+            DirectoryEntryCount = slots.Count(slot => slot.TerrainEntry != null),
+            NextAppendMapId = $"M{_mapSlotPublishService.ListSlots(project).Count(slot => slot.TerrainEntry != null):000}",
+            Slots = slots.Select(slot => new
             {
-                Skipped = true,
-                block.MapId,
-                Reason = "Hexzmap terrain cells already match the draft."
-            };
-        }
-        else
-        {
-            terrainResult = _hexzmapEditor.SaveBlock(project, probe, block, draft.TerrainCells, terrainLookup);
-        }
+                slot.MapId,
+                State = slot.State.ToString(),
+                StateText = MapSlotCatalogEntry.GetStateText(slot.State),
+                slot.GridWidth,
+                slot.GridHeight,
+                slot.CanOverwrite,
+                slot.Detail,
+                MapPath = slot.MapResource?.Path ?? string.Empty,
+                TerrainEntryIndex = slot.TerrainEntry?.Index
+            })
+        };
+    }
 
+    public object PreviewMapSlotPublish(
+        string? gameRoot,
+        string draftId,
+        string? mapId,
+        bool appendNew,
+        bool allowResize,
+        bool confirmDestructiveCrop,
+        string? expectedTargetHash,
+        string? expectedHexzmapHash)
+    {
+        var project = LoadProject(gameRoot);
+        var draft = _mapDraftService.LoadDraft(project, draftId);
+        var materials = LoadMaterialsForDraft(project, draft);
+        var request = BuildMapSlotPublishRequest(
+            draft,
+            mapId,
+            appendNew,
+            allowResize,
+            confirmDestructiveCrop,
+            expectedTargetHash,
+            expectedHexzmapHash,
+            "preview");
+        var plan = _mapSlotPublishService.Preview(project, draft, materials, request);
+        return BuildMapSlotPublishPlanPayload(project, draft, plan);
+    }
+
+    public object ApplyMapSlotPublish(
+        string? gameRoot,
+        string draftId,
+        string? mapId,
+        bool appendNew,
+        bool allowResize,
+        bool confirmDestructiveCrop,
+        string? expectedTargetHash,
+        string? expectedHexzmapHash,
+        string? writeMode)
+    {
+        var project = LoadProject(gameRoot);
+        EnsureWriteMode(project, writeMode);
+        var draft = _mapDraftService.LoadDraft(project, draftId);
+        var materials = LoadMaterialsForDraft(project, draft);
+        var request = BuildMapSlotPublishRequest(
+            draft,
+            mapId,
+            appendNew,
+            allowResize,
+            confirmDestructiveCrop,
+            expectedTargetHash,
+            expectedHexzmapHash,
+            writeMode);
+        var plan = _mapSlotPublishService.Preview(project, draft, materials, request);
+        var result = _mapSlotPublishService.Apply(project, draft, plan);
         return new
         {
             project.GameRoot,
             Draft = BuildMapDraftSummary(draft),
-            Target = BuildMapResourcePayload(project, target),
-            MapImageResult = mapResult,
-            TerrainResult = terrainResult,
-            SafetyNote = "Published Map/Mxxx.jpg and the matching Hexzmap.e5 terrain block as one direct-write bundle with independent backups, reports, and reread validation."
+            Plan = BuildMapSlotPublishPlanPayload(project, draft, plan),
+            Result = result,
+            SafetyNote = "Map/Mxxx.JPG、Hexzmap.e5 和草稿绑定通过同一事务提交；失败时恢复已有文件并删除本次新增底图。未创建或修改任何 S/R 文件。"
         };
     }
+
+    public object PreviewMapResize(string? gameRoot, string draftId, int newWidth, int newHeight, int terrainFillId)
+    {
+        var project = LoadProject(gameRoot);
+        var draft = _mapDraftService.LoadDraft(project, draftId);
+        var request = new MapResizeRequest
+        {
+            OldWidth = draft.GridWidth,
+            OldHeight = draft.GridHeight,
+            NewWidth = newWidth,
+            NewHeight = newHeight,
+            TerrainFillId = checked((byte)Math.Clamp(terrainFillId, 0, 255))
+        };
+        return new
+        {
+            project.GameRoot,
+            draft.DraftId,
+            Preview = _mapResizeService.Preview(draft, request),
+            PixelWidth = checked(newWidth * MapResourceItem.MapTilePixelSize),
+            PixelHeight = checked(newHeight * MapResourceItem.MapTilePixelSize),
+            PublishableTo65Project = newWidth is >= 1 and <= HexzmapLayoutWriter.MaximumPublishedGridSize &&
+                                      newHeight is >= 1 and <= HexzmapLayoutWriter.MaximumPublishedGridSize,
+            SafetyNote = "只读预览；左上区域坐标不变，新增区域位于右侧/底部，未修改草稿或游戏文件。"
+        };
+    }
+
+    public object PublishMapWorkbenchBundle(
+        string? gameRoot,
+        string draftId,
+        string? mapId,
+        bool appendNew = false,
+        bool allowResize = false,
+        bool confirmDestructiveCrop = false,
+        string? writeMode = null)
+        => ApplyMapSlotPublish(
+            gameRoot,
+            draftId,
+            mapId,
+            appendNew,
+            allowResize,
+            confirmDestructiveCrop,
+            expectedTargetHash: null,
+            expectedHexzmapHash: null,
+            writeMode);
+
+    private static MapSlotPublishRequest BuildMapSlotPublishRequest(
+        MapWorkbenchDraft draft,
+        string? mapId,
+        bool appendNew,
+        bool allowResize,
+        bool confirmDestructiveCrop,
+        string? expectedTargetHash,
+        string? expectedHexzmapHash,
+        string? writeMode)
+        => new()
+        {
+            DraftId = draft.DraftId,
+            Mode = appendNew ? MapSlotPublishMode.AppendNew : MapSlotPublishMode.OverwriteExisting,
+            TargetMapId = appendNew ? string.Empty : string.IsNullOrWhiteSpace(mapId) ? draft.BoundMapId : mapId,
+            AllowResizeExisting = allowResize,
+            ConfirmDestructiveCrop = confirmDestructiveCrop,
+            ExpectedTargetHash = expectedTargetHash ?? string.Empty,
+            ExpectedHexzmapHash = expectedHexzmapHash ?? string.Empty,
+            TerrainFillId = 0x00,
+            WriteMode = writeMode ?? string.Empty
+        };
+
+    private static object BuildMapSlotPublishPlanPayload(CczProject project, MapWorkbenchDraft draft, MapSlotPublishPlan plan)
+        => new
+        {
+            project.GameRoot,
+            draft.DraftId,
+            Mode = plan.Mode.ToString(),
+            plan.TargetMapId,
+            plan.TargetMapPath,
+            plan.HexzmapPath,
+            plan.TargetMapExists,
+            plan.ResizesExisting,
+            OldGrid = new { Width = plan.OldGridWidth, Height = plan.OldGridHeight },
+            NewGrid = new { Width = plan.NewGridWidth, Height = plan.NewGridHeight },
+            PixelSize = new { Width = plan.NewGridWidth * 48, Height = plan.NewGridHeight * 48 },
+            DirectoryEntries = new { Old = plan.OldDirectoryEntryCount, New = plan.NewDirectoryEntryCount, GrowthBytes = plan.DirectoryGrowthBytes },
+            TerrainSegment = new { OldLength = plan.OldTerrainSegmentLength, NewLength = plan.NewTerrainSegmentLength, NewOffset = plan.NewTerrainSegmentOffset },
+            plan.ResizePreview,
+            plan.ExpectedTargetHash,
+            plan.ExpectedHexzmapHash,
+            PlannedTargetHash = plan.NewTargetHash,
+            PlannedHexzmapHash = plan.NewHexzmapHash,
+            plan.Warnings,
+            plan.Summary,
+            SafetyNote = "预览在内存中生成最终 JPG 与 Hexzmap；不修改 Map、Hexzmap 或 S/R 文件。"
+        };
 
     public object ListMaterialAssets(string? gameRoot, string? materialRoot, string? assetType, string? keyword, int limit)
     {
@@ -1681,7 +1815,17 @@ public sealed partial class CczMcpRuntime
 
         if (update.GameTitle != null)
         {
-            changes.Add(new { Field = "game_title", OldValue = document.GameTitle.Title, NewValue = update.GameTitle, document.GameTitle.CapacityBytes });
+            _globalSettingsService.ValidateGameTitleUpdate(document.GameTitle, update.GameTitle);
+            changes.Add(new
+            {
+                Field = "game_title",
+                OldValue = document.GameTitle.Title,
+                NewValue = update.GameTitle,
+                document.GameTitle.EngineVersion,
+                document.GameTitle.LayoutKey,
+                document.GameTitle.CapacityBytes,
+                document.GameTitle.Offset
+            });
             if (mutate) document.GameTitle.Title = update.GameTitle;
         }
 

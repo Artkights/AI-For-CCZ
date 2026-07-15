@@ -49,6 +49,80 @@ public sealed class E5RawImageCodec
         return EncodeBitmapCore(project, image, sourceLabel, spec, strictHeight);
     }
 
+    public E5RawEncodeResult EncodeBitmapPreservingIndices(
+        Bitmap bitmap,
+        string sourceLabel,
+        E5RawImageSpec spec,
+        IReadOnlyList<Color> palette,
+        string palettePath,
+        byte[] originalBytes,
+        IReadOnlyList<int> originalArgbPixels,
+        int trailingByteCount)
+    {
+        ValidateDimensions(bitmap, spec, strictHeight: false);
+        if (palette.Count < 256)
+            throw new InvalidOperationException("RAW pixel editing requires the original 256-color palette snapshot.");
+        var pixelLength = checked(bitmap.Width * bitmap.Height);
+        if (trailingByteCount is not (0 or 2) || originalBytes.Length != pixelLength + trailingByteCount)
+            throw new InvalidOperationException("RAW source snapshot length does not match the editable strip and container suffix.");
+        if (originalArgbPixels.Count != pixelLength)
+            throw new InvalidOperationException("RAW source snapshot pixel count does not match the editable strip.");
+
+        var output = originalBytes.ToArray();
+        var exactLookup = BuildExactLookup(palette);
+        var transparent = 0;
+        var exact = 0;
+        var nearest = 0;
+        var changed = 0;
+        var currentArgbPixels = BitmapArgbSnapshot.Capture(bitmap);
+        for (var index = 0; index < currentArgbPixels.Length; index++)
+        {
+            var currentArgb = currentArgbPixels[index];
+            if (PixelsEquivalent(currentArgb, originalArgbPixels[index])) continue;
+
+            changed++;
+            var color = Color.FromArgb(currentArgb);
+            if (color.A == 0)
+            {
+                output[index] = 0;
+                transparent++;
+                continue;
+            }
+
+            var key = ToRgbKey(color);
+            if (exactLookup.TryGetValue(key, out var paletteIndex))
+            {
+                output[index] = paletteIndex;
+                exact++;
+                continue;
+            }
+
+            output[index] = FindNearestPaletteIndex(color, palette);
+            nearest++;
+        }
+
+        var warnings = new List<string>();
+        if (nearest > 0)
+            warnings.Add($"{nearest:N0} changed pixels did not exactly match the pinned RAW palette and used nearest colors.");
+        if (trailingByteCount == 2)
+            warnings.Add("The original two-byte RAW container suffix is preserved byte-for-byte.");
+        warnings.Add($"RAW incremental encoding patched {changed:N0} pixels; all other palette indices were preserved.");
+
+        return new E5RawEncodeResult
+        {
+            SourcePath = sourceLabel,
+            TargetFileName = spec.FileName,
+            SourceWidth = bitmap.Width,
+            SourceHeight = bitmap.Height,
+            RawBytes = output,
+            TransparentPixels = transparent,
+            ExactPalettePixels = exact,
+            NearestPalettePixels = nearest,
+            PalettePath = palettePath,
+            Warnings = warnings
+        };
+    }
+
     public Bitmap DecodeRawBytes(
         CczProject project,
         byte[] rawBytes,
@@ -92,7 +166,7 @@ public sealed class E5RawImageCodec
         }
 
         var palette = LoadRequiredRawPalette(project);
-        var bitmap = new Bitmap(spec.Width, height, PixelFormat.Format32bppArgb);
+        var pixels = new int[checked(spec.Width * height)];
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < spec.Width; x++)
@@ -100,23 +174,23 @@ public sealed class E5RawImageCodec
                 var rawIndex = y * spec.Width + x;
                 if (rawIndex >= usableLength)
                 {
-                    bitmap.SetPixel(x, y, Color.Transparent);
+                    pixels[rawIndex] = Color.Transparent.ToArgb();
                     continue;
                 }
 
                 var value = rawBytes[rawIndex];
                 if (value == 0)
                 {
-                    bitmap.SetPixel(x, y, Color.Transparent);
+                    pixels[rawIndex] = Color.Transparent.ToArgb();
                     continue;
                 }
 
                 var color = value < palette.Count ? palette[value] : Color.Transparent;
-                bitmap.SetPixel(x, y, IsMagentaKey(color) ? Color.Transparent : color);
+                pixels[rawIndex] = (IsMagentaKey(color) ? Color.Transparent : color).ToArgb();
             }
         }
 
-        return bitmap;
+        return BitmapArgbSnapshot.Create(spec.Width, height, pixels);
     }
 
     public bool TryDecodeStandardImage(byte[] bytes, out int width, out int height)
@@ -275,6 +349,10 @@ public sealed class E5RawImageCodec
 
     private static int ToRgbKey(Color color)
         => (color.R << 16) | (color.G << 8) | color.B;
+
+    private static bool PixelsEquivalent(int currentArgb, int originalArgb)
+        => currentArgb == originalArgb ||
+           (((uint)currentArgb >> 24) == 0 && ((uint)originalArgb >> 24) == 0);
 
     private static bool IsMagentaKey(Color color)
         => color.R >= 248 && color.G <= 8 && color.B >= 248;

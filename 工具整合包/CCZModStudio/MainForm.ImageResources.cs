@@ -16,9 +16,26 @@ namespace CCZModStudio;
 
 public sealed partial class MainForm
 {
-    private void ClearImageAssignmentCaches()
+    private void ClearImageAssignmentCaches(bool invalidatePersistentEntries = true)
     {
         _imageAssignmentFreeIdService.ClearCache();
+        if (_project == null) return;
+
+        var paths = new[]
+        {
+            CharacterImageResourceService.ResolveFaceFile(_project) ?? Path.Combine(_project.GameRoot, "E5", "Face.e5"),
+            CharacterImageResourceService.ResolveGameFile(_project, "Pmapobj.e5"),
+            CharacterImageResourceService.ResolveGameFile(_project, "Unit_atk.e5"),
+            CharacterImageResourceService.ResolveGameFile(_project, "Unit_mov.e5"),
+            CharacterImageResourceService.ResolveGameFile(_project, "Unit_spc.e5"),
+            Ccz66RevisedLayout.ResolveResourcePath(_project, Ccz66RevisedLayout.ResolveItemIconResourceFile(_project))
+        };
+        E5ImageReadSessionPool.Shared.Invalidate(paths);
+        if (invalidatePersistentEntries)
+        {
+            _imageAssignmentPreviewService.InvalidateResources(paths);
+            ImagePreviewCache.Shared.Invalidate(paths);
+        }
     }
 
     private bool ShowImageAssignmentImportPreviewDialog(ImageAssignmentImportPreviewDialogModel model)
@@ -43,7 +60,9 @@ public sealed partial class MainForm
         }
     }
 
-    private void LoadImageResources()
+    private void LoadImageResources() => _ = LoadImageResourcesAsync();
+
+    private async Task LoadImageResourcesAsync()
     {
         if (_project == null)
         {
@@ -53,9 +72,15 @@ public sealed partial class MainForm
 
         try
         {
-            Cursor = Cursors.WaitCursor;
             _imageResourceCatalogService.ClearCache();
-            _currentImageResourceFiles = _imageResourceCatalogService.BuildCatalog(_project);
+            var project = _project;
+            _imageResourceLoadCts?.Cancel();
+            _imageResourceLoadCts?.Dispose();
+            _imageResourceLoadCts = new CancellationTokenSource();
+            _loadImageResourcesButton.Enabled = false;
+            _imageResourceInfoBox.Text = "正在读取图片资源目录；窗口仍可切换和关闭……";
+            _currentImageResourceFiles = await _imageResourceCatalogService.BuildCatalogAsync(project, _imageResourceLoadCts.Token);
+            if (!ReferenceEquals(_project, project) || IsDisposed) return;
             PopulateImageResourceCategoryFilter();
             BindImageResourceFiles(_currentImageResourceFiles);
             SetPictureBoxImage(_imageResourcePreviewBox, null);
@@ -236,13 +261,24 @@ public sealed partial class MainForm
         return current == null ? Array.Empty<ImageResourceEntryInfo>() : new[] { current };
     }
 
-    private void ShowSelectedImageResourceFile()
+    private void ShowSelectedImageResourceFile() => _ = ShowSelectedImageResourceFileAsync();
+
+    private async Task ShowSelectedImageResourceFileAsync()
     {
         if (_project == null) return;
         var item = GetSelectedImageResourceFile();
         if (item == null) return;
 
-        _currentImageResourceEntries = _imageResourceCatalogService.ReadEntries(item);
+        var generation = Interlocked.Increment(ref _imageResourceSelectionGeneration);
+        IReadOnlyList<ImageResourceEntryInfo> entries;
+        try { entries = await _imageResourceCatalogService.ReadEntriesAsync(item); }
+        catch (Exception ex)
+        {
+            Debug.WriteLine("图片资源条目索引读取失败：" + ex);
+            return;
+        }
+        if (generation != Interlocked.Read(ref _imageResourceSelectionGeneration) || IsDisposed) return;
+        _currentImageResourceEntries = entries;
         _imageResourceEntryGrid.DataSource = new BindingList<ImageResourceEntryInfo>(_currentImageResourceEntries.ToList());
         ConfigureImageResourceEntryGrid();
         SetPictureBoxImage(_imageResourcePreviewBox, null);
@@ -261,22 +297,32 @@ public sealed partial class MainForm
         SetStatus($"图片资源：{item.DisplayName}");
     }
 
-    private void ShowSelectedImageResourceEntry()
+    private void ShowSelectedImageResourceEntry() => _ = ShowSelectedImageResourceEntryAsync();
+
+    private async Task ShowSelectedImageResourceEntryAsync()
     {
         if (_project == null) return;
         var entry = GetSelectedImageResourceEntry();
         if (entry == null) return;
 
         Bitmap? bitmap = null;
+        var generation = Interlocked.Increment(ref _imageResourceSelectionGeneration);
         try
         {
-            bitmap = _imageResourceCatalogService.RenderEntryPreview(_project, entry);
+            bitmap = await _imageResourceCatalogService.RenderEntryPreviewAsync(
+                _project,
+                entry);
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine("图片资源条目预览失败：" + ex);
         }
 
+        if (generation != Interlocked.Read(ref _imageResourceSelectionGeneration) || IsDisposed)
+        {
+            bitmap?.Dispose();
+            return;
+        }
         SetPictureBoxImage(_imageResourcePreviewBox, bitmap);
         _imageResourceEntryInfoBox.Text = entry.Kind.Equals("DLL图标", StringComparison.OrdinalIgnoreCase)
             ? $"{entry.ResourceName}  编号 #{entry.ImageNumber}\r\n" +
@@ -352,11 +398,11 @@ public sealed partial class MainForm
         E5ImageReplacePreviewResult preview;
         if (restoreMode)
         {
-            var backupRoot = Path.Combine(_project.GameRoot, "_CCZModStudio_Backups");
+            var backupRoot = GetPreferredExistingBackupRoot(_project);
             using var dialog = new OpenFileDialog
             {
                 Title = $"选择包含图 #{entry.ImageNumber} 的备份 E5 文件",
-                InitialDirectory = Directory.Exists(backupRoot) ? backupRoot : _project.GameRoot,
+                InitialDirectory = backupRoot ?? _project.GameRoot,
                 Filter = "E5 文件 (*.e5)|*.e5|所有文件 (*.*)|*.*",
                 CheckFileExists = true
             };
@@ -898,7 +944,7 @@ public sealed partial class MainForm
         {
             Cursor = Cursors.WaitCursor;
             _currentImageAssignments = _imageAssignmentService.Load(_project, _tables);
-            ClearImageAssignmentCaches();
+            ClearImageAssignmentCaches(invalidatePersistentEntries: false);
             _imageAssignmentSearchBox.Clear();
             _imageAssignmentMissingOnlyCheckBox.Checked = false;
             _imageAssignmentGrid.DataSource = _currentImageAssignments;
@@ -952,6 +998,9 @@ public sealed partial class MainForm
             ShowSelectedImageAssignmentDetail();
             System.Diagnostics.Debug.WriteLine("已读取人物形象设定表。");
             SetStatus("人物形象设定读取完成");
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch (Exception ex)
         {
@@ -1113,8 +1162,17 @@ public sealed partial class MainForm
         try
         {
             Cursor = Cursors.WaitCursor;
-            var result = new ImageAssignmentFreeIdResult(kind, true, 0, 0, Array.Empty<FreeImageAssignmentCandidate>(), Array.Empty<string>(), false);
-            using var dialog = new FreeImageAssignmentDialog(_project, _currentImageAssignments, _imageAssignmentFreeIdService, result, GetImageAssignmentSPreviewFactionSlot());
+            var result = new ImageAssignmentFreeIdResult(kind, false, 0, 0, Array.Empty<FreeImageAssignmentCandidate>(), Array.Empty<string>(), false);
+            using var dialog = new FreeImageAssignmentDialog(
+                _project,
+                _currentImageAssignments,
+                _imageAssignmentFreeIdService,
+                result,
+                GetImageAssignmentSPreviewFactionSlot(),
+                descriptor => EditAndWriteSingleRsFrame(
+                    descriptor,
+                    $"{descriptor.Kind}{descriptor.ImageId} 的形象资源可能被脚本、兵种或其他未登记数据直接引用。"),
+                (int)_imageAssignmentAnimationIntervalInput.Value);
             Cursor = Cursors.Default;
             dialog.ShowDialog(this);
             var finalResult = dialog.CurrentResult;
@@ -1127,12 +1185,12 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             Cursor = Cursors.Default;
-            System.Diagnostics.Debug.WriteLine("查询空闲人物形象编号失败：" + ex);
-            MessageBox.Show(this, ex.Message, "查询空闲人物形象编号失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            System.Diagnostics.Debug.WriteLine("查询人物形象编号失败：" + ex);
+            MessageBox.Show(this, ex.Message, "查询人物形象编号失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
-            Cursor = Cursors.Default;
+            if (!IsDisposed) _loadImageResourcesButton.Enabled = true;
         }
     }
 
@@ -1195,8 +1253,12 @@ public sealed partial class MainForm
             // R/S preview uses the E5 image index at 0x110; do not fall back to raw magic-order scans.
             SetPictureBoxImage(_imageAssignmentFacePreviewBox,
                 faceId.HasValue ? _imageAssignmentPreviewService.TryRenderFaceImage(_project, faceId.Value) : null);
-            SetPictureBoxImage(_imageAssignmentRPreviewBox, _imageAssignmentPreviewService.TryRenderCharacterResourceImage(_project, "R", rId));
-            SetPictureBoxImage(_imageAssignmentSPreviewBox, _imageAssignmentPreviewService.TryRenderCharacterResourceImage(_project, "S", sId, jobId, sFactionSlot));
+            SetPictureBoxImage(_imageAssignmentRPreviewBox,
+                _imageAssignmentPreviewService.TryRenderCharacterResourceImage(
+                    _project, "R", rId, jobId: null, CharacterImageResourceService.DefaultSPreviewFactionSlot));
+            SetPictureBoxImage(_imageAssignmentSPreviewBox,
+                _imageAssignmentPreviewService.TryRenderCharacterResourceImage(
+                    _project, "S", sId, jobId, sFactionSlot));
         }
         catch (Exception ex)
         {
@@ -1211,6 +1273,411 @@ public sealed partial class MainForm
         SetPictureBoxImage(_imageAssignmentRPreviewBox, null);
         SetPictureBoxImage(_imageAssignmentSPreviewBox, null);
     }
+
+    private void LoadImageAssignmentAnimationSettings()
+    {
+        _imageAssignmentAnimationIntervalInput.Minimum = CharacterImageAnimationPreviewDialog.MinIntervalMs;
+        _imageAssignmentAnimationIntervalInput.Maximum = CharacterImageAnimationPreviewDialog.MaxIntervalMs;
+
+        if (_uiLayoutSettings.Values.TryGetValue(ImageAssignmentAnimationIntervalSettingKey, out var intervalText) &&
+            int.TryParse(intervalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var interval))
+        {
+            _imageAssignmentAnimationIntervalInput.Value = Math.Clamp(
+                interval,
+                CharacterImageAnimationPreviewDialog.MinIntervalMs,
+                CharacterImageAnimationPreviewDialog.MaxIntervalMs);
+        }
+
+        if (_uiLayoutSettings.Values.TryGetValue(ImageAssignmentExternalResourceFolderSettingKey, out var folder))
+        {
+            _imageAssignmentExternalResourceFolder = folder ?? string.Empty;
+        }
+    }
+
+    private void SaveImageAssignmentAnimationInterval()
+    {
+        var value = ((int)_imageAssignmentAnimationIntervalInput.Value).ToString(CultureInfo.InvariantCulture);
+        _uiLayoutSettings.Values[ImageAssignmentAnimationIntervalSettingKey] = value;
+        UiLayoutSettingsStore.SaveValue(ImageAssignmentAnimationIntervalSettingKey, value);
+    }
+
+    private void SaveImageAssignmentExternalResourceFolder(string folder)
+    {
+        _imageAssignmentExternalResourceFolder = folder;
+        _uiLayoutSettings.Values[ImageAssignmentExternalResourceFolderSettingKey] = folder;
+        UiLayoutSettingsStore.SaveValue(ImageAssignmentExternalResourceFolderSettingKey, folder);
+    }
+
+    private void PlayImageAssignmentAnimation(ImageAssignmentResourceKind kind)
+    {
+        if (kind == ImageAssignmentResourceKind.Face) return;
+
+        try
+        {
+            var interval = (int)_imageAssignmentAnimationIntervalInput.Value;
+            if (_project != null && _currentImageAssignments != null)
+            {
+                PlaySelectedProjectImageAssignmentAnimation(kind, interval);
+                return;
+            }
+
+            PlayExternalImageAssignmentAnimation(kind, interval);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("Play R/S animation failed: " + ex);
+            MessageBox.Show(this, ex.Message, "播放R/S形象失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void PlaySelectedProjectImageAssignmentAnimation(ImageAssignmentResourceKind kind, int intervalMs)
+    {
+        if (_project == null) return;
+
+        var row = GetSelectedImageAssignmentRow();
+        if (row == null)
+        {
+            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!TryGetImageResourceId(row, kind, out var id))
+        {
+            MessageBox.Show(this, $"无法读取 {GetImageAssignmentResourceKindText(kind)} 编号。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (id < 0)
+        {
+            MessageBox.Show(this, $"{GetImageAssignmentResourceKindText(kind)} 编号不能小于 0：{id}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var jobId = kind == ImageAssignmentResourceKind.S ? TryGetImageAssignmentJobId(row) : null;
+        var factionSlot = GetImageAssignmentSPreviewFactionSlot();
+        var preview = kind == ImageAssignmentResourceKind.S
+            ? CreateLoadingAnimationPreview(kind, id, 1, "正在后台读取 S 形象动画...")
+            : _imageAssignmentPreviewService.BuildRAnimationPreview(_project, id);
+        ShowImageAssignmentAnimationDialog(
+            preview,
+            intervalMs,
+            optionLabel: kind == ImageAssignmentResourceKind.S ? "转数：" : null,
+            optionTextProvider: kind == ImageAssignmentResourceKind.S ? CharacterImageResourceService.BuildSImageStageText : null,
+            selectedOption: kind == ImageAssignmentResourceKind.S ? preview.StageSlot : null,
+            optionPreviewFactory: kind == ImageAssignmentResourceKind.S
+                ? stageSlot => _imageAssignmentPreviewService.BuildSAnimationPreview(_project, id, jobId, GetImageAssignmentSPreviewFactionSlot(), stageSlot)
+                : null,
+            optionValues: kind == ImageAssignmentResourceKind.S
+                ? CharacterImageResourceService.GetAvailableSImageStageSlots(_project, id)
+                : null,
+            asyncPreviewFactory: kind == ImageAssignmentResourceKind.S
+                ? (stageSlot, token) => _imageAssignmentPreviewService.LoadAnimationAsync(
+                    _project,
+                    ImageAssignmentResourceKind.S,
+                    id,
+                    jobId,
+                    factionSlot,
+                    stageSlot,
+                    token)
+                : null,
+            loadInitialAsync: kind == ImageAssignmentResourceKind.S,
+            viewAllFrames: selectedStage => OpenRsSingleFrameCatalog(
+                _project,
+                kind,
+                id,
+                jobId,
+                factionSlot,
+                kind == ImageAssignmentResourceKind.S ? selectedStage : 1,
+                TryGetRoleDisplayName(row),
+                editable: true,
+                sharedUsageWarning: "当前 R/S 图号可能被多个人物、兵种、场景或转级共享引用。"));
+        SetStatus($"播放{GetImageAssignmentResourceKindText(kind)}：{id}");
+    }
+
+    private void PlayExternalImageAssignmentAnimation(ImageAssignmentResourceKind kind, int intervalMs)
+    {
+        var folder = ResolveExternalImageAssignmentFolder(kind);
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return;
+        }
+
+        var id = PromptExternalImageAssignmentId(kind);
+        if (!id.HasValue)
+        {
+            return;
+        }
+
+        if (id.Value < 0)
+        {
+            MessageBox.Show(this, $"{GetImageAssignmentResourceKindText(kind)} 编号不能小于 0：{id.Value}", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var project = BuildExternalImageAssignmentProject(folder);
+        int? jobId = null;
+        if (kind == ImageAssignmentResourceKind.S && id.Value == 0)
+        {
+            jobId = PromptExternalImageAssignmentJobId();
+            if (!jobId.HasValue)
+            {
+                return;
+            }
+        }
+
+        var preview = kind == ImageAssignmentResourceKind.S
+            ? _imageAssignmentPreviewService.BuildSAnimationPreview(project, id.Value, jobId, CharacterImageResourceService.DefaultSPreviewFactionSlot, stageSlot: 1)
+            : _imageAssignmentPreviewService.BuildRAnimationPreview(project, id.Value);
+        ShowImageAssignmentAnimationDialog(
+            preview,
+            intervalMs,
+            optionLabel: kind == ImageAssignmentResourceKind.S ? "转数：" : null,
+            optionTextProvider: kind == ImageAssignmentResourceKind.S ? CharacterImageResourceService.BuildSImageStageText : null,
+            selectedOption: kind == ImageAssignmentResourceKind.S ? preview.StageSlot : null,
+            optionPreviewFactory: kind == ImageAssignmentResourceKind.S
+                ? stageSlot => _imageAssignmentPreviewService.BuildSAnimationPreview(project, id.Value, jobId, CharacterImageResourceService.DefaultSPreviewFactionSlot, stageSlot)
+                : null,
+            optionValues: kind == ImageAssignmentResourceKind.S
+                ? CharacterImageResourceService.GetAvailableSImageStageSlots(project, id.Value)
+                : null,
+            viewAllFrames: selectedStage => OpenRsSingleFrameCatalog(
+                project,
+                kind,
+                id.Value,
+                jobId,
+                CharacterImageResourceService.DefaultSPreviewFactionSlot,
+                kind == ImageAssignmentResourceKind.S ? selectedStage : 1,
+                "外部素材",
+                editable: false));
+        SetStatus($"播放外部{GetImageAssignmentResourceKindText(kind)}：{id.Value}");
+    }
+
+    private void ShowImageAssignmentAnimationDialog(
+        CharacterImageAnimationPreview preview,
+        int intervalMs,
+        string? optionLabel = null,
+        Func<int, string>? optionTextProvider = null,
+        int? selectedOption = null,
+        Func<int, CharacterImageAnimationPreview>? optionPreviewFactory = null,
+        IReadOnlyList<int>? optionValues = null,
+        Func<int, CancellationToken, Task<CharacterImageAnimationPreview>>? asyncPreviewFactory = null,
+        bool loadInitialAsync = false,
+        Action<int>? viewAllFrames = null)
+    {
+        var dialog = new CharacterImageAnimationPreviewDialog(
+            _imageAssignmentPreviewService,
+            preview,
+            intervalMs,
+            value =>
+            {
+                _imageAssignmentAnimationIntervalInput.Value = Math.Clamp(
+                    value,
+                    CharacterImageAnimationPreviewDialog.MinIntervalMs,
+                    CharacterImageAnimationPreviewDialog.MaxIntervalMs);
+                SaveImageAssignmentAnimationInterval();
+            },
+            optionLabel,
+            optionTextProvider,
+            selectedOption,
+            optionPreviewFactory,
+            optionValues,
+            asyncPreviewFactory,
+            loadInitialAsync,
+            viewAllFrames);
+        dialog.Show(this);
+    }
+
+    private static CharacterImageAnimationPreview CreateLoadingAnimationPreview(
+        ImageAssignmentResourceKind kind,
+        int imageId,
+        int stageSlot,
+        string message)
+        => new(
+            kind,
+            imageId,
+            stageSlot,
+            message,
+            kind == ImageAssignmentResourceKind.S ? 3 : 2,
+            kind == ImageAssignmentResourceKind.S ? 3 : 1,
+            64,
+            64,
+            Array.Empty<CharacterImageAnimationCell>(),
+            new[] { message });
+
+    private string ResolveExternalImageAssignmentFolder(ImageAssignmentResourceKind kind)
+    {
+        if (!string.IsNullOrWhiteSpace(_imageAssignmentExternalResourceFolder) &&
+            Directory.Exists(_imageAssignmentExternalResourceFolder) &&
+            ExternalImageAssignmentFolderHasResources(_imageAssignmentExternalResourceFolder, kind))
+        {
+            return _imageAssignmentExternalResourceFolder;
+        }
+
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = kind == ImageAssignmentResourceKind.S
+                ? "选择包含 Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5 的外部资源目录"
+                : "选择包含 Pmapobj.e5 的外部资源目录",
+            UseDescriptionForTitle = true,
+            SelectedPath = Directory.Exists(_imageAssignmentExternalResourceFolder)
+                ? _imageAssignmentExternalResourceFolder
+                : Environment.CurrentDirectory
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return string.Empty;
+        }
+
+        if (!ExternalImageAssignmentFolderHasResources(dialog.SelectedPath, kind))
+        {
+            var required = kind == ImageAssignmentResourceKind.S
+                ? "Unit_atk.e5 / Unit_mov.e5 / Unit_spc.e5"
+                : "Pmapobj.e5";
+            MessageBox.Show(this, "所选目录缺少：" + required, "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return string.Empty;
+        }
+
+        SaveImageAssignmentExternalResourceFolder(dialog.SelectedPath);
+        return dialog.SelectedPath;
+    }
+
+    private static bool ExternalImageAssignmentFolderHasResources(string folder, ImageAssignmentResourceKind kind)
+    {
+        if (kind == ImageAssignmentResourceKind.R)
+        {
+            return File.Exists(Path.Combine(folder, "Pmapobj.e5")) ||
+                   File.Exists(Path.Combine(folder, "E5", "Pmapobj.e5"));
+        }
+
+        return new[] { "Unit_atk.e5", "Unit_mov.e5", "Unit_spc.e5" }
+            .Any(file => File.Exists(Path.Combine(folder, file)) || File.Exists(Path.Combine(folder, "E5", file)));
+    }
+
+    private int? PromptExternalImageAssignmentId(ImageAssignmentResourceKind kind)
+    {
+        using var dialog = new Form
+        {
+            Text = kind == ImageAssignmentResourceKind.S ? "播放外部S形象" : "播放外部R形象",
+            StartPosition = FormStartPosition.CenterParent,
+            Width = 280,
+            Height = 130,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            FormBorderStyle = FormBorderStyle.FixedDialog
+        };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 2,
+            Padding = new Padding(10)
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(layout);
+
+        layout.Controls.Add(new Label
+        {
+            Text = "编号：",
+            AutoSize = true,
+            Margin = new Padding(0, 6, 8, 0)
+        }, 0, 0);
+        var input = new NumericUpDown
+        {
+            Minimum = 0,
+            Maximum = 9999,
+            Value = 0,
+            Dock = DockStyle.Top
+        };
+        layout.Controls.Add(input, 1, 0);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            AutoSize = true
+        };
+        var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
+        buttons.Controls.Add(ok);
+        buttons.Controls.Add(cancel);
+        layout.SetColumnSpan(buttons, 2);
+        layout.Controls.Add(buttons, 0, 1);
+        dialog.AcceptButton = ok;
+        dialog.CancelButton = cancel;
+
+        return dialog.ShowDialog(this) == DialogResult.OK ? (int)input.Value : null;
+    }
+
+    private int? PromptExternalImageAssignmentJobId()
+    {
+        using var dialog = new Form
+        {
+            Text = "播放外部S=0形象",
+            StartPosition = FormStartPosition.CenterParent,
+            Width = 300,
+            Height = 130,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            FormBorderStyle = FormBorderStyle.FixedDialog
+        };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 2,
+            Padding = new Padding(10)
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        dialog.Controls.Add(layout);
+
+        layout.Controls.Add(new Label
+        {
+            Text = "职业编号：",
+            AutoSize = true,
+            Margin = new Padding(0, 6, 8, 0)
+        }, 0, 0);
+        var input = new NumericUpDown
+        {
+            Minimum = 0,
+            Maximum = 9999,
+            Value = 0,
+            Dock = DockStyle.Top
+        };
+        layout.Controls.Add(input, 1, 0);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            AutoSize = true
+        };
+        var ok = new Button { Text = "确定", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, AutoSize = true };
+        buttons.Controls.Add(ok);
+        buttons.Controls.Add(cancel);
+        layout.SetColumnSpan(buttons, 2);
+        layout.Controls.Add(buttons, 0, 1);
+        dialog.AcceptButton = ok;
+        dialog.CancelButton = cancel;
+
+        return dialog.ShowDialog(this) == DialogResult.OK ? (int)input.Value : null;
+    }
+
+    private static CczProject BuildExternalImageAssignmentProject(string folder)
+        => new()
+        {
+            WorkspaceRoot = folder,
+            GameRoot = folder,
+            HexTableXmlPath = string.Empty
+        };
 
     private int GetImageAssignmentSPreviewFactionSlot()
     {
@@ -1315,11 +1782,11 @@ public sealed partial class MainForm
         E5ImageReplacePreviewResult preview;
         if (restoreMode)
         {
-            var backupRoot = Path.Combine(_project.GameRoot, "_CCZModStudio_Backups");
+            var backupRoot = GetPreferredExistingBackupRoot(_project);
             using var dialog = new OpenFileDialog
             {
                 Title = $"选择包含图 #{target.ImageNumber} 的备份 E5 文件",
-                InitialDirectory = Directory.Exists(backupRoot) ? backupRoot : _project.GameRoot,
+                InitialDirectory = backupRoot ?? _project.GameRoot,
                 Filter = "E5 文件 (*.e5)|*.e5|所有文件 (*.*)|*.*",
                 CheckFileExists = true
             };
@@ -2210,7 +2677,7 @@ public sealed partial class MainForm
             MaximizeBox = true,
             ShowInTaskbar = false
         };
-        ApplyAdaptiveDialogSizing(dialog, new Size(980, 520), new Size(760, 420));
+        ImportExportDialogLayout.Apply(dialog, new Size(980, 520), new Size(760, 420));
 
         var layout = new TableLayoutPanel
         {
@@ -2385,7 +2852,7 @@ public sealed partial class MainForm
 
             if (gridRow.Index >= 0 && gridRow.Index < _imageAssignmentGrid.RowCount)
             {
-                _imageAssignmentGrid.FirstDisplayedScrollingRowIndex = gridRow.Index;
+                TryScrollGridRowIntoView(_imageAssignmentGrid, gridRow.Index);
             }
 
             return true;

@@ -528,7 +528,7 @@ public sealed class BatchItemIconImportService
 
     private static string WriteAggregateReport(CczProject project, BatchItemIconImportResult result)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_BatchItemIconImportReport.json");

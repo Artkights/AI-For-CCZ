@@ -21,9 +21,7 @@ internal sealed class JobSImageReplaceDialog : Form
 
         Text = $"一键替换兵种形象：ID={jobId:D2} {jobName}";
         StartPosition = FormStartPosition.CenterParent;
-        Size = new Size(640, 300);
-        MinimumSize = new Size(560, 260);
-        Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        ImportExportDialogLayout.Apply(this, new Size(640, 300), new Size(560, 260));
         KeyPreview = true;
 
         BuildLayout();

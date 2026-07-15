@@ -62,6 +62,69 @@ public sealed partial class MainForm
         }
     }
 
+    private void SelectBackupParentDirectory()
+    {
+        if (_project == null)
+        {
+            MessageBox.Show(this, "请先加载项目。", "备份路径", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        string initialParent;
+        try
+        {
+            initialParent = ProjectBackupPathService.GetBackupParent(_project);
+        }
+        catch (InvalidOperationException)
+        {
+            initialParent = PortableInstallPaths.LauncherRoot;
+        }
+
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = $"请选择备份的上级目录。程序会自动创建“{_project.Name}_备份”子目录。",
+            UseDescriptionForTitle = true,
+            SelectedPath = Directory.Exists(initialParent) ? initialParent : PortableInstallPaths.LauncherRoot,
+            ShowNewFolderButton = true
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var backupRoot = ProjectBackupPathService.SetBackupParent(_project, dialog.SelectedPath);
+            RefreshBackupPathButtonState();
+            SetStatus("备份路径已保存：" + backupRoot);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("保存备份路径失败：" + ex);
+            RefreshBackupPathButtonState();
+            MessageBox.Show(this, ex.Message, "备份路径设置失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void RefreshBackupPathButtonState()
+    {
+        _backupPathButton.Enabled = _project != null;
+        if (_project == null)
+        {
+            _backupPathToolTip.SetToolTip(_backupPathButton, "请先加载项目。");
+            return;
+        }
+
+        try
+        {
+            var backupRoot = ProjectBackupPathService.GetBackupRoot(_project);
+            var mode = ProjectBackupPathService.IsCustomBackupParent(_project) ? "自定义" : "默认";
+            _backupPathToolTip.SetToolTip(_backupPathButton, $"当前备份目录（{mode}）：\r\n{backupRoot}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            _backupPathToolTip.SetToolTip(_backupPathButton, "备份路径配置异常，点击重新选择。\r\n" + ex.Message);
+        }
+    }
+
     private void ReloadCurrentProject()
     {
         if (_project == null)
@@ -79,6 +142,11 @@ public sealed partial class MainForm
         var currentSessionKey = BuildProjectSessionCacheKey(project);
         var projectChanged = !_loadedProjectSessionKey.Equals(currentSessionKey, StringComparison.OrdinalIgnoreCase);
         _project = project;
+        RefreshBackupPathButtonState();
+        if (projectChanged && !string.IsNullOrWhiteSpace(_loadedProjectSessionKey))
+        {
+            _asyncLoadCoordinator.CancelProject(_loadedProjectSessionKey);
+        }
         ApplicationErrorService.SetCurrentProjectPath(project.GameRoot);
         _loadedProjectSessionKey = currentSessionKey;
         _legacyMfcDialogDataSources = null;
@@ -86,16 +154,17 @@ public sealed partial class MainForm
         if (projectChanged)
         {
             ClearEditorSessionCaches();
+            DomainReferenceCatalog.Shared.Clear();
         }
         _attackAreaPreviewService.ClearCache();
         _strategyAnimationPreviewService.ClearCache();
-        ClearImageAssignmentCaches();
+        ClearImageAssignmentCaches(invalidatePersistentEntries: false);
         ClearBattlefieldUnitFrameCache();
         ClearRSceneImageCache();
         ClearRSceneDocumentView();
         InvalidateScriptVariableProjectCache();
 
-        _projectLabel.Text = BuildProjectHeaderText(project);
+        _projectLabel.Text = $"项目：{project.Name}    版本：检测中";
 
         ResetProjectBoundState();
 
@@ -108,29 +177,10 @@ public sealed partial class MainForm
             return;
         }
 
-        using (TracePerf("LoadProject.HexTable"))
-        {
-            _tables = new Ccz66HexTableAugmentationService().LoadForProject(project, _tableParser);
-        }
-        using (TracePerf("LoadProject.SceneDictionary"))
-        {
-            LoadSceneDictionary(showMessages: false);
-        }
-        using (TracePerf("LoadProject.MapWorkbenchSettings"))
-        {
-            LoadMapWorkbenchSettings();
-        }
-        using (TracePerf("LoadProject.CommandTemplates"))
-        {
-            LoadScenarioCommandTemplates(silent: true);
-        }
-        using (TracePerf("LoadProject.RefreshTableList"))
-        {
-            RefreshTableList();
-        }
-        System.Diagnostics.Debug.WriteLine($"已加载项目：{project.GameRoot}");
-        System.Diagnostics.Debug.WriteLine($"已读取 HexTable 表定义：{_tables.Count} 个。");
-        SetStatus($"已加载 {_tables.Count} 个表定义");
+        _tables = Array.Empty<HexTableDefinition>();
+        _tableList.DataSource = null;
+        SetStatus("正在后台初始化项目；窗口仍可切换和关闭");
+        _ = LoadProjectShellAsync(project);
     }
 
     private static string BuildProjectSessionCacheKey(CczProject project)
@@ -140,6 +190,41 @@ public sealed partial class MainForm
             NormalizeProjectCachePath(project.HexTableXmlPath),
             NormalizeProjectCachePath(project.SceneDictionaryPath),
             NormalizeProjectCachePath(project.MaterialLibraryRoot));
+    }
+
+    private async Task LoadProjectShellAsync(CczProject project)
+    {
+        var projectKey = BuildProjectSessionCacheKey(project);
+        _projectLabel.Text = $"项目：{project.Name}    版本：检测中";
+        SetStatus("正在后台初始化项目");
+        try
+        {
+            var initialized = await Task.Run(() =>
+            {
+                var profile = _engineProfileService.Detect(project);
+                if (!File.Exists(project.HexTableXmlPath))
+                    return (Profile: profile, Tables: (IReadOnlyList<HexTableDefinition>)Array.Empty<HexTableDefinition>());
+                var tables = new Ccz66HexTableAugmentationService().LoadForProject(project, _tableParser);
+                return (Profile: profile, Tables: tables);
+            });
+            if (IsDisposed || !ReferenceEquals(_project, project) ||
+                !_loadedProjectSessionKey.Equals(projectKey, StringComparison.OrdinalIgnoreCase)) return;
+            _tables = initialized.Tables;
+            _projectLabel.Text = BuildProjectHeaderText(project);
+            LoadSceneDictionary(showMessages: false);
+            LoadMapWorkbenchSettings();
+            LoadScenarioCommandTemplates(silent: true);
+            RefreshTableList();
+            SetStatus($"已加载 {_tables.Count} 个表定义");
+        }
+        catch (Exception ex)
+        {
+            if (!IsDisposed && ReferenceEquals(_project, project))
+            {
+                System.Diagnostics.Debug.WriteLine("后台项目初始化失败：" + ex);
+                SetStatus("项目初始化失败：" + ex.Message);
+            }
+        }
     }
 
     private static string NormalizeProjectCachePath(string? path)
@@ -154,6 +239,9 @@ public sealed partial class MainForm
             return path.Trim();
         }
     }
+
+    private static string? GetPreferredExistingBackupRoot(CczProject project)
+        => ProjectBackupPathService.GetReadableBackupRoots(project).FirstOrDefault(Directory.Exists);
 
     private string BuildProjectHeaderText(CczProject? project)
     {
@@ -202,6 +290,7 @@ public sealed partial class MainForm
     private void ClearProjectLoadState(string projectText, string statusText)
     {
         _project = null;
+        RefreshBackupPathButtonState();
         ApplicationErrorService.SetCurrentProjectPath(null);
         _tables = Array.Empty<HexTableDefinition>();
         _projectLabel.Text = BuildProjectHeaderText(null);
@@ -260,6 +349,8 @@ public sealed partial class MainForm
         _saveJobEditorButton.Enabled = false;
         _editAccessoryJobGroupsButton.Enabled = false;
         _replaceJobSImageButton.Enabled = false;
+        _editJobSImagePixelsButton.Enabled = false;
+        _viewJobSSingleFramesButton.Enabled = false;
         _batchReplaceJobSImageButton.Enabled = false;
         _exportJobSImageBmpButton.Enabled = false;
         _currentAccessoryJobGroupProfile = null;
@@ -295,6 +386,7 @@ public sealed partial class MainForm
         _currentItemEditorData = null;
         _itemEditorGrid.DataSource = null;
         _saveItemEditorButton.Enabled = false;
+        _queryItemIconButton.Enabled = false;
         _batchImportItemIconButton.Enabled = false;
         _editItemIconButton.Enabled = false;
         _exportItemIconBmpButton.Enabled = false;

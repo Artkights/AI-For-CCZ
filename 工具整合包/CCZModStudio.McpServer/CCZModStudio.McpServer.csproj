@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**;_BuildCheck\**</DefaultItemExcludes>
+    <Version>7.0.0</Version>
+    <AssemblyVersion>7.0.0.0</AssemblyVersion>
+    <FileVersion>7.0.0.0</FileVersion>
+    <InformationalVersion>7.0.0+open-authoring-v7</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

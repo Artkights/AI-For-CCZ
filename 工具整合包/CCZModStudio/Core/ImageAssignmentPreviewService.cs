@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using CCZModStudio.Core;
 using CCZModStudio.Formats;
@@ -19,21 +20,89 @@ public sealed class ImageAssignmentPreviewService
 {
     private const int PreviewWidth = 420;
     private const int PreviewHeight = 300;
-    private const int E5ImageIndexOffset = 0x110;
-    private const int E5ImageIndexEntrySize = 12;
-    private const int LsHeaderLength = 16;
-    private const int LsDictionaryLength = 256;
     private readonly ConcurrentDictionary<string, IReadOnlyList<E5ImageEntry>> _e5ImageIndexCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RawPalette> _rawPaletteCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<string, IReadOnlyList<int>> _availableImageIdCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ImageAssignmentAvailabilityReport> _availabilityReportCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly CharacterImageLayoutService _layoutService = new();
     private readonly E5RawPaletteService _paletteService = new();
+    private readonly E5ImageReadSessionPool _readSessions;
+    private readonly ImagePreviewCache _previewCache;
+
+    public ImageAssignmentPreviewService()
+        : this(E5ImageReadSessionPool.Shared, ImagePreviewCache.Shared)
+    {
+    }
+
+    internal ImageAssignmentPreviewService(E5ImageReadSessionPool readSessions, ImagePreviewCache previewCache)
+    {
+        _readSessions = readSessions;
+        _previewCache = previewCache;
+    }
 
     public void ClearCache()
     {
         _e5ImageIndexCache.Clear();
         _rawPaletteCache.Clear();
-        _availableImageIdCache.Clear();
+        _availabilityReportCache.Clear();
+        _previewCache.ClearMemory();
+    }
+
+    public void InvalidateResources(IEnumerable<string> paths)
+    {
+        var resourcePaths = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(Path.GetFullPath).ToArray();
+        _e5ImageIndexCache.Clear();
+        _availabilityReportCache.Clear();
+        _readSessions.Invalidate(resourcePaths);
+        _previewCache.Invalidate(resourcePaths);
+    }
+
+    internal bool TryProbeRsEntry(string path, int imageNumber, out RsEntryProbeResult? result, out string detail)
+    {
+        result = null;
+        detail = string.Empty;
+        if (!File.Exists(path))
+        {
+            detail = "文件不存在：" + path;
+            return false;
+        }
+
+        var entries = GetE5ImageIndex(path);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+        {
+            detail = $"索引越界 #{imageNumber}/{entries.Count}";
+            return false;
+        }
+
+        var entry = entries[imageNumber - 1];
+        var bytes = TryReadEntryBytes(path, entry, out var readDetail);
+        if (bytes == null)
+        {
+            detail = readDetail;
+            return false;
+        }
+
+        RsStripProbeResult strip;
+        try
+        {
+            strip = RsStripLayoutService.Probe(path, entry.Kind, bytes);
+        }
+        catch (InvalidOperationException ex)
+        {
+            detail = ex.Message;
+            return false;
+        }
+
+        var fingerprint = _readSessions.GetSession(path).Fingerprint;
+        result = new RsEntryProbeResult(
+            strip,
+            imageNumber,
+            entry.Offset,
+            entry.StoredLength,
+            entry.DecodedLength,
+            fingerprint.IndexSha256,
+            Convert.ToHexString(SHA256.HashData(bytes)));
+        detail = strip.Detail + BuildEntryLocationText(entry);
+        return true;
     }
 
     public Bitmap RenderResourcePreview(CczProject project, string prefix, int id, string personName, int? faceId = null)
@@ -130,7 +199,12 @@ public sealed class ImageAssignmentPreviewService
     public Bitmap? TryRenderCharacterResourceImage(CczProject project, string prefix, int id)
         => TryRenderCharacterResourceImage(project, prefix, id, jobId: null, sFactionSlot: CharacterImageResourceService.DefaultSPreviewFactionSlot);
 
-    public Bitmap? TryRenderCharacterResourceImage(CczProject project, string prefix, int id, int? jobId, int sFactionSlot)
+    public Bitmap? TryRenderCharacterResourceImage(
+        CczProject project,
+        string prefix,
+        int id,
+        int? jobId,
+        int sFactionSlot)
     {
         prefix = NormalizePrefix(prefix);
         return TryLoadMappedE5Image(project, prefix, id, jobId, sFactionSlot, out _);
@@ -141,32 +215,58 @@ public sealed class ImageAssignmentPreviewService
 
     public IReadOnlyList<int> GetAvailableCharacterImageIds(CczProject project, string prefix, bool includeZero, out bool fromCache)
     {
-        fromCache = false;
-        var cacheKey = BuildAvailableImageIdCacheKey(project, prefix, includeZero);
-        if (_availableImageIdCache.TryGetValue(cacheKey, out var cached))
+        var report = ScanAvailableCharacterImageIds(project, prefix, includeZero, forceFresh: false);
+        fromCache = report.FromCache;
+        return report.AvailableIds;
+    }
+
+    internal ImageAssignmentAvailabilityReport ScanAvailableCharacterImageIds(
+        CczProject project,
+        string prefix,
+        bool includeZero,
+        bool forceFresh)
+    {
+        var normalizedPrefix = prefix.Equals("Face", StringComparison.OrdinalIgnoreCase)
+            ? "Face"
+            : NormalizePrefix(prefix);
+        var paths = ResolveAvailabilityPaths(project, normalizedPrefix);
+        if (forceFresh)
         {
-            fromCache = true;
-            return cached;
+            _e5ImageIndexCache.Clear();
+            _availabilityReportCache.Clear();
+            _readSessions.Invalidate(paths);
         }
 
-        IReadOnlyList<int> result;
-        if (prefix.Equals("Face", StringComparison.OrdinalIgnoreCase))
+        var fingerprints = BuildAvailabilityFingerprints(paths);
+        var cacheKey = BuildAvailableImageIdCacheKey(project, normalizedPrefix, includeZero, fingerprints);
+        if (_availabilityReportCache.TryGetValue(cacheKey, out var cached))
+            return cached with { FromCache = true };
+
+        ImageAssignmentAvailabilityReport report;
+        if (normalizedPrefix == "Face")
         {
-            result = GetAvailableFaceIds(project, includeZero);
+            report = new ImageAssignmentAvailabilityReport(
+                GetAvailableFaceIds(project, includeZero),
+                Array.Empty<ImageAssignmentRejectedCandidate>(),
+                fingerprints,
+                false);
         }
         else
         {
-            prefix = NormalizePrefix(prefix);
-            result = prefix == "S"
-                ? GetAvailableSImageIds(project, includeZero)
-                : GetAvailableRImageIds(project, includeZero);
+            report = normalizedPrefix == "S"
+                ? ScanAvailableSImageIds(project, includeZero, fingerprints)
+                : ScanAvailableRImageIds(project, includeZero, fingerprints);
         }
 
-        _availableImageIdCache[cacheKey] = result;
-        return result;
+        _availabilityReportCache[cacheKey] = report with { FromCache = false };
+        return report;
     }
 
-    public Bitmap? TryRenderSImageFactionStackPreview(CczProject project, int sImageId, int? jobId, out string detail)
+    public Bitmap? TryRenderSImageFactionStackPreview(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        out string detail)
     {
         var rows = new List<SImageFactionPreviewRow>();
         var detailLines = new List<string>();
@@ -257,9 +357,14 @@ public sealed class ImageAssignmentPreviewService
             return null;
         }
 
+        if (stripFrameIndex < 0 || stripFrameIndex >= RawPreviewSpecs.PmapObjFrameCount)
+        {
+            detail = $"物理帧索引越界：请求 {stripFrameIndex}，可用范围 0-{RawPreviewSpecs.PmapObjFrameCount - 1}。";
+            return null;
+        }
+
         var normalizedFacing = NormalizeRSceneFacing(facing);
-        var physicalFrameIndex = Math.Clamp(stripFrameIndex, 0, RawPreviewSpecs.PmapObjFrameCount - 1);
-        var frameMapping = ResolveRScenePhysicalFrameMapping(rImageId, normalizedFacing, physicalFrameIndex);
+        var frameMapping = ResolveRScenePhysicalFrameMapping(rImageId, normalizedFacing, stripFrameIndex);
         var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
         var frame = TryRenderE5EntryFrameAt(
             project,
@@ -293,6 +398,114 @@ public sealed class ImageAssignmentPreviewService
         int factionSlot,
         string direction,
         int framePhase,
+        int stageSlot,
+        out string detail)
+    {
+        detail = string.Empty;
+        var stage = CharacterImageResourceService.ResolveSPreviewStage(project, sImageId, jobId, factionSlot, stageSlot);
+        var mapping = stage.Mapping;
+        var stageTarget = stage.Target;
+        if (stageTarget == null)
+        {
+            detail = mapping.Detail;
+            return null;
+        }
+
+        var normalizedDirection = NormalizeBattlefieldDirection(direction);
+        var definition = RsActionSequenceCatalog.Resolve(
+            "Unit_mov.e5",
+            "待机/移动",
+            RsActionSequenceCatalog.DirectionToFacing(normalizedDirection));
+        var phase = Math.Abs(framePhase) % definition.PhysicalFrameIndices.Count;
+        var frameIndex = definition.PhysicalFrameIndices[phase];
+        var flipHorizontal = normalizedDirection == "右";
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
+        var frame = TryRenderE5EntryFrameAt(project, path, stageTarget.ImageNumber, 48, 48, frameIndex, flipHorizontal, out var readDetail);
+        var fallbackDetail = string.IsNullOrWhiteSpace(stage.FallbackDetail) ? string.Empty : stage.FallbackDetail + " ";
+        detail = frame == null
+            ? $"{fallbackDetail}{mapping.ShortText} {stageTarget.DisplayName} -> Unit_mov.e5 #{stageTarget.ImageNumber} 待机{normalizedDirection} 第{phase + 1}帧未读取：{readDetail}"
+            : $"{fallbackDetail}{mapping.ShortText} {stageTarget.DisplayName} -> Unit_mov.e5 #{stageTarget.ImageNumber} 待机{normalizedDirection} 第{phase + 1}帧";
+        return frame;
+    }
+
+    internal Bitmap? TryRenderSAssignmentRepresentativeFrame(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int factionSlot,
+        string direction,
+        int requestedStageSlot,
+        out SImagePreviewStageResolution stage,
+        out string sourceLabel,
+        out string detail)
+    {
+        stage = CharacterImageResourceService.ResolveSPreviewStage(
+            project,
+            sImageId,
+            jobId,
+            factionSlot,
+            requestedStageSlot);
+        sourceLabel = string.Empty;
+        if (stage.Target == null)
+        {
+            detail = stage.Mapping.Detail;
+            return null;
+        }
+
+        var normalizedDirection = NormalizeBattlefieldDirection(direction);
+        var flipHorizontal = normalizedDirection == "右";
+        var facing = RsActionSequenceCatalog.DirectionToFacing(normalizedDirection);
+        var move = RsActionSequenceCatalog.Resolve("Unit_mov.e5", "待机/移动", facing);
+        var attack = RsActionSequenceCatalog.Resolve("Unit_atk.e5", "攻击", facing);
+        var special = RsActionSequenceCatalog.Resolve("Unit_spc.e5", "特技", null);
+        var candidates = new[]
+        {
+            new SRepresentativeSpec("Unit_mov.e5", 48, 48, move.PhysicalFrameIndices[0], "移动"),
+            new SRepresentativeSpec("Unit_atk.e5", 64, 64, attack.PhysicalFrameIndices[0], "攻击"),
+            new SRepresentativeSpec("Unit_spc.e5", 48, 48, special.PhysicalFrameIndices[0], "特技")
+        };
+        var errors = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            var path = CharacterImageResourceService.ResolveGameFile(project, candidate.FileName);
+            var frame = TryRenderE5EntryFrameAt(
+                project,
+                path,
+                stage.Target.ImageNumber,
+                candidate.FrameWidth,
+                candidate.FrameHeight,
+                candidate.FrameIndex,
+                flipHorizontal,
+                out var readDetail);
+            if (frame != null)
+            {
+                sourceLabel = candidate.Label;
+                detail = string.Join(" ", new[]
+                {
+                    stage.FallbackDetail,
+                    $"代表帧：{candidate.FileName} #{stage.Target.ImageNumber} 物理帧 {candidate.FrameIndex}。"
+                }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                return frame;
+            }
+
+            errors.Add($"{candidate.FileName}: {readDetail}");
+        }
+
+        detail = string.Join(" ", new[]
+        {
+            stage.FallbackDetail,
+            "移动、攻击、特技代表帧均不可读取：" + string.Join("；", errors)
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        return null;
+    }
+
+    public Bitmap? TryRenderBattlefieldMoveIdleFrame(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int factionSlot,
+        string direction,
+        int framePhase,
         string levelMode,
         out string detail)
     {
@@ -311,14 +524,12 @@ public sealed class ImageAssignmentPreviewService
         var imageNumber = mapping.ImageNumbers[imageStageIndex];
         var normalizedLevelMode = NormalizeBattlefieldLevelMode(levelMode);
         var normalizedDirection = NormalizeBattlefieldDirection(direction);
-        var phase = Math.Abs(framePhase) % 2;
-        var frameIndex = normalizedDirection switch
-        {
-            "上" => 2 + phase,
-            "左" => 4 + phase,
-            "右" => 4 + phase,
-            _ => phase
-        };
+        var definition = RsActionSequenceCatalog.Resolve(
+            "Unit_mov.e5",
+            "待机/移动",
+            RsActionSequenceCatalog.DirectionToFacing(normalizedDirection));
+        var phase = Math.Abs(framePhase) % definition.PhysicalFrameIndices.Count;
+        var frameIndex = definition.PhysicalFrameIndices[phase];
         var flipHorizontal = normalizedDirection == "右";
         var path = CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5");
         var frame = TryRenderE5EntryFrameAt(project, path, imageNumber, 48, 48, frameIndex, flipHorizontal, out var readDetail);
@@ -328,7 +539,394 @@ public sealed class ImageAssignmentPreviewService
         return frame;
     }
 
-    private static void DrawCenteredImage(Graphics g, Image image, Rectangle rect, Pen borderPen)
+    internal CharacterImageAnimationPreview BuildRAnimationPreview(CczProject project, int rImageId)
+    {
+        var cells = new List<CharacterImageAnimationCell>();
+        var messages = new List<string>();
+        if (rImageId < 0)
+        {
+            messages.Add($"R形象编号不能小于0：{rImageId}");
+            return new CharacterImageAnimationPreview(
+                ImageAssignmentResourceKind.R,
+                rImageId,
+                1,
+                "R形象动画",
+                2,
+                1,
+                RawPreviewSpecs.PmapObjWidth,
+                RawPreviewSpecs.PmapObjFrameHeight,
+                cells,
+                messages);
+        }
+
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        if (!File.Exists(path))
+        {
+            messages.Add("缺少 Pmapobj.e5：" + path);
+        }
+
+        cells.Add(BuildRAnimationCell(
+            project,
+            rImageId,
+            row: 0,
+            column: 0,
+            label: "正面",
+            path,
+            checked(rImageId * 2 + 1),
+            flipHorizontal: false,
+            messages));
+        cells.Add(BuildRAnimationCell(
+            project,
+            rImageId,
+            row: 0,
+            column: 1,
+            label: "背面",
+            path,
+            checked(rImageId * 2 + 2),
+            flipHorizontal: false,
+            messages));
+
+        return new CharacterImageAnimationPreview(
+            ImageAssignmentResourceKind.R,
+            rImageId,
+            1,
+            $"R{rImageId}动画",
+            2,
+            1,
+            RawPreviewSpecs.PmapObjWidth,
+            RawPreviewSpecs.PmapObjFrameHeight,
+            cells,
+            messages);
+    }
+
+    internal CharacterImageAnimationPreview BuildSAnimationPreview(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int factionSlot,
+        int stageSlot = 1)
+    {
+        var sequences = new List<CharacterImageAnimationSequence>();
+        var messages = new List<string>();
+        if (sImageId < 0)
+        {
+            messages.Add($"S形象编号不能小于0：{sImageId}");
+            return new CharacterImageAnimationPreview(
+                ImageAssignmentResourceKind.S,
+                sImageId,
+                1,
+                "S形象动画",
+                3,
+                3,
+                64,
+                64,
+                Array.Empty<CharacterImageAnimationCell>(),
+                messages);
+        }
+
+        var stageResolution = CharacterImageResourceService.ResolveSPreviewStage(project, sImageId, jobId, factionSlot, stageSlot);
+        var mapping = stageResolution.Mapping;
+        if (mapping.ImageNumbers.Count == 0)
+        {
+            messages.Add(mapping.Detail);
+        }
+
+        var stageTarget = stageResolution.Target;
+        var imageNumber = stageTarget?.ImageNumber ?? 0;
+        if (imageNumber <= 0)
+        {
+            messages.Add("未解析到战场图号。");
+        }
+        if (stageResolution.IsOneStageFallback)
+        {
+            messages.Add(stageResolution.FallbackDetail);
+        }
+
+        foreach (var resourceGroup in RsActionSequenceCatalog.SDefinitions.GroupBy(definition => definition.SourceFile))
+        {
+            var path = CharacterImageResourceService.ResolveGameFile(project, resourceGroup.Key);
+            if (!File.Exists(path))
+            {
+                messages.Add("缺少 " + resourceGroup.Key + "：" + path);
+            }
+
+            using var strip = TryLoadE5EntryStrip(
+                project,
+                path,
+                imageNumber,
+                new RsFrameLayoutResolver().Resolve(path).FrameWidth,
+                new RsFrameLayoutResolver().Resolve(path).FrameHeight,
+                out var stripDetail);
+            var layout = new RsFrameLayoutResolver().Resolve(path);
+            foreach (var definition in resourceGroup)
+            {
+                sequences.Add(BuildSAnimationSequenceFromStrip(
+                    sImageId,
+                    imageNumber,
+                    stageSlot,
+                    stageResolution.EffectiveStageSlot,
+                    definition,
+                    path,
+                    strip,
+                    layout,
+                    messages,
+                    stripDetail));
+            }
+        }
+
+        return new CharacterImageAnimationPreview(
+            ImageAssignmentResourceKind.S,
+            sImageId,
+            stageResolution.EffectiveStageSlot,
+            $"S{sImageId}动画",
+            3,
+            3,
+            64,
+            64,
+            Array.Empty<CharacterImageAnimationCell>(),
+            messages)
+        {
+            Sequences = sequences
+        };
+    }
+
+    internal async Task<CharacterImageAnimationPreview> LoadAnimationAsync(
+        CczProject project,
+        ImageAssignmentResourceKind kind,
+        int imageId,
+        int? jobId,
+        int factionSlot,
+        int stageSlot,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var paths = kind == ImageAssignmentResourceKind.S
+            ? new[] { "Unit_atk.e5", "Unit_mov.e5", "Unit_spc.e5" }
+                .Select(fileName => CharacterImageResourceService.ResolveGameFile(project, fileName))
+                .ToArray()
+            : new[] { CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5") };
+        var identity = string.Join("|", paths.Select(path =>
+        {
+            var fullPath = Path.GetFullPath(path);
+            return File.Exists(fullPath)
+                ? $"{fullPath.ToUpperInvariant()}|{_readSessions.GetSession(fullPath).Fingerprint}"
+                : fullPath.ToUpperInvariant() + "|missing";
+        }));
+        var stageResolution = kind == ImageAssignmentResourceKind.S
+            ? CharacterImageResourceService.ResolveSPreviewStage(project, imageId, jobId, factionSlot, stageSlot)
+            : null;
+        var effectiveStageSlot = stageResolution?.EffectiveStageSlot ?? stageSlot;
+        var baseKey = string.Join("|", "animation-v4", RsActionSequenceCatalog.ContractVersion, identity, kind, imageId, jobId, factionSlot,
+            $"requested={stageSlot}", $"effective={effectiveStageSlot}");
+        using var livePreview = await Task.Run(() =>
+            kind == ImageAssignmentResourceKind.S
+                ? BuildSAnimationPreview(project, imageId, jobId, factionSlot, stageSlot)
+                : BuildRAnimationPreview(project, imageId),
+            cancellationToken).ConfigureAwait(false);
+
+        if (kind == ImageAssignmentResourceKind.S)
+        {
+            var cachedSequences = new List<CharacterImageAnimationSequence>(livePreview.Sequences.Count);
+            var cachedFrames = new List<CachedPreviewImage>();
+            foreach (var sequence in livePreview.Sequences)
+            {
+                var entryIdentity = TryProbeRsEntry(
+                    sequence.SourcePath,
+                    sequence.ImageNumber,
+                    out var entryProbe,
+                    out var entryDetail)
+                    ? entryProbe!.CacheIdentity
+                    : "unreadable:" + entryDetail;
+                var frames = new List<CharacterImageAnimationSequenceFrame>(sequence.Frames.Count);
+                foreach (var sourceFrame in sequence.Frames)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (sourceFrame.Bitmap == null)
+                    {
+                        frames.Add(new CharacterImageAnimationSequenceFrame(sourceFrame.PhysicalFrameIndex, null));
+                        continue;
+                    }
+
+                    var key = string.Join("|",
+                        baseKey,
+                        $"action={sequence.Definition.Id}",
+                        $"facing={sequence.Definition.Facing?.ToString() ?? "none"}",
+                        $"physical={sourceFrame.PhysicalFrameIndex}",
+                        $"image={sequence.ImageNumber}",
+                        $"entry={entryIdentity}");
+                    var sourceBitmap = sourceFrame.Bitmap;
+                    var cached = await _previewCache.GetOrCreateAsync(
+                        key,
+                        () => Task.Run(() =>
+                        {
+                            using var output = new MemoryStream();
+                            sourceBitmap.Save(output, ImageFormat.Png);
+                            return (byte[]?)output.ToArray();
+                        }, CancellationToken.None),
+                        cancellationToken).ConfigureAwait(false);
+                    if (cached == null)
+                    {
+                        frames.Add(new CharacterImageAnimationSequenceFrame(sourceFrame.PhysicalFrameIndex, null));
+                        continue;
+                    }
+
+                    using var stream = new MemoryStream(cached.Bytes, writable: false);
+                    using var image = Image.FromStream(stream, false, false);
+                    frames.Add(new CharacterImageAnimationSequenceFrame(sourceFrame.PhysicalFrameIndex, new Bitmap(image)));
+                    cachedFrames.Add(new CachedPreviewImage(cached.Bytes, image.Size, key, $"cache={cached.Source}"));
+                }
+
+                cachedSequences.Add(new CharacterImageAnimationSequence(
+                    sequence.Definition,
+                    sequence.SourcePath,
+                    sequence.ImageNumber,
+                    sequence.RequestedStageSlot,
+                    sequence.EffectiveStageSlot,
+                    frames));
+            }
+
+            return new CharacterImageAnimationPreview(
+                kind,
+                imageId,
+                effectiveStageSlot,
+                $"S{imageId}动画",
+                1,
+                1,
+                64,
+                64,
+                Array.Empty<CharacterImageAnimationCell>(),
+                livePreview.Messages)
+            {
+                Sequences = cachedSequences,
+                PrecomposedFrames = cachedFrames
+            };
+        }
+
+        var precomposed = new List<CachedPreviewImage>(RawPreviewSpecs.PmapObjFrameCount);
+        for (var frameIndex = 0; frameIndex < RawPreviewSpecs.PmapObjFrameCount; frameIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var currentFrame = frameIndex;
+            var key = $"{baseKey}|physical={currentFrame}";
+            var cached = await _previewCache.GetOrCreateAsync(
+                key,
+                () => Task.Run(() =>
+                {
+                    using var canvas = BuildAnimationCanvas(livePreview, currentFrame);
+                    using var output = new MemoryStream();
+                    canvas.Save(output, ImageFormat.Png);
+                    return (byte[]?)output.ToArray();
+                }, CancellationToken.None),
+                cancellationToken).ConfigureAwait(false);
+            if (cached == null) continue;
+            using var stream = new MemoryStream(cached.Bytes, writable: false);
+            using var image = Image.FromStream(stream, false, false);
+            precomposed.Add(new CachedPreviewImage(cached.Bytes, image.Size, key, $"cache={cached.Source}"));
+        }
+
+        return new CharacterImageAnimationPreview(
+            kind,
+            imageId,
+            effectiveStageSlot,
+            $"R{imageId}动画",
+            2,
+            1,
+            RawPreviewSpecs.PmapObjWidth,
+            RawPreviewSpecs.PmapObjFrameHeight,
+            Array.Empty<CharacterImageAnimationCell>(),
+            livePreview.Messages)
+        {
+            PrecomposedFrames = precomposed
+        };
+    }
+
+    internal Bitmap BuildAnimationCanvas(CharacterImageAnimationPreview preview, int frameIndex)
+    {
+        if (preview.Sequences.Count > 0)
+        {
+            return BuildAnimationSequenceFrame(preview, 0, frameIndex, mirrorHorizontal: false);
+        }
+
+        if (preview.PrecomposedFrames.Count > 0)
+        {
+            return preview.PrecomposedFrames[Math.Abs(frameIndex) % preview.PrecomposedFrames.Count].CreateBitmap();
+        }
+
+        const int padding = 0;
+        const int gap = 2;
+        var cellWidth = Math.Max(48, preview.CellWidth);
+        var cellHeight = Math.Max(48, preview.CellHeight);
+        var width = padding * 2 + preview.Columns * cellWidth + Math.Max(0, preview.Columns - 1) * gap;
+        var height = padding * 2 + preview.Rows * cellHeight + Math.Max(0, preview.Rows - 1) * gap;
+        var bitmap = new Bitmap(Math.Max(1, width), Math.Max(1, height), PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bitmap);
+        g.Clear(Color.FromArgb(24, 26, 28));
+        g.InterpolationMode = InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+        using var borderPen = new Pen(Color.FromArgb(92, 102, 112));
+        using var cellBrush = new SolidBrush(Color.FromArgb(32, 35, 39));
+
+        for (var row = 0; row < preview.Rows; row++)
+        {
+            for (var column = 0; column < preview.Columns; column++)
+            {
+                var left = padding + column * (cellWidth + gap);
+                var top = padding + row * (cellHeight + gap);
+                var cellRect = new Rectangle(left, top, cellWidth, cellHeight);
+                var imageRect = cellRect;
+
+                g.FillRectangle(cellBrush, cellRect);
+
+                var cell = preview.Cells.FirstOrDefault(item => item.Row == row && item.Column == column);
+
+                if (cell?.Frames.Count > 0)
+                {
+                    var frame = cell.Frames[Math.Abs(frameIndex) % cell.Frames.Count];
+                    if (frame != null)
+                    {
+                        DrawCenteredImage(g, frame, imageRect, borderPen);
+                        continue;
+                    }
+                }
+
+                g.DrawRectangle(borderPen, imageRect);
+            }
+        }
+
+        return bitmap;
+    }
+
+    internal Bitmap BuildAnimationSequenceFrame(
+        CharacterImageAnimationPreview preview,
+        int sequenceIndex,
+        int frameIndex,
+        bool mirrorHorizontal)
+    {
+        if (sequenceIndex < 0 || sequenceIndex >= preview.Sequences.Count)
+            return new Bitmap(Math.Max(1, preview.CellWidth), Math.Max(1, preview.CellHeight), PixelFormat.Format32bppArgb);
+        var sequence = preview.Sequences[sequenceIndex];
+        if (sequence.Frames.Count == 0)
+            return new Bitmap(Math.Max(1, preview.CellWidth), Math.Max(1, preview.CellHeight), PixelFormat.Format32bppArgb);
+
+        var normalizedIndex = Math.Abs(frameIndex) % sequence.Frames.Count;
+        var source = sequence.Frames[normalizedIndex].Bitmap;
+        if (source == null)
+            return new Bitmap(Math.Max(1, preview.CellWidth), Math.Max(1, preview.CellHeight), PixelFormat.Format32bppArgb);
+
+        var output = new Bitmap(source.Width, source.Height, PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(output))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.CompositingMode = CompositingMode.SourceCopy;
+            graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+            graphics.PixelOffsetMode = PixelOffsetMode.Half;
+            graphics.DrawImage(source, new Rectangle(Point.Empty, output.Size), new Rectangle(Point.Empty, source.Size), GraphicsUnit.Pixel);
+        }
+        if (mirrorHorizontal) output.RotateFlip(RotateFlipType.RotateNoneFlipX);
+        return output;
+    }
+
+    private static Rectangle DrawCenteredImage(Graphics g, Image image, Rectangle rect, Pen borderPen)
     {
         using var back = new SolidBrush(Color.FromArgb(16, 18, 20));
         g.FillRectangle(back, rect);
@@ -339,10 +937,18 @@ public sealed class ImageAssignmentPreviewService
         var h = (int)Math.Round(image.Height * scale);
         var x = rect.Left + (rect.Width - w) / 2;
         var y = rect.Top + (rect.Height - h) / 2;
-        g.DrawImage(image, new Rectangle(x, y, w, h));
+        var destination = new Rectangle(x, y, w, h);
+        g.DrawImage(image, destination);
+        return destination;
     }
 
-    private Bitmap? TryLoadMappedE5Image(CczProject project, string prefix, int id, int? jobId, int sFactionSlot, out string caption)
+    private Bitmap? TryLoadMappedE5Image(
+        CczProject project,
+        string prefix,
+        int id,
+        int? jobId,
+        int sFactionSlot,
+        out string caption)
     {
         prefix = NormalizePrefix(prefix);
         if (prefix == "S")
@@ -353,6 +959,160 @@ public sealed class ImageAssignmentPreviewService
         }
 
         return TryRenderRImage(project, id, out caption);
+    }
+
+    private CharacterImageAnimationCell BuildRAnimationCell(
+        CczProject project,
+        int rImageId,
+        int row,
+        int column,
+        string label,
+        string path,
+        int imageNumber,
+        bool flipHorizontal,
+        List<string> messages)
+    {
+        var frames = new List<Bitmap?>();
+        for (var frameIndex = 0; frameIndex < RawPreviewSpecs.PmapObjFrameCount; frameIndex++)
+        {
+            var frame = TryRenderE5EntryFrameAt(
+                project,
+                path,
+                imageNumber,
+                RawPreviewSpecs.PmapObjWidth,
+                RawPreviewSpecs.PmapObjFrameHeight,
+                frameIndex,
+                flipHorizontal,
+                out var detail);
+            frames.Add(frame);
+            if (frame == null && frameIndex == 0)
+            {
+                messages.Add($"R{rImageId} {label} #{imageNumber}: {detail}");
+            }
+        }
+
+        return new CharacterImageAnimationCell(row, column, label, frames);
+    }
+
+    private static CharacterImageAnimationSequence BuildSAnimationSequenceFromStrip(
+        int sImageId,
+        int imageNumber,
+        int requestedStageSlot,
+        int effectiveStageSlot,
+        RsActionSequenceDefinition definition,
+        string path,
+        Bitmap? strip,
+        RsFrameLayout layout,
+        List<string> messages,
+        string loadDetail)
+    {
+        var frames = new List<CharacterImageAnimationSequenceFrame>();
+        if (imageNumber <= 0 || strip == null)
+        {
+            messages.Add($"S{sImageId} {definition.ActionLabel} #{imageNumber}: {loadDetail}");
+            frames.AddRange(definition.PhysicalFrameIndices.Select(index => new CharacterImageAnimationSequenceFrame(index, null)));
+            return new CharacterImageAnimationSequence(
+                definition,
+                path,
+                imageNumber,
+                requestedStageSlot,
+                effectiveStageSlot,
+                frames);
+        }
+
+        foreach (var frameIndex in definition.PhysicalFrameIndices)
+        {
+            Bitmap? frame = null;
+            try
+            {
+                frame = RsStripLayoutService.CropFrame(strip, layout, frameIndex);
+            }
+            catch (Exception ex) when (ex is ArgumentOutOfRangeException or InvalidOperationException)
+            {
+                messages.Add($"S{sImageId} {definition.ActionLabel} #{imageNumber} 物理帧 {frameIndex}: {ex.Message}");
+            }
+            frames.Add(new CharacterImageAnimationSequenceFrame(frameIndex, frame));
+        }
+
+        return new CharacterImageAnimationSequence(
+            definition,
+            path,
+            imageNumber,
+            requestedStageSlot,
+            effectiveStageSlot,
+            frames);
+    }
+
+    private Bitmap? TryLoadE5EntryStrip(
+        CczProject project,
+        string path,
+        int imageNumber,
+        int rawWidth,
+        int frameHeight,
+        out string detail)
+    {
+        if (!File.Exists(path))
+        {
+            detail = "文件不存在";
+            return null;
+        }
+
+        var indexProbe = _readSessions.GetSession(path).ProbeIndex();
+        if (!indexProbe.IsComplete)
+        {
+            detail = indexProbe.Diagnostic;
+            return null;
+        }
+
+        var entries = GetE5ImageIndex(path);
+        if (imageNumber <= 0 || imageNumber > entries.Count)
+        {
+            detail = $"索引越界 #{imageNumber}/{entries.Count}";
+            return null;
+        }
+
+        if (!TryProbeRsEntry(path, imageNumber, out var entryProbe, out detail) || entryProbe == null)
+        {
+            return null;
+        }
+
+        if (!entryProbe.Strip.IsSupportedLayout)
+        {
+            detail = entryProbe.Strip.Detail;
+            return null;
+        }
+
+        var entry = entries[imageNumber - 1];
+        var bytes = TryReadEntryBytes(path, entry, out var readDetail);
+        if (bytes == null)
+        {
+            detail = readDetail;
+            return null;
+        }
+
+        using var decoded = TryDecodeStandardImage(bytes);
+        if (decoded != null)
+        {
+            detail = $"{entryProbe.Strip.Detail}{BuildEntryLocationText(entry)}";
+            return new Bitmap(decoded);
+        }
+
+        if (entryProbe.Strip.IsSupportedLayout)
+        {
+            var palette = LoadRawPalette(project);
+            var strip = TryRenderRawIndexedStripBitmap(
+                bytes,
+                entryProbe.Strip.Layout.FrameWidth,
+                entryProbe.Strip.Layout.FrameHeight,
+                palette.Colors,
+                palette.Mode,
+                out var paletteMode);
+            detail = $"{paletteMode}；{entryProbe.Strip.Detail}{BuildEntryLocationText(entry)}";
+            return strip;
+        }
+
+        detail = $"未知格式 first={HexDisplayFormatter.Format(bytes.Length == 0 ? 0 : bytes[0], 2)}{BuildEntryLocationText(entry)}";
+        return null;
     }
 
     private Bitmap? TryRenderRImage(CczProject project, int rImageId, out string caption)
@@ -369,7 +1129,12 @@ public sealed class ImageAssignmentPreviewService
         return frame;
     }
 
-    private Bitmap? TryRenderSImage(CczProject project, int sImageId, int? jobId, int sFactionSlot, out string caption)
+    private Bitmap? TryRenderSImage(
+        CczProject project,
+        int sImageId,
+        int? jobId,
+        int sFactionSlot,
+        out string caption)
     {
         var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, sImageId, jobId, sFactionSlot);
         caption = mapping.Detail;
@@ -437,6 +1202,17 @@ public sealed class ImageAssignmentPreviewService
             return null;
         }
 
+        if (!TryProbeRsEntry(path, imageNumber, out var entryProbe, out detail) || entryProbe == null)
+        {
+            return null;
+        }
+
+        if (!entryProbe.Strip.IsSupportedLayout)
+        {
+            detail = entryProbe.Strip.Detail;
+            return null;
+        }
+
         var entry = entries[imageNumber - 1];
         var bytes = TryReadEntryBytes(path, entry, out var readDetail);
         if (bytes == null)
@@ -447,17 +1223,22 @@ public sealed class ImageAssignmentPreviewService
         using var decoded = TryDecodeStandardImage(bytes);
         if (decoded != null)
         {
-            detail = $"{entry.Kind}{BuildEntryLocationText(entry)}";
-            return CropRepresentativeFrame(decoded, frameHeight);
+            detail = $"{entryProbe.Strip.Detail}{BuildEntryLocationText(entry)}";
+            return CropRepresentativeFrame(decoded, entryProbe.Strip.Layout);
         }
 
-        if (LooksLikeRawIndexedStrip(bytes, rawWidth, frameHeight))
+        if (entryProbe.Strip.IsSupportedLayout)
         {
             var rawPalette = LoadRawPalette(project);
-            var raw = TryRenderRawIndexedStrip(bytes, rawWidth, frameHeight, rawPalette.Colors, rawPalette.Mode, out var paletteMode);
+            var raw = TryRenderRawIndexedStrip(
+                bytes,
+                entryProbe.Strip.Layout,
+                rawPalette.Colors,
+                rawPalette.Mode,
+                out var paletteMode);
             if (raw != null)
             {
-                detail = $"{paletteMode}{BuildEntryLocationText(entry)}";
+                detail = $"{paletteMode}；{entryProbe.Strip.Detail}{BuildEntryLocationText(entry)}";
                 return raw;
             }
         }
@@ -489,6 +1270,17 @@ public sealed class ImageAssignmentPreviewService
             return null;
         }
 
+        if (!TryProbeRsEntry(path, imageNumber, out var entryProbe, out detail) || entryProbe == null)
+        {
+            return null;
+        }
+
+        if (!entryProbe.Strip.IsSupportedLayout)
+        {
+            detail = entryProbe.Strip.Detail;
+            return null;
+        }
+
         var entry = entries[imageNumber - 1];
         var bytes = TryReadEntryBytes(path, entry, out var readDetail);
         if (bytes == null)
@@ -502,13 +1294,19 @@ public sealed class ImageAssignmentPreviewService
         if (decoded != null)
         {
             strip = new Bitmap(decoded);
-            detail = $"{entry.Kind}{BuildEntryLocationText(entry)}";
+            detail = $"{entryProbe.Strip.Detail}{BuildEntryLocationText(entry)}";
         }
-        else if (LooksLikeRawIndexedStrip(bytes, rawWidth, frameHeight))
+        else if (entryProbe.Strip.IsSupportedLayout)
         {
             var rawPalette = LoadRawPalette(project);
-            strip = TryRenderRawIndexedStripBitmap(bytes, rawWidth, frameHeight, rawPalette.Colors, rawPalette.Mode, out var paletteMode);
-            detail = $"{paletteMode}{BuildEntryLocationText(entry)}";
+            strip = TryRenderRawIndexedStripBitmap(
+                bytes,
+                entryProbe.Strip.Layout.FrameWidth,
+                entryProbe.Strip.Layout.FrameHeight,
+                rawPalette.Colors,
+                rawPalette.Mode,
+                out var paletteMode);
+            detail = $"{paletteMode}；{entryProbe.Strip.Detail}{BuildEntryLocationText(entry)}";
         }
         else
         {
@@ -524,9 +1322,14 @@ public sealed class ImageAssignmentPreviewService
                 return null;
             }
 
-            var frameCount = Math.Max(1, strip.Height / Math.Max(1, frameHeight));
-            var safeIndex = Math.Clamp(frameIndex, 0, frameCount - 1);
-            var frame = CropFrame(strip, safeIndex * frameHeight, frameHeight);
+            var frameCount = entryProbe.Strip.AvailableFrameCount;
+            if (frameIndex < 0 || frameIndex >= frameCount)
+            {
+                detail = $"帧越界 {frameIndex + 1}/{frameCount}{BuildEntryLocationText(entry)}";
+                return null;
+            }
+
+            var frame = RsStripLayoutService.CropFrame(strip, entryProbe.Strip.Layout, frameIndex);
             if (flipHorizontal)
             {
                 frame.RotateFlip(RotateFlipType.RotateNoneFlipX);
@@ -548,55 +1351,44 @@ public sealed class ImageAssignmentPreviewService
             return empty;
         }
 
-        var data = File.ReadAllBytes(path);
-        var result = new List<E5ImageEntry>();
-        uint firstDataOffset = 0;
-        for (var offset = E5ImageIndexOffset; offset + E5ImageIndexEntrySize <= data.Length; offset += E5ImageIndexEntrySize)
-        {
-            if (firstDataOffset > 0 && offset >= firstDataOffset)
-            {
-                break;
-            }
-
-            var storedSize = ReadBigEndianUInt32(data, offset);
-            var decodedSize = ReadBigEndianUInt32(data, offset + 4);
-            var imageOffset = ReadBigEndianUInt32(data, offset + 8);
-            if (storedSize == 0 ||
-                decodedSize == 0 ||
-                imageOffset >= data.Length ||
-                storedSize > data.Length - imageOffset ||
-                storedSize > int.MaxValue ||
-                decodedSize > int.MaxValue)
-            {
-                break;
-            }
-
-            if (firstDataOffset == 0)
-            {
-                firstDataOffset = imageOffset;
-            }
-
-            var compressed = storedSize != decodedSize;
-            result.Add(new E5ImageEntry(
-                result.Count + 1,
-                checked((int)imageOffset),
-                checked((int)storedSize),
-                checked((int)decodedSize),
-                compressed
-                    ? "LS12"
-                    : DetectE5ImageKind(data, checked((int)imageOffset), checked((int)storedSize))));
-        }
+        var result = _readSessions.GetSession(path)
+            .ReadIndex()
+            .Select(entry => new E5ImageEntry(
+                entry.ImageNumber,
+                entry.DataOffset,
+                entry.StoredLength,
+                entry.DecodedLength,
+                entry.Kind))
+            .ToArray();
 
         _e5ImageIndexCache[key] = result;
         return result;
     }
 
-    private static string BuildAvailableImageIdCacheKey(CczProject project, string prefix, bool includeZero)
+    private static string BuildAvailableImageIdCacheKey(
+        CczProject project,
+        string prefix,
+        bool includeZero,
+        IReadOnlyList<ImageAssignmentResourceFingerprint> fingerprints)
     {
-        var normalizedPrefix = prefix.Equals("Face", StringComparison.OrdinalIgnoreCase)
-            ? "Face"
-            : NormalizePrefix(prefix);
-        var paths = normalizedPrefix switch
+        return string.Join("|",
+            new[]
+            {
+                "availability-v2",
+                RsStripLayoutService.ContractVersion,
+                Path.GetFullPath(project.GameRoot),
+                prefix,
+                includeZero ? "1" : "0"
+            }.Concat(fingerprints.Select(fingerprint => string.Join(":",
+                fingerprint.Path.ToUpperInvariant(),
+                fingerprint.Length,
+                fingerprint.LastWriteTimeUtcTicks,
+                fingerprint.IndexSha256,
+                fingerprint.EntryCount))));
+    }
+
+    private static IReadOnlyList<string> ResolveAvailabilityPaths(CczProject project, string normalizedPrefix)
+        => normalizedPrefix switch
         {
             "Face" => new[] { ResolveFaceFile(project) ?? Path.Combine(project.GameRoot, "E5", "Face.e5") },
             "S" => UnitPreviewSpecs
@@ -606,9 +1398,27 @@ public sealed class ImageAssignmentPreviewService
             _ => new[] { CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5") }
         };
 
-        return string.Join("|",
-            new[] { "available", Path.GetFullPath(project.GameRoot), normalizedPrefix, includeZero ? "1" : "0" }
-                .Concat(paths.Select(BuildFileCacheKey)));
+    private IReadOnlyList<ImageAssignmentResourceFingerprint> BuildAvailabilityFingerprints(IEnumerable<string> paths)
+    {
+        var result = new List<ImageAssignmentResourceFingerprint>();
+        foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!File.Exists(path))
+            {
+                result.Add(new ImageAssignmentResourceFingerprint(path, 0, 0, "missing", 0));
+                continue;
+            }
+
+            var session = _readSessions.GetSession(path);
+            var fingerprint = session.Fingerprint;
+            result.Add(new ImageAssignmentResourceFingerprint(
+                path,
+                fingerprint.Length,
+                fingerprint.LastWriteTimeUtcTicks,
+                fingerprint.IndexSha256,
+                session.ReadIndex().Count));
+        }
+        return result;
     }
 
     private static string BuildFileCacheKey(string path)
@@ -630,26 +1440,56 @@ public sealed class ImageAssignmentPreviewService
         }
     }
 
-    private IReadOnlyList<int> GetAvailableRImageIds(CczProject project, bool includeZero)
+    private ImageAssignmentAvailabilityReport ScanAvailableRImageIds(
+        CczProject project,
+        bool includeZero,
+        IReadOnlyList<ImageAssignmentResourceFingerprint> fingerprints)
     {
         var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
-        if (!File.Exists(path)) return Array.Empty<int>();
+        if (!File.Exists(path))
+            return new ImageAssignmentAvailabilityReport(
+                Array.Empty<int>(),
+                Array.Empty<ImageAssignmentRejectedCandidate>(),
+                fingerprints,
+                false);
+
+        var indexProbe = _readSessions.GetSession(path).ProbeIndex();
+        if (!indexProbe.IsComplete)
+        {
+            return new ImageAssignmentAvailabilityReport(
+                Array.Empty<int>(),
+                Array.Empty<ImageAssignmentRejectedCandidate>(),
+                fingerprints,
+                false)
+            {
+                IsArchiveIntegrityValid = false,
+                IntegrityDiagnostics = new[] { $"{Path.GetFileName(path)}: {indexProbe.Diagnostic}" }
+            };
+        }
 
         var entries = GetE5ImageIndex(path);
         var result = new List<int>();
-        for (var rImageId = includeZero ? 0 : 1; ; rImageId++)
+        var rejected = new List<ImageAssignmentRejectedCandidate>();
+        var candidateCount = checked((entries.Count + 1) / 2);
+        for (var rImageId = includeZero ? 0 : 1; rImageId < candidateCount; rImageId++)
         {
             var frontNumber = checked(rImageId * 2 + 1);
             var backNumber = checked(rImageId * 2 + 2);
-            if (backNumber > entries.Count) break;
-
-            if (CanRenderE5EntryFrame(project, path, frontNumber, RawPreviewSpecs.PmapObjWidth, RawPreviewSpecs.PmapObjFrameHeight))
+            var frontReadable = TryReadAvailability(path, frontNumber, entries.Count, "正图", out var frontReason);
+            var backReadable = TryReadAvailability(path, backNumber, entries.Count, "反图", out var backReason);
+            if (frontReadable || backReadable)
             {
                 result.Add(rImageId);
             }
+            else
+            {
+                rejected.Add(new ImageAssignmentRejectedCandidate(
+                    rImageId,
+                    new[] { frontReason, backReason }.Where(reason => !string.IsNullOrWhiteSpace(reason)).ToArray()));
+            }
         }
 
-        return result;
+        return new ImageAssignmentAvailabilityReport(result, rejected, fingerprints, false);
     }
 
     private IReadOnlyList<int> GetAvailableFaceIds(CczProject project, bool includeZero)
@@ -668,7 +1508,7 @@ public sealed class ImageAssignmentPreviewService
             if (maxFaceImageNumber > entries.Count) break;
 
             var preferredFaceNumber = mapping.FaceImageNumbers.First();
-            if (CanRenderE5EntryFrame(project, path, preferredFaceNumber, 64, 80))
+            if (IsStructurallyUsable(entries[preferredFaceNumber - 1], 1, 1))
             {
                 result.Add(faceId);
             }
@@ -677,23 +1517,62 @@ public sealed class ImageAssignmentPreviewService
         return result;
     }
 
-    private IReadOnlyList<int> GetAvailableSImageIds(CczProject project, bool includeZero)
+    private ImageAssignmentAvailabilityReport ScanAvailableSImageIds(
+        CczProject project,
+        bool includeZero,
+        IReadOnlyList<ImageAssignmentResourceFingerprint> fingerprints)
     {
-        var unitPaths = UnitPreviewSpecs
-            .Select(spec => CharacterImageResourceService.ResolveGameFile(project, spec.FileName))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        var resources = UnitPreviewSpecs
+            .Select(spec => new
+            {
+                spec.FileName,
+                Path = CharacterImageResourceService.ResolveGameFile(project, spec.FileName)
+            })
+            .Where(resource => File.Exists(resource.Path))
+            .Select(resource => new
+            {
+                resource.FileName,
+                resource.Path,
+                Probe = _readSessions.GetSession(resource.Path).ProbeIndex()
+            })
             .ToArray();
-        if (unitPaths.Length == 0 || unitPaths.Any(path => !File.Exists(path))) return Array.Empty<int>();
-
-        var entryCounts = unitPaths
-            .Select(path => GetE5ImageIndex(path).Count)
+        var integrityDiagnostics = resources
+            .Where(resource => !resource.Probe.IsComplete)
+            .Select(resource => $"{resource.FileName}: {resource.Probe.Diagnostic}")
             .ToArray();
-        if (entryCounts.Length == 0 || entryCounts.Any(count => count <= 0)) return Array.Empty<int>();
+        if (integrityDiagnostics.Length > 0)
+        {
+            return new ImageAssignmentAvailabilityReport(
+                Array.Empty<int>(),
+                Array.Empty<ImageAssignmentRejectedCandidate>(),
+                fingerprints,
+                false)
+            {
+                IsArchiveIntegrityValid = false,
+                IntegrityDiagnostics = integrityDiagnostics
+            };
+        }
+        var completeResources = resources
+            .Where(resource => resource.Probe.ParsedEntryCount > 0)
+            .Select(resource => new
+            {
+                resource.FileName,
+                resource.Path,
+                EntryCount = resource.Probe.ParsedEntryCount
+            })
+            .ToArray();
+        if (completeResources.Length == 0)
+            return new ImageAssignmentAvailabilityReport(
+                Array.Empty<int>(),
+                Array.Empty<ImageAssignmentRejectedCandidate>(),
+                fingerprints,
+                false);
 
-        var maxSharedUnitImageNumber = entryCounts.Min();
         var layout = _layoutService.Resolve(project);
-        var maxSImageId = layout.UnitEntryCount > 0 ? layout.SMaxId : 0;
+        var maxUnitImageNumber = completeResources.Max(resource => resource.EntryCount);
+        var maxSImageId = CalculateSImageIdUpperBound(layout, maxUnitImageNumber);
         var result = new List<int>();
+        var rejected = new List<ImageAssignmentRejectedCandidate>();
         for (var sImageId = includeZero ? 0 : 1; sImageId <= maxSImageId; sImageId++)
         {
             if (sImageId == 0)
@@ -702,37 +1581,95 @@ public sealed class ImageAssignmentPreviewService
             }
 
             var mapping = CharacterImageResourceService.ResolveSUnitImageMapping(project, sImageId, jobId: null, CharacterImageResourceService.DefaultSPreviewFactionSlot);
-            if (mapping.ImageNumbers.Count == 0 ||
-                mapping.ImageNumbers.Any(number => number <= 0 || number > maxSharedUnitImageNumber))
+            if (mapping.ImageNumbers.Count == 0)
             {
+                rejected.Add(new ImageAssignmentRejectedCandidate(sImageId, new[] { mapping.Detail }));
                 continue;
             }
 
-            var canRenderAll = true;
-            foreach (var imageNumber in mapping.ImageNumbers)
+            var reasons = new List<string>();
+            var anyReadable = false;
+            foreach (var imageNumber in mapping.ImageNumbers.Where(number => number > 0))
             {
-                foreach (var spec in UnitPreviewSpecs)
+                foreach (var resource in completeResources)
                 {
-                    var path = CharacterImageResourceService.ResolveGameFile(project, spec.FileName);
-                    if (CanRenderE5EntryFrame(project, path, imageNumber, spec.RawWidth, spec.FrameHeight))
+                    if (TryReadAvailability(
+                            resource.Path,
+                            imageNumber,
+                            resource.EntryCount,
+                            Path.GetFileName(resource.Path),
+                            out var reason))
                     {
-                        continue;
+                        anyReadable = true;
+                        break;
                     }
-
-                    canRenderAll = false;
-                    break;
+                    reasons.Add(reason);
                 }
-
-                if (!canRenderAll) break;
+                if (anyReadable) break;
             }
-
-            if (canRenderAll)
+            if (anyReadable)
             {
                 result.Add(sImageId);
             }
+            else
+            {
+                rejected.Add(new ImageAssignmentRejectedCandidate(sImageId, reasons.Distinct().ToArray()));
+            }
         }
 
-        return result;
+        return new ImageAssignmentAvailabilityReport(result, rejected, fingerprints, false);
+    }
+
+    private static int CalculateSImageIdUpperBound(CharacterImageLayout layout, int maxUnitImageNumber)
+    {
+        if (maxUnitImageNumber >= layout.OneStageSpecialStartImageNumber)
+        {
+            return checked(layout.ThreeStageSpecialCount +
+                           maxUnitImageNumber -
+                           layout.OneStageSpecialStartImageNumber +
+                           1);
+        }
+
+        var firstThreeStageImageNumber = layout.DefaultUnitImageCount + 1;
+        if (maxUnitImageNumber < firstThreeStageImageNumber) return 0;
+        var availableImageCount = maxUnitImageNumber - firstThreeStageImageNumber + 1;
+        return Math.Min(layout.ThreeStageSpecialCount, checked((availableImageCount + 2) / 3));
+    }
+
+    private bool TryReadAvailability(
+        string path,
+        int imageNumber,
+        int entryCount,
+        string label,
+        out string reason)
+    {
+        if (imageNumber <= 0 || imageNumber > entryCount)
+        {
+            reason = $"{label} #{imageNumber}：图号越界，条目数 {entryCount}。";
+            return false;
+        }
+
+        if (!TryProbeRsEntry(path, imageNumber, out var probe, out var detail) || probe == null)
+        {
+            reason = $"{label} #{imageNumber}：{detail}";
+            return false;
+        }
+        if (!probe.Strip.IsSupportedLayout)
+        {
+            reason = $"{label} #{imageNumber}：{probe.Strip.Detail}";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
+    private static bool IsStructurallyUsable(E5ImageEntry entry, int rawWidth, int frameHeight)
+    {
+        if (entry.StoredLength <= 0 || entry.DecodedLength <= 0 || entry.Offset < 0) return false;
+        if (entry.Kind is "PNG" or "BMP" or "JPG" or "LS12") return true;
+        if (rawWidth <= 1 || frameHeight <= 1) return true;
+        return entry.DecodedLength >= rawWidth * frameHeight && entry.DecodedLength % rawWidth == 0;
     }
 
     private bool CanRenderE5EntryFrame(CczProject project, string path, int imageNumber, int rawWidth, int frameHeight)
@@ -741,122 +1678,18 @@ public sealed class ImageAssignmentPreviewService
         return frame != null;
     }
 
-    private static byte[]? TryReadEntryBytes(string path, E5ImageEntry entry, out string detail)
+    private byte[]? TryReadEntryBytes(string path, E5ImageEntry entry, out string detail)
     {
         detail = string.Empty;
-        var bytes = new byte[entry.StoredLength];
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        stream.Position = entry.Offset;
-        stream.ReadExactly(bytes);
-
-        if (!entry.IsCompressed)
+        try
         {
-            return bytes;
+            return _readSessions.GetSession(path).ReadDecodedEntry(entry.Number);
         }
-
-        var dictionary = ReadLsDictionary(path);
-        if (dictionary == null)
+        catch (Exception ex)
         {
-            detail = $"LS12 decode failed: dictionary missing{BuildEntryLocationText(entry)}";
+            detail = ex.Message + BuildEntryLocationText(entry);
             return null;
         }
-
-        if (!TryDecodeLsEntry(dictionary, bytes, entry.DecodedLength, out var decoded))
-        {
-            detail = $"LS12 decode failed{BuildEntryLocationText(entry)}";
-            return null;
-        }
-
-        return decoded;
-    }
-
-    private static byte[]? ReadLsDictionary(string path)
-    {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        if (stream.Length < LsHeaderLength + LsDictionaryLength) return null;
-
-        var dictionary = new byte[LsDictionaryLength];
-        stream.Position = LsHeaderLength;
-        stream.ReadExactly(dictionary);
-        return dictionary;
-    }
-
-    private static bool TryDecodeLsEntry(byte[] dictionary, byte[] encoded, int decodedLength, out byte[] decoded)
-    {
-        decoded = new byte[decodedLength];
-        if (encoded.Length == decodedLength)
-        {
-            Buffer.BlockCopy(encoded, 0, decoded, 0, decodedLength);
-            return true;
-        }
-
-        var inputIndex = 0;
-        var bitPosition = 7;
-        var outputIndex = 0;
-        var backDistance = 0;
-
-        while (outputIndex < decodedLength)
-        {
-            if (inputIndex >= encoded.Length) return false;
-
-            uint code = 0;
-            var bitLength = 0;
-            int bitSet;
-            do
-            {
-                bitSet = (encoded[inputIndex] >> bitPosition) & 0x01;
-                code = (code << 1) | (uint)bitSet;
-                bitLength++;
-                bitPosition--;
-                if (bitPosition < 0)
-                {
-                    bitPosition = 7;
-                    inputIndex++;
-                }
-            } while (bitSet != 0);
-
-            uint mask = 0;
-            while (bitLength-- > 0)
-            {
-                if (inputIndex >= encoded.Length) return false;
-                bitSet = (encoded[inputIndex] >> bitPosition) & 0x01;
-                mask = (mask << 1) | (uint)bitSet;
-                bitPosition--;
-                if (bitPosition < 0)
-                {
-                    bitPosition = 7;
-                    inputIndex++;
-                }
-            }
-
-            code += mask;
-            if (backDistance == 0 && code >= LsDictionaryLength)
-            {
-                backDistance = checked((int)(code - LsDictionaryLength));
-                if (backDistance == 0) return false;
-                continue;
-            }
-
-            if (backDistance == 0)
-            {
-                if (code >= LsDictionaryLength) return false;
-                decoded[outputIndex++] = dictionary[(int)code];
-                continue;
-            }
-
-            var copyCount = checked((int)code + 3);
-            while (copyCount-- > 0)
-            {
-                if (outputIndex >= decodedLength) return false;
-                var sourceIndex = outputIndex - backDistance;
-                if (sourceIndex < 0) return false;
-                decoded[outputIndex++] = decoded[sourceIndex];
-            }
-
-            backDistance = 0;
-        }
-
-        return true;
     }
 
     private static string BuildEntryLocationText(E5ImageEntry entry)
@@ -878,7 +1711,13 @@ public sealed class ImageAssignmentPreviewService
         {
             using var memory = new MemoryStream(bytes, writable: false);
             using var image = Image.FromStream(memory, useEmbeddedColorManagement: false, validateImageData: false);
-            return new Bitmap(image);
+            var bitmap = new Bitmap(image.Width, image.Height, PixelFormat.Format32bppArgb);
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.Clear(Color.Transparent);
+            graphics.CompositingMode = CompositingMode.SourceCopy;
+            graphics.DrawImage(image, new Rectangle(Point.Empty, bitmap.Size));
+            if (!isPng) ApplyMagentaTransparency(bitmap);
+            return bitmap;
         }
         catch (ArgumentException)
         {
@@ -890,27 +1729,10 @@ public sealed class ImageAssignmentPreviewService
         }
     }
 
-    private static string DetectE5ImageKind(byte[] data, int offset, int length)
+    private static Bitmap? TryRenderRawIndexedStrip(byte[] bytes, RsFrameLayout layout, IReadOnlyList<Color> palette, string paletteSourceMode, out string paletteMode)
     {
-        if (length <= 0 || offset < 0 || offset >= data.Length) return "EMPTY";
-        if (offset + 1 < data.Length && data[offset] == (byte)'B' && data[offset + 1] == (byte)'M') return "BMP";
-        if (offset + 1 < data.Length && data[offset] == 0xFF && data[offset + 1] == 0xD8) return "JPG";
-        if (offset + PngMagic.Length <= data.Length && Matches(data, offset, PngMagic)) return "PNG";
-        if (data[offset] == 0) return "RAW";
-        return HexDisplayFormatter.FormatByte(data[offset]);
-    }
-
-    private static bool LooksLikeRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight)
-    {
-        if (rawWidth <= 0 || frameHeight <= 0) return false;
-        var rawLength = bytes.Length - (bytes.Length % rawWidth);
-        return rawLength >= rawWidth * frameHeight;
-    }
-
-    private static Bitmap? TryRenderRawIndexedStrip(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, string paletteSourceMode, out string paletteMode)
-    {
-        using var strip = TryRenderRawIndexedStripBitmap(bytes, rawWidth, frameHeight, palette, paletteSourceMode, out paletteMode);
-        return strip == null ? null : CropRepresentativeFrame(strip, frameHeight);
+        using var strip = TryRenderRawIndexedStripBitmap(bytes, layout.FrameWidth, layout.FrameHeight, palette, paletteSourceMode, out paletteMode);
+        return strip == null ? null : CropRepresentativeFrame(strip, layout);
     }
 
     private static Bitmap? TryRenderRawIndexedStripBitmap(byte[] bytes, int rawWidth, int frameHeight, IReadOnlyList<Color> palette, string paletteSourceMode, out string paletteMode)
@@ -976,13 +1798,12 @@ public sealed class ImageAssignmentPreviewService
         return _rawPaletteCache.GetOrAdd(key, _ => new RawPalette(paletteInfo.Colors, paletteInfo.Mode, paletteInfo.Path));
     }
 
-    private static Bitmap CropRepresentativeFrame(Bitmap strip, int frameHeight)
+    private static Bitmap CropRepresentativeFrame(Bitmap strip, RsFrameLayout layout)
     {
-        var frameCount = Math.Max(1, strip.Height / Math.Max(1, frameHeight));
         Bitmap? fallback = null;
-        for (var frameIndex = 0; frameIndex < frameCount; frameIndex++)
+        for (var frameIndex = 0; frameIndex < layout.ExpectedFrameCount; frameIndex++)
         {
-            var frame = CropFrame(strip, frameIndex * frameHeight, frameHeight);
+            var frame = RsStripLayoutService.CropFrame(strip, layout, frameIndex);
             if (CountVisiblePixels(frame) > Math.Max(12, frame.Width * frame.Height / 80))
             {
                 fallback?.Dispose();
@@ -999,30 +1820,7 @@ public sealed class ImageAssignmentPreviewService
             }
         }
 
-        return fallback ?? CropFrame(strip, 0, frameHeight);
-    }
-
-    private static Bitmap CropFrame(Bitmap strip, int y, int frameHeight)
-    {
-        if (strip.Width <= 0 || strip.Height <= 0)
-        {
-            return new Bitmap(1, 1, PixelFormat.Format32bppArgb);
-        }
-
-        var safeY = Math.Clamp(y, 0, Math.Max(0, strip.Height - 1));
-        var height = Math.Min(frameHeight, strip.Height - safeY);
-        if (height <= 0) height = Math.Min(frameHeight, strip.Height);
-        height = Math.Max(1, height);
-        var frame = new Bitmap(strip.Width, height, PixelFormat.Format32bppArgb);
-        using (var g = Graphics.FromImage(frame))
-        {
-            g.InterpolationMode = InterpolationMode.NearestNeighbor;
-            g.PixelOffsetMode = PixelOffsetMode.Half;
-            g.DrawImage(strip, new Rectangle(0, 0, frame.Width, frame.Height), new Rectangle(0, safeY, frame.Width, frame.Height), GraphicsUnit.Pixel);
-        }
-
-        ApplyMagentaTransparency(frame);
-        return frame;
+        return fallback ?? RsStripLayoutService.CropFrame(strip, layout, 0);
     }
 
     private static void ApplyMagentaTransparency(Bitmap bitmap)
@@ -1095,7 +1893,8 @@ public sealed class ImageAssignmentPreviewService
                 var height = Math.Max(1, (int)Math.Round(image.Height * scale));
                 var x = imageRect.Left + (imageRect.Width - width) / 2;
                 var y = imageRect.Top + (imageRect.Height - height) / 2;
-                g.DrawImage(image, new Rectangle(x, y, width, height));
+                var destination = new Rectangle(x, y, width, height);
+                g.DrawImage(image, destination);
             }
         }
 
@@ -1505,12 +2304,6 @@ public sealed class ImageAssignmentPreviewService
            (bytes[offset + 2] << 8) |
            bytes[offset + 3];
 
-    private static uint ReadBigEndianUInt32(byte[] bytes, int offset)
-        => ((uint)bytes[offset] << 24) |
-           ((uint)bytes[offset + 1] << 16) |
-           ((uint)bytes[offset + 2] << 8) |
-           bytes[offset + 3];
-
     private static bool Matches(byte[] bytes, int offset, byte[] magic)
     {
         for (var i = 0; i < magic.Length; i++)
@@ -1606,6 +2399,13 @@ public sealed class ImageAssignmentPreviewService
 
     private sealed record UnitPreviewSpec(string FileName, int RawWidth, int FrameHeight, string Label);
 
+    private sealed record SRepresentativeSpec(
+        string FileName,
+        int FrameWidth,
+        int FrameHeight,
+        int FrameIndex,
+        string Label);
+
     private sealed record UnitFramePreview(string Label, Bitmap Image);
 
     private sealed record UnitImagePreviewGroup(int ImageNumber, IReadOnlyList<UnitFramePreview> Frames);
@@ -1634,5 +2434,72 @@ public sealed class ImageAssignmentPreviewService
         public const int PmapObjFrameHeight = 64;
         public const int PmapObjFrameCount = 20;
         public const int RSceneGestureCount = 20;
+    }
+}
+
+internal sealed record CharacterImageAnimationPreview(
+    ImageAssignmentResourceKind Kind,
+    int ImageId,
+    int StageSlot,
+    string Title,
+    int Columns,
+    int Rows,
+    int CellWidth,
+    int CellHeight,
+    IReadOnlyList<CharacterImageAnimationCell> Cells,
+    IReadOnlyList<string> Messages) : IDisposable
+{
+    public IReadOnlyList<CachedPreviewImage> PrecomposedFrames { get; init; } = Array.Empty<CachedPreviewImage>();
+
+    public IReadOnlyList<CharacterImageAnimationSequence> Sequences { get; init; } = Array.Empty<CharacterImageAnimationSequence>();
+
+    public int ReadableFrameCount => Sequences.Count > 0
+        ? Sequences.Sum(sequence => sequence.Frames.Count(frame => frame.Bitmap != null))
+        : Cells.Sum(cell => cell.Frames.Count(frame => frame != null));
+
+    public int MissingFrameCount => Sequences.Count > 0
+        ? Sequences.Sum(sequence => sequence.Frames.Count(frame => frame.Bitmap == null))
+        : Cells.Sum(cell => cell.Frames.Count(frame => frame == null));
+
+    public int MaxFrameCount => Sequences.Count > 0
+        ? Math.Max(1, Sequences.Max(sequence => sequence.Frames.Count))
+        : PrecomposedFrames.Count > 0 ? PrecomposedFrames.Count
+        : Cells.Count == 0 ? 1 : Math.Max(1, Cells.Max(cell => cell.Frames.Count));
+
+    public void Dispose()
+    {
+        foreach (var cell in Cells)
+        {
+            foreach (var frame in cell.Frames)
+            {
+                frame?.Dispose();
+            }
+        }
+
+        foreach (var sequence in Sequences) sequence.Dispose();
+    }
+}
+
+internal sealed record CharacterImageAnimationCell(
+    int Row,
+    int Column,
+    string Label,
+    IReadOnlyList<Bitmap?> Frames);
+
+internal sealed record CharacterImageAnimationSequenceFrame(
+    int PhysicalFrameIndex,
+    Bitmap? Bitmap);
+
+internal sealed record CharacterImageAnimationSequence(
+    RsActionSequenceDefinition Definition,
+    string SourcePath,
+    int ImageNumber,
+    int RequestedStageSlot,
+    int EffectiveStageSlot,
+    IReadOnlyList<CharacterImageAnimationSequenceFrame> Frames) : IDisposable
+{
+    public void Dispose()
+    {
+        foreach (var frame in Frames) frame.Bitmap?.Dispose();
     }
 }

@@ -33,7 +33,12 @@ internal partial class Program
         var entries = reader.Read(scenarioPath, maxItems: 8).ToList();
         var prefixed = entries.First(entry => entry.Text == "郭昕");
         prefixed.Text = "李晟";
-        new ScenarioTextWriter().SaveInPlace(testProject, Path.Combine("RS", "S_99.eex"), new[] { prefixed }, "scenario text writer smoke");
+        var prefixSave = new ScenarioTextWriter().SaveInPlace(testProject, Path.Combine("RS", "S_99.eex"), new[] { prefixed }, "scenario text writer smoke");
+        var expectedBackupRoot = ProjectBackupPathService.GetBackupRoot(testProject) + Path.DirectorySeparatorChar;
+        if (!Path.GetFullPath(prefixSave.BackupPath).StartsWith(expectedBackupRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("ScenarioTextWriter backup was not written under the configured project backup root.");
+        }
 
         var afterPrefixBytes = File.ReadAllBytes(scenarioPath);
         var afterPrefixText = EncodingService.Gbk.GetString(afterPrefixBytes.AsSpan(0, prefixed.ByteLength));
@@ -50,7 +55,11 @@ internal partial class Program
         var second = reader.Read(scenarioPath, maxItems: 8).First(entry => entry.Text == "敌军退后");
         var originalTerminator = second.Offset + second.ByteLength;
         second.Text = "敌退";
-        new ScenarioTextWriter().SaveInPlace(testProject, Path.Combine("RS", "S_99.eex"), new[] { second }, "scenario text writer smoke");
+        var shortSave = new ScenarioTextWriter().SaveInPlace(testProject, Path.Combine("RS", "S_99.eex"), new[] { second }, "scenario text writer smoke");
+        if (!Path.GetFullPath(shortSave.BackupPath).StartsWith(expectedBackupRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("ScenarioTextWriter second backup was not written under the configured project backup root.");
+        }
 
         var afterShortBytes = File.ReadAllBytes(scenarioPath);
         if (afterShortBytes[second.Offset + EncodingService.GetGbkByteCount("敌退")] != 0x20)

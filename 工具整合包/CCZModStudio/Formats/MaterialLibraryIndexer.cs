@@ -427,6 +427,15 @@ public sealed class MaterialLibraryIndexer
     {
         var info = new FileInfo(path);
         var dimensions = context?.GetImageDimensions(path) ?? GetImageDimensions(path);
+        var isAutoTileStrip = IsCanonicalStripImage(dimensions.Width, dimensions.Height);
+        var useFullCanvas = assetType.Equals(MaterialAssetTypes.Terrain, StringComparison.OrdinalIgnoreCase) &&
+                            !isAutoTileStrip &&
+                            (dimensions.Width > sourceRect.Width || dimensions.Height > sourceRect.Height);
+        var safeBorder = useFullCanvas && dimensions.Width >= MapResourceItem.MapTilePixelSize * 3 && dimensions.Height >= MapResourceItem.MapTilePixelSize * 3
+            ? MapResourceItem.MapTilePixelSize / 4
+            : 0;
+        var preferredPatchWidth = Math.Min(dimensions.Width, useFullCanvas ? MapResourceItem.MapTilePixelSize * 2 : sourceRect.Width);
+        var preferredPatchHeight = Math.Min(dimensions.Height, useFullCanvas ? MapResourceItem.MapTilePixelSize * 2 : sourceRect.Height);
         return new MaterialAsset
         {
             Category = category,
@@ -448,6 +457,16 @@ public sealed class MaterialLibraryIndexer
             SourceY = sourceRect.Y,
             SourceWidth = sourceRect.Width,
             SourceHeight = sourceRect.Height,
+            SamplingMode = isAutoTileStrip
+                ? MaterialSamplingMode.AutoTileStrip
+                : useFullCanvas ? MaterialSamplingMode.FullCanvasPatches : MaterialSamplingMode.FixedRegion,
+            SampleBoundsX = 0,
+            SampleBoundsY = 0,
+            SampleBoundsWidth = dimensions.Width,
+            SampleBoundsHeight = dimensions.Height,
+            SafeBorder = safeBorder,
+            PreferredPatchWidth = Math.Max(1, preferredPatchWidth),
+            PreferredPatchHeight = Math.Max(1, preferredPatchHeight),
             Width = dimensions.Width,
             Height = dimensions.Height,
             SizeBytes = info.Exists ? info.Length : 0

@@ -9,12 +9,19 @@ namespace CCZModStudio.Core;
 
 internal sealed class ImageAssignmentFreeIdService
 {
+    private static int _legacyThumbnailCleanupStarted;
     private readonly ImageAssignmentPreviewService _previewService;
+    private readonly ImagePreviewCache _previewCache;
     private readonly ConcurrentDictionary<string, Lazy<Task<CachedPreviewImage?>>> _candidatePreviewCache = new(StringComparer.OrdinalIgnoreCase);
+
+    internal ImageAssignmentPreviewService PreviewService => _previewService;
 
     public ImageAssignmentFreeIdService(ImageAssignmentPreviewService previewService)
     {
         _previewService = previewService;
+        _previewCache = ImagePreviewCache.Shared;
+        if (Interlocked.Exchange(ref _legacyThumbnailCleanupStarted, 1) == 0)
+            _previewCache.InvalidateKeyPrefix("thumbnail-v3|");
     }
 
     public void ClearCache()
@@ -39,7 +46,8 @@ internal sealed class ImageAssignmentFreeIdService
     {
         var prefix = NormalizeKind(kind);
         var includeZero = ShouldIncludeZero(kind);
-        var availableIds = _previewService.GetAvailableCharacterImageIds(project, prefix, includeZero, out var availableIdsFromCache);
+        var availability = _previewService.ScanAvailableCharacterImageIds(project, prefix, includeZero, forceFresh: false);
+        var availableIds = availability.AvailableIds;
         var assignedIds = CollectAssignedIds(assignments, kind);
         var candidates = freeOnly
             ? BuildFreeCandidates(project, availableIds, assignedIds, kind, sFactionSlot)
@@ -53,7 +61,10 @@ internal sealed class ImageAssignmentFreeIdService
             assignedIds.Count,
             candidates,
             warnings,
-            availableIdsFromCache);
+            availability.FromCache)
+        {
+            AvailabilityReport = availability
+        };
     }
 
     public Task<ImageAssignmentFreeIdResult> BuildAsync(
@@ -63,6 +74,16 @@ internal sealed class ImageAssignmentFreeIdService
         int sFactionSlot,
         bool freeOnly,
         CancellationToken cancellationToken)
+        => BuildAsync(project, assignments, kind, sFactionSlot, freeOnly, forceFresh: false, cancellationToken);
+
+    internal Task<ImageAssignmentFreeIdResult> BuildAsync(
+        CczProject project,
+        DataTable assignments,
+        ImageAssignmentResourceKind kind,
+        int sFactionSlot,
+        bool freeOnly,
+        bool forceFresh,
+        CancellationToken cancellationToken)
     {
         var assignedIds = CollectAssignedIds(assignments, kind);
         return Task.Run(() =>
@@ -71,7 +92,8 @@ internal sealed class ImageAssignmentFreeIdService
 
             var prefix = NormalizeKind(kind);
             var includeZero = ShouldIncludeZero(kind);
-            var availableIds = _previewService.GetAvailableCharacterImageIds(project, prefix, includeZero, out var availableIdsFromCache);
+            var availability = _previewService.ScanAvailableCharacterImageIds(project, prefix, includeZero, forceFresh);
+            var availableIds = availability.AvailableIds;
             cancellationToken.ThrowIfCancellationRequested();
 
             var candidates = freeOnly
@@ -86,7 +108,10 @@ internal sealed class ImageAssignmentFreeIdService
                 assignedIds.Count,
                 candidates,
                 warnings,
-                availableIdsFromCache);
+                availability.FromCache)
+            {
+                AvailabilityReport = availability
+            };
         }, cancellationToken);
     }
 
@@ -95,7 +120,7 @@ internal sealed class ImageAssignmentFreeIdService
         ImageAssignmentResourceKind kind,
         int id,
         int sFactionSlot)
-        => RenderCandidatePreview(project, kind, id, sFactionSlot, ImageAssignmentPreviewStance.Front);
+        => RenderCandidatePreview(project, kind, id, sFactionSlot, ImageAssignmentPreviewStance.Front, stageSlot: 1);
 
     public Bitmap? RenderCandidatePreview(
         CczProject project,
@@ -103,7 +128,16 @@ internal sealed class ImageAssignmentFreeIdService
         int id,
         int sFactionSlot,
         ImageAssignmentPreviewStance stance)
-        => RenderCandidatePreviewAsync(project, kind, id, sFactionSlot, stance, CancellationToken.None)
+        => RenderCandidatePreview(project, kind, id, sFactionSlot, stance, stageSlot: 1);
+
+    public Bitmap? RenderCandidatePreview(
+        CczProject project,
+        ImageAssignmentResourceKind kind,
+        int id,
+        int sFactionSlot,
+        ImageAssignmentPreviewStance stance,
+        int stageSlot)
+        => RenderCandidatePreviewAsync(project, kind, id, sFactionSlot, stance, stageSlot, CancellationToken.None)
             .ConfigureAwait(false)
             .GetAwaiter()
             .GetResult()
@@ -116,15 +150,63 @@ internal sealed class ImageAssignmentFreeIdService
         int sFactionSlot,
         ImageAssignmentPreviewStance stance,
         CancellationToken cancellationToken)
+        => RenderCandidatePreviewAsync(project, kind, id, sFactionSlot, stance, stageSlot: 1, cancellationToken);
+
+    public Task<CachedPreviewImage?> RenderCandidatePreviewAsync(
+        CczProject project,
+        ImageAssignmentResourceKind kind,
+        int id,
+        int sFactionSlot,
+        ImageAssignmentPreviewStance stance,
+        int stageSlot,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         stance = NormalizeStance(kind, stance);
-        var cacheKey = BuildCandidatePreviewCacheKey(project, kind, id, sFactionSlot, stance);
+        stageSlot = NormalizeStageSlot(kind, stageSlot);
+        var cacheKey = BuildCandidatePreviewCacheKey(project, kind, id, sFactionSlot, stance, stageSlot);
         var lazy = _candidatePreviewCache.GetOrAdd(cacheKey, key => new Lazy<Task<CachedPreviewImage?>>(
-            () => Task.Run(() => RenderCandidatePreviewCore(project, kind, id, sFactionSlot, stance, key), CancellationToken.None),
+            () => Task.Run(() => RenderCandidatePreviewCore(project, kind, id, sFactionSlot, stance, stageSlot, key), CancellationToken.None),
             LazyThreadSafetyMode.ExecutionAndPublication));
 
         return AwaitCachedPreviewAsync(cacheKey, lazy, cancellationToken);
+    }
+
+    public async Task<ImageAssignmentCandidatePreview> RenderCandidateDetailsAsync(
+        CczProject project,
+        ImageAssignmentResourceKind kind,
+        int id,
+        int sFactionSlot,
+        ImageAssignmentPreviewStance stance,
+        int stageSlot,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        stance = NormalizeStance(kind, stance);
+        stageSlot = NormalizeStageSlot(kind, stageSlot);
+
+        var stageResolution = kind == ImageAssignmentResourceKind.S
+            ? CharacterImageResourceService.ResolveSPreviewStage(project, id, jobId: null, sFactionSlot, stageSlot)
+            : null;
+        var representative = await RenderCandidatePreviewAsync(
+                project,
+                kind,
+                id,
+                sFactionSlot,
+                stance,
+                stageSlot,
+                cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var statusText = kind == ImageAssignmentResourceKind.S
+            ? BuildSRepresentativeStatus(project, id, sFactionSlot, stance, stageResolution!)
+            : string.Empty;
+
+        return new ImageAssignmentCandidatePreview(
+            representative,
+            id.ToString(CultureInfo.InvariantCulture),
+            stageResolution?.Target != null || kind != ImageAssignmentResourceKind.S,
+            statusText);
     }
 
     private async Task<CachedPreviewImage?> AwaitCachedPreviewAsync(
@@ -167,21 +249,44 @@ internal sealed class ImageAssignmentFreeIdService
         int id,
         int sFactionSlot,
         ImageAssignmentPreviewStance stance,
+        int stageSlot,
         string cacheKey)
     {
-        Bitmap? preview;
         try
         {
-            preview = kind switch
+            var diskCacheKey = "thumbnail-v4|compact-rs-v1|" + RsStripLayoutService.ContractVersion + "|" + cacheKey;
+            var cached = _previewCache.GetOrCreateAsync(
+                    diskCacheKey,
+                    () => Task.FromResult(RenderPreviewPng()),
+                    CancellationToken.None)
+                .ConfigureAwait(false)
+                .GetAwaiter()
+                .GetResult();
+            if (cached == null) return null;
+
+            using var stream = new MemoryStream(cached.Bytes, writable: false);
+            using var image = Image.FromStream(stream, false, false);
+            return new CachedPreviewImage(cached.Bytes, image.Size, diskCacheKey, $"cache={cached.Source}");
+        }
+        catch
+        {
+            return null;
+        }
+
+        byte[]? RenderPreviewPng()
+        {
+            using var preview = kind switch
             {
                 ImageAssignmentResourceKind.Face => _previewService.TryRenderFaceImage(project, id),
-                ImageAssignmentResourceKind.S => _previewService.TryRenderBattlefieldMoveIdleFrame(
+                ImageAssignmentResourceKind.S => _previewService.TryRenderSAssignmentRepresentativeFrame(
                     project,
                     id,
                     null,
                     sFactionSlot,
                     StanceToBattlefieldDirection(stance),
-                    0,
+                    stageSlot,
+                    out _,
+                    out _,
                     out _),
                 _ => _previewService.TryRenderRScenePhysicalStripFrame(
                     project,
@@ -190,17 +295,10 @@ internal sealed class ImageAssignmentFreeIdService
                     StanceToRSceneFacing(stance),
                     out _)
             };
-        }
-        catch
-        {
-            return null;
-        }
-
-        if (preview == null) return null;
-
-        using (preview)
-        {
-            return CachedPreviewImage.FromBitmap(preview, cacheKey);
+            if (preview == null) return null;
+            using var output = new MemoryStream();
+            preview.Save(output, ImageFormat.Png);
+            return output.ToArray();
         }
     }
 
@@ -325,6 +423,24 @@ internal sealed class ImageAssignmentFreeIdService
         return CharacterImageResourceService.ResolveSUnitImageMapping(project, id, jobId: null, sFactionSlot).ShortText;
     }
 
+    private string BuildSRepresentativeStatus(
+        CczProject project,
+        int id,
+        int sFactionSlot,
+        ImageAssignmentPreviewStance stance,
+        SImagePreviewStageResolution stage)
+    {
+        if (stage.Target == null) return stage.Mapping.Detail;
+        var source = ResolveSRepresentativeSource(project, stage.Target.ImageNumber, stance);
+        return string.Join(" ", new[]
+        {
+            stage.FallbackDetail,
+            source == null
+                ? $"图号 #{stage.Target.ImageNumber} 没有可读取的移动、攻击或特技代表帧。"
+                : $"代表帧：{source.Value.FileName} #{stage.Target.ImageNumber} 物理帧 {source.Value.FrameIndex}。"
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
     private static IReadOnlyList<string> BuildResourceWarnings(CczProject project, ImageAssignmentResourceKind kind)
     {
         if (kind == ImageAssignmentResourceKind.Face)
@@ -391,18 +507,25 @@ internal sealed class ImageAssignmentFreeIdService
             _ => "下"
         };
 
-    private static string BuildCandidatePreviewCacheKey(
+    private string BuildCandidatePreviewCacheKey(
         CczProject project,
         ImageAssignmentResourceKind kind,
         int id,
         int sFactionSlot,
-        ImageAssignmentPreviewStance stance)
+        ImageAssignmentPreviewStance stance,
+        int stageSlot)
     {
-        var paths = kind switch
+        var stageResolution = kind == ImageAssignmentResourceKind.S
+            ? CharacterImageResourceService.ResolveSPreviewStage(project, id, jobId: null, sFactionSlot, stageSlot)
+            : null;
+        var identities = kind switch
         {
-            ImageAssignmentResourceKind.Face => new[] { CharacterImageResourceService.ResolveFaceFile(project) ?? Path.Combine(project.GameRoot, "E5", "Face.e5") },
-            ImageAssignmentResourceKind.S => new[] { CharacterImageResourceService.ResolveGameFile(project, "Unit_mov.e5") },
-            _ => new[] { CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5") }
+            ImageAssignmentResourceKind.Face => new[]
+            {
+                BuildFileCacheKey(CharacterImageResourceService.ResolveFaceFile(project) ?? Path.Combine(project.GameRoot, "E5", "Face.e5"))
+            },
+            ImageAssignmentResourceKind.S => BuildSCacheIdentities(project, stageResolution!, stance),
+            _ => BuildRCacheIdentities(project, id, stance)
         };
 
         return string.Join("|",
@@ -412,10 +535,87 @@ internal sealed class ImageAssignmentFreeIdService
                 kind.ToString(),
                 id.ToString(CultureInfo.InvariantCulture),
                 NormalizeStance(kind, stance).ToString(),
-                sFactionSlot.ToString(CultureInfo.InvariantCulture)
+                sFactionSlot.ToString(CultureInfo.InvariantCulture),
+                $"requested={NormalizeStageSlot(kind, stageSlot).ToString(CultureInfo.InvariantCulture)}",
+                $"effective={(stageResolution?.EffectiveStageSlot ?? 1).ToString(CultureInfo.InvariantCulture)}"
             }
-                .Concat(paths.Select(BuildFileCacheKey)));
+                .Concat(identities));
     }
+
+    private IReadOnlyList<string> BuildRCacheIdentities(
+        CczProject project,
+        int id,
+        ImageAssignmentPreviewStance stance)
+    {
+        var path = CharacterImageResourceService.ResolveGameFile(project, "Pmapobj.e5");
+        var imageNumber = stance == ImageAssignmentPreviewStance.Back
+            ? checked(id * 2 + 2)
+            : checked(id * 2 + 1);
+        return new[]
+        {
+            $"representative=Pmapobj.e5#{imageNumber}@0",
+            BuildEntryCacheIdentity(path, imageNumber)
+        };
+    }
+
+    private IReadOnlyList<string> BuildSCacheIdentities(
+        CczProject project,
+        SImagePreviewStageResolution stage,
+        ImageAssignmentPreviewStance stance)
+    {
+        if (stage.Target == null)
+        {
+            return new[] { $"missing-stage:{stage.Mapping.SImageId}:{stage.RequestedStageSlot}" };
+        }
+
+        var source = ResolveSRepresentativeSource(project, stage.Target.ImageNumber, stance);
+        var identities = new List<string>
+        {
+            source == null
+                ? "representative=missing"
+                : $"representative={source.Value.FileName}#{stage.Target.ImageNumber}@{source.Value.FrameIndex}"
+        };
+        identities.AddRange(new[] { "Unit_mov.e5", "Unit_atk.e5", "Unit_spc.e5" }
+            .Select(fileName => BuildEntryCacheIdentity(
+                CharacterImageResourceService.ResolveGameFile(project, fileName),
+                stage.Target.ImageNumber)));
+        return identities;
+    }
+
+    private (string FileName, int FrameIndex)? ResolveSRepresentativeSource(
+        CczProject project,
+        int imageNumber,
+        ImageAssignmentPreviewStance stance)
+    {
+        var candidates = new[]
+        {
+            (FileName: "Unit_mov.e5", FrameIndex: stance switch { ImageAssignmentPreviewStance.Back => 2, ImageAssignmentPreviewStance.Side => 4, _ => 0 }),
+            (FileName: "Unit_atk.e5", FrameIndex: stance switch { ImageAssignmentPreviewStance.Back => 4, ImageAssignmentPreviewStance.Side => 8, _ => 0 }),
+            (FileName: "Unit_spc.e5", FrameIndex: 0)
+        };
+        foreach (var candidate in candidates)
+        {
+            var path = CharacterImageResourceService.ResolveGameFile(project, candidate.FileName);
+            if (_previewService.TryProbeRsEntry(path, imageNumber, out var probe, out _) &&
+                probe?.Strip.IsSupportedLayout == true &&
+                candidate.FrameIndex < probe.Strip.AvailableFrameCount)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private string BuildEntryCacheIdentity(string path, int imageNumber)
+    {
+        if (_previewService.TryProbeRsEntry(path, imageNumber, out var probe, out var detail) && probe != null)
+            return $"{Path.GetFullPath(path)}|{probe.CacheIdentity}|{RsStripLayoutService.ContractVersion}";
+        return $"{BuildFileCacheKey(path)}|#{imageNumber}|probe-failed:{detail}";
+    }
+
+    private static int NormalizeStageSlot(ImageAssignmentResourceKind kind, int stageSlot)
+        => kind == ImageAssignmentResourceKind.S && stageSlot > 0 ? stageSlot : 1;
 
     private static string BuildFileCacheKey(string path)
     {
@@ -447,6 +647,7 @@ internal sealed record ImageAssignmentFreeIdResult(
     bool AvailableIdsFromCache = false)
 {
     public IReadOnlyList<FreeImageAssignmentCandidate> Items => FreeCandidates;
+    public ImageAssignmentAvailabilityReport? AvailabilityReport { get; init; }
 }
 
 internal sealed record FreeImageAssignmentCandidate(int Id, string Detail);

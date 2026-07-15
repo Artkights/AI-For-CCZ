@@ -98,6 +98,41 @@ internal partial class Program
                 showBeautifiedMap: false);
             AssertSameBitmap(fullAfterTerrain, incrementalAfterTerrain, "terrain cell update");
 
+            using var beforeOverlay = new Bitmap(incrementalAfterTerrain);
+            var overlayDirty = renderer.UpdateGeneratedPreviewTerrainOverlay(draft, new[] { 1 }, 45);
+            if (overlayDirty != new Rectangle(48, 0, 48, 48))
+            {
+                throw new InvalidOperationException($"Unexpected pending terrain overlay dirty rect: {overlayDirty}.");
+            }
+
+            var overlayDiagnostics = renderer.GetDiagnostics();
+            if (overlayDiagnostics.PendingTerrainOverlayCount != 1)
+            {
+                throw new InvalidOperationException("Pending terrain overlay diagnostics did not report the marked cell.");
+            }
+
+            using var afterOverlay = renderer.GetCurrentPreviewImage(
+                draft,
+                Array.Empty<MaterialAsset>(),
+                terrainLayerOnly: false,
+                showGrid: true,
+                terrainOpacityPercent: 0,
+                showBeautifiedMap: false);
+            if (CountPreviewDifferentPixels(beforeOverlay, afterOverlay) == 0)
+            {
+                throw new InvalidOperationException("Pending terrain overlay did not change the generated preview pixels.");
+            }
+
+            renderer.ClearGeneratedPreviewTerrainOverlay();
+            using var afterOverlayClear = renderer.GetCurrentPreviewImage(
+                draft,
+                Array.Empty<MaterialAsset>(),
+                terrainLayerOnly: false,
+                showGrid: true,
+                terrainOpacityPercent: 0,
+                showBeautifiedMap: false);
+            AssertSameBitmap(incrementalAfterTerrain, afterOverlayClear, "pending terrain overlay clear");
+
             AssertAutoTileNeighborRefresh(tempRoot);
             AssertCustomBeautifyFilter(tempRoot);
 
@@ -411,5 +446,27 @@ internal partial class Program
         {
             throw new InvalidOperationException($"{scenario}: expected near {expected}, got {actual} at {x},{y}.");
         }
+    }
+
+    private static int CountPreviewDifferentPixels(Bitmap first, Bitmap second)
+    {
+        if (first.Width != second.Width || first.Height != second.Height)
+        {
+            throw new InvalidOperationException("Cannot compare bitmaps with different dimensions.");
+        }
+
+        var count = 0;
+        for (var y = 0; y < first.Height; y++)
+        {
+            for (var x = 0; x < first.Width; x++)
+            {
+                if (first.GetPixel(x, y).ToArgb() != second.GetPixel(x, y).ToArgb())
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
     }
 }

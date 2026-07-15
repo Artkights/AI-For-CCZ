@@ -285,6 +285,14 @@ public sealed class GlobalTitleSetting
     public int CapacityBytes { get; init; }
     public required string FileName { get; init; }
     public long Offset { get; init; }
+    public uint VirtualAddress { get; init; }
+    public string EngineVersion { get; init; } = string.Empty;
+    public string LayoutKey { get; init; } = string.Empty;
+    public bool CanRead { get; init; }
+    public bool CanEdit { get; init; }
+    public string Diagnostic { get; init; } = string.Empty;
+    public string OriginalBytesHex { get; init; } = string.Empty;
+    public string ExeSha256AtLoad { get; init; } = string.Empty;
     public string Source { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
 }

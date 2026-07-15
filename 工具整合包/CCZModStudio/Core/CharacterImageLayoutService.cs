@@ -36,6 +36,7 @@ public sealed class CharacterImageLayoutService
         DefaultUnitImageCount = DefaultUnitImageStart,
         ThreeStageSpecialCount = DefaultThreeStageSpecialCount,
         OneStageSpecialStartImageNumber = DefaultOneStageSpecialStart + 1,
+        IsArchiveIntegrityValid = true,
         Evidence = "Fallback layout: 80 jobs * 3 factions, 32 three-stage special S images."
     };
 
@@ -179,14 +180,20 @@ public sealed class CharacterImageLayoutService
         var atkPath = CharacterImageResourceService.ResolveGameFile(project, "Unit_atk.e5");
         var spcPath = CharacterImageResourceService.ResolveGameFile(project, "Unit_spc.e5");
 
-        var rEntryCount = File.Exists(pmapPath) ? _e5.ReadIndex(pmapPath).Count : 0;
-        var unitCounts = new[]
+        var probes = new[]
         {
-            File.Exists(movPath) ? _e5.ReadIndex(movPath).Count : 0,
-            File.Exists(atkPath) ? _e5.ReadIndex(atkPath).Count : 0,
-            File.Exists(spcPath) ? _e5.ReadIndex(spcPath).Count : 0
+            ProbeIfExists(pmapPath),
+            ProbeIfExists(movPath),
+            ProbeIfExists(atkPath),
+            ProbeIfExists(spcPath)
         };
+        var rEntryCount = ResolveLayoutCount(probes[0]);
+        var unitCounts = probes.Skip(1).Select(ResolveLayoutCount).ToArray();
         var unitEntryCount = unitCounts.Where(count => count > 0).DefaultIfEmpty(0).Min();
+        var integrityDiagnostics = probes
+            .Where(probe => probe != null && !probe.IsComplete)
+            .Select(probe => $"{Path.GetFileName(probe!.Path)}: {probe.Diagnostic}")
+            .ToArray();
         var exePath = project.ResolveGameFile("Ekd5.exe");
         var exeSha = TryComputeSha256(exePath);
         var profileName = ResolveProfileName(exeSha, rEntryCount, unitEntryCount);
@@ -217,9 +224,17 @@ public sealed class CharacterImageLayoutService
             DefaultUnitImageCount = DefaultUnitImageStart,
             ThreeStageSpecialCount = DefaultThreeStageSpecialCount,
             OneStageSpecialStartImageNumber = DefaultOneStageSpecialStart + 1,
+            IsArchiveIntegrityValid = integrityDiagnostics.Length == 0,
+            IntegrityDiagnostics = integrityDiagnostics,
             Evidence = evidence
         };
     }
+
+    private E5IndexProbeResult? ProbeIfExists(string path)
+        => File.Exists(path) ? _e5.ProbeIndex(path) : null;
+
+    private static int ResolveLayoutCount(E5IndexProbeResult? probe)
+        => probe == null ? 0 : probe.IsComplete ? probe.ParsedEntryCount : probe.ExpectedEntryCount;
 
     private static string ResolveProfileName(string? exeSha, int rEntryCount, int unitEntryCount)
     {
@@ -257,8 +272,8 @@ public sealed class CharacterImageLayoutService
 
         try
         {
-            var info = new FileInfo(fullPath);
-            return $"{fullPath}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+            var fingerprint = E5ResourceFingerprint.CreateFast(fullPath);
+            return $"{fullPath}|{fingerprint.Length}|{fingerprint.LastWriteTimeUtcTicks}|{fingerprint.IndexSha256}";
         }
         catch
         {
@@ -293,5 +308,7 @@ public sealed class CharacterImageLayout
     public int DefaultUnitImageCount { get; init; }
     public int ThreeStageSpecialCount { get; init; }
     public int OneStageSpecialStartImageNumber { get; init; }
+    public bool IsArchiveIntegrityValid { get; init; }
+    public IReadOnlyList<string> IntegrityDiagnostics { get; init; } = Array.Empty<string>();
     public string Evidence { get; init; } = string.Empty;
 }

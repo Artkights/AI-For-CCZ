@@ -4,6 +4,10 @@ namespace CCZModStudio.Core;
 
 internal static class TerrainVisualSurfaceClassifier
 {
+    public static TerrainVisualSurfaceKind Classify(TerrainVisualProfile? profile, byte terrainId)
+        => profile?.SurfaceOverrides?.LastOrDefault(item => item.TerrainId == terrainId)?.SurfaceKind
+           ?? Classify(terrainId);
+
     public static TerrainVisualSurfaceKind Classify(byte terrainId)
         => terrainId switch
         {

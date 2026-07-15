@@ -55,7 +55,12 @@ public sealed class RImageReplaceService
                 SourceBytes = encode.ImageBytes,
                 SourceBytesAreRaw = false,
                 SourceLabel = $"{encode.SourcePath} -> {encode.StorageFormat}",
-                OperationKind = $"一键替换R形象-{plan.Role}"
+                OperationKind = $"一键替换R形象-{plan.Role}",
+                CharacterTarget = CharacterImageTargetResolver.ResolveR(
+                    project,
+                    request.RImageId,
+                    plan.ImageNumber == mapping.BackImageNumber,
+                    plan.Role)
             });
         }
 
@@ -79,7 +84,12 @@ public sealed class RImageReplaceService
             SourceBytes = file.Encode.ImageBytes,
             SourceBytesAreRaw = false,
             SourceLabel = $"{file.Encode.SourcePath} -> {file.Encode.StorageFormat}",
-            OperationKind = $"一键替换R形象-{file.Role}"
+            OperationKind = $"一键替换R形象-{file.Role}",
+            CharacterTarget = CharacterImageTargetResolver.ResolveR(
+                project,
+                request.RImageId,
+                file.ImageNumber == preview.Mapping.BackImageNumber,
+                file.Role)
         }).ToArray();
         var result = _replace.ReplaceBatch(project, preview.Files[0].TargetPath, requests);
         var payload = new RImageReplaceResult
@@ -229,7 +239,7 @@ public sealed class RImageReplaceService
 
     private static string WriteAggregateReport(CczProject project, RImageReplaceResult result)
     {
-        var backupRoot = Path.Combine(project.GameRoot, "_CCZModStudio_Backups");
+        var backupRoot = ProjectBackupPathService.GetBackupRoot(project);
         Directory.CreateDirectory(backupRoot);
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
         var reportPath = Path.Combine(backupRoot, $"{stamp}_RImageTrueColorReplaceReport.json");

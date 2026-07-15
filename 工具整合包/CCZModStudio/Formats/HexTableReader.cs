@@ -114,6 +114,11 @@ public sealed class HexTableReader
 
     public TableReadResult Read(CczProject project, HexTableDefinition table, IReadOnlyList<HexTableDefinition> allTables)
     {
+        using var operation = PerformanceMetrics.Begin("HexTable.Read", new Dictionary<string, string>
+        {
+            ["Table"] = table.TableName,
+            ["File"] = table.FileName
+        });
         var validation = Validate(project, table);
         var data = CreateDataTable(table);
 
@@ -135,25 +140,22 @@ public sealed class HexTableReader
         }
 
         var filePath = project.ResolveGameFile(table.FileName);
-        using var stream = File.OpenRead(filePath);
-        using var reader = new BinaryReader(stream);
-
         DataTable? indexTable = null;
         if (table.Fields.Any(f => f.Kind == HexFieldKind.Derived) && !string.IsNullOrWhiteSpace(table.IndexTable))
         {
             indexTable = TryLoadIndexTable(project, table.IndexTable, allTables);
         }
 
+        var rangeLength = checked(table.RowCount * table.RowSize);
+        var tableBytes = ReadTableRange(filePath, table.DataPos, rangeLength);
         for (var rowIndex = 0; rowIndex < table.RowCount; rowIndex++)
         {
             var row = data.NewRow();
             var id = table.BeginId + rowIndex;
             row["ID"] = id;
 
-            stream.Position = table.DataPos + ((long)rowIndex * table.RowSize);
-            var rowBytes = Ccz66ItemLayoutService.IsGenerated66ItemBaseTable(table)
-                ? reader.ReadBytes(table.RowSize)
-                : null;
+            var rowStart = checked(rowIndex * table.RowSize);
+            var rowBytes = tableBytes.AsSpan(rowStart, table.RowSize);
             var rowByteOffset = 0;
             foreach (var field in table.Fields)
             {
@@ -163,16 +165,16 @@ public sealed class HexTableReader
                     continue;
                 }
 
-                var bytes = rowBytes == null
-                    ? reader.ReadBytes(field.Size)
-                    : rowBytes.AsSpan(rowByteOffset, field.Size).ToArray();
+                if (field.Size < 0 || rowByteOffset + field.Size > rowBytes.Length)
+                    throw new InvalidDataException($"表 {table.TableName} 第 {rowIndex} 行字段 {field.ColumnName} 超出行长。");
+                var bytes = rowBytes.Slice(rowByteOffset, field.Size).ToArray();
                 rowByteOffset += field.Size;
                 row[field.ColumnName] = DecodeField(field, bytes);
             }
 
-            if (rowBytes != null)
+            if (Ccz66ItemLayoutService.IsGenerated66ItemBaseTable(table))
             {
-                Ccz66ItemLayoutService.ApplyDerivedDisplayValues(project, table, row, rowBytes);
+                Ccz66ItemLayoutService.ApplyDerivedDisplayValues(project, table, row, rowBytes.ToArray());
             }
 
             data.Rows.Add(row);
@@ -181,6 +183,36 @@ public sealed class HexTableReader
         data.AcceptChanges();
 
         return new TableReadResult { Table = table, Data = data, Validation = validation };
+    }
+
+    public Task<TableReadResult> ReadAsync(
+        CczProject project,
+        HexTableDefinition table,
+        IReadOnlyList<HexTableDefinition> allTables,
+        CancellationToken cancellationToken = default)
+        => Task.Run(() => Read(project, table, allTables), cancellationToken);
+
+    public void Invalidate(IEnumerable<string> paths)
+    {
+        var normalized = paths.Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(ProjectResourceFingerprint.Normalize)
+            .ToArray();
+        if (normalized.Length == 0) return;
+        foreach (var key in _indexCache.Keys.Where(key => normalized.Any(path => key.Contains(path, StringComparison.OrdinalIgnoreCase))).ToArray())
+            _indexCache.Remove(key);
+    }
+
+    private static byte[] ReadTableRange(string path, long offset, int length)
+    {
+        if (length <= 0) return Array.Empty<byte>();
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.RandomAccess);
+        stream.Position = offset;
+        var bytes = new byte[length];
+        stream.ReadExactly(bytes);
+        PerformanceMetrics.Increment("HexTable.RangeRead.Count");
+        PerformanceMetrics.Increment("HexTable.RangeRead.Bytes", length);
+        return bytes;
     }
 
     private static void ReadItemEffectNameTable(CczProject project, HexTableDefinition table, DataTable data)
@@ -208,10 +240,16 @@ public sealed class HexTableReader
 
     private DataTable? TryLoadIndexTable(CczProject project, string indexTableName, IReadOnlyList<HexTableDefinition> allTables)
     {
-        var cacheKey = project.GameRoot + "\0" + indexTableName;
-        if (_indexCache.TryGetValue(cacheKey, out var cached)) return cached;
-
         if (!HexTableNameResolver.TryResolveForProject(project, allTables, indexTableName, out var indexDefinition)) return null;
+        var indexPath = project.ResolveGameFile(indexDefinition.FileName);
+        var fingerprint = ProjectResourceFingerprint.CreateRange(
+            indexPath,
+            indexDefinition.DataPos,
+            checked(indexDefinition.RowCount * indexDefinition.RowSize),
+            "hex-index-v2");
+        var cacheKey = string.Join("|", fingerprint.Path, fingerprint.Length, fingerprint.LastWriteTimeUtcTicks,
+            fingerprint.ChangeGeneration, fingerprint.RangeSha256, indexDefinition.Id);
+        if (_indexCache.TryGetValue(cacheKey, out var cached)) return cached;
 
         var validation = Validate(project, indexDefinition);
         if (!validation.IsUsable) return null;
