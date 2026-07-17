@@ -128,16 +128,19 @@ public static class EffectEvidenceBundleService
         }
     }
 
-    public static EffectEvidenceBundleImportResult VerifyAndStoreV3(CczProject project, EffectEvidenceBundleV3 bundle)
+    public static EffectEvidenceBundleImportResult ValidateV3(CczProject project, EffectEvidenceBundleV3 bundle)
     {
         var result = new EffectEvidenceBundleImportResult();
         var audit = new ExecutableProfileAuditService().Audit(project);
         var identity = new ProjectPatchIdentityService().BuildKnown(project, "Ekd5.exe",
             new FileInfo(project.ResolveGameFile("Ekd5.exe")).Length, audit.CurrentSha256, audit.ProfileId);
-        result.SignatureVerified = EffectEvidenceBundleCrypto.Verify(bundle);
+        HookExecutionContract? contract = null;
+        try { contract = new HookExecutionContractService().Read(project, bundle.ContractId); }
+        catch (Exception ex) { result.WarningsZh.Add("无法加载当前执行契约：" + ex.Message); }
+        result.SignatureVerified = EffectEvidenceBundleCrypto.VerifyReadOnly(bundle);
         if (!result.SignatureVerified)
             result.WarningsZh.Add("V3 证据包签名无效，不是当前 Windows 用户下的可信验证输出。");
-        if (!bundle.SchemaVersion.Equals(EffectEvidenceProtocolV3.SchemaVersion, StringComparison.Ordinal) || bundle.ContractVersion != 2)
+        if (!bundle.SchemaVersion.Equals(EffectEvidenceProtocolV3.SchemaVersion, StringComparison.Ordinal) || bundle.ContractVersion < 2)
             result.WarningsZh.Add("证据包不是受支持的执行契约 V3 协议。");
         if (!bundle.EffectCapabilitySchemaVersion.Equals(EffectEvidenceProtocolV3.EffectCapabilitySchemaVersion, StringComparison.Ordinal) ||
             !bundle.BuildChannel.Equals(EffectEvidenceProtocolV3.BuildChannel, StringComparison.Ordinal))
@@ -147,11 +150,35 @@ public static class EffectEvidenceBundleService
         if (!IsSafeIdentity(bundle.BundleId) || !IsSafeIdentity(bundle.ContractId) ||
             string.IsNullOrWhiteSpace(bundle.ContractHash) || string.IsNullOrWhiteSpace(bundle.ContractCodeIdentityHash))
             result.WarningsZh.Add("证据包的包、契约或代码身份无效。");
+        if (contract != null)
+        {
+            if (bundle.ContractVersion != contract.ContractVersion)
+                result.WarningsZh.Add("V3 证据包的契约版本与当前契约不一致。");
+            if (!bundle.ContractHash.Equals(contract.ContractHash, StringComparison.OrdinalIgnoreCase))
+                result.WarningsZh.Add("V3 证据包的契约摘要与当前契约不一致。");
+            if (!bundle.ContractCodeIdentityHash.Equals(contract.ContractCodeIdentityHash, StringComparison.OrdinalIgnoreCase))
+                result.WarningsZh.Add("V3 证据包的代码身份与当前 Hook/依赖函数身份不一致。");
+            if (!bundle.ProfileId.Equals(contract.ProfileId, StringComparison.Ordinal) ||
+                !bundle.NormalizedProfileIdentity.Equals(contract.NormalizedProfileIdentity, StringComparison.OrdinalIgnoreCase))
+                result.WarningsZh.Add("V3 证据包的执行档案身份与当前契约不一致。");
+            if (!bundle.ValidationRecipeId.Equals(contract.ValidationRecipe.RecipeId, StringComparison.Ordinal) ||
+                !bundle.ValidationRecipeHash.Equals(
+                    EffectEvidenceBundleCrypto.ComputeValidationRecipeHash(contract.ValidationRecipe),
+                    StringComparison.OrdinalIgnoreCase))
+                result.WarningsZh.Add("V3 证据包的验证配方身份与当前契约不一致。");
+            if (bundle.ContinuationAddress != contract.ContinuationAddress)
+                result.WarningsZh.Add("V3 证据包的 continuation 目标与当前契约不一致。");
+            if (!bundle.EvidenceDisposition.Equals(contract.EvidenceDisposition, StringComparison.Ordinal))
+                result.WarningsZh.Add("V3 证据包的处置方式与当前契约不一致。");
+        }
         if (!bundle.ProjectId.Equals(identity.ProjectId, StringComparison.OrdinalIgnoreCase) ||
             !PathsEqual(bundle.OriginalGameRoot, identity.GameRoot))
             result.WarningsZh.Add("证据包绑定的原项目身份与当前项目不一致。");
         if (!bundle.OriginalExeSha256.Equals(audit.CurrentSha256, StringComparison.OrdinalIgnoreCase))
             result.WarningsZh.Add("原项目 EXE 已在验证后变化，V3 证据不能导入。");
+        if (!bundle.BaseExeSha256.Equals(audit.CurrentSha256, StringComparison.OrdinalIgnoreCase) ||
+            contract != null && !bundle.BaseExeSha256.Equals(contract.ExeSha256, StringComparison.OrdinalIgnoreCase))
+            result.WarningsZh.Add("V3 证据包的基础 EXE SHA 与当前规范契约不一致。");
         var localProfile = new LocalEffectProfileService().FindVerified(project, audit.CurrentSha256);
         if (!bundle.ProfileId.Equals(audit.ProfileId, StringComparison.Ordinal) && localProfile == null)
             result.WarningsZh.Add("证据包绑定的档案不属于当前 EXE。");
@@ -173,10 +200,20 @@ public static class EffectEvidenceBundleService
                  new FileInfo(bundle.LoadedModulePath).Length != bundle.LoadedModuleSize ||
                  !EffectPatchByteService.Sha256(bundle.LoadedModulePath).Equals(bundle.LoadedModuleSha256, StringComparison.OrdinalIgnoreCase))
             result.WarningsZh.Add("验证副本中的加载模块大小或 SHA 已经变化。");
+        if (!bundle.SandboxPatchSha256.Equals(bundle.LoadedModuleSha256, StringComparison.OrdinalIgnoreCase))
+            result.WarningsZh.Add("证据包声明的沙箱补丁 SHA 与实际加载模块不一致。");
+        if (contract != null && bundle.EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal))
+            VerifyValidationOnlySandboxControlFlow(project, bundle, contract, result.WarningsZh);
 
         if (string.IsNullOrWhiteSpace(bundle.ValidationRecipeId) || string.IsNullOrWhiteSpace(bundle.ValidationRecipeHash) ||
-            string.IsNullOrWhiteSpace(bundle.ProbePackageHash) || string.IsNullOrWhiteSpace(bundle.ProbeExpectedOldBytesHash))
+            string.IsNullOrWhiteSpace(bundle.ProbePackageHash) || string.IsNullOrWhiteSpace(bundle.ProbePlanHash) ||
+            string.IsNullOrWhiteSpace(bundle.ProbeExpectedOldBytesHash))
             result.WarningsZh.Add("V3 证据缺少验证配方、探针包或探针旧字节身份。");
+        if (!bundle.ProbePlanHash.Equals(bundle.ProbePackageHash, StringComparison.OrdinalIgnoreCase))
+            result.WarningsZh.Add("V3 证据中的探针计划哈希与兼容探针包哈希不一致。");
+        if (bundle.EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal) &&
+            string.IsNullOrWhiteSpace(bundle.PatchPackageHash))
+            result.WarningsZh.Add("仅验证证据缺少沙箱补丁包哈希。");
         if (!bundle.ProbeRestored || string.IsNullOrWhiteSpace(bundle.ProbeRestoreEvidencePath))
             result.WarningsZh.Add("临时探针没有提供可复核的恢复证据。");
         if (bundle.CreatedAtUtc == default || bundle.CreatedAtUtc > DateTime.UtcNow.AddMinutes(5))
@@ -184,27 +221,62 @@ public static class EffectEvidenceBundleService
         if (bundle.CompletedScenarioIds.Count < 4 ||
             bundle.CompletedScenarioIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != bundle.CompletedScenarioIds.Count)
             result.WarningsZh.Add("V3 证据至少需要互不重复的正常、最小、最大和负向场景。");
-        if (!HasRequiredScenarioKinds(bundle.CompletedScenarioIds))
-            result.WarningsZh.Add("V3 证据缺少正常、最小边界、最大边界或负向场景。");
-        if (bundle.DerivedObservations.Count == 0 || bundle.DerivedObservations.Any(item =>
-                item.VerifiedMinimum is null || item.VerifiedMaximum is null || item.VerifiedMinimum > item.VerifiedMaximum ||
-                string.IsNullOrWhiteSpace(item.BoundaryEvidenceZh)))
-            result.WarningsZh.Add("每个可写观测都必须包含可复核的最小值、最大值和边界证据。");
-        if (bundle.RelationshipAssertions.Count == 0 || bundle.RelationshipAssertions.Any(item =>
-                !item.Verified || item.MatchingSamples <= 0 || item.NegativeSamples <= 0 ||
-                string.IsNullOrWhiteSpace(item.Relationship) || item.BattlefieldUnitId is null ||
-                string.IsNullOrWhiteSpace(item.Camp) || item.HpObserved is null || !item.CallChainVerified ||
-                item.EvidencePaths.Count == 0))
-            result.WarningsZh.Add("指针关系断言必须同时包含正向、负向样本和原始证据引用。");
+        if (contract != null)
+        {
+            foreach (var scenario in contract.ValidationRecipe.Scenarios.Where(item =>
+                         !bundle.CompletedScenarioIds.Contains(item.ScenarioId, StringComparer.OrdinalIgnoreCase)))
+                result.WarningsZh.Add("V3 证据缺少配方场景：" + scenario.ScenarioId + "。");
+            var observedKeys = bundle.DerivedObservations.Select(item => item.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var key in contract.ValidationRecipe.RequiredObservationKeys.Where(key => !observedKeys.Contains(key)))
+                result.WarningsZh.Add("V3 证据缺少配方观测：" + key + "。");
+            foreach (var key in contract.ValidationRecipe.WritableBoundaryKeys)
+            {
+                var values = bundle.DerivedObservations.Where(item => item.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (values.Count == 0 || values.Any(item => item.VerifiedMinimum is null || item.VerifiedMaximum is null ||
+                        item.VerifiedMinimum > item.VerifiedMaximum || string.IsNullOrWhiteSpace(item.BoundaryEvidenceZh)))
+                    result.WarningsZh.Add("可写观测“" + key + "”没有完整、可复算的边界证据。");
+            }
+            foreach (var rule in contract.ValidationRecipe.RelationshipRules.Where(item => item.Required))
+            {
+                var assertion = bundle.RelationshipAssertions.FirstOrDefault(item =>
+                    item.Relationship.Equals(rule.RuleId, StringComparison.OrdinalIgnoreCase));
+                if (assertion == null || !assertion.Verified || assertion.MatchingSamples <= 0 ||
+                    assertion.NegativeSamples <= 0 || !assertion.CallChainVerified || assertion.EvidencePaths.Count == 0 ||
+                    !assertion.LeftSlotId.Equals(rule.LeftObservationKey, StringComparison.OrdinalIgnoreCase) ||
+                    !assertion.RightSlotId.Equals(rule.RightObservationKey, StringComparison.OrdinalIgnoreCase) ||
+                    !assertion.RelationshipKind.Equals(rule.RelationshipKind, StringComparison.OrdinalIgnoreCase))
+                    result.WarningsZh.Add("关系断言没有满足当前配方规则：" + rule.RuleId + "。");
+            }
+        }
 
         result.RawIntegrityVerified = VerifyRawIntegrity(ToV1(bundle), result.WarningsZh) &&
-                                      VerifyV3References(bundle, result.WarningsZh);
+                                      VerifyV3References(bundle, result.WarningsZh) &&
+                                      (contract == null || VerifyRecipeCaptures(bundle, contract.ValidationRecipe, result.WarningsZh));
         result.Accepted = result.SignatureVerified && result.RawIntegrityVerified && result.WarningsZh.Count == 0;
         if (!result.Accepted)
         {
             result.SummaryZh = "可信 V3 证据包验证未通过。";
             return result;
         }
+
+        result.SummaryZh = "可信 V3 证据的签名、原始文件、契约、代码身份、场景、边界、关系和沙箱补丁身份均已只读验证。";
+        return result;
+    }
+
+    public static EffectEvidenceBundleImportResult VerifyAndStoreV3(CczProject project, EffectEvidenceBundleV3 bundle)
+    {
+        if (!bundle.EvidenceDisposition.Equals(EffectEvidenceDispositions.StoreAndPromote, StringComparison.Ordinal))
+        {
+            return new EffectEvidenceBundleImportResult
+            {
+                Accepted = false,
+                ContractPromoted = false,
+                WarningsZh = ["该 V3 证据声明为仅验证，禁止写入正式证据目录或提升正式权限。"],
+                SummaryZh = "ValidationOnly V3 证据只能调用 ValidateV3；入库入口已拒绝。"
+            };
+        }
+        var result = ValidateV3(project, bundle);
+        if (!result.Accepted) return result;
 
         var root = EvidenceRootV3(project, bundle.OriginalExeSha256, bundle.ContractId);
         var importedRoot = Path.Combine(root, Path.GetFileNameWithoutExtension(bundle.BundleId));
@@ -224,7 +296,7 @@ public static class EffectEvidenceBundleService
         result.SavedPath = Path.Combine(root, Path.GetFileNameWithoutExtension(bundle.BundleId) + ".trusted-v3.json");
         File.WriteAllText(result.SavedPath, EffectEvidenceBundleCrypto.Serialize(bundle), Encoding.UTF8);
         ProjectResourceInvalidationBus.Publish([result.SavedPath], ProjectResourceKind.EffectMetadata);
-        result.SummaryZh = "可信 V3 证据的档案、代码身份、边界、关系语义、探针恢复和原始文件摘要均已验证。";
+        result.SummaryZh = "可信 V3 证据已验证并写入正式证据目录。";
         return result;
     }
 
@@ -254,6 +326,7 @@ public static class EffectEvidenceBundleService
                 bundle.OriginalExeSha256.Equals(identity.CurrentSha256, StringComparison.OrdinalIgnoreCase) &&
                 PathsEqual(bundle.OriginalGameRoot, project.GameRoot) &&
                 bundle.ContractId.Equals(contractId, StringComparison.OrdinalIgnoreCase) &&
+                bundle.EvidenceDisposition.Equals(EffectEvidenceDispositions.StoreAndPromote, StringComparison.Ordinal) &&
                 bundle.ProbeRestored &&
                 EffectEvidenceBundleCrypto.Verify(bundle) &&
                 VerifyRawIntegrity(ToV1(bundle), null) && VerifyV3References(bundle, null))
@@ -329,6 +402,237 @@ public static class EffectEvidenceBundleService
             }
         }
         return ok;
+    }
+
+    private static bool VerifyRecipeCaptures(
+        EffectEvidenceBundleV3 bundle,
+        EffectValidationRecipe recipe,
+        ICollection<string>? warnings)
+    {
+        var ok = true;
+        var planFile = bundle.RawFiles.SingleOrDefault(item =>
+            item.ScenarioId.Equals("probe-plan", StringComparison.OrdinalIgnoreCase));
+        if (planFile == null || !planFile.Sha256.Equals(bundle.ProbePlanHash, StringComparison.OrdinalIgnoreCase))
+        {
+            warnings?.Add("签名原始文件中缺少与 ProbePlanHash 一致的验证计划。");
+            ok = false;
+        }
+        else
+        {
+            var planPath = Path.GetFullPath(Path.Combine(bundle.SessionRoot, planFile.RelativePath));
+            try
+            {
+                using var plan = JsonDocument.Parse(File.ReadAllText(planPath, Encoding.UTF8));
+                var root = plan.RootElement;
+                ok &= VerifyJsonString(root, "contractId", bundle.ContractId, "验证计划契约 ID", warnings);
+                ok &= VerifyJsonString(root, "contractHash", bundle.ContractHash, "验证计划契约哈希", warnings);
+                ok &= VerifyJsonString(root, "baseExeSha256", bundle.BaseExeSha256, "验证计划基础 SHA", warnings);
+                ok &= VerifyJsonString(root, "sandboxPatchSha256", bundle.SandboxPatchSha256, "验证计划沙箱补丁 SHA", warnings);
+                ok &= VerifyJsonString(root, "patchPackageHash", bundle.PatchPackageHash, "验证计划补丁包哈希", warnings);
+                ok &= VerifyJsonString(root, "evidenceDisposition", bundle.EvidenceDisposition, "验证计划证据处置", warnings);
+                if (!TryGetPropertyIgnoreCase(root, "continuationAddress", out var continuation) ||
+                    !continuation.TryGetUInt32(out var continuationAddress) || continuationAddress != bundle.ContinuationAddress)
+                {
+                    warnings?.Add("验证计划 continuation 目标与证据包不一致。");
+                    ok = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                warnings?.Add("验证计划无法解析：" + ex.Message);
+                ok = false;
+            }
+        }
+
+        var requiredRoles = new[]
+        {
+            EffectValidationScenarioRoles.Normal,
+            EffectValidationScenarioRoles.MinimumBoundary,
+            EffectValidationScenarioRoles.MaximumBoundary,
+            EffectValidationScenarioRoles.Negative
+        };
+        foreach (var role in requiredRoles.Where(role => recipe.Scenarios.All(item =>
+                     !item.ScenarioRole.Equals(role, StringComparison.Ordinal))))
+        {
+            warnings?.Add("当前验证配方缺少显式场景角色：" + role + "。");
+            ok = false;
+        }
+
+        var points = recipe.CapturePoints.ToDictionary(item => item.CapturePointId, StringComparer.OrdinalIgnoreCase);
+        var captures = new Dictionary<(string ScenarioId, string PointId), List<int>>();
+        foreach (var raw in bundle.RawFiles.Where(item => bundle.CompletedScenarioIds.Contains(item.ScenarioId, StringComparer.OrdinalIgnoreCase)))
+        {
+            var path = Path.GetFullPath(Path.Combine(bundle.SessionRoot, raw.RelativePath));
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
+                var root = document.RootElement;
+                var scenarioId = ReadJsonString(root, "scenario_id", "scenarioId");
+                var pointId = ReadJsonString(root, "capture_point_id", "capturePointId");
+                if (!scenarioId.Equals(raw.ScenarioId, StringComparison.OrdinalIgnoreCase) ||
+                    !points.TryGetValue(pointId, out var point))
+                {
+                    warnings?.Add("原始采集文件的场景或采集点不属于当前验证配方：" + raw.RelativePath);
+                    ok = false;
+                    continue;
+                }
+                var addressText = ReadJsonString(root, "capture_point_address", "capturePointAddress");
+                if (!TryParseUInt32(addressText, out var address) || address != point.Address)
+                {
+                    warnings?.Add("原始采集文件的断点地址与当前验证配方不一致：" + raw.RelativePath);
+                    ok = false;
+                }
+                if (!TryGetPropertyIgnoreCase(root, "hit_index", out var hitProperty) ||
+                    !hitProperty.TryGetInt32(out var hitIndex) || hitIndex <= 0)
+                {
+                    warnings?.Add("原始采集文件缺少有效命中序号：" + raw.RelativePath);
+                    ok = false;
+                    continue;
+                }
+                var key = (scenarioId.ToLowerInvariant(), pointId.ToLowerInvariant());
+                if (!captures.TryGetValue(key, out var hits)) captures[key] = hits = [];
+                hits.Add(hitIndex);
+            }
+            catch (Exception ex)
+            {
+                warnings?.Add("原始采集文件无法按验证配方解析：" + raw.RelativePath + "，" + ex.Message);
+                ok = false;
+            }
+        }
+
+        foreach (var scenario in recipe.Scenarios)
+        {
+            foreach (var requirement in scenario.RequiredMinimumHits)
+            {
+                var key = (scenario.ScenarioId.ToLowerInvariant(), requirement.Key.ToLowerInvariant());
+                var count = captures.TryGetValue(key, out var hits) ? hits.Distinct().Count() : 0;
+                if (count < requirement.Value)
+                {
+                    warnings?.Add($"场景 {scenario.ScenarioId} 的采集点 {requirement.Key} 只有 {count} 次命中，少于要求的 {requirement.Value} 次。");
+                    ok = false;
+                }
+            }
+            foreach (var maximum in scenario.AllowedMaximumHits)
+            {
+                var key = (scenario.ScenarioId.ToLowerInvariant(), maximum.Key.ToLowerInvariant());
+                var count = captures.TryGetValue(key, out var hits) ? hits.Distinct().Count() : 0;
+                if (count > maximum.Value)
+                {
+                    warnings?.Add($"场景 {scenario.ScenarioId} 的采集点 {maximum.Key} 有 {count} 次命中，超过允许的 {maximum.Value} 次。");
+                    ok = false;
+                }
+            }
+        }
+        return ok;
+    }
+
+    private static void VerifyValidationOnlySandboxControlFlow(
+        CczProject originalProject,
+        EffectEvidenceBundleV3 bundle,
+        HookExecutionContract contract,
+        ICollection<string> warnings)
+    {
+        if (bundle.SandboxPatchSha256.Equals(bundle.BaseExeSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            warnings.Add("仅验证物理契约的沙箱 EXE 没有形成独立补丁 SHA。");
+            return;
+        }
+        try
+        {
+            var sandboxProject = new ProjectDetector().CreateProjectFromGameRoot(bundle.SandboxRoot);
+            var hook = EffectPatchByteService.ParseHex(
+                EffectPatchByteService.ReadVirtualBytes(sandboxProject, contract.HookAddress, 5));
+            if (!TryReadRel32Target(hook, contract.HookAddress, out var dispatcherAddress) ||
+                dispatcherAddress == contract.ContinuationAddress)
+            {
+                warnings.Add("沙箱 00418335 没有指向独立的新调度器。");
+                return;
+            }
+            var dispatcherBytes = EffectPatchByteService.ParseHex(
+                EffectPatchByteService.ReadVirtualBytes(sandboxProject, dispatcherAddress, 2048));
+            if (!ContainsRel32Target(dispatcherBytes, dispatcherAddress, contract.ContinuationAddress))
+                warnings.Add("沙箱新调度器代码体没有尾跳到契约 continuation 004528FC。");
+
+            var legacyLength = checked((int)(EngineRuntimeSemanticRegistry.LegacyPhysicalRecoveryBodyEndAddress -
+                                             EngineRuntimeSemanticRegistry.LegacyPhysicalRecoveryBodyAddress + 1));
+            var originalLegacy = EffectPatchByteService.ReadVirtualBytes(originalProject,
+                EngineRuntimeSemanticRegistry.LegacyPhysicalRecoveryBodyAddress, legacyLength);
+            var sandboxLegacy = EffectPatchByteService.ReadVirtualBytes(sandboxProject,
+                EngineRuntimeSemanticRegistry.LegacyPhysicalRecoveryBodyAddress, legacyLength);
+            if (!originalLegacy.Equals(sandboxLegacy, StringComparison.OrdinalIgnoreCase))
+                warnings.Add("沙箱补丁改动了 004528FC-004529A6 遗留代码体。");
+        }
+        catch (Exception ex)
+        {
+            warnings.Add("无法复读沙箱 Hook、调度器或遗留链：" + ex.Message);
+        }
+    }
+
+    private static bool TryReadRel32Target(byte[] bytes, uint address, out uint target)
+    {
+        target = 0;
+        if (bytes.Length != 5 || bytes[0] != 0xE9) return false;
+        target = unchecked((uint)(address + 5 + BitConverter.ToInt32(bytes, 1)));
+        return true;
+    }
+
+    private static bool ContainsRel32Target(byte[] bytes, uint baseAddress, uint target)
+    {
+        for (var offset = 0; offset <= bytes.Length - 5; offset++)
+        {
+            if (bytes[offset] != 0xE9) continue;
+            var candidate = bytes.AsSpan(offset, 5).ToArray();
+            if (TryReadRel32Target(candidate, checked(baseAddress + (uint)offset), out var actual) && actual == target)
+                return true;
+        }
+        return false;
+    }
+
+    private static bool VerifyJsonString(
+        JsonElement root,
+        string propertyName,
+        string expected,
+        string label,
+        ICollection<string>? warnings)
+    {
+        var actual = ReadJsonString(root, propertyName);
+        if (actual.Equals(expected, StringComparison.OrdinalIgnoreCase)) return true;
+        warnings?.Add(label + "与证据包不一致。");
+        return false;
+    }
+
+    private static string ReadJsonString(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!TryGetPropertyIgnoreCase(root, name, out var property)) continue;
+            return property.ValueKind == JsonValueKind.String ? property.GetString() ?? string.Empty : property.GetRawText();
+        }
+        return string.Empty;
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement root, string name, out JsonElement value)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!property.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
+                value = property.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
+
+    private static bool TryParseUInt32(string value, out uint result)
+    {
+        result = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var text = value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value;
+        return uint.TryParse(text, System.Globalization.NumberStyles.HexNumber,
+            System.Globalization.CultureInfo.InvariantCulture, out result);
     }
 
     private static string NormalizeEvidenceReference(string reference, IReadOnlyList<EffectEvidenceRawFile> rawFiles)

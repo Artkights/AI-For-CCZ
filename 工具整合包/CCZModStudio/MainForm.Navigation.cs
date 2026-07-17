@@ -40,8 +40,7 @@ public sealed partial class MainForm
             return;
         }
 
-        SelectTabPageByText("图片设定");
-        SelectTabPageByText("人物形象设定");
+        SelectTabPageByText("形象设定");
         LoadImageAssignments();
     }
 
@@ -54,7 +53,6 @@ public sealed partial class MainForm
         }
 
         SelectTabPageByText("图片设定");
-        SelectTabPageByText("图片资源");
         LoadImageResources();
     }
 

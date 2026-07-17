@@ -136,14 +136,14 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定。", "查看 R/S 单帧", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取形象设定。", "查看 R/S 单帧", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "查看 R/S 单帧", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先在形象设定页面选择一行。", "查看 R/S 单帧", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 

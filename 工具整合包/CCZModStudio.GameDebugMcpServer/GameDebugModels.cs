@@ -27,8 +27,18 @@ public sealed class BattleUnitRow
     [JsonPropertyName("data_id")]
     public int DataId { get; init; }
 
+    [JsonPropertyName("data_id_container")]
+    public uint DataIdContainer { get; init; }
+
+    [JsonPropertyName("battle_sprite_id")]
+    public int BattleSpriteId { get; init; }
+
+    [JsonPropertyName("packed_display_state")]
+    public uint PackedDisplayState { get; init; }
+
+    [Obsolete("Use BattleSpriteId. The DWORD at unit+04 also contains side and coordinates.")]
     [JsonPropertyName("display_id")]
-    public int DisplayId { get; init; }
+    public int DisplayId => BattleSpriteId;
 
     [Obsolete("Use DataId. The compatibility field is scheduled for removal after one release.")]
     [JsonPropertyName("data_id_byte")]
@@ -75,6 +85,12 @@ public sealed class BattleStateSnapshot
 
     [JsonPropertyName("layout_source")]
     public string LayoutSource { get; init; } = string.Empty;
+
+    [JsonPropertyName("layout_evidence_level")]
+    public string LayoutEvidenceLevel { get; init; } = string.Empty;
+
+    [JsonPropertyName("read_only")]
+    public bool ReadOnly { get; init; } = true;
 
     [JsonPropertyName("unit_array_address")]
     public string UnitArrayAddress { get; init; } = "004A7B20";

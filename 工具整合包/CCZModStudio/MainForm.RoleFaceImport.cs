@@ -320,14 +320,14 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null || _imageAssignmentGrid.CurrentRow == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定并选中一行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取形象设定并选中一行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var targetRows = BuildImageAssignmentFaceImportTargetRows([_imageAssignmentGrid.CurrentRow]);
         if (targetRows.Count == 0)
         {
-            MessageBox.Show(this, "当前行无法解析为人物形象设定数据行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "当前行无法解析为形象设定数据行。", "导入头像", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -361,14 +361,14 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var selectedRows = GetSelectedImageAssignmentRowsForFaceImport();
         if (selectedRows.Count == 0)
         {
-            MessageBox.Show(this, "请先在人物形象设定表中选中要导入头像的行。", "批量导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先在形象设定表中选中要导入头像的行。", "批量导入头像", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -445,7 +445,7 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null || _imageAssignmentGrid.CurrentRow == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定并选中一行。", "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取形象设定并选中一行。", "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -462,7 +462,7 @@ public sealed partial class MainForm
 
         if (targetRows.Count == 0)
         {
-            MessageBox.Show(this, "当前行无法解析为人物形象设定数据行。", "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "当前行无法解析为形象设定数据行。", "头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -489,14 +489,14 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先读取形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var selectedRows = GetSelectedImageAssignmentRowsForFaceImport();
         if (selectedRows.Count == 0)
         {
-            MessageBox.Show(this, "请先在人物形象设定表中选中要套用头像框的行。", "批量头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先在形象设定表中选中要套用头像框的行。", "批量头像框导入", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
@@ -716,12 +716,12 @@ public sealed partial class MainForm
         var targets = new List<BatchRoleFaceTargetRow>();
         foreach (var row in selectedRows)
         {
-            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为人物形象设定数据行。");
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为形象设定数据行。");
             var roleId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
             var displayName = TryGetRoleDisplayName(dataRow);
             if (!dataRow.Table.Columns.Contains("头像编号") || !TryConvertToInt(dataRow["头像编号"], out var faceId))
             {
-                throw new InvalidOperationException($"人物形象设定行 ID={roleId} 的头像编号不是有效整数。");
+                throw new InvalidOperationException($"形象设定行 ID={roleId} 的头像编号不是有效整数。");
             }
 
             targets.Add(new BatchRoleFaceTargetRow(roleId, displayName, faceId));
@@ -742,12 +742,12 @@ public sealed partial class MainForm
         var targets = new List<PortraitFrameTargetRow>();
         foreach (var row in selectedRows)
         {
-            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为人物形象设定数据行。");
+            var dataRow = TryGetDataRow(row) ?? throw new InvalidOperationException("选中行无法解析为形象设定数据行。");
             var roleId = Convert.ToInt32(dataRow["ID"], CultureInfo.InvariantCulture);
             var displayName = TryGetRoleDisplayName(dataRow);
             if (!dataRow.Table.Columns.Contains("头像编号") || !TryConvertToInt(dataRow["头像编号"], out var faceId))
             {
-                throw new InvalidOperationException($"人物形象设定行 ID={roleId} 的头像编号不是有效整数。");
+                throw new InvalidOperationException($"形象设定行 ID={roleId} 的头像编号不是有效整数。");
             }
 
             targets.Add(new PortraitFrameTargetRow(roleId, displayName, faceId));

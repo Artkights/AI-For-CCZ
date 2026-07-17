@@ -4,7 +4,7 @@ namespace CCZModStudio.Models;
 
 public static class EffectValidationPipeProtocol
 {
-    public const string Version = "effect-validation-pipe-v2";
+    public const string Version = "effect-validation-pipe-v3";
     public const int MaximumMessageCharacters = 4 * 1024 * 1024;
 }
 
@@ -40,6 +40,7 @@ public sealed class EffectValidationStartRequest
     public string SandboxPatchSha256 { get; set; } = string.Empty;
     public string ProbePackageHash { get; set; } = string.Empty;
     public uint ContinuationAddress { get; set; }
+    public string EvidenceDisposition { get; set; } = EffectEvidenceDispositions.StoreAndPromote;
     public int EffectId { get; set; } = 1;
     public string SandboxRoot { get; set; } = string.Empty;
     public bool LaunchDebugger { get; set; } = true;

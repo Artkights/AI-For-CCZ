@@ -23,7 +23,7 @@ public sealed class CompositeEffectService
     {
         ValidateChannel(channel);
         var options = channel == CompositeEffectChannel.Item ? inventory.ItemOptions : inventory.PersonalJobOptions;
-        var minimum = channel == CompositeEffectChannel.Item ? 0x1A : 0x00;
+        var minimum = channel == CompositeEffectChannel.Item ? 0x1A : 0x01;
         var maximum = channel == CompositeEffectChannel.Item ? 0x7F : 0xFE;
         var report = new FreeEffectIdReport { Channel = channel };
         var manifestIds = ReadInstalledCompositeManifests(project)

@@ -1,3 +1,5 @@
+using CCZModStudio.Core;
+
 namespace CCZModStudio.Models;
 
 public sealed class CczEngineProfile
@@ -75,9 +77,26 @@ public sealed class CczLegacyRuntimeMemoryLayout
     public int JobNameRecordSize { get; set; } = 0x09;
     public int JobNameLength { get; set; } = 0x09;
     public uint ItemNameTableAddress { get; set; } = 0x4A1140;
-    public int ItemNameRecordSize { get; set; } = 25;
-    public int ItemNameLength { get; set; } = 12;
-    public int ItemTypeOffset { get; set; } = 0x14;
+    public int ItemNameRecordSize { get; set; } = EngineRuntimeSemanticRegistry.ItemRecordStride;
+    public int ItemNameLength { get; set; } = EngineRuntimeSemanticRegistry.ItemNameStorageWidth;
+    public int ItemNameTextCapacity { get; set; } = EngineRuntimeSemanticRegistry.ItemNameTextCapacity;
+    public int ItemTypeOffset { get; set; } = 0x11;
+    public int ItemEffectIdOffset { get; set; } = 0x12;
+    public int ItemPriceOffset { get; set; } = 0x13;
+    public int ItemIconOffset { get; set; } = 0x14;
+    public int ItemInitialValueOffset { get; set; } = 0x15;
+    public int ItemEffectValueOffset { get; set; } = 0x16;
+    public int ItemGrowthOffset { get; set; } = 0x17;
+    public int ItemGalleryOffset { get; set; } = 0x18;
+    public uint DetailedJobTableAddress { get; set; }
+    public int DetailedJobRecordSize { get; set; }
+    public int DetailedJobCount { get; set; }
+    public uint JobFamilyTerrainTableAddress { get; set; }
+    public int JobFamilyTerrainRecordSize { get; set; }
+    public int JobFamilyTerrainCount { get; set; }
+    public uint ConsumableCountArrayAddress { get; set; }
+    public int ConsumableMinimumItemId { get; set; }
+    public int ConsumableMaximumItemId { get; set; }
     public uint ConsumableNameTableAddress { get; set; }
     public int ConsumableCount { get; set; }
     public string ConsumableEncoding { get; set; } = "gbk";
@@ -97,8 +116,17 @@ public sealed class CczLegacyRuntimeMemoryLayout
     public int ItemCapacity { get; set; }
     public int UnitDataIdOffset { get; set; } = 0x04;
     public int UnitDataIdByteWidth { get; set; } = 1;
+    public int UnitDataIdContainerByteWidth { get; set; } = 4;
+    public int UnitBattleSpriteIdOffset { get; set; } = 0x04;
+    public int UnitBattleSpriteIdByteWidth { get; set; } = 1;
+    public int UnitPackedDisplayStateOffset { get; set; } = 0x04;
+    public int UnitPackedDisplayStateByteWidth { get; set; } = 4;
+
+    [Obsolete("Use UnitBattleSpriteIdOffset or UnitPackedDisplayStateOffset.")]
     public int UnitDisplayIdOffset { get; set; } = 0x04;
-    public int UnitDisplayIdByteWidth { get; set; } = 4;
+
+    [Obsolete("The compatibility display id is the one-byte battle sprite id.")]
+    public int UnitDisplayIdByteWidth { get; set; } = 1;
     public int UnitSideOffset { get; set; } = 0x05;
     public int UnitXOffset { get; set; } = 0x06;
     public int UnitYOffset { get; set; } = 0x07;

@@ -200,6 +200,7 @@ internal partial class Program
             RequiredCodeCaveBytes = 6,
             AssemblySource = "nop\njmp {return}"
         };
+        draft.Metadata["LogicalPatchKind"] = "assembly-patch-repair-smoke";
 
         var compiler = new AssemblyPatchCompiler();
         var realInstructionHook = 0x004101D9u;
@@ -353,6 +354,7 @@ internal partial class Program
             RequiredCodeCaveBytes = 6,
             AssemblySource = "nop\njmp {return}"
         };
+        secondDraft.Metadata["LogicalPatchKind"] = "assembly-patch-repair-smoke";
         var secondPreview = compiler.Preview(testProject, secondDraft);
         if (!secondPreview.CanApply ||
             secondPreview.Allocation.Allocation == null ||

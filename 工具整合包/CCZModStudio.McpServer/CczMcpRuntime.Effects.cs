@@ -252,6 +252,17 @@ public sealed partial class CczMcpRuntime
         };
     }
 
+    public object ValidateEffectEvidenceBundleV3(string? gameRoot, EffectEvidenceBundleV3 bundle)
+    {
+        var project = LoadProject(gameRoot);
+        return new
+        {
+            project.GameRoot,
+            Result = EffectEvidenceBundleService.ValidateV3(project, bundle),
+            SafetyNoteZh = "只读校验签名、原始文件、基础/沙箱 SHA、补丁包、探针计划、契约与 continuation；不写证据目录、不提升权限。"
+        };
+    }
+
     public object ReadEffectWriteMatrix(string? gameRoot)
     {
         var project = LoadProject(gameRoot);

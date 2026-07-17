@@ -9,6 +9,7 @@ internal sealed record class GameDebugRuntimeProfile
     public string EngineVersion { get; init; } = "unknown";
     public string DetectionSource { get; init; } = "fallback";
     public bool IsKnown { get; init; }
+    public bool CanReadRuntimeBattleLayout { get; init; }
     public bool IsRuntimeBattleLayoutVerified { get; init; }
     public string LayoutSource { get; init; } = string.Empty;
     public string UnsupportedReason { get; init; } = string.Empty;
@@ -16,8 +17,11 @@ internal sealed record class GameDebugRuntimeProfile
     public int UnitStride { get; init; }
     public int UnitDataIdOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDataIdOffset;
     public int UnitDataIdByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDataIdWidth;
-    public int UnitDisplayIdOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDisplayIdOffset;
-    public int UnitDisplayIdByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDisplayIdWidth;
+    public int UnitDataIdContainerByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitDataIdContainerWidth;
+    public int UnitBattleSpriteIdOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitBattleSpriteIdOffset;
+    public int UnitBattleSpriteIdByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitBattleSpriteIdWidth;
+    public int UnitPackedDisplayStateOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitPackedDisplayStateOffset;
+    public int UnitPackedDisplayStateByteWidth { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitPackedDisplayStateWidth;
     public int UnitSideOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitSideOffset;
     public int UnitXOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitXOffset;
     public int UnitYOffset { get; init; } = EngineRuntimeSemanticRegistry.TacticalUnitYOffset;
@@ -41,6 +45,7 @@ internal sealed record class GameDebugRuntimeProfile
             engine_version = EngineVersion,
             detection_source = DetectionSource,
             is_known = IsKnown,
+            battle_layout_readable = CanReadRuntimeBattleLayout,
             battle_layout_verified = IsRuntimeBattleLayoutVerified,
             layout_source = LayoutSource,
             unsupported_reason = UnsupportedReason,
@@ -48,8 +53,11 @@ internal sealed record class GameDebugRuntimeProfile
             unit_stride = UnitStride == 0 ? string.Empty : UnitStride.ToString("X", CultureInfo.InvariantCulture),
             unit_data_id_offset = UnitDataIdOffset,
             unit_data_id_width = UnitDataIdByteWidth,
-            unit_display_id_offset = UnitDisplayIdOffset,
-            unit_display_id_width = UnitDisplayIdByteWidth,
+            unit_data_id_container_width = UnitDataIdContainerByteWidth,
+            unit_battle_sprite_id_offset = UnitBattleSpriteIdOffset,
+            unit_battle_sprite_id_width = UnitBattleSpriteIdByteWidth,
+            unit_packed_display_state_offset = UnitPackedDisplayStateOffset,
+            unit_packed_display_state_width = UnitPackedDisplayStateByteWidth,
             unit_hp_width = UnitCurrentHpByteWidth,
             unit_mp_width = UnitCurrentMpByteWidth,
             exe_size = ExeSize,
@@ -78,6 +86,7 @@ internal sealed record class GameDebugRuntimeProfile
                 EngineVersion = "6.5",
                 DetectionSource = selected?.Kind ?? "fallback",
                 IsKnown = true,
+                CanReadRuntimeBattleLayout = true,
                 IsRuntimeBattleLayoutVerified = true,
                 LayoutSource = "current-project-debug-and-old-wrench-comparison",
                 UnitArrayAddress = EngineRuntimeSemanticRegistry.TacticalUnitArrayAddress,
@@ -95,7 +104,14 @@ internal sealed record class GameDebugRuntimeProfile
                 EngineVersion = version,
                 DetectionSource = selected?.Kind ?? "fallback",
                 IsKnown = true,
-                UnsupportedReason = "Old-wrench runtime layout exists for this version, but this MCP battle reader has only verified the current 6.5 tactical-unit field map."
+                CanReadRuntimeBattleLayout = version == "6.4",
+                IsRuntimeBattleLayoutVerified = false,
+                LayoutSource = version == "6.4" ? "6.4-xlsx-docx-external-reference-readonly" : string.Empty,
+                UnitArrayAddress = version == "6.4" ? EngineRuntimeSemanticRegistry.TacticalUnitArrayAddress : 0,
+                UnitStride = version == "6.4" ? EngineRuntimeSemanticRegistry.TacticalUnitStride : 0,
+                UnsupportedReason = version == "6.4"
+                    ? "6.4 layout is external-reference read-only; automation, writes, and evidence promotion remain blocked."
+                    : "Old-wrench runtime layout exists, but this MCP has no readable tactical-unit profile for this version."
             },
             _ => new GameDebugRuntimeProfile
             {
@@ -123,6 +139,13 @@ internal sealed record class GameDebugRuntimeProfile
             throw new InvalidOperationException($"Runtime battle layout is not verified for engine {EngineVersion}: {UnsupportedReason}");
         }
 
+        return this;
+    }
+
+    public GameDebugRuntimeProfile RequireReadableBattleLayout()
+    {
+        if (!CanReadRuntimeBattleLayout || UnitArrayAddress == 0 || UnitStride <= 0)
+            throw new InvalidOperationException($"Runtime battle layout is not readable for engine {EngineVersion}: {UnsupportedReason}");
         return this;
     }
 

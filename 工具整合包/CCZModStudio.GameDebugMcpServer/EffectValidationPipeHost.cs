@@ -112,7 +112,7 @@ internal sealed class EffectValidationPipeHost(
                 var validation = runtime.CreateEffectProbeSession(value.ContractId, value.ContractHash, value.EffectId,
                     value.SandboxRoot, value.ContractCodeIdentityHash, value.ProfileId, value.NormalizedProfileIdentity,
                     value.ContractVersion, value.ValidationRecipe, value.BaseExeSha256, value.SandboxPatchSha256,
-                    value.ProbePackageHash, value.ContinuationAddress);
+                    value.ProbePackageHash, value.ContinuationAddress, value.EvidenceDisposition);
                 object? debugger = null;
                 string? debuggerError = null;
                 if (value.LaunchDebugger)

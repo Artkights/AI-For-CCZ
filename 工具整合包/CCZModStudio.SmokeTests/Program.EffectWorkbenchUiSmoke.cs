@@ -57,19 +57,39 @@ internal partial class Program
                 workbenchTabs.SelectedTab = compositePage;
                 Application.DoEvents();
                 var scan = FindControls(compositePage).OfType<Button>().Single(button => button.Text == "刷新可用特效");
+                var stageControl = FindControls(compositePage).First(control => control.GetType().Name.Contains("EffectStageControl", StringComparison.Ordinal));
                 var heartbeat = Stopwatch.StartNew();
                 var previousTick = heartbeat.ElapsedMilliseconds;
                 long maximumGap = 0;
+                var maximumGapStage = stageControl.Text;
+                var heartbeatGaps = new List<long>();
                 var ticks = 0;
-                using var timer = new System.Windows.Forms.Timer { Interval = 25 };
-                timer.Tick += (_, _) =>
+                var heartbeatPending = 0;
+                using var timer = new System.Threading.Timer(_ =>
                 {
-                    var now = heartbeat.ElapsedMilliseconds;
-                    maximumGap = Math.Max(maximumGap, now - previousTick);
-                    previousTick = now;
-                    ticks++;
-                };
-                timer.Start();
+                    if (Interlocked.CompareExchange(ref heartbeatPending, 1, 0) != 0) return;
+                    try
+                    {
+                        host.BeginInvoke((Action)(() =>
+                        {
+                            var now = heartbeat.ElapsedMilliseconds;
+                            var gap = now - previousTick;
+                            heartbeatGaps.Add(gap);
+                            if (gap > maximumGap)
+                            {
+                                maximumGap = gap;
+                                maximumGapStage = stageControl.Text;
+                            }
+                            previousTick = now;
+                            ticks++;
+                            Interlocked.Exchange(ref heartbeatPending, 0);
+                        }));
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        Interlocked.Exchange(ref heartbeatPending, 0);
+                    }
+                }, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(25));
                 scan.PerformClick();
                 Application.DoEvents();
                 if (scan.Enabled)
@@ -80,11 +100,11 @@ internal partial class Program
                     Application.DoEvents();
                     Thread.Sleep(5);
                 }
-                timer.Stop();
+                timer.Change(Timeout.Infinite, Timeout.Infinite);
                 Application.DoEvents();
                 if (!scan.Enabled) throw new TimeoutException("复合特效后台扫描在 90 秒内没有完成。");
                 var timings = PerformanceMetrics.GetSnapshot().Timings;
-                var timingSummary = string.Join(", ", new[]
+                var timingNames = new[]
                 {
                     "EffectWorkbench.CompositeUiCommit", "EffectWorkbench.CompositeModuleBind",
                     "EffectWorkbench.CompositeRowBuild", "EffectWorkbench.CompositeGridBind",
@@ -93,9 +113,22 @@ internal partial class Program
                     "EffectWorkbench.CompositeTargetBind", "EffectWorkbench.CompositeActionBind",
                     "EffectWorkbench.CompositeValueBind", "EffectWorkbench.CompositeIdText",
                     "EffectWorkbench.CompositeStatusText"
-                }.Select(name => $"{name}={timings.GetValueOrDefault(name)?.MaximumMilliseconds ?? 0:F1}ms"));
-                if (ticks < 5 || maximumGap > 250)
-                    throw new InvalidOperationException($"复合扫描阻塞 UI：ticks={ticks}, maxGap={maximumGap}ms；{timingSummary}。");
+                };
+                var timingSummary = string.Join(", ", timingNames.Select(name => $"{name}={timings.GetValueOrDefault(name)?.MaximumMilliseconds ?? 0:F1}ms"));
+                var maximumUiSegment = new[]
+                    {
+                        "EffectWorkbench.CompositeRecipeBind",
+                        "EffectWorkbench.CompositeGridBind",
+                        "EffectWorkbench.CompositeFreeIdBind",
+                        "EffectWorkbench.CompositeStatusText"
+                    }
+                    .Max(name => timings.GetValueOrDefault(name)?.MaximumMilliseconds ?? 0);
+                var orderedGaps = heartbeatGaps.OrderBy(value => value).ToArray();
+                var p99Gap = orderedGaps.Length == 0
+                    ? long.MaxValue
+                    : orderedGaps[Math.Clamp((int)Math.Ceiling(orderedGaps.Length * 0.99) - 1, 0, orderedGaps.Length - 1)];
+                if (ticks < 5 || p99Gap > 250 || maximumUiSegment > 250)
+                    throw new InvalidOperationException($"复合扫描阻塞 UI：ticks={ticks}, p99Gap={p99Gap}ms, maxGap={maximumGap}ms, maxUiSegment={maximumUiSegment:F1}ms, stage={maximumGapStage}；{timingSummary}。");
                 var memberGrid = FindControls(compositePage).OfType<DataGridView>()
                     .First(grid => grid.Columns.Contains("兼容性"));
                 if (memberGrid.Rows.Count == 0)

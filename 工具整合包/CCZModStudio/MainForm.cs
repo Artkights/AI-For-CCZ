@@ -1469,10 +1469,7 @@ public sealed partial class MainForm : Form
         using var constructorPerf = PerformanceMetrics.Begin("MainForm.Constructor");
         _imageAssignmentFreeIdService = new ImageAssignmentFreeIdService(_imageAssignmentPreviewService);
         _materialLibraryCache = new MaterialLibraryCache(_materialLibraryIndexer);
-        var developerBuild = ActiveReleaseStartupService.IsDeveloperBuildProcess
-            ? $" | 开发构建 | {AppContext.BaseDirectory}"
-            : string.Empty;
-        Text = $"普罗工具整合包 | {EffectCapabilityVersion.BuildIdentity} | {EffectCapabilityVersion.SchemaVersion}{developerBuild}";
+        Text = "普罗工具整合包 | by 小暗";
         Icon = LoadApplicationIcon();
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScroll = true;
@@ -1946,13 +1943,6 @@ public sealed partial class MainForm : Form
             _mainTabs.TabPages.Add(tablePage);
         }
         var imagePage = new TabPage("图片设定");
-        var imageTabs = new TabControl
-        {
-            Dock = DockStyle.Fill
-        };
-        imagePage.Controls.Add(imageTabs);
-
-        var imageResourcePage = new TabPage("图片资源");
         var imageResourceLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -1962,7 +1952,7 @@ public sealed partial class MainForm : Form
         };
         imageResourceLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         imageResourceLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        imageResourcePage.Controls.Add(imageResourceLayout);
+        imagePage.Controls.Add(imageResourceLayout);
 
         var imageResourceToolbar = CreateToolbarStack(2);
         _loadImageResourcesButton.Text = "读取图片资源";
@@ -2050,9 +2040,8 @@ public sealed partial class MainForm : Form
         imageResourceSplit.Panel1.Controls.Add(imageResourceLeft);
         AddCollapsibleSplitPanel(imageResourceSplit, 2, "图片预览", _imageResourcePreviewBox, "BuildImageResourcePage.ListPreview.Preview");
         imageResourceLayout.Controls.Add(imageResourceSplit, 0, 1);
-        imageTabs.TabPages.Add(imageResourcePage);
 
-        var imageAssignmentPage = new TabPage("人物形象设定");
+        var imageAssignmentPage = new TabPage("形象设定");
         var imageLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -2064,7 +2053,7 @@ public sealed partial class MainForm : Form
         imageLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         imageAssignmentPage.Controls.Add(imageLayout);
         var imageToolbarLayout = CreateToolbarStack(2);
-        _loadImageAssignmentsButton.Text = "读取人物形象";
+        _loadImageAssignmentsButton.Text = "读取形象设定";
         ConfigureToolbarButton(_loadImageAssignmentsButton, 104);
         _saveImageAssignmentsButton.Text = "保存形象";
         ConfigureToolbarButton(_saveImageAssignmentsButton, 72);
@@ -2206,7 +2195,7 @@ public sealed partial class MainForm : Form
         _imageAssignmentGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _imageAssignmentGrid.SelectionMode = DataGridViewSelectionMode.CellSelect;
         _imageAssignmentGrid.MultiSelect = true;
-        AddCollapsibleSplitPanel(imageSplit, 1, "人物形象表", _imageAssignmentGrid, "BuildImageAssignmentPage.GridPreview.Grid");
+        AddCollapsibleSplitPanel(imageSplit, 1, "形象设定", _imageAssignmentGrid, "BuildImageAssignmentPage.GridPreview.Grid");
 
         var imagePreviewLayout = new TableLayoutPanel
         {
@@ -2248,8 +2237,8 @@ public sealed partial class MainForm : Form
 
         AddCollapsibleSplitPanel(imageSplit, 2, "形象预览", imagePreviewLayout, "BuildImageAssignmentPage.GridPreview.Preview");
         imageLayout.Controls.Add(imageSplit, 0, 1);
-        imageTabs.TabPages.Add(imageAssignmentPage);
         _mainTabs.TabPages.Add(imagePage);
+        _mainTabs.TabPages.Add(imageAssignmentPage);
         _mainTabs.TabPages.Add(CreateLazyMainPage("地图编辑", BuildMapEditorPage));
         _mainTabs.TabPages.Add(CreateLazyMainPage("剧本编辑", BuildScriptEditorPage));
         _mainTabs.TabPages.Add(CreateLazyMainPage("场景编辑", BuildRSceneEditorPage));

@@ -1966,6 +1966,13 @@ public sealed class CczMcpTools(CczMcpRuntime runtime)
         => runtime.ImportEffectEvidenceBundleV3(game_root, bundle);
 
     [McpServerTool]
+    [Description("只读验证 GameDebug 签发的 V3 证据；不复制原始文件、不写正式证据目录、不提升权限。")]
+    public object validate_effect_evidence_bundle_v3(
+        EffectEvidenceBundleV3 bundle,
+        [Description("Optional original game root.")] string? game_root = null)
+        => runtime.ValidateEffectEvidenceBundleV3(game_root, bundle);
+
+    [McpServerTool]
     [Description("读取所有特效字段和行为的统一读写权限矩阵。只读。")]
     public object read_effect_write_matrix(
         [Description("Optional game root.")] string? game_root = null)

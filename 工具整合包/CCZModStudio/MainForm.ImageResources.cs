@@ -991,13 +991,13 @@ public sealed partial class MainForm
             var missingR = _currentImageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["R资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
             var missingS = _currentImageAssignments.AsEnumerable().Count(row => CharacterImageResourceService.IsMissingStatus(Convert.ToString(row["S资源状态"], CultureInfo.InvariantCulture) ?? string.Empty));
             _imageAssignmentSummaryText =
-                $"已读取人物形象设定表：{_currentImageAssignments.Rows.Count} 行。\r\n" +
+                $"已读取形象设定表：{_currentImageAssignments.Rows.Count} 行。\r\n" +
                 $"资源解释检查：R 未定位 {missingR} 项，S 未/部分定位 {missingS} 项。\r\n" +
                 "右侧显示人物表头像预览，并按 E5 0x110 索引表显示 R/S 形象预览：R=n 取 Pmapobj.e5 图 2n+1；S=0 按职业和预览阵营取默认兵种图，S=1..32 取三转特殊三张图，S>=33 取一转特殊单张图。当前项目可直接编辑 头像编号 / R形象编号 / S形象编号，保存时会写入 Ekd5.exe，保存前自动备份，保存后复读校验。";
             _imageAssignmentInfoBox.Text = _imageAssignmentSummaryText;
             ShowSelectedImageAssignmentDetail();
-            System.Diagnostics.Debug.WriteLine("已读取人物形象设定表。");
-            SetStatus("人物形象设定读取完成");
+            System.Diagnostics.Debug.WriteLine("已读取形象设定表。");
+            SetStatus("形象设定读取完成");
         }
         catch (OperationCanceledException)
         {
@@ -1005,8 +1005,8 @@ public sealed partial class MainForm
         catch (Exception ex)
         {
             _imageAssignmentInfoBox.Text = ex.ToString();
-            System.Diagnostics.Debug.WriteLine("读取人物形象设定失败：" + ex);
-            MessageBox.Show(this, ex.Message, "读取人物形象设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            System.Diagnostics.Debug.WriteLine("读取形象设定失败：" + ex);
+            MessageBox.Show(this, ex.Message, "读取形象设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -1155,7 +1155,7 @@ public sealed partial class MainForm
     {
         if (_project == null || _currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先读取形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1337,7 +1337,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1753,7 +1753,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1884,7 +1884,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -1998,7 +1998,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先在形象设定页面选择一行。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -2104,7 +2104,7 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先读取形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -2287,7 +2287,7 @@ public sealed partial class MainForm
 
         if (_currentImageAssignments == null)
         {
-            MessageBox.Show(this, "请先读取人物形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "请先读取形象设定。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -2340,7 +2340,7 @@ public sealed partial class MainForm
         if (stageSlots.Count == 0) return;
 
         var rangeChoice = MessageBox.Show(this,
-            "是否导入根目录下全部识别到的 S 编号？\r\n\r\n是：导入全部识别到的 S 目录。\r\n否：只导入当前人物形象表可见/筛选行引用的 S 编号。\r\n取消：放弃导入。",
+            "是否导入根目录下全部识别到的 S 编号？\r\n\r\n是：导入全部识别到的 S 目录。\r\n否：只导入当前形象设定表可见/筛选行引用的 S 编号。\r\n取消：放弃导入。",
             "选择批量导入范围",
             MessageBoxButtons.YesNoCancel,
             MessageBoxIcon.Question);
@@ -2490,7 +2490,7 @@ public sealed partial class MainForm
            $"根目录一级子目录：{scan.TotalChildDirectories}\r\n" +
            $"识别到 S 目录：{scan.RecognizedSDirectories}，S编号：{FormatSImageIds(scan.RecognizedSIds)}\r\n" +
            $"当前导入范围内：{scan.MatchedMaterialDirectories}\r\n" +
-           $"因人物形象表未引用而跳过：{scan.FilteredUnusedDirectories}\r\n" +
+           $"因形象设定表未引用而跳过：{scan.FilteredUnusedDirectories}\r\n" +
            $"目录名不合法：{scan.InvalidNameDirectories}{FormatExampleSuffix(scan.InvalidNameExamples)}\r\n" +
            $"重复 S 编号目录：{scan.DuplicateIdDirectories}{FormatExampleSuffix(scan.DuplicateIdExamples)}\r\n" +
            $"阻断项目录：{scan.BlockingDirectories}\r\n" +
@@ -2563,7 +2563,7 @@ public sealed partial class MainForm
             return string.Empty;
         }
 
-        return $"已识别到 {FormatSImageIds(scan.RecognizedSIds)}，但当前人物形象设定可见行没有引用这些 S 编号。\r\n" +
+        return $"已识别到 {FormatSImageIds(scan.RecognizedSIds)}，但当前形象设定可见行没有引用这些 S 编号。\r\n" +
                "请先把人物的 S形象编号改为对应编号，或重新执行并选择“导入根目录下全部识别到的 S 编号”。\r\n";
     }
 
@@ -2939,13 +2939,13 @@ public sealed partial class MainForm
         _imageAssignmentGrid.EndEdit();
         if (_currentImageAssignments.GetChanges() == null)
         {
-            MessageBox.Show(this, "人物形象设定没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "形象设定没有检测到改动。", "无需保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         var preview = BuildChangePreview(_currentImageAssignments, maxItems: 40);
         if (MessageBox.Show(this,
-                $"即将保存人物形象设定到当前 MOD 项目的 Ekd5.exe，包括头像编号、R形象编号、S形象编号。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
+                $"即将保存形象设定到当前 MOD 项目的 Ekd5.exe，包括头像编号、R形象编号、S形象编号。\r\n\r\n变更预览：\r\n{preview}\r\n\r\n保存前会自动备份，保存后会重新读取校验。是否继续？",
                 "确认保存人物形象",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes)
@@ -2959,9 +2959,9 @@ public sealed partial class MainForm
             var result = _imageAssignmentService.Save(_project, _tables, _currentImageAssignments);
             ColorImageAssignmentResourceRows();
             ShowSelectedImageAssignmentDetail();
-            System.Diagnostics.Debug.WriteLine($"已保存人物形象设定：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");
+            System.Diagnostics.Debug.WriteLine($"已保存形象设定：保存表 {result.Saves.Count} 个，变化字节 {result.ChangedBytes}");
             System.Diagnostics.Debug.WriteLine("备份：" + result.BackupSummary);
-            SetStatus($"人物形象设定保存完成并已复读：变化 {result.ChangedBytes} 字节");
+            SetStatus($"形象设定保存完成并已复读：变化 {result.ChangedBytes} 字节");
             MessageBox.Show(this,
                 $"保存完成并已重新读取校验。\r\n保存表数量：{result.Saves.Count}\r\n变化字节：{result.ChangedBytes}\r\n备份：{result.BackupSummary}",
                 "保存完成",
@@ -2970,8 +2970,8 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine("保存人物形象设定失败：" + ex);
-            MessageBox.Show(this, ex.Message, "保存人物形象设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            System.Diagnostics.Debug.WriteLine("保存形象设定失败：" + ex);
+            MessageBox.Show(this, ex.Message, "保存形象设定失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {

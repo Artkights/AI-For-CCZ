@@ -288,7 +288,7 @@ public sealed partial class MainForm
         AddDataTableItem(items, "兵种设定", "兵种特效", _currentJobEffectData, () => SaveJobEffectEditorSilentlyAsync(), () => LoadJobEffectEditor());
         AddDataTableItem(items, "宝物设定", "宝物/物品", _currentItemEditorData, () => SaveItemEditorSilentlyAsync(), () => LoadItemEditor());
         AddDataTableItem(items, "商店编辑", "商店", _currentShopEditorData, () => SaveShopEditorSilentlyAsync(), () => LoadShopEditor());
-        AddDataTableItem(items, "图片设定", "人物形象设定", _currentImageAssignments, () => SaveImageAssignmentsSilentlyAsync(), () => LoadImageAssignments());
+        AddDataTableItem(items, "形象设定", "头像/R/S 编号", _currentImageAssignments, () => SaveImageAssignmentsSilentlyAsync(), () => LoadImageAssignments());
     }
 
     private void AddDataTableItem(
@@ -720,7 +720,7 @@ public sealed partial class MainForm
             case "商店编辑":
                 CommitPageGridEdits(_shopEditorGrid);
                 break;
-            case "图片设定":
+            case "形象设定":
                 CommitPageGridEdits(_imageAssignmentGrid);
                 break;
             case "地图编辑":
@@ -933,7 +933,7 @@ public sealed partial class MainForm
         var changedCells = GetChangedCellKeys(_currentImageAssignments);
         var result = _imageAssignmentService.Save(_project, _tables, _currentImageAssignments);
         RefreshImageAssignmentCellsAfterEdit(changedCells);
-        SetStatus($"人物形象设定已保存：{result.ChangedBytes} 字节变化");
+        SetStatus($"形象设定已保存：{result.ChangedBytes} 字节变化");
         return Task.CompletedTask;
     }
 

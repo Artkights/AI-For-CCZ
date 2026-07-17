@@ -445,7 +445,7 @@ public sealed partial class MainForm
         AttachGridEditShortcuts(_imageAssignmentGrid, (row, _) => UpdateImageAssignmentResourceStatus(row), null, afterCellsChanged: RefreshImageAssignmentCellsAfterEdit);
         _loadImageAssignmentsButton.Click += (_, _) =>
         {
-            if (ConfirmPageReloadIfUnsaved("图片设定", "人物形象设定")) LoadImageAssignments();
+            if (ConfirmPageReloadIfUnsaved("形象设定", "头像/R/S 编号")) LoadImageAssignments();
         };
         _loadImageResourcesButton.Click += async (_, _) => await LoadImageResourcesAsync();
         _openImageResourceButton.Click += (_, _) => OpenSelectedImageResourceLocation();

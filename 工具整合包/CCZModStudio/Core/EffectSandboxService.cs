@@ -11,7 +11,10 @@ public sealed class EffectSandboxService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly string[] ExcludedDirectories =
     [
-        "_CCZModStudio_Backups", "CCZModStudio_Reports", "CCZModStudio_Exports", "CCZModStudio_TestCopies"
+        ProjectBackupPathService.LegacyBackupDirectoryName,
+        "CCZModStudio_Reports",
+        "CCZModStudio_Exports",
+        "CCZModStudio_TestCopies"
     ];
 
     public CczProject Create(CczProject source, CancellationToken cancellationToken = default)

@@ -20,6 +20,7 @@ internal sealed class EffectValidationDialog : Form
     private readonly List<EffectEvidenceBundleV3> _imported = [];
     private EffectValidationHostClient? _client;
     private EffectProbeSession? _session;
+    private PhysicalRecoverySandboxTrial? _physicalTrial;
     private int _contractIndex;
     private bool _busy;
 
@@ -51,6 +52,12 @@ internal sealed class EffectValidationDialog : Form
         FormClosed += async (_, _) =>
         {
             if (_client != null) await _client.DisposeAsync();
+            if (_physicalTrial != null)
+            {
+                try { await Task.Run(() => new PhysicalRecoverySandboxTrialService().Rollback(_originalProject, _physicalTrial)); }
+                catch { }
+                _physicalTrial = null;
+            }
         };
         _advance.Click += async (_, _) => await AdvanceAsync();
         _capture.Click += async (_, _) => await CaptureAsync();
@@ -80,6 +87,17 @@ internal sealed class EffectValidationDialog : Form
     {
         var contract = _contracts[_contractIndex];
         _summary.Text = $"契约 {_contractIndex + 1}/{_contracts.Count}：{contract.ContractFamilyId}，正在创建沙箱会话...";
+        if (!EffectSandboxService.TryRead(_onboarding.SandboxRoot, out var sandboxDescriptor))
+            throw new InvalidOperationException("自动验证副本的用户签名无效，不能创建动态证据会话。");
+        if (!sandboxDescriptor.SandboxExeSha256.Equals(contract.ExeSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("自动验证副本不是从当前契约基础 SHA 创建的，不能继续验证。");
+        if (contract.EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal) && _physicalTrial == null)
+        {
+            _summary.Text = "正在验证副本安装固定恢复 5 MP 的物理试点调度器...";
+            _physicalTrial = await Task.Run(() =>
+                new PhysicalRecoverySandboxTrialService().PrepareAndApply(_originalProject, _onboarding.SandboxRoot));
+            AppendDetails(_physicalTrial.SummaryZh);
+        }
         var response = await _client!.CallAsync<EffectValidationStartRequest, JsonElement>("start", new EffectValidationStartRequest
         {
             ContractId = contract.ContractId,
@@ -90,8 +108,11 @@ internal sealed class EffectValidationDialog : Form
             ContractVersion = contract.ContractVersion,
             ValidationRecipe = contract.ValidationRecipe,
             BaseExeSha256 = contract.ExeSha256,
-            SandboxPatchSha256 = _onboarding.SandboxExeSha256,
+            SandboxPatchSha256 = EffectPatchByteService.Sha256(Path.Combine(_onboarding.SandboxRoot, "Ekd5.exe")),
+            ProbePackageHash = _physicalTrial?.PatchPackageHash ?? string.Empty,
             ContinuationAddress = contract.ContinuationAddress,
+            EvidenceDisposition = contract.EvidenceDisposition,
+            EffectId = _physicalTrial?.EffectId ?? 1,
             SandboxRoot = _onboarding.SandboxRoot,
             LaunchDebugger = true
         });
@@ -163,11 +184,20 @@ internal sealed class EffectValidationDialog : Form
                              ?? throw new InvalidOperationException("GameDebug 没有返回 V3 证据包路径。");
             var bundle = JsonSerializer.Deserialize<EffectEvidenceBundleV3>(await File.ReadAllTextAsync(bundlePath, Encoding.UTF8), JsonOptions)
                          ?? throw new InvalidOperationException("V3 证据包无法读取。");
-            var imported = await Task.Run(() => EffectEvidenceBundleService.VerifyAndStoreV3(_originalProject, bundle));
-            if (!imported.Accepted)
-                throw new InvalidOperationException(imported.SummaryZh + " " + string.Join("；", imported.WarningsZh));
-            _imported.Add(bundle);
-            AppendDetails(imported.SummaryZh);
+            var validationOnly = bundle.EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal);
+            var validation = await Task.Run(() => validationOnly
+                ? EffectEvidenceBundleService.ValidateV3(_originalProject, bundle)
+                : EffectEvidenceBundleService.VerifyAndStoreV3(_originalProject, bundle));
+            if (!validation.Accepted)
+                throw new InvalidOperationException(validation.SummaryZh + " " + string.Join("；", validation.WarningsZh));
+            if (!validationOnly) _imported.Add(bundle);
+            AppendDetails(validationOnly ? validation.SummaryZh + " 未写入正式证据目录。" : validation.SummaryZh);
+            if (validationOnly && _physicalTrial != null)
+            {
+                await Task.Run(() => new PhysicalRecoverySandboxTrialService().Rollback(_originalProject, _physicalTrial));
+                AppendDetails("验证副本已回滚到基础 SHA；00418335 原跳转和 004528FC 遗留代码体复读一致。");
+                _physicalTrial = null;
+            }
             _contractIndex++;
             if (_contractIndex < _contracts.Count)
             {
@@ -175,7 +205,8 @@ internal sealed class EffectValidationDialog : Form
                 return;
             }
 
-            if (_onboarding.ProfileTrustTier == EffectProfileTrustTier.SandboxCandidate)
+            if (_onboarding.ProfileTrustTier == EffectProfileTrustTier.SandboxCandidate &&
+                _contracts.All(item => item.EvidenceDisposition.Equals(EffectEvidenceDispositions.StoreAndPromote, StringComparison.Ordinal)))
             {
                 var sandbox = new ProjectDetector().CreateProjectFromGameRoot(_onboarding.SandboxRoot);
                 var promotion = await Task.Run(() => new LocalEffectProfileService().Promote(_originalProject, sandbox, _imported));
@@ -184,7 +215,9 @@ internal sealed class EffectValidationDialog : Form
                 AppendDetails(promotion.SummaryZh);
             }
             ValidationCompleted = true;
-            _summary.Text = "V3 证据已签发、导入并刷新权限；正式项目仍会在每次 Apply 前重新校验。";
+            _summary.Text = _contracts.Any(item => item.EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal))
+                ? "V3 沙箱验证已完成；仅验证契约未入库，正式物理行为权限保持关闭。"
+                : "V3 证据已签发、导入并刷新权限；正式项目仍会在每次 Apply 前重新校验。";
             _advance.Enabled = _capture.Enabled = _finalize.Enabled = false;
             _close.Text = "完成";
             _close.DialogResult = DialogResult.OK;
@@ -194,6 +227,9 @@ internal sealed class EffectValidationDialog : Form
     private void SetReadyToFinalize()
     {
         _summary.Text = $"契约 {_contractIndex + 1}/{_contracts.Count} 的场景已采集完成，可以签发 V3 证据。";
+        _finalize.Text = _contracts[_contractIndex].EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal)
+            ? "签发并只读验证"
+            : "签发并导入";
         _advance.Enabled = _capture.Enabled = false;
         _finalize.Enabled = true;
     }

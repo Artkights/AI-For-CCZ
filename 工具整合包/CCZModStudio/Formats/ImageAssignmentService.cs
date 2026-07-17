@@ -26,7 +26,7 @@ public sealed class ImageAssignmentService
         var s = _reader.Read(project, sTable, tables);
         if (!person.Validation.IsUsable || !r.Validation.IsUsable || !s.Validation.IsUsable)
         {
-            throw new InvalidOperationException("人物形象设定相关表有不可读取项，请先查看数据表诊断。 ");
+            throw new InvalidOperationException("形象设定相关表有不可读取项，请先查看数据表诊断。 ");
         }
 
         var output = new DataTable("ImageAssignments");
@@ -153,7 +153,7 @@ public sealed class ImageAssignmentService
         var reread = _reader.Read(project, table, tables);
         if (!reread.Validation.IsUsable)
         {
-            throw new InvalidOperationException("人物形象设定保存后重新读取失败，请查看诊断和备份。");
+            throw new InvalidOperationException("形象设定保存后重新读取失败，请查看诊断和备份。");
         }
 
         foreach (var row in changedRows)
@@ -162,14 +162,14 @@ public sealed class ImageAssignmentService
             var actualRow = FindRowById(reread.Data, id);
             if (actualRow == null)
             {
-                throw new InvalidOperationException($"人物形象设定保存后复读校验失败：找不到 ID={id}。");
+                throw new InvalidOperationException($"形象设定保存后复读校验失败：找不到 ID={id}。");
             }
 
             var expectedValue = Convert.ToString(row[assignmentColumnName, DataRowVersion.Current], CultureInfo.InvariantCulture) ?? string.Empty;
             var actualValue = Convert.ToString(actualRow[rereadColumnName], CultureInfo.InvariantCulture) ?? string.Empty;
             if (!string.Equals(expectedValue, actualValue, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException($"人物形象设定保存后复读校验失败：ID={id} {assignmentColumnName} 期望 {expectedValue}，实际 {actualValue}。");
+                throw new InvalidOperationException($"形象设定保存后复读校验失败：ID={id} {assignmentColumnName} 期望 {expectedValue}，实际 {actualValue}。");
             }
         }
     }
@@ -178,13 +178,13 @@ public sealed class ImageAssignmentService
     {
         if (!personData.Columns.Contains("头像"))
         {
-            throw new InvalidOperationException("人物形象设定保存失败：人物表缺少“头像”字段。");
+            throw new InvalidOperationException("形象设定保存失败：人物表缺少“头像”字段。");
         }
 
         var field = FindField(personTable, "头像");
         if (field is not { ConsumesBytes: true })
         {
-            throw new InvalidOperationException("人物形象设定保存失败：人物表“头像”字段不可写。");
+            throw new InvalidOperationException("形象设定保存失败：人物表“头像”字段不可写。");
         }
     }
 
@@ -193,12 +193,12 @@ public sealed class ImageAssignmentService
         var field = FindField(table, columnName);
         if (field == null)
         {
-            throw new InvalidOperationException($"人物形象设定保存失败：找不到字段“{columnName}”。");
+            throw new InvalidOperationException($"形象设定保存失败：找不到字段“{columnName}”。");
         }
 
         if (value < 0)
         {
-            throw new InvalidOperationException($"人物形象设定保存失败：{columnName} 不能小于 0。");
+            throw new InvalidOperationException($"形象设定保存失败：{columnName} 不能小于 0。");
         }
 
         var max = field.Kind switch
@@ -212,7 +212,7 @@ public sealed class ImageAssignmentService
         };
         if (value > max)
         {
-            throw new InvalidOperationException($"人物形象设定保存失败：{columnName}={value} 超出字段上限 {max}。");
+            throw new InvalidOperationException($"形象设定保存失败：{columnName}={value} 超出字段上限 {max}。");
         }
     }
 
@@ -260,7 +260,7 @@ public sealed class ImageAssignmentService
             sTable.DataPos != ExpectedSImageOffset)
         {
             throw new InvalidOperationException(
-                "人物形象设定表与 B形象指定器 6.5 配置不一致，已停止读取/写入。"
+                "形象设定表与 B形象指定器 6.5 配置不一致，已停止读取/写入。"
                 + $" 期望 R=Ekd5.exe:{HexDisplayFormatter.FormatOffset(ExpectedRImageOffset)}，S=Ekd5.exe:{HexDisplayFormatter.FormatOffset(ExpectedSImageOffset)}；"
                 + $" 实际 R={rTable.FileName}:{HexDisplayFormatter.FormatOffset(rTable.DataPos)}，S={sTable.FileName}:{HexDisplayFormatter.FormatOffset(sTable.DataPos)}。");
         }

@@ -12,11 +12,24 @@ public sealed partial class GameDebugRuntime
     public object CreateEffectProbeSession(string contractId, string contractHash, int effectId, string? gameRoot,
         string? contractCodeIdentityHash = null, string? profileId = null, string? normalizedProfileIdentity = null,
         int contractVersion = 2, EffectValidationRecipe? validationRecipe = null, string? baseExeSha256 = null,
-        string? sandboxPatchSha256 = null, string? probePackageHash = null, uint continuationAddress = 0)
+        string? sandboxPatchSha256 = null, string? probePackageHash = null, uint continuationAddress = 0,
+        string? evidenceDisposition = null)
     {
         var paths = ResolveGamePaths(gameRoot, requireExpectedHash: false);
-        EnsureEffectEvidenceTarget(paths);
+        var sandbox = EnsureEffectEvidenceTarget(paths);
         var normalizedContract = NormalizeEffectContractId(contractId);
+        var disposition = string.IsNullOrWhiteSpace(evidenceDisposition)
+            ? EffectEvidenceDispositions.StoreAndPromote
+            : evidenceDisposition.Trim();
+        if (!string.IsNullOrWhiteSpace(baseExeSha256) &&
+            !baseExeSha256.Equals(sandbox.OriginalExeSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("验证会话的基础 SHA 与签名沙箱来源不一致。");
+        if (!string.IsNullOrWhiteSpace(sandboxPatchSha256) &&
+            !sandboxPatchSha256.Equals(paths.ExeSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("验证会话的沙箱补丁 SHA 与当前副本不一致。");
+        if (disposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal) &&
+            string.IsNullOrWhiteSpace(probePackageHash))
+            throw new InvalidOperationException("仅验证行为契约必须绑定实际应用到沙箱的补丁包哈希。");
         var sessionRoot = Path.Combine(paths.GameRoot, "CCZModStudio_Notes", "EffectContractEvidence", paths.ExeSha256,
             normalizedContract, "probe-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff"));
         Directory.CreateDirectory(sessionRoot);
@@ -31,6 +44,11 @@ public sealed partial class GameDebugRuntime
             ContractVersion = contractVersion,
             ValidationRecipe = recipe,
             TargetExeSha256 = paths.ExeSha256,
+            BaseExeSha256 = baseExeSha256 ?? string.Empty,
+            SandboxPatchSha256 = sandboxPatchSha256 ?? paths.ExeSha256,
+            PatchPackageHash = probePackageHash ?? string.Empty,
+            ContinuationAddress = continuationAddress,
+            EvidenceDisposition = disposition,
             Batches = batches
         };
         var planPath = Path.Combine(sessionRoot, "effect-probe-plan.json");
@@ -45,6 +63,7 @@ public sealed partial class GameDebugRuntime
             ExeSha256 = paths.ExeSha256, EffectId = effectId, ValidationRecipe = recipe,
             BaseExeSha256 = baseExeSha256 ?? string.Empty, SandboxPatchSha256 = sandboxPatchSha256 ?? paths.ExeSha256,
             ProbePackageHash = probePackageHash ?? string.Empty, ContinuationAddress = continuationAddress,
+            EvidenceDisposition = disposition,
             SessionRoot = sessionRoot, PlanPath = planPath, CreatedAtUtc = DateTime.UtcNow,
             Scenarios = scenarios.Select((item, index) => new EffectProbeScenarioState
             {
@@ -79,9 +98,19 @@ public sealed partial class GameDebugRuntime
         var ecx = TryReadRegister(registers, "ecx");
         if (!health.Ok || !state.Ok || !registers.Ok || string.IsNullOrWhiteSpace(cip))
             throw new InvalidOperationException("x32dbg 未连接、游戏未暂停或寄存器不可读，不能采集可信场景。");
+        if (!TryParseAddress(cip, out var instructionPointer))
+            throw new InvalidOperationException("调试器返回的 CIP 不是有效的 32 位地址。");
+        var capturePoint = ResolveCapturePoint(session.ValidationRecipe, instructionPointer)
+                           ?? throw new InvalidOperationException($"当前暂停地址 0x{instructionPointer:X8} 不属于验证配方声明的采集点。");
+        var existingHits = scenario.Captures.Count(item =>
+            item.CapturePointId.Equals(capturePoint.CapturePointId, StringComparison.OrdinalIgnoreCase));
+        if (ScenarioDefinition(session, scenario).AllowedMaximumHits.TryGetValue(capturePoint.CapturePointId, out var maximumHits) &&
+            existingHits >= maximumHits)
+            throw new InvalidOperationException($"场景“{scenario.DisplayNameZh}”的采集点“{capturePoint.CapturePointId}”已达到最大命中次数 {maximumHits}。");
+        var hitIndex = existingHits + 1;
         var eax = TryReadRegister(registers, "eax");
         var edx = TryReadRegister(registers, "edx");
-        var normalized = BuildTrustedObservations(session, scenario.ScenarioId, cip, ebp, ecx, eax, edx, hostName, port);
+        var normalized = BuildTrustedObservations(session, scenario.ScenarioId, capturePoint, cip, ebp, ecx, eax, edx, hostName, port);
         var battleState = SafeReadBattleState();
         var stackTrace = InvokeX32dbg("GET", hostName, port, "/api/stack/trace", new Dictionary<string, string> { ["max_depth"] = "48" });
         AddRelationshipObservations(session, normalized, battleState, stackTrace);
@@ -93,6 +122,9 @@ public sealed partial class GameDebugRuntime
             contract_id = session.ContractId,
             contract_hash = session.ContractHash,
             scenario_id = scenario.ScenarioId,
+            capture_point_id = capturePoint.CapturePointId,
+            capture_point_address = $"0x{capturePoint.Address:X8}",
+            hit_index = hitIndex,
             expected_exe_sha256 = session.ExeSha256,
             cip,
             health,
@@ -110,12 +142,29 @@ public sealed partial class GameDebugRuntime
             battle_state = battleState,
             safety_zh = "只读采集寄存器、栈、反汇编、原生表和战斗状态。"
         };
-        var capturePath = Path.Combine(session.SessionRoot, $"effect-capture-{scenario.ScenarioId}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.json");
+        var capturePath = Path.Combine(session.SessionRoot,
+            $"effect-capture-{scenario.ScenarioId}-{capturePoint.CapturePointId}-hit{hitIndex}-{DateTime.Now:yyyyMMdd-HHmmss-fff}.json");
         WriteJson(capturePath, report);
-        scenario.Captured = true;
-        scenario.CapturePath = capturePath;
+        scenario.Captures.Add(new EffectProbeCaptureState
+        {
+            CapturePointId = capturePoint.CapturePointId,
+            Address = capturePoint.Address,
+            HitIndex = hitIndex,
+            CapturePath = capturePath,
+            CreatedAtUtc = DateTime.UtcNow
+        });
+        if (string.IsNullOrWhiteSpace(scenario.CapturePath)) scenario.CapturePath = capturePath;
+        scenario.Captured = IsScenarioComplete(session, scenario);
         WriteJson(Path.GetFullPath(sessionPath), session);
-        return new { capture_path = capturePath, scenario = scenario.ScenarioId, cip };
+        return new
+        {
+            capture_path = capturePath,
+            scenario = scenario.ScenarioId,
+            capture_point = capturePoint.CapturePointId,
+            hit_index = hitIndex,
+            scenario_complete = scenario.Captured,
+            cip
+        };
     }
 
     public object ReadEffectProbeProgress(string sessionPath)
@@ -128,7 +177,7 @@ public sealed partial class GameDebugRuntime
             session.SessionId, session.ContractId, session.ExeSha256,
             completed = session.Scenarios.Count(item => item.Captured), total = session.Scenarios.Count,
             scenarios = session.Scenarios,
-            ready_to_finalize = session.Scenarios.All(item => item.Captured)
+            ready_to_finalize = session.Scenarios.All(item => IsScenarioComplete(session, item))
         };
     }
 
@@ -146,7 +195,7 @@ public sealed partial class GameDebugRuntime
         var processPath = process.MainModule?.FileName ?? string.Empty;
         if (!Path.GetFullPath(processPath).Equals(exe, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("调试进程加载的 Ekd5.exe 不是当前探针会话的临时副本。");
-        var rawFiles = session.Scenarios.Select(item => item.CapturePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var rawFiles = CapturePaths(session).ToList();
         if (session.ContractVersion < 2 || string.IsNullOrWhiteSpace(session.ContractCodeIdentityHash) || string.IsNullOrWhiteSpace(session.NormalizedProfileIdentity))
             throw new InvalidOperationException("探针会话缺少契约 v2 的代码身份或规范档案身份，不能签发 v2 证据。");
         var bundle = new EffectEvidenceBundleV2
@@ -163,7 +212,7 @@ public sealed partial class GameDebugRuntime
             CreatedAtUtc = DateTime.UtcNow, CompletedScenarioIds = session.Scenarios.Select(item => item.ScenarioId).ToList(),
             RawFiles = rawFiles.Select(path => new EffectEvidenceRawFile
             {
-                ScenarioId = session.Scenarios.First(item => item.CapturePath.Equals(path, StringComparison.OrdinalIgnoreCase)).ScenarioId,
+                ScenarioId = ScenarioIdForCapturePath(session, path),
                 RelativePath = Path.GetRelativePath(session.SessionRoot, path), Length = new FileInfo(path).Length,
                 Sha256 = EffectEvidenceBundleCrypto.ComputeFileSha256(path)
             }).ToList(),
@@ -191,10 +240,15 @@ public sealed partial class GameDebugRuntime
         if (!session.Scenarios.All(item => item.Captured))
             throw new InvalidOperationException("验证场景尚未全部采集，不能签发 V3 证据包。");
         var ids = session.Scenarios.Select(item => item.ScenarioId).ToArray();
-        if (!ids.Any(item => item.Contains("normal", StringComparison.OrdinalIgnoreCase)) ||
-            !ids.Any(item => item.Contains("minimum", StringComparison.OrdinalIgnoreCase)) ||
-            !ids.Any(item => item.Contains("maximum", StringComparison.OrdinalIgnoreCase)) ||
-            !ids.Any(item => item.Contains("negative", StringComparison.OrdinalIgnoreCase)))
+        var requiredRoles = new[]
+        {
+            EffectValidationScenarioRoles.Normal,
+            EffectValidationScenarioRoles.MinimumBoundary,
+            EffectValidationScenarioRoles.MaximumBoundary,
+            EffectValidationScenarioRoles.Negative
+        };
+        if (requiredRoles.Any(role => session.ValidationRecipe.Scenarios.All(item =>
+                !item.ScenarioRole.Equals(role, StringComparison.Ordinal))))
             throw new InvalidOperationException("V3 验证必须包含正常、最小、最大和负向场景。");
         if (session.ContractVersion < 2 || string.IsNullOrWhiteSpace(session.ContractCodeIdentityHash) ||
             string.IsNullOrWhiteSpace(session.NormalizedProfileIdentity))
@@ -246,29 +300,33 @@ public sealed partial class GameDebugRuntime
         });
         if (!restored) throw new InvalidOperationException("断点或硬件探针未完整恢复，V3 证据拒绝签发。");
 
-        var capturePaths = session.Scenarios.Select(item => item.CapturePath)
+        var capturePaths = CapturePaths(session)
+            .Append(session.PlanPath)
             .Append(restorePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var rawFiles = capturePaths.Select(path => new EffectEvidenceRawFile
         {
             ScenarioId = path.Equals(restorePath, StringComparison.OrdinalIgnoreCase)
                 ? "probe-restore"
-                : session.Scenarios.First(item => item.CapturePath.Equals(path, StringComparison.OrdinalIgnoreCase)).ScenarioId,
+                : path.Equals(session.PlanPath, StringComparison.OrdinalIgnoreCase)
+                    ? "probe-plan"
+                : ScenarioIdForCapturePath(session, path),
             RelativePath = Path.GetRelativePath(session.SessionRoot, path),
             Length = new FileInfo(path).Length,
             Sha256 = EffectEvidenceBundleCrypto.ComputeFileSha256(path)
         }).ToList();
         var observations = DeriveSignedObservations(session);
-        var writableObservations = observations.Where(item => IsWritableBoundaryObservation(item.Key)).ToList();
+        var writableObservations = observations.Where(item => IsWritableBoundaryObservation(session, item.Key)).ToList();
         if (writableObservations.Count == 0 || writableObservations.Any(item =>
                 item.VerifiedMinimum is null || item.VerifiedMaximum is null || string.IsNullOrWhiteSpace(item.BoundaryEvidenceZh)))
             throw new InvalidOperationException("场景没有形成可复算的完整上下界观测。");
         var relationships = BuildRelationshipAssertions(session, observations);
-        if (relationships.Count == 0 || relationships.Any(item => !item.Verified))
-            throw new InvalidOperationException("ECX/栈槽指针没有形成单位编号、阵营、生命值和调用链一致的关系断言。");
+        var requiredRelationshipRules = session.ValidationRecipe.RelationshipRules.Where(item => item.Required).ToList();
+        if (relationships.Count == 0 || requiredRelationshipRules.Any(rule => relationships.All(item =>
+                !item.Relationship.Equals(rule.RuleId, StringComparison.OrdinalIgnoreCase) || !item.Verified)))
+            throw new InvalidOperationException("验证配方要求的指针关系没有形成跨采集点、正向场景与负向场景一致的关系断言。");
 
-        var recipeToken = session.ContractId + "|" + session.ContractVersion + "|" + session.ValidationRecipe.RecipeId + "|" +
-                          session.ValidationRecipe.RecipeVersion + "|" + string.Join("|", ids.Order(StringComparer.OrdinalIgnoreCase));
         var probeOldBytesToken = string.Join("|", addresses.Select(address => $"{address:X8}:{ReadExeByteAtVirtualAddress(exe, address):X2}"));
+        var probePlanHash = EffectEvidenceBundleCrypto.ComputeFileSha256(session.PlanPath);
         var bundle = new EffectEvidenceBundleV3
         {
             BundleId = session.SessionId + "-bundle-v3",
@@ -283,6 +341,12 @@ public sealed partial class GameDebugRuntime
             SandboxRoot = sandbox.SandboxRoot,
             SessionRoot = session.SessionRoot,
             OriginalExeSha256 = sandbox.OriginalExeSha256,
+            BaseExeSha256 = session.BaseExeSha256,
+            SandboxPatchSha256 = session.SandboxPatchSha256,
+            PatchPackageHash = session.ProbePackageHash,
+            ProbePlanHash = probePlanHash,
+            ContinuationAddress = session.ContinuationAddress,
+            EvidenceDisposition = session.EvidenceDisposition,
             LoadedModulePath = processPath,
             LoadedModuleSize = new FileInfo(processPath).Length,
             LoadedModuleSha256 = ComputeSha256(processPath),
@@ -292,8 +356,8 @@ public sealed partial class GameDebugRuntime
             ToolBuildId = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                           ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
             ValidationRecipeId = session.ValidationRecipe.RecipeId,
-            ValidationRecipeHash = Sha256Text(recipeToken),
-            ProbePackageHash = EffectEvidenceBundleCrypto.ComputeFileSha256(session.PlanPath),
+            ValidationRecipeHash = EffectEvidenceBundleCrypto.ComputeValidationRecipeHash(session.ValidationRecipe),
+            ProbePackageHash = probePlanHash,
             ProbeExpectedOldBytesHash = Sha256Text(probeOldBytesToken),
             ProbeRestored = true,
             ProbeRestoreEvidencePath = Path.GetRelativePath(session.SessionRoot, restorePath),
@@ -341,7 +405,10 @@ public sealed partial class GameDebugRuntime
                 ScenarioId = item.ScenarioId.Trim(),
                 DisplayNameZh = item.DisplayNameZh,
                 InstructionZh = item.InstructionZh,
-                ExpectedTransition = item.ExpectedTransition
+                ExpectedTransition = item.ExpectedTransition,
+                ScenarioRole = item.ScenarioRole,
+                RequiredMinimumHits = new Dictionary<string, int>(item.RequiredMinimumHits, StringComparer.OrdinalIgnoreCase),
+                AllowedMaximumHits = new Dictionary<string, int>(item.AllowedMaximumHits, StringComparer.OrdinalIgnoreCase)
             })
             .ToList() ?? [];
         if (scenarios.Count == 0)
@@ -350,7 +417,8 @@ public sealed partial class GameDebugRuntime
             {
                 ScenarioId = item.Id,
                 DisplayNameZh = item.NameZh,
-                InstructionZh = item.InstructionZh
+                InstructionZh = item.InstructionZh,
+                ScenarioRole = DefaultScenarioRole(contractId, item.Id)
             }).ToList();
         }
 
@@ -362,6 +430,29 @@ public sealed partial class GameDebugRuntime
         {
             addresses = EffectProbeAddresses(contractId).ToList();
         }
+
+        var capturePoints = recipe?.CapturePoints?
+            .Where(item => !string.IsNullOrWhiteSpace(item.CapturePointId) && item.Address != 0)
+            .Select(item => new EffectValidationCapturePointDefinition
+            {
+                CapturePointId = item.CapturePointId.Trim(),
+                Address = item.Address,
+                ExtractorId = string.IsNullOrWhiteSpace(item.ExtractorId) ? "generic" : item.ExtractorId.Trim(),
+                Optional = item.Optional
+            })
+            .GroupBy(item => item.CapturePointId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList() ?? [];
+        if (capturePoints.Count == 0)
+        {
+            capturePoints = addresses.Select(address => new EffectValidationCapturePointDefinition
+            {
+                CapturePointId = $"address-{address:X8}",
+                Address = address,
+                ExtractorId = "generic"
+            }).ToList();
+        }
+        addresses = capturePoints.Select(item => item.Address).Distinct().ToList();
 
         var requiredObservationKeys = recipe?.RequiredObservationKeys?
             .Where(key => !string.IsNullOrWhiteSpace(key))
@@ -391,6 +482,34 @@ public sealed partial class GameDebugRuntime
                     : [];
         }
 
+        var writableBoundaryKeys = recipe?.WritableBoundaryKeys?
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+        if (writableBoundaryKeys.Count == 0)
+        {
+            writableBoundaryKeys = contractId.StartsWith("strategy-damage", StringComparison.OrdinalIgnoreCase)
+                ? ["strategy-current-damage"]
+                : contractId.StartsWith("physical-after-damage", StringComparison.OrdinalIgnoreCase)
+                    ? ["current-mp"]
+                    : [];
+        }
+
+        var relationshipRules = recipe?.RelationshipRules?
+            .Where(item => !string.IsNullOrWhiteSpace(item.RuleId) &&
+                           !string.IsNullOrWhiteSpace(item.LeftObservationKey) &&
+                           !string.IsNullOrWhiteSpace(item.RightObservationKey))
+            .Select(item => new EffectValidationRelationshipRule
+            {
+                RuleId = item.RuleId.Trim(),
+                LeftObservationKey = item.LeftObservationKey.Trim(),
+                RightObservationKey = item.RightObservationKey.Trim(),
+                RelationshipKind = string.IsNullOrWhiteSpace(item.RelationshipKind) ? "PointerEquality" : item.RelationshipKind.Trim(),
+                Required = item.Required
+            })
+            .ToList() ?? [];
+
         return new EffectValidationRecipe
         {
             RecipeId = string.IsNullOrWhiteSpace(recipe?.RecipeId)
@@ -400,7 +519,10 @@ public sealed partial class GameDebugRuntime
             BreakpointAddresses = addresses,
             Scenarios = scenarios,
             RequiredObservationKeys = requiredObservationKeys,
-            RequiredRelationshipSlots = requiredRelationshipSlots
+            RequiredRelationshipSlots = requiredRelationshipSlots,
+            WritableBoundaryKeys = writableBoundaryKeys,
+            CapturePoints = capturePoints,
+            RelationshipRules = relationshipRules
         };
     }
 
@@ -410,14 +532,114 @@ public sealed partial class GameDebugRuntime
             .Where(path => Path.GetFileName(path).StartsWith("effect-capture-", StringComparison.OrdinalIgnoreCase) ||
                            Path.GetFileName(path).StartsWith("internal-probe-hit-", StringComparison.OrdinalIgnoreCase))
             .OrderBy(File.GetLastWriteTimeUtc).ToList();
-        foreach (var scenario in session.Scenarios.Where(item => !item.Captured))
+        foreach (var scenario in session.Scenarios)
         {
-            var match = files.FirstOrDefault(path => Path.GetFileName(path).Contains(scenario.ScenarioId, StringComparison.OrdinalIgnoreCase));
-            if (match == null) continue;
-            scenario.Captured = true;
-            scenario.CapturePath = match;
+            foreach (var match in files.Where(path => Path.GetFileName(path).Contains(scenario.ScenarioId, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (scenario.Captures.Any(item => Path.GetFullPath(item.CapturePath).Equals(Path.GetFullPath(match), StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                var capture = ReadCaptureState(session, scenario, match);
+                if (capture != null) scenario.Captures.Add(capture);
+            }
+            scenario.Captures = scenario.Captures
+                .OrderBy(item => item.CreatedAtUtc)
+                .ThenBy(item => item.CapturePointId, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.HitIndex)
+                .ToList();
+            if (string.IsNullOrWhiteSpace(scenario.CapturePath) && scenario.Captures.Count > 0)
+                scenario.CapturePath = scenario.Captures[0].CapturePath;
+            scenario.Captured = IsScenarioComplete(session, scenario);
         }
     }
+
+    private static EffectValidationScenarioDefinition ScenarioDefinition(
+        EffectProbeSession session,
+        EffectProbeScenarioState scenario)
+        => session.ValidationRecipe.Scenarios.FirstOrDefault(item =>
+               item.ScenarioId.Equals(scenario.ScenarioId, StringComparison.OrdinalIgnoreCase))
+           ?? new EffectValidationScenarioDefinition { ScenarioId = scenario.ScenarioId };
+
+    private static EffectValidationCapturePointDefinition? ResolveCapturePoint(
+        EffectValidationRecipe recipe,
+        uint address)
+        => recipe.CapturePoints.FirstOrDefault(item => item.Address == address);
+
+    private static bool IsScenarioComplete(EffectProbeSession session, EffectProbeScenarioState scenario)
+    {
+        var definition = ScenarioDefinition(session, scenario);
+        if (definition.RequiredMinimumHits.Count == 0)
+            return scenario.Captures.Count > 0 || (!string.IsNullOrWhiteSpace(scenario.CapturePath) && File.Exists(scenario.CapturePath));
+        return definition.RequiredMinimumHits.All(requirement =>
+            scenario.Captures.Count(item =>
+                item.CapturePointId.Equals(requirement.Key, StringComparison.OrdinalIgnoreCase)) >= requirement.Value);
+    }
+
+    private static EffectProbeCaptureState? ReadCaptureState(
+        EffectProbeSession session,
+        EffectProbeScenarioState scenario,
+        string path)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
+            var root = document.RootElement;
+            var capturePointId = root.TryGetProperty("capture_point_id", out var pointProperty)
+                ? pointProperty.GetString() ?? string.Empty
+                : string.Empty;
+            var address = 0u;
+            if (string.IsNullOrWhiteSpace(capturePointId) && root.TryGetProperty("cip", out var cipProperty))
+            {
+                var cip = cipProperty.ValueKind == JsonValueKind.String ? cipProperty.GetString() : cipProperty.GetRawText();
+                if (TryParseAddress(cip, out address))
+                    capturePointId = ResolveCapturePoint(session.ValidationRecipe, address)?.CapturePointId ?? string.Empty;
+            }
+            var capturePoint = session.ValidationRecipe.CapturePoints.FirstOrDefault(item =>
+                item.CapturePointId.Equals(capturePointId, StringComparison.OrdinalIgnoreCase));
+            if (capturePoint == null) return null;
+            address = capturePoint.Address;
+            var hitIndex = root.TryGetProperty("hit_index", out var hitProperty) && hitProperty.TryGetInt32(out var parsedHit)
+                ? parsedHit
+                : scenario.Captures.Count(item => item.CapturePointId.Equals(capturePointId, StringComparison.OrdinalIgnoreCase)) + 1;
+            return new EffectProbeCaptureState
+            {
+                CapturePointId = capturePointId,
+                Address = address,
+                HitIndex = Math.Max(1, hitIndex),
+                CapturePath = path,
+                CreatedAtUtc = File.GetLastWriteTimeUtc(path)
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> CapturePaths(EffectProbeSession session)
+        => session.Scenarios
+            .SelectMany(item => item.Captures.Count > 0
+                ? item.Captures.Select(capture => capture.CapturePath)
+                : [item.CapturePath])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private static string ScenarioIdForCapturePath(EffectProbeSession session, string path)
+        => session.Scenarios.First(item =>
+                item.Captures.Any(capture => capture.CapturePath.Equals(path, StringComparison.OrdinalIgnoreCase)) ||
+                item.CapturePath.Equals(path, StringComparison.OrdinalIgnoreCase))
+            .ScenarioId;
+
+    private static string DefaultScenarioRole(string contractId, string scenarioId)
+        => scenarioId switch
+        {
+            "physical-critical" => EffectValidationScenarioRoles.Critical,
+            "physical-counter" => EffectValidationScenarioRoles.Counter,
+            "physical-combo" => EffectValidationScenarioRoles.Combo,
+            "physical-mp-zero-boundary" or "physical-minimum-boundary" or "strategy-minimum-boundary" => EffectValidationScenarioRoles.MinimumBoundary,
+            "physical-mp-maximum-boundary" or "physical-maximum-boundary" or "strategy-maximum-boundary" => EffectValidationScenarioRoles.MaximumBoundary,
+            "physical-negative" or "strategy-negative" or "native-miss" => EffectValidationScenarioRoles.Negative,
+            _ => EffectValidationScenarioRoles.Normal
+        };
 
     private static List<EffectProbeBatch> BuildEffectProbeBatches(
         string contractId,
@@ -447,6 +669,7 @@ public sealed partial class GameDebugRuntime
     private static Dictionary<string, string> BuildTrustedObservations(
         EffectProbeSession session,
         string scenarioId,
+        EffectValidationCapturePointDefinition capturePoint,
         string? cipText,
         string? ebpText,
         string? ecxText,
@@ -460,6 +683,7 @@ public sealed partial class GameDebugRuntime
         if (TryParseAddress(eaxText, out var eax)) result["register-eax"] = $"0x{eax:X8}";
         if (TryParseAddress(edxText, out var edx)) result["register-edx"] = $"0x{edx:X8}";
         result["scenario-id"] = scenarioId;
+        result["capture-point-id"] = capturePoint.CapturePointId;
         if (session.ContractId.StartsWith("strategy-damage", StringComparison.OrdinalIgnoreCase) && TryParseAddress(ebpText, out var ebp))
         {
             AddMemoryDword(result, "strategy-effect-subject", checked(ebp - 0x10), hostName, port);
@@ -468,27 +692,35 @@ public sealed partial class GameDebugRuntime
         }
         else if (session.ContractId.StartsWith("physical-after-damage", StringComparison.OrdinalIgnoreCase))
         {
-            if (TryParseAddress(ebpText, out var physicalEbp) &&
-                TryReadUnsigned(checked(physicalEbp + 0x08), 4, hostName, port, out var context) &&
-                context != 0)
+            var extractor = capturePoint.ExtractorId.Equals("generic", StringComparison.OrdinalIgnoreCase)
+                ? PhysicalExtractorForAddress(capturePoint.Address)
+                : capturePoint.ExtractorId;
+            switch (extractor)
             {
-                AddPointerObservation(result, "physical-context", context);
-                if (TryReadUnsigned(checked(context + 0x0C), 4, hostName, port, out var attackerUnit) && attackerUnit != 0)
-                {
-                    AddPointerObservation(result, "physical-attacker-unit", attackerUnit);
-                    AddPointerObservation(result, "physical-effect-subject", attackerUnit);
-                    AddMemoryDword(result, "current-mp", checked(attackerUnit + 0x14), hostName, port);
-                }
-                if (TryReadUnsigned(checked(context + 0x08), 4, hostName, port, out var attackerCharacter) && attackerCharacter != 0)
-                {
-                    AddPointerObservation(result, "physical-attacker-character", attackerCharacter);
-                    AddMemoryUnsigned(result, "maximum-mp", checked(attackerCharacter + 0x1F), 2, hostName, port);
-                }
-                AddMemoryDword(result, "physical-current-damage", checked(context + 0x84), hostName, port);
-            }
-            if (!result.ContainsKey("physical-effect-subject") && TryParseAddress(ecxText, out var physicalSubject))
-            {
-                AddPointerObservation(result, "physical-effect-subject", physicalSubject);
+                case "physical-context":
+                case "legacy-effect-check":
+                    AddPhysicalContextObservations(result, ebpText, hostName, port);
+                    break;
+                case "target-damage":
+                    if (TryParseAddress(ebpText, out var damageEbp))
+                    {
+                        AddMemoryDword(result, "physical-target-unit", checked(damageEbp - 0x20), hostName, port);
+                        AddMemoryDword(result, "physical-current-damage", checked(damageEbp - 0x14), hostName, port);
+                    }
+                    break;
+                case "hp-write":
+                    if (TryParseAddress(ecxText, out var hpWriteUnit))
+                        AddPointerObservation(result, "hp-write-unit", hpWriteUnit);
+                    if (TryParseAddress(edxText, out var newHp)) result["hp-write-value"] = unchecked((int)newHp).ToString();
+                    break;
+                case "legacy-mp-write":
+                    if (TryParseAddress(edxText, out var mpWriteUnit))
+                    {
+                        AddPointerObservation(result, "mp-write-unit", mpWriteUnit);
+                        AddMemoryDword(result, "current-mp", checked(mpWriteUnit + EngineRuntimeSemanticRegistry.TacticalUnitCurrentMpOffset), hostName, port);
+                    }
+                    if (TryParseAddress(eaxText, out var restoreAmount)) result["mp-restore-amount"] = unchecked((int)restoreAmount).ToString();
+                    break;
             }
         }
         else if (session.ContractId == "personal-job-binding-query-v1" && session.EffectId is >= 0 and <= 0xFE)
@@ -509,6 +741,55 @@ public sealed partial class GameDebugRuntime
         return result;
     }
 
+    private static void AddPhysicalContextObservations(
+        IDictionary<string, string> result,
+        string? ebpText,
+        string hostName,
+        int port)
+    {
+        if (!TryParseAddress(ebpText, out var ebp) ||
+            !TryReadUnsigned(checked(ebp + 0x08), 4, hostName, port, out var context) ||
+            context == 0)
+            return;
+
+        AddPointerObservation(result, "physical-context", context);
+        if (TryReadUnsigned(checked(context + 0x0C), 4, hostName, port, out var attackerUnit) && attackerUnit != 0)
+        {
+            AddPointerObservation(result, "physical-attacker-unit", attackerUnit);
+            AddPointerObservation(result, "physical-effect-subject", attackerUnit);
+            AddMemoryDword(result, "current-mp",
+                checked(attackerUnit + EngineRuntimeSemanticRegistry.TacticalUnitCurrentMpOffset), hostName, port);
+            if (TryReadUnsigned(checked(attackerUnit + EngineRuntimeSemanticRegistry.TacticalUnitDataIdOffset),
+                    EngineRuntimeSemanticRegistry.TacticalUnitDataIdWidth, hostName, port, out var dataId) &&
+                dataId != EngineRuntimeSemanticRegistry.EmptyTacticalUnitDataId &&
+                TryReadUnsigned(EngineRuntimeSemanticRegistry.RuntimeCharacterPointerSlotAddress, 4, hostName, port, out var characterBase) &&
+                characterBase != 0)
+            {
+                var resolved = checked(characterBase + dataId * EngineRuntimeSemanticRegistry.RuntimeCharacterStride);
+                AddPointerObservation(result, "physical-attacker-character-resolved", resolved);
+            }
+        }
+        if (TryReadUnsigned(checked(context + 0x08), 4, hostName, port, out var attackerCharacter) && attackerCharacter != 0)
+        {
+            AddPointerObservation(result, "physical-attacker-character", attackerCharacter);
+            AddMemoryUnsigned(result, "maximum-mp",
+                checked(attackerCharacter + EngineRuntimeSemanticRegistry.RuntimeCharacterMaximumMpOffset),
+                EngineRuntimeSemanticRegistry.RuntimeCharacterMaximumMpWidth, hostName, port);
+        }
+        AddMemoryDword(result, "physical-current-damage", checked(context + 0x84), hostName, port);
+    }
+
+    private static string PhysicalExtractorForAddress(uint address)
+        => address switch
+        {
+            0x00418335 or 0x004528FC => "physical-context",
+            0x0045290A => "legacy-effect-check",
+            0x00452975 => "legacy-mp-write",
+            0x00405AD5 => "target-damage",
+            0x0043F70C => "hp-write",
+            _ => "unsupported"
+        };
+
     private void AddRelationshipObservations(
         EffectProbeSession session,
         IDictionary<string, string> values,
@@ -518,6 +799,7 @@ public sealed partial class GameDebugRuntime
         var pointerKey = session.ContractId.StartsWith("strategy-damage", StringComparison.OrdinalIgnoreCase)
             ? "strategy-effect-subject"
             : "physical-effect-subject";
+        values["relationship-call-chain"] = stackTrace.Ok ? "1" : "0";
         if (!values.TryGetValue(pointerKey, out var pointerText) || !int.TryParse(pointerText, out var signedPointer) ||
             battleState is not BattleStateSnapshot snapshot) return;
         var paths = ResolveGamePaths(session.GameRoot, requireExpectedHash: false);
@@ -530,7 +812,6 @@ public sealed partial class GameDebugRuntime
         values["relationship-unit-id"] = unit.UnitIndex.ToString();
         values["relationship-camp"] = unit.Side.ToString();
         values["relationship-hp"] = unit.HP.ToString();
-        values["relationship-call-chain"] = stackTrace.Ok ? "1" : "0";
     }
 
     private static List<EffectEvidenceDerivedObservation> DeriveSignedObservations(EffectProbeSession session)
@@ -538,42 +819,68 @@ public sealed partial class GameDebugRuntime
         var result = new List<EffectEvidenceDerivedObservation>();
         foreach (var scenario in session.Scenarios)
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(scenario.CapturePath, Encoding.UTF8));
-            if (!document.RootElement.TryGetProperty("normalized_observations", out var observations) || observations.ValueKind != JsonValueKind.Object) continue;
-            foreach (var property in observations.EnumerateObject())
+            var paths = scenario.Captures.Count > 0
+                ? scenario.Captures.Select(item => item.CapturePath)
+                : [scenario.CapturePath];
+            foreach (var path in paths.Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path)))
             {
-                var value = property.Value.ValueKind == JsonValueKind.String ? property.Value.GetString() ?? string.Empty : property.Value.GetRawText();
-                int? numeric = int.TryParse(value, out var parsed) ? parsed : null;
-                result.Add(new EffectEvidenceDerivedObservation
+                using var document = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8));
+                if (!document.RootElement.TryGetProperty("normalized_observations", out var observations) ||
+                    observations.ValueKind != JsonValueKind.Object)
+                    continue;
+                foreach (var property in observations.EnumerateObject())
                 {
-                    ScenarioId = scenario.ScenarioId, Key = property.Name,
-                    SourceRelativePath = Path.GetRelativePath(session.SessionRoot, scenario.CapturePath),
-                    JsonPath = "$.normalized_observations." + property.Name,
-                    Value = value, Minimum = numeric, Maximum = numeric
-                });
+                    var value = property.Value.ValueKind == JsonValueKind.String
+                        ? property.Value.GetString() ?? string.Empty
+                        : property.Value.GetRawText();
+                    var writable = session.ValidationRecipe.WritableBoundaryKeys.Contains(property.Name, StringComparer.OrdinalIgnoreCase);
+                    int? numeric = writable && int.TryParse(value, out var parsed) ? parsed : null;
+                    result.Add(new EffectEvidenceDerivedObservation
+                    {
+                        ScenarioId = scenario.ScenarioId,
+                        Key = property.Name,
+                        SourceRelativePath = Path.GetRelativePath(session.SessionRoot, path),
+                        JsonPath = "$.normalized_observations." + property.Name,
+                        Value = value,
+                        Minimum = numeric,
+                        Maximum = numeric
+                    });
+                }
             }
         }
-        foreach (var group in result.Where(item => item.Minimum.HasValue).GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase))
+        foreach (var boundaryKey in session.ValidationRecipe.WritableBoundaryKeys.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var minimum = group.Min(item => item.Minimum!.Value);
-            var maximum = group.Max(item => item.Maximum!.Value);
-            var hasMinimumBoundary = group.Any(item => item.ScenarioId.Contains("minimum", StringComparison.OrdinalIgnoreCase));
-            var hasMaximumBoundary = group.Any(item => item.ScenarioId.Contains("maximum", StringComparison.OrdinalIgnoreCase));
-            var hasNegative = session.Scenarios.Any(item => item.Captured && item.ScenarioId.Contains("negative", StringComparison.OrdinalIgnoreCase));
+            var group = result.Where(item => item.Key.Equals(boundaryKey, StringComparison.OrdinalIgnoreCase) && item.Minimum.HasValue).ToList();
+            if (group.Count == 0) continue;
+            var sampleMinimum = group.Min(item => item.Minimum!.Value);
+            var sampleMaximum = group.Max(item => item.Maximum!.Value);
+            var minimumScenarios = ScenarioIdsWithRole(session, EffectValidationScenarioRoles.MinimumBoundary);
+            var maximumScenarios = ScenarioIdsWithRole(session, EffectValidationScenarioRoles.MaximumBoundary);
+            var negativeScenarios = ScenarioIdsWithRole(session, EffectValidationScenarioRoles.Negative);
+            var minimumValues = group.Where(item => minimumScenarios.Contains(item.ScenarioId)).Select(item => item.Minimum!.Value).ToList();
+            var maximumValues = group.Where(item => maximumScenarios.Contains(item.ScenarioId)).Select(item => item.Maximum!.Value).ToList();
+            var hasNegative = negativeScenarios.All(id => session.Scenarios.Any(item =>
+                item.ScenarioId.Equals(id, StringComparison.OrdinalIgnoreCase) && IsScenarioComplete(session, item)));
             foreach (var item in group)
             {
-                item.Minimum = minimum;
-                item.Maximum = maximum;
-                if (hasMinimumBoundary && hasMaximumBoundary && hasNegative)
+                item.Minimum = sampleMinimum;
+                item.Maximum = sampleMaximum;
+                if (minimumValues.Count > 0 && maximumValues.Count > 0 && negativeScenarios.Count > 0 && hasNegative)
                 {
-                    item.VerifiedMinimum = minimum;
-                    item.VerifiedMaximum = maximum;
-                    item.BoundaryEvidenceZh = "最小、最大和负向场景均已采集，并可从签名原始 JSON 复算。";
+                    item.VerifiedMinimum = minimumValues.Min();
+                    item.VerifiedMaximum = maximumValues.Max();
+                    item.BoundaryEvidenceZh = "验证配方声明的最小边界、最大边界和负向场景均已完成，边界只从可写槽位的签名原始 JSON 复算。";
                 }
             }
         }
         return result;
     }
+
+    private static HashSet<string> ScenarioIdsWithRole(EffectProbeSession session, string role)
+        => session.ValidationRecipe.Scenarios
+            .Where(item => item.ScenarioRole.Equals(role, StringComparison.Ordinal))
+            .Select(item => item.ScenarioId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private static void AddMemoryDword(IDictionary<string, string> values, string key, uint address, string hostName, int port)
     {
@@ -663,6 +970,113 @@ public sealed partial class GameDebugRuntime
         EffectProbeSession session,
         IReadOnlyList<EffectEvidenceDerivedObservation> observations)
     {
+        if (session.ValidationRecipe.RelationshipRules.Count > 0)
+            return BuildRecipeRelationshipAssertions(session, observations);
+        return BuildLegacyRelationshipAssertions(session, observations);
+    }
+
+    private static List<EffectRelationshipAssertion> BuildRecipeRelationshipAssertions(
+        EffectProbeSession session,
+        IReadOnlyList<EffectEvidenceDerivedObservation> observations)
+    {
+        var result = new List<EffectRelationshipAssertion>();
+        foreach (var rule in session.ValidationRecipe.RelationshipRules)
+        {
+            var matchingPositive = 0;
+            var matchingNegative = 0;
+            var mismatches = 0;
+            var evidencePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string firstPointer = string.Empty;
+            foreach (var scenario in session.Scenarios)
+            {
+                var definition = ScenarioDefinition(session, scenario);
+                var scenarioObservations = observations.Where(item =>
+                    item.ScenarioId.Equals(scenario.ScenarioId, StringComparison.OrdinalIgnoreCase)).ToList();
+                var leftByHit = ObservationValuesByHit(session, scenario, scenarioObservations, rule.LeftObservationKey);
+                var rightByHit = ObservationValuesByHit(session, scenario, scenarioObservations, rule.RightObservationKey);
+                var hits = leftByHit.Keys.Union(rightByHit.Keys).Distinct().Order().ToList();
+                if (hits.Count == 0)
+                {
+                    if (rule.Required) mismatches++;
+                    continue;
+                }
+                foreach (var hit in hits)
+                {
+                    leftByHit.TryGetValue(hit, out var left);
+                    rightByHit.TryGetValue(hit, out var right);
+                    var leftValues = left?.Select(item => item.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
+                    var rightValues = right?.Select(item => item.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
+                    var matches = leftValues.Length == 1 && rightValues.Length == 1 &&
+                                  leftValues[0].Equals(rightValues[0], StringComparison.OrdinalIgnoreCase);
+                    if (!matches)
+                    {
+                        mismatches++;
+                        continue;
+                    }
+                    if (string.IsNullOrWhiteSpace(firstPointer)) firstPointer = leftValues[0];
+                    foreach (var path in left!.Concat(right!).Select(item => item.SourceRelativePath)) evidencePaths.Add(path);
+                    if (definition.ScenarioRole.Equals(EffectValidationScenarioRoles.Negative, StringComparison.Ordinal))
+                        matchingNegative++;
+                    else
+                        matchingPositive++;
+                }
+            }
+
+            if (!rule.Required && matchingPositive + matchingNegative == 0) continue;
+            var callChainVerified = evidencePaths.Count > 0 && evidencePaths.All(path => observations.Any(item =>
+                item.SourceRelativePath.Equals(path, StringComparison.OrdinalIgnoreCase) &&
+                item.Key.Equals("relationship-call-chain", StringComparison.OrdinalIgnoreCase) && item.Value == "1"));
+            var firstSample = observations.FirstOrDefault(item =>
+                item.Key.Equals("relationship-pointer", StringComparison.OrdinalIgnoreCase));
+            string RelatedValue(string key) => observations.FirstOrDefault(item =>
+                item.ScenarioId.Equals(firstSample?.ScenarioId ?? string.Empty, StringComparison.OrdinalIgnoreCase) &&
+                item.Key.Equals(key, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty;
+            var verified = mismatches == 0 && callChainVerified && matchingPositive > 0 &&
+                           (!rule.Required || matchingNegative > 0);
+            result.Add(new EffectRelationshipAssertion
+            {
+                SlotId = rule.LeftObservationKey,
+                Relationship = rule.RuleId,
+                LeftSlotId = rule.LeftObservationKey,
+                RightSlotId = rule.RightObservationKey,
+                RelationshipKind = rule.RelationshipKind,
+                BattlefieldUnitId = int.TryParse(RelatedValue("relationship-unit-id"), out var unitId) ? unitId : null,
+                Camp = RelatedValue("relationship-camp"),
+                HpObserved = int.TryParse(RelatedValue("relationship-hp"), out var hp) ? hp : null,
+                PointerHex = int.TryParse(firstPointer, out var pointer) ? $"0x{unchecked((uint)pointer):X8}" : string.Empty,
+                MatchingSamples = matchingPositive,
+                NegativeSamples = matchingNegative,
+                CallChainVerified = callChainVerified,
+                Verified = verified,
+                EvidencePaths = evidencePaths.ToList()
+            });
+        }
+        return result;
+    }
+
+    private static Dictionary<int, List<EffectEvidenceDerivedObservation>> ObservationValuesByHit(
+        EffectProbeSession session,
+        EffectProbeScenarioState scenario,
+        IEnumerable<EffectEvidenceDerivedObservation> observations,
+        string key)
+        => observations.Where(item => item.Key.Equals(key, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(item => CaptureHitIndex(session, scenario, item.SourceRelativePath))
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+    private static int CaptureHitIndex(
+        EffectProbeSession session,
+        EffectProbeScenarioState scenario,
+        string relativePath)
+    {
+        var fullPath = Path.GetFullPath(Path.Combine(session.SessionRoot, relativePath));
+        return scenario.Captures.FirstOrDefault(item =>
+            Path.GetFullPath(item.CapturePath).Equals(fullPath, StringComparison.OrdinalIgnoreCase))?.HitIndex ?? 1;
+    }
+
+    private static List<EffectRelationshipAssertion> BuildLegacyRelationshipAssertions(
+        EffectProbeSession session,
+        IReadOnlyList<EffectEvidenceDerivedObservation> observations)
+    {
         var samples = observations.GroupBy(item => item.ScenarioId, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
@@ -711,9 +1125,8 @@ public sealed partial class GameDebugRuntime
         ];
     }
 
-    private static bool IsWritableBoundaryObservation(string key)
-        => key.Equals("strategy-current-damage", StringComparison.OrdinalIgnoreCase) ||
-           key.Equals("current-mp", StringComparison.OrdinalIgnoreCase);
+    private static bool IsWritableBoundaryObservation(EffectProbeSession session, string key)
+        => session.ValidationRecipe.WritableBoundaryKeys.Contains(key, StringComparer.OrdinalIgnoreCase);
 
     private static IReadOnlyList<uint> EffectProbeAddresses(EffectProbeSession session)
     {
@@ -786,7 +1199,7 @@ public sealed partial class GameDebugRuntime
         }
         if (!Path.GetFullPath(marker.SandboxRoot).Equals(Path.GetFullPath(paths.GameRoot), StringComparison.OrdinalIgnoreCase) ||
             Path.GetFullPath(marker.OriginalGameRoot).Equals(Path.GetFullPath(paths.GameRoot), StringComparison.OrdinalIgnoreCase) ||
-            !marker.SandboxExeSha256.Equals(paths.ExeSha256, StringComparison.OrdinalIgnoreCase) ||
+            !marker.SandboxExeSha256.Equals(marker.OriginalExeSha256, StringComparison.OrdinalIgnoreCase) ||
             !UserBoundSignatureService.Verify(marker, static value => value.Signature, static (value, signature) => value.Signature = signature))
             throw new InvalidOperationException("验证副本标记签名、目录或 EXE 身份无效。");
         return marker;

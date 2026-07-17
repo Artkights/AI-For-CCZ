@@ -34,7 +34,7 @@ internal partial class Program
 
         var usageGuidePath = Path.Combine(publishRoot, "普罗工具整合包使用说明.md");
         var usageGuideMarkdown = File.ReadAllText(usageGuidePath, System.Text.Encoding.UTF8);
-        foreach (var heading in new[] { "## 通用操作", "## 角色设定", "## 兵种设定", "## 图片设定", "## 地图编辑", "## 写回与备份边界" })
+        foreach (var heading in new[] { "## 通用操作", "## 角色设定", "## 兵种设定", "## 图片设定", "## 形象设定", "## 地图编辑", "## 写回与备份边界" })
         {
             AssertTrue(usageGuideMarkdown.Contains(heading, StringComparison.Ordinal), "GUI package usage guide contains " + heading);
         }

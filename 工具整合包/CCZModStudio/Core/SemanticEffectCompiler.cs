@@ -67,6 +67,10 @@ public sealed class SemanticEffectCompiler
         if (program.Action is SemanticEffectAction.RestoreHpFixed or SemanticEffectAction.RestoreHpMaxPercent or SemanticEffectAction.RestoreMpMaxPercent ||
             program.Action == SemanticEffectAction.RestoreMpFixed && contract.ContinuationPolicy != HookContinuationPolicies.ChainExistingJumpTarget)
             warnings.Add("恢复动作尚未证明当前值、逐单位最大值和界面刷新顺序，当前只保留研究模块。");
+        if (program.Action == SemanticEffectAction.RestoreMpFixed &&
+            (program.PersonalEffectId is < 1 or > 0xFE || program.ItemEffectId != 0 ||
+             program.StackingMode != 1 || program.EffectValueMode != 0 || program.Value != 5))
+            warnings.Add("首轮物理恢复试点固定为个人/兵种号 01-FE、宝物号 00、叠加方式 1、固定恢复 5 MP。");
     }
 
     private static ContextSlotContract RequireSlot(HookExecutionContract contract, string slotId, string requiredAccess)
@@ -148,11 +152,12 @@ public sealed class SemanticEffectCompiler
             "cmp dword [ebx+0x84], 0", "jle .semantic_done", "mov ecx, dword [ebx+0x0C]", "test ecx, ecx", "jz .semantic_done",
             $"push dword 0x{program.EffectValueMode:X8}", $"push dword 0x{program.StackingMode:X8}",
             $"push dword 0x{program.ItemEffectId:X8}", $"push dword 0x{program.PersonalEffectId:X8}",
-            "call 0x004101D9", "test eax, eax", "jz .semantic_done", $"mov eax, 0x{program.Value:X8}",
+            "call 0x004101D9", "test eax, eax", "jz .semantic_done",
             "mov edx, dword [ebx+0x0C]", "mov ecx, dword [ebx+0x08]", "test edx, edx", "jz .semantic_done",
-            "test ecx, ecx", "jz .semantic_done", "movzx ecx, word [ecx+0x1F]", "add dword [edx+0x14], eax",
-            "jc .semantic_clamp", "cmp dword [edx+0x14], ecx", "jle .semantic_done", ".semantic_clamp:",
-            "mov dword [edx+0x14], ecx", ".semantic_done:", "popad", "popfd", $"jmp 0x{contract.ContinuationAddress:X8}"
+            "test ecx, ecx", "jz .semantic_done", "movzx ecx, word [ecx+0x1F]", "mov eax, dword [edx+0x14]",
+            "test eax, eax", "js .semantic_done", $"add eax, 0x{program.Value:X8}", "jc .semantic_clamp",
+            "cmp eax, ecx", "jbe .semantic_write", ".semantic_clamp:", "mov eax, ecx", ".semantic_write:",
+            "mov dword [edx+0x14], eax", ".semantic_done:", "popad", "popfd", $"jmp 0x{contract.ContinuationAddress:X8}"
         ]);
 
     private static string RequireStructuredExpression(ContextSlotContract slot)

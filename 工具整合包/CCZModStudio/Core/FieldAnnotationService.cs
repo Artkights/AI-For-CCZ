@@ -255,7 +255,7 @@ public sealed class FieldAnnotationService
         if (ContainsAny(name, "攻击", "防御", "精神", "爆发", "士气", "武力", "智力", "统率", "敏捷", "运气")) return new("能力", "人物五维、战斗能力或成长相关字段。", "数值越高通常越强；批量修改前建议用分布图观察原始范围。");
         if (ContainsAny(name, "移动", "Move", "MOV")) return new("移动", "移动力或移动相关参数，影响战场走位和 AI 可达范围。", "过高可能破坏地图节奏；需要实际开局测试。");
         if (ContainsAny(name, "价格", "售价", "买价", "卖价", "金钱", "功勋")) return new("经济", "商店、奖励或经济相关数值。", "建议与掉落、奖励和商店开放节奏一起检查。");
-        if (ContainsAny(name, "R形象", "S形象", "B形象", "形象", "头像", "Face", "face")) return new("资源", "人物形象、头像或资源编号，通常关联 Face.e5、Pmapobj.e5、Unit_*.e5 或其他资源封包。", "修改后建议使用人物形象设定页联动检查，并确认对应资源确实存在。");
+        if (ContainsAny(name, "R形象", "S形象", "B形象", "形象", "头像", "Face", "face")) return new("资源", "人物形象、头像或资源编号，通常关联 Face.e5、Pmapobj.e5、Unit_*.e5 或其他资源封包。", "修改后建议使用形象设定页联动检查，并确认对应资源确实存在。");
         if (ContainsAny(name, "兵种", "职业", "部队")) return new("兵种", "兵种、职业或部队类别编号，会影响能力成长、移动适性和可用策略。", "跨兵种修改要同时检查成长、装备限制和剧本出场。");
         if (name.Contains("装备特效号-效果值", StringComparison.Ordinal)) return new("特效参数", "装备特效的参数值，具体含义取决于同一行的装备特效号。", "建议先选中装备特效号查看名称，再小范围调整效果值并进战场验证。");
         if (name.Contains("装备特效号", StringComparison.Ordinal)) return new("装备特效", "装备附加效果编号，当前优先读取项目侧宝物特效目录，未命中时再回退到基础装备特效名称表。", "建议在说明面板确认编号对应的特效名称；若需变长中文名或补充说明，请在“宝物设定 -> 宝物特效”维护，并同步检查效果值参数。");

@@ -164,6 +164,7 @@ public sealed class HookExecutionContract
     public string ContinuationPolicy { get; set; } = HookContinuationPolicies.ReturnAfterOverwrite;
     public uint ContinuationAddress { get; set; }
     public EffectValidationRecipe ValidationRecipe { get; set; } = new();
+    public string EvidenceDisposition { get; set; } = EffectEvidenceDispositions.StoreAndPromote;
     public string VerificationStatus { get; set; } = HookContractVerificationStatus.StaticCandidate;
     public string VerificationStatusZh { get; set; } = "静态候选";
     public bool AllowSemanticPreview { get; set; }

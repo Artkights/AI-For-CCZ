@@ -233,8 +233,8 @@ public sealed class HookExecutionContractService
         try { contract = Read(project, bundle.ContractId); }
         catch (Exception ex) { return new EffectEvidenceBundleImportResult { WarningsZh = [ex.Message], SummaryZh = "V3 证据包导入失败。" }; }
         var warnings = new List<string>();
-        if (contract.ContractVersion != 2 || bundle.ContractVersion != 2)
-            warnings.Add("执行契约或证据包不是契约 v2/V3 协议。");
+        if (contract.ContractVersion < 2 || bundle.ContractVersion != contract.ContractVersion)
+            warnings.Add("执行契约或证据包版本不匹配当前 V3 协议。");
         if (!bundle.ContractHash.Equals(contract.ContractHash, StringComparison.OrdinalIgnoreCase))
             warnings.Add("V3 证据包契约摘要与当前契约不一致。");
         if (!bundle.ContractCodeIdentityHash.Equals(contract.ContractCodeIdentityHash, StringComparison.OrdinalIgnoreCase))
@@ -244,11 +244,16 @@ public sealed class HookExecutionContractService
         if (!bundle.ProbeRestored) warnings.Add("V3 证据没有通过探针恢复验证。");
         if (warnings.Count > 0)
             return new EffectEvidenceBundleImportResult { WarningsZh = warnings, SummaryZh = "V3 证据身份或恢复状态不完整，未提升契约。" };
-        var result = EffectEvidenceBundleService.VerifyAndStoreV3(project, bundle);
-        result.ContractPromoted = result.Accepted;
+        var validationOnly = contract.EvidenceDisposition.Equals(EffectEvidenceDispositions.ValidationOnly, StringComparison.Ordinal);
+        var result = validationOnly
+            ? EffectEvidenceBundleService.ValidateV3(project, bundle)
+            : EffectEvidenceBundleService.VerifyAndStoreV3(project, bundle);
+        result.ContractPromoted = result.Accepted && !validationOnly;
         if (result.Accepted)
         {
-            result.SummaryZh = "可信 V3 证据已导入；契约缓存已失效，重新读取权限矩阵即可获得新权限。";
+            result.SummaryZh = validationOnly
+                ? "可信 V3 证据已通过只读验证；该物理契约禁止入库和提升正式权限。"
+                : "可信 V3 证据已导入；契约缓存已失效，重新读取权限矩阵即可获得新权限。";
         }
         return result;
     }
@@ -373,6 +378,7 @@ public sealed class HookExecutionContractService
             PreservedRegisters = ["ebx", "esi", "edi", "ebp", "esp"],
             ExpectedStackDelta = 0,
             PreserveFlags = true,
+            EvidenceDisposition = EffectEvidenceDispositions.ValidationOnly,
             VerificationStatus = isExpectedJump ? HookContractVerificationStatus.StaticCandidate : HookContractVerificationStatus.BytesChanged,
             VerificationStatusZh = isExpectedJump ? "遗留跳转和代码身份已静态锁定，等待沙箱动态验证" : "00418335 未指向登记的 004528FC 遗留链",
             AllowSemanticPreview = false,
@@ -437,20 +443,81 @@ public sealed class HookExecutionContractService
             BreakpointAddresses = [0x00418335, 0x004528FC, 0x0045290A, 0x00452975, 0x00405AD5, 0x0043F70C],
             RequiredObservationKeys = ["physical-context", "physical-attacker-unit", "physical-attacker-character", "physical-current-damage", "current-mp", "maximum-mp"],
             RequiredRelationshipSlots = ["physical-effect-subject", "physical-attacker-unit", "physical-attacker-character"],
+            WritableBoundaryKeys = ["current-mp"],
+            CapturePoints =
+            [
+                CapturePoint("physical-hook", 0x00418335, "physical-context"),
+                CapturePoint("legacy-entry", 0x004528FC, "physical-context"),
+                CapturePoint("legacy-effect-check", 0x0045290A, "legacy-effect-check"),
+                CapturePoint("legacy-mp-write", 0x00452975, "legacy-mp-write", optional: true),
+                CapturePoint("target-damage", 0x00405AD5, "target-damage"),
+                CapturePoint("hp-write", 0x0043F70C, "hp-write")
+            ],
+            RelationshipRules =
+            [
+                Relationship("attacker-is-effect-subject", "physical-attacker-unit", "physical-effect-subject"),
+                Relationship("attacker-character-resolution", "physical-attacker-character", "physical-attacker-character-resolved"),
+                Relationship("damage-target-is-hp-write-unit", "physical-target-unit", "hp-write-unit"),
+                Relationship("attacker-is-mp-write-unit", "physical-attacker-unit", "mp-write-unit", required: false)
+            ],
             Scenarios =
             [
-                Scenario("physical-normal", "普通攻击", "执行一次普通物理攻击。", "MP 增加 5 点。"),
-                Scenario("physical-critical", "暴击", "执行一次物理暴击。", "每个实际伤害段恢复一次。"),
-                Scenario("physical-counter", "反击", "触发一次反击。", "当前反击者作为攻击者恢复。"),
-                Scenario("physical-combo", "连击", "触发一次两段均命中的连击。", "两个实际伤害段分别恢复。"),
-                Scenario("physical-mp-zero-boundary", "MP 为 0", "令攻击者当前 MP 为 0 后攻击。", "结果为 5，且不低于 0。"),
-                Scenario("physical-mp-maximum-boundary", "接近最大 MP", "令攻击者只缺少 1 至 4 点 MP 后攻击。", "精确封顶到最大 MP。"),
-                Scenario("physical-negative", "无特效负向场景", "使用未绑定试点特效的单位攻击。", "MP 不变化且不进入试点写入。")
+                PhysicalScenario("physical-normal", "普通攻击", "执行一次普通物理攻击。", "MP 增加 5 点。", EffectValidationScenarioRoles.Normal, 1),
+                PhysicalScenario("physical-critical", "暴击", "执行一次物理暴击。", "每个实际伤害段恢复一次。", EffectValidationScenarioRoles.Critical, 1),
+                PhysicalScenario("physical-counter", "反击", "触发一次反击。", "当前反击者作为攻击者恢复。", EffectValidationScenarioRoles.Counter, 1),
+                PhysicalScenario("physical-combo", "连击", "触发一次两段均命中的连击。", "两个实际伤害段分别恢复。", EffectValidationScenarioRoles.Combo, 2),
+                PhysicalScenario("physical-mp-zero-boundary", "MP 为 0", "令攻击者当前 MP 为 0 后攻击。", "结果为 5，且不低于 0。", EffectValidationScenarioRoles.MinimumBoundary, 1),
+                PhysicalScenario("physical-mp-maximum-boundary", "接近最大 MP", "令攻击者只缺少 1 至 4 点 MP 后攻击。", "精确封顶到最大 MP。", EffectValidationScenarioRoles.MaximumBoundary, 1),
+                PhysicalScenario("physical-negative", "无特效负向场景", "使用未绑定试点特效的单位攻击。", "MP 不变化且不进入试点写入。", EffectValidationScenarioRoles.Negative, 1)
             ]
         };
 
-    private static EffectValidationScenarioDefinition Scenario(string id, string name, string instruction, string transition)
-        => new() { ScenarioId = id, DisplayNameZh = name, InstructionZh = instruction, ExpectedTransition = transition };
+    private static EffectValidationCapturePointDefinition CapturePoint(string id, uint address, string extractor, bool optional = false)
+        => new() { CapturePointId = id, Address = address, ExtractorId = extractor, Optional = optional };
+
+    private static EffectValidationRelationshipRule Relationship(
+        string id,
+        string left,
+        string right,
+        bool required = true)
+        => new()
+        {
+            RuleId = id,
+            LeftObservationKey = left,
+            RightObservationKey = right,
+            RelationshipKind = "PointerEquality",
+            Required = required
+        };
+
+    private static EffectValidationScenarioDefinition PhysicalScenario(
+        string id,
+        string name,
+        string instruction,
+        string transition,
+        string role,
+        int damageSegments)
+    {
+        var requiredHits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["physical-hook"] = damageSegments,
+            ["legacy-entry"] = damageSegments,
+            ["legacy-effect-check"] = damageSegments,
+            ["target-damage"] = damageSegments,
+            ["hp-write"] = damageSegments
+        };
+        var maximumHits = requiredHits.ToDictionary(item => item.Key, item => item.Value, StringComparer.OrdinalIgnoreCase);
+        maximumHits["legacy-mp-write"] = damageSegments;
+        return new EffectValidationScenarioDefinition
+        {
+            ScenarioId = id,
+            DisplayNameZh = name,
+            InstructionZh = instruction,
+            ExpectedTransition = transition,
+            ScenarioRole = role,
+            RequiredMinimumHits = requiredHits,
+            AllowedMaximumHits = maximumHits
+        };
+    }
 
     private static ContextSlotContract Slot(string id, string name, ContextSourceExpression expression, string access, List<string> actions, bool resolved, string evidence)
         => new()
@@ -676,8 +743,7 @@ public sealed class HookExecutionContractService
             contract.ExpectedOldBytesHex, contract.NormalizedLocatorSignature,
             string.Join(";", contract.Slots.Select(slot => $"{slot.SlotId}:{slot.SourceExpression}:{slot.StructuredSource?.SignedDisplacement}:{slot.StructuredSource?.DereferenceCount}:{slot.StructuredSource?.DerivedType}:{slot.Access}:{slot.ByteWidth}:{slot.EvidenceKind}:{slot.ClampMaximumSlotId}")),
             contract.ContinuationPolicy, contract.ContinuationAddress,
-            contract.ValidationRecipe.RecipeId, contract.ValidationRecipe.RecipeVersion,
-            string.Join(";", contract.ValidationRecipe.Scenarios.Select(item => item.ScenarioId)),
+            JsonSerializer.Serialize(contract.ValidationRecipe, JsonOptions), contract.EvidenceDisposition,
             string.Join(";", contract.AllowedActions), string.Join(";", contract.AllowedCallSymbols));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }

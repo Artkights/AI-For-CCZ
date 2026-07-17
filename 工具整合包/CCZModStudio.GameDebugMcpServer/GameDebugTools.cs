@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using ModelContextProtocol.Server;
+using CCZModStudio.Models;
 
 namespace CCZModStudio.GameDebugMcpServer;
 
@@ -56,9 +57,18 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("统一引擎特效档案 ID。")]
         string? profile_id = null,
         [Description("排除已登记数据字段后的规范化 EXE 身份 SHA-256。")]
-        string? normalized_profile_identity = null)
+        string? normalized_profile_identity = null,
+        int contract_version = 2,
+        EffectValidationRecipe? validation_recipe = null,
+        string? base_exe_sha256 = null,
+        string? sandbox_patch_sha256 = null,
+        string? patch_package_hash = null,
+        uint continuation_address = 0,
+        string? evidence_disposition = null)
         => runtime.CreateEffectProbeSession(contract_id, contract_hash, effect_id, game_root,
-            contract_code_identity_hash, profile_id, normalized_profile_identity);
+            contract_code_identity_hash, profile_id, normalized_profile_identity, contract_version,
+            validation_recipe, base_exe_sha256, sandbox_patch_sha256, patch_package_hash,
+            continuation_address, evidence_disposition);
 
     [McpServerTool]
     [Description("应用特效动态验证会话中的一个断点批次。")]
@@ -163,6 +173,17 @@ public sealed class GameDebugTools(GameDebugRuntime runtime)
         [Description("Optional output directory for raw memory exports.")]
         string? output_dir = null)
         => runtime.GameReadBattleState(game_root, max_units, include_raw_ranges, output_dir);
+
+    [McpServerTool]
+    [Description("Read one registered 6.4/6.5 runtime item, detailed-job, job-family-terrain, or consumable-count record. This tool is read-only.")]
+    public object game_read_runtime_table(
+        [Description("Table id: items, detailed-jobs, job-family-terrain, or consumable-counts.")]
+        string table_id,
+        [Description("Record id. Items 0..254; detailed jobs 0..79; job families 0..39; consumables 150..254.")]
+        int record_id,
+        [Description("Optional game root.")]
+        string? game_root = null)
+        => runtime.GameReadRuntimeTable(table_id, record_id, game_root);
 
     [McpServerTool]
     [Description("Classify the current Ekd5.exe runtime phase using process state, x32dbg state, and read-only battle memory; no screenshots or input.")]

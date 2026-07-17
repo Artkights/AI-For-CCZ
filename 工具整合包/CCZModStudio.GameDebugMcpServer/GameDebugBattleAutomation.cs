@@ -73,7 +73,7 @@ public sealed partial class GameDebugRuntime
             {
                 u.UnitIndex,
                 u.DataId,
-                u.DisplayId,
+                u.BattleSpriteId,
                 u.Side,
                 u.X,
                 u.Y,

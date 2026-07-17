@@ -23,6 +23,10 @@ internal partial class Program
                 AssertDisplayedButton(form, "_reloadButton", "重新读取");
                 AssertDisplayedButton(form, "_backupPathButton", "备份路径");
                 AssertDisplayedButton(form, "_usageGuideButton", "使用指南");
+                AssertSimplifiedUiEqual(
+                    "读取形象设定",
+                    GetSimplifiedUiPrivateField<Button>(form, "_loadImageAssignmentsButton").Text,
+                    "image assignment load button text");
 
                 var reloadButton = GetSimplifiedUiPrivateField<Button>(form, "_reloadButton");
                 var backupPathButton = GetSimplifiedUiPrivateField<Button>(form, "_backupPathButton");
@@ -109,6 +113,13 @@ internal partial class Program
                 AssertSimplifiedUiContains(eventsText, "_openRoleEffectButton.Click += (_, _) => OpenJobEffectEditor();", "role effect button routes to job effect editor");
                 AssertSimplifiedUiTrue(!eventsText.Contains("_openRoleEffectButton.Click += (_, _) => OpenRolePersonalEffectTableEditor();", StringComparison.Ordinal), "role effect button no longer routes to old EXE table");
 
+                var developerLauncherPath = Path.Combine(sourceRoot, "MCP配置", "start-ccz-studio-dev.ps1");
+                AssertSimplifiedUiTrue(File.Exists(developerLauncherPath), "developer studio launcher exists");
+                var developerLauncherText = File.ReadAllText(developerLauncherPath, Encoding.UTF8);
+                AssertSimplifiedUiContains(developerLauncherText, "[switch]$DryRun", "developer studio launcher supports dry run");
+                AssertSimplifiedUiContains(developerLauncherText, "[switch]$NoBuild", "developer studio launcher supports no-build mode");
+                AssertSimplifiedUiContains(developerLauncherText, "@(\"--developer-build\")", "developer studio launcher bypasses Active redirect");
+
                 var guideText = File.ReadAllText(ResolveUsageGuideSourcePath(sourceRoot), Encoding.UTF8);
                 var sections = UsageGuideDialog.ParseSections(guideText);
                 AssertSimplifiedUiTrue(sections.Count >= 8, "usage guide has multiple pages");
@@ -145,7 +156,7 @@ internal partial class Program
         var path = ResolveUsageGuideSourcePath(sourceRoot);
         var markdown = File.ReadAllText(path, Encoding.UTF8);
         var sections = UsageGuideDialog.ParseSections(markdown);
-        AssertSimplifiedUiTrue(sections.Count >= 12, "usage guide markdown has release page sections");
+        AssertSimplifiedUiTrue(sections.Count >= 13, "usage guide markdown has release page sections");
 
         foreach (var heading in new[]
                  {
@@ -156,6 +167,7 @@ internal partial class Program
                      "## 特效注入",
                      "## 全局设定",
                      "## 图片设定",
+                     "## 形象设定",
                      "## 地图编辑",
                      "## 剧本编辑",
                      "## 场景编辑",
@@ -166,6 +178,11 @@ internal partial class Program
         {
             AssertSimplifiedUiContains(markdown, heading, "usage guide contains " + heading);
         }
+
+        AssertSimplifiedUiContains(UsageGuideDialog.FallbackMarkdown, "## 图片设定", "fallback guide contains image settings");
+        AssertSimplifiedUiContains(UsageGuideDialog.FallbackMarkdown, "## 形象设定", "fallback guide contains image assignments");
+        AssertSimplifiedUiTrue(!markdown.Contains("人物形象设定", StringComparison.Ordinal), "usage guide omits legacy image assignment name");
+        AssertSimplifiedUiTrue(!UsageGuideDialog.FallbackMarkdown.Contains("人物形象设定", StringComparison.Ordinal), "fallback guide omits legacy image assignment name");
 
         foreach (var forbidden in new[]
                  {

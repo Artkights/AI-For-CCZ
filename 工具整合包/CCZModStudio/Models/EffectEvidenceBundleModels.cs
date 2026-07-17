@@ -14,6 +14,9 @@ public sealed class EffectValidationRecipe
     public List<EffectValidationScenarioDefinition> Scenarios { get; set; } = [];
     public List<string> RequiredObservationKeys { get; set; } = [];
     public List<string> RequiredRelationshipSlots { get; set; } = [];
+    public List<string> WritableBoundaryKeys { get; set; } = [];
+    public List<EffectValidationCapturePointDefinition> CapturePoints { get; set; } = [];
+    public List<EffectValidationRelationshipRule> RelationshipRules { get; set; } = [];
 }
 
 public sealed class EffectValidationScenarioDefinition
@@ -22,6 +25,37 @@ public sealed class EffectValidationScenarioDefinition
     public string DisplayNameZh { get; set; } = string.Empty;
     public string InstructionZh { get; set; } = string.Empty;
     public string ExpectedTransition { get; set; } = string.Empty;
+    public string ScenarioRole { get; set; } = EffectValidationScenarioRoles.Normal;
+    public Dictionary<string, int> RequiredMinimumHits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, int> AllowedMaximumHits { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public static class EffectValidationScenarioRoles
+{
+    public const string Normal = "Normal";
+    public const string Critical = "Critical";
+    public const string Counter = "Counter";
+    public const string Combo = "Combo";
+    public const string MinimumBoundary = "MinimumBoundary";
+    public const string MaximumBoundary = "MaximumBoundary";
+    public const string Negative = "Negative";
+}
+
+public sealed class EffectValidationCapturePointDefinition
+{
+    public string CapturePointId { get; set; } = string.Empty;
+    public uint Address { get; set; }
+    public string ExtractorId { get; set; } = string.Empty;
+    public bool Optional { get; set; }
+}
+
+public sealed class EffectValidationRelationshipRule
+{
+    public string RuleId { get; set; } = string.Empty;
+    public string LeftObservationKey { get; set; } = string.Empty;
+    public string RightObservationKey { get; set; } = string.Empty;
+    public string RelationshipKind { get; set; } = "PointerEquality";
+    public bool Required { get; set; } = true;
 }
 
 public static class EffectEvidenceProtocol
@@ -62,6 +96,12 @@ public sealed class EffectEvidenceBundleV3
     public string SandboxRoot { get; set; } = string.Empty;
     public string SessionRoot { get; set; } = string.Empty;
     public string OriginalExeSha256 { get; set; } = string.Empty;
+    public string BaseExeSha256 { get; set; } = string.Empty;
+    public string SandboxPatchSha256 { get; set; } = string.Empty;
+    public string PatchPackageHash { get; set; } = string.Empty;
+    public string ProbePlanHash { get; set; } = string.Empty;
+    public uint ContinuationAddress { get; set; }
+    public string EvidenceDisposition { get; set; } = EffectEvidenceDispositions.StoreAndPromote;
     public string LoadedModulePath { get; set; } = string.Empty;
     public long LoadedModuleSize { get; set; }
     public string LoadedModuleSha256 { get; set; } = string.Empty;
@@ -88,6 +128,9 @@ public sealed class EffectRelationshipAssertion
 {
     public string SlotId { get; set; } = string.Empty;
     public string Relationship { get; set; } = string.Empty;
+    public string LeftSlotId { get; set; } = string.Empty;
+    public string RightSlotId { get; set; } = string.Empty;
+    public string RelationshipKind { get; set; } = string.Empty;
     public int? BattlefieldUnitId { get; set; }
     public string Camp { get; set; } = string.Empty;
     public int? HpObserved { get; set; }
@@ -97,6 +140,12 @@ public sealed class EffectRelationshipAssertion
     public int NegativeSamples { get; set; }
     public bool Verified { get; set; }
     public List<string> EvidencePaths { get; set; } = [];
+}
+
+public static class EffectEvidenceDispositions
+{
+    public const string StoreAndPromote = "StoreAndPromote";
+    public const string ValidationOnly = "ValidationOnly";
 }
 
 public sealed class EffectValidationSession
@@ -240,6 +289,7 @@ public sealed class EffectProbeSession
     public string SandboxPatchSha256 { get; set; } = string.Empty;
     public string ProbePackageHash { get; set; } = string.Empty;
     public uint ContinuationAddress { get; set; }
+    public string EvidenceDisposition { get; set; } = EffectEvidenceDispositions.StoreAndPromote;
     public string SessionRoot { get; set; } = string.Empty;
     public string PlanPath { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; }
@@ -254,6 +304,16 @@ public sealed class EffectProbeScenarioState
     public int BatchIndex { get; set; }
     public bool Captured { get; set; }
     public string CapturePath { get; set; } = string.Empty;
+    public List<EffectProbeCaptureState> Captures { get; set; } = [];
+}
+
+public sealed class EffectProbeCaptureState
+{
+    public string CapturePointId { get; set; } = string.Empty;
+    public uint Address { get; set; }
+    public int HitIndex { get; set; }
+    public string CapturePath { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
 }
 
 public sealed class EffectProbeBatch
@@ -357,6 +417,22 @@ public static class EffectEvidenceBundleCrypto
         finally { bundle.Signature = supplied; }
     }
 
+    public static bool VerifyReadOnly(EffectEvidenceBundleV3 bundle)
+    {
+        if (string.IsNullOrWhiteSpace(bundle.Signature) || !TryReadUserKey(out var key)) return false;
+        var supplied = bundle.Signature;
+        bundle.Signature = string.Empty;
+        try
+        {
+            using var hmac = new HMACSHA256(key);
+            var expected = Convert.ToHexString(hmac.ComputeHash(CanonicalBytes(bundle)));
+            var left = Encoding.ASCII.GetBytes(expected);
+            var right = Encoding.ASCII.GetBytes(supplied);
+            return left.Length == right.Length && CryptographicOperations.FixedTimeEquals(left, right);
+        }
+        finally { bundle.Signature = supplied; }
+    }
+
     public static string Serialize(EffectEvidenceBundleV1 bundle)
         => JsonSerializer.Serialize(bundle, JsonOptions);
 
@@ -368,6 +444,9 @@ public static class EffectEvidenceBundleCrypto
 
     public static string ComputeFileSha256(string path)
         => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+
+    public static string ComputeValidationRecipeHash(EffectValidationRecipe recipe)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(recipe, JsonOptions))));
 
     private static byte[] CanonicalBytes(EffectEvidenceBundleV1 bundle)
         => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(bundle, JsonOptions));
@@ -394,5 +473,23 @@ public static class EffectEvidenceBundleCrypto
         return File.Exists(path)
             ? ProtectedData.Unprotect(File.ReadAllBytes(path), Entropy, DataProtectionScope.CurrentUser)
             : key;
+    }
+
+    private static bool TryReadUserKey(out byte[] key)
+    {
+        key = [];
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "CCZModStudio", "Security", "effect-evidence-hmac.dpapi");
+            if (!File.Exists(path)) return false;
+            key = ProtectedData.Unprotect(File.ReadAllBytes(path), Entropy, DataProtectionScope.CurrentUser);
+            return key.Length > 0;
+        }
+        catch
+        {
+            key = [];
+            return false;
+        }
     }
 }

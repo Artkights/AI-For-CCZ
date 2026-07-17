@@ -818,8 +818,10 @@ public sealed partial class MainForm
         IReadOnlyDictionary<string, CompositeEffectCompatibility> compatibilityByInstance =
             new Dictionary<string, CompositeEffectCompatibility>(StringComparer.OrdinalIgnoreCase);
         var freeIdsByChannel = new Dictionary<string, FreeEffectIdReport>(StringComparer.OrdinalIgnoreCase);
+        var freeIdOptionsByChannel = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         var availableIdOptions = new List<string>();
         var boundModuleBoxes = new HashSet<ComboBox>();
+        var recipeOptionsExpanded = false;
 
         void BindModuleOnDemand(ComboBox box, string kind, bool allowEmpty)
         {
@@ -838,39 +840,45 @@ public sealed partial class MainForm
         BindModuleOnDemand(actionModuleBox, EffectModuleKind.Action, allowEmpty: false);
         BindModuleOnDemand(valueModuleBox, EffectModuleKind.Value, allowEmpty: false);
 
-        void RefreshRecipes()
+        void RefreshRecipes(bool expandAll = false)
         {
             if (moduleCatalog == null) return;
+            var selectedRecipeId = (recipeBox.SelectedItem as ModuleRecipeOption)?.RecipeId;
             var recipes = moduleCatalog.Recipes.Where(item => researchBox.Checked || item.IsAvailable)
                 .Select(item => new ModuleRecipeOption(item.RecipeId, item.DisplayNameZh, item.IsAvailable, item.ReasonZh)).ToList();
+            var visibleRecipes = expandAll ? recipes : recipes.Take(1).ToList();
             recipeBox.BeginUpdate();
             try
             {
                 recipeBox.DataSource = null;
                 recipeBox.Items.Clear();
-                recipeBox.Items.AddRange(recipes.Cast<object>().ToArray());
-                if (recipeBox.Items.Count > 0) recipeBox.SelectedIndex = 0;
+                recipeBox.Items.AddRange(visibleRecipes.Cast<object>().ToArray());
+                var selectedIndex = visibleRecipes.FindIndex(item => item.RecipeId.Equals(selectedRecipeId, StringComparison.Ordinal));
+                if (recipeBox.Items.Count > 0) recipeBox.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
             }
             finally { recipeBox.EndUpdate(); }
+            recipeOptionsExpanded = expandAll;
         }
 
-        Task RefreshFreeIdsAsync()
+        void RefreshFreeIds()
         {
             var channel = channelBox.SelectedIndex == 1 ? CompositeEffectChannel.Item : CompositeEffectChannel.PersonalJob;
             if (!freeIdsByChannel.TryGetValue(channel, out var report))
             {
                 availableIdOptions.Clear();
                 previewButton.Enabled = false;
-                return Task.CompletedTask;
+                return;
             }
-            availableIdOptions = report.FreeIds.Select(id => $"{id:X2}")
-                .Concat(report.ReclaimableIds.Select(id => $"{id:X2}（替换未引用的“{report.ReclaimableNames[id]}”）"))
-                .ToList();
+            availableIdOptions = freeIdOptionsByChannel.GetValueOrDefault(channel) ?? [];
             var recommended = availableIdOptions.FirstOrDefault()?[..2] ?? "无";
             using (PerformanceMetrics.Begin("EffectWorkbench.CompositeStatusText"))
                 status.Text = report.SummaryZh + "；推荐编号 " + recommended;
-            return Task.CompletedTask;
         }
+
+        recipeBox.DropDown += (_, _) =>
+        {
+            if (!recipeOptionsExpanded) RefreshRecipes(expandAll: true);
+        };
 
         selectIdButton.Click += (_, _) =>
         {
@@ -922,7 +930,17 @@ public sealed partial class MainForm
                         var service = new CompositeEffectService();
                         var personalFree = service.FindFreeIds(project, CompositeEffectChannel.PersonalJob, snapshot.Inventory);
                         var itemFree = service.FindFreeIds(project, CompositeEffectChannel.Item, snapshot.Inventory);
-                        return new CompositeWorkbenchLoad(snapshot, compatibility, personalFree, itemFree);
+                        var members = snapshot.Inventory.Effects.ToList();
+                        var memberTable = BuildCompositeMemberTable(snapshot, compatibility, members);
+                        return new CompositeWorkbenchLoad(
+                            snapshot,
+                            compatibility,
+                            personalFree,
+                            itemFree,
+                            members,
+                            memberTable,
+                            BuildFreeEffectIdOptions(personalFree),
+                            BuildFreeEffectIdOptions(itemFree));
                     },
                     async loaded =>
                     {
@@ -940,48 +958,28 @@ public sealed partial class MainForm
                             [CompositeEffectChannel.PersonalJob] = loaded.PersonalFreeIds,
                             [CompositeEffectChannel.Item] = loaded.ItemFreeIds
                         };
+                        freeIdOptionsByChannel = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [CompositeEffectChannel.PersonalJob] = loaded.PersonalFreeIdOptions,
+                            [CompositeEffectChannel.Item] = loaded.ItemFreeIdOptions
+                        };
                         using (PerformanceMetrics.Begin("EffectWorkbench.CompositeModuleBind"))
                         {
                             using (PerformanceMetrics.Begin("EffectWorkbench.CompositeRecipeBind")) RefreshRecipes();
                         }
                         await Task.Delay(30);
-                        members = _currentEffectInventory.Effects.ToList();
-                        var table = new DataTable();
-                        using (PerformanceMetrics.Begin("EffectWorkbench.CompositeRowBuild"))
-                        {
-                            table.Columns.Add("选择", typeof(bool));
-                            foreach (var name in new[] { "索引", "名称", "触发时机", "实际效果", "模块标签", "兼容性", "原因" }) table.Columns.Add(name);
-                            for (var i = 0; i < members.Count; i++)
-                            {
-                                var member = members[i];
-                                var memberCompatibility = compatibilityByInstance[member.InstanceId];
-                                var compatibility = memberCompatibility.IsCompatible
-                                    ? memberCompatibility.CompatibilityKind switch
-                                    {
-                                        EffectMemberCompatibilityKind.VerifiedComplexFamily => "家族契约可用",
-                                        EffectMemberCompatibilityKind.VerifiedWrapper => "包装链可用",
-                                        _ => "直接可用"
-                                    }
-                                    : "不可加入";
-                                var tags = moduleCatalog.InstanceTags.FirstOrDefault(item => item.InstanceId == member.InstanceId)?.SummaryZh ?? "尚未完整解析";
-                                table.Rows.Add(false, i.ToString(CultureInfo.InvariantCulture), member.Name, member.TriggerPhase,
-                                    member.NaturalLanguageDescription, tags, compatibility, memberCompatibility.ReasonZh);
-                            }
-                        }
-                        await Task.Delay(30);
+                        members = loaded.Members;
                         using (PerformanceMetrics.Begin("EffectWorkbench.CompositeGridBind"))
                         {
                             memberGrid.SuspendLayout();
                             try
                             {
-                                memberGrid.DataSource = table;
-                                foreach (DataGridViewRow row in memberGrid.Rows)
-                                    row.Cells["选择"].ReadOnly = Convert.ToString(row.Cells["兼容性"].Value, CultureInfo.InvariantCulture) == "不可加入";
+                                memberGrid.DataSource = loaded.MemberTable;
                             }
                             finally { memberGrid.ResumeLayout(); }
                         }
                         await Task.Delay(30);
-                        using (PerformanceMetrics.Begin("EffectWorkbench.CompositeFreeIdBind")) await RefreshFreeIdsAsync();
+                        using (PerformanceMetrics.Begin("EffectWorkbench.CompositeFreeIdBind")) RefreshFreeIds();
                         await Task.Delay(30);
                         var available = compatibilityByInstance.Values.Count(item => item.IsCompatible);
                         status.Text = $"扫描完成：成员 {members.Count} 个，可加入 {available} 个；{loaded.Snapshot.CacheState}";
@@ -998,11 +996,11 @@ public sealed partial class MainForm
                 if (!IsDisposed) scanButton.Enabled = true;
             }
         };
-        researchBox.CheckedChanged += (_, _) => RefreshRecipes();
-        channelBox.SelectedIndexChanged += async (_, _) =>
+        researchBox.CheckedChanged += (_, _) => RefreshRecipes(recipeOptionsExpanded);
+        channelBox.SelectedIndexChanged += (_, _) =>
         {
             compositeBindingGrid.Rows.Clear();
-            await RefreshFreeIdsAsync();
+            RefreshFreeIds();
         };
         addCompositeBindingButton.Click += (_, _) =>
         {
@@ -1028,6 +1026,12 @@ public sealed partial class MainForm
             }
         };
         memberGrid.CurrentCellDirtyStateChanged += (_, _) => { if (memberGrid.IsCurrentCellDirty) memberGrid.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+        memberGrid.CellBeginEdit += (_, e) =>
+        {
+            if (e.ColumnIndex == memberGrid.Columns["选择"].Index &&
+                Convert.ToString(memberGrid.Rows[e.RowIndex].Cells["兼容性"].Value, CultureInfo.InvariantCulture) == "不可加入")
+                e.Cancel = true;
+        };
         page.Disposed += (_, _) => _asyncLoadCoordinator.Cancel("composite-effect-scan");
         previewButton.Click += (_, _) =>
         {
@@ -1113,7 +1117,47 @@ public sealed partial class MainForm
         EffectAnalysisSnapshot Snapshot,
         IReadOnlyDictionary<string, CompositeEffectCompatibility> Compatibility,
         FreeEffectIdReport PersonalFreeIds,
-        FreeEffectIdReport ItemFreeIds);
+        FreeEffectIdReport ItemFreeIds,
+        List<LogicalEffectInstance> Members,
+        DataTable MemberTable,
+        List<string> PersonalFreeIdOptions,
+        List<string> ItemFreeIdOptions);
+
+    private static DataTable BuildCompositeMemberTable(
+        EffectAnalysisSnapshot snapshot,
+        IReadOnlyDictionary<string, CompositeEffectCompatibility> compatibilityByInstance,
+        IReadOnlyList<LogicalEffectInstance> members)
+    {
+        using var timing = PerformanceMetrics.Begin("EffectWorkbench.CompositeRowBuild");
+        var tagsByInstance = snapshot.ModuleCatalog.InstanceTags
+            .ToDictionary(item => item.InstanceId, item => item.SummaryZh, StringComparer.OrdinalIgnoreCase);
+        var table = new DataTable();
+        table.Columns.Add("选择", typeof(bool));
+        foreach (var name in new[] { "索引", "名称", "触发时机", "实际效果", "模块标签", "兼容性", "原因" }) table.Columns.Add(name);
+        for (var i = 0; i < members.Count; i++)
+        {
+            var member = members[i];
+            var memberCompatibility = compatibilityByInstance[member.InstanceId];
+            var compatibility = memberCompatibility.IsCompatible
+                ? memberCompatibility.CompatibilityKind switch
+                {
+                    EffectMemberCompatibilityKind.VerifiedComplexFamily => "家族契约可用",
+                    EffectMemberCompatibilityKind.VerifiedWrapper => "包装链可用",
+                    _ => "直接可用"
+                }
+                : "不可加入";
+            var tags = tagsByInstance.GetValueOrDefault(member.InstanceId) ?? "尚未完整解析";
+            table.Rows.Add(false, i.ToString(CultureInfo.InvariantCulture), member.Name, member.TriggerPhase,
+                member.NaturalLanguageDescription, tags, compatibility, memberCompatibility.ReasonZh);
+        }
+
+        return table;
+    }
+
+    private static List<string> BuildFreeEffectIdOptions(FreeEffectIdReport report)
+        => report.FreeIds.Select(id => $"{id:X2}")
+            .Concat(report.ReclaimableIds.Select(id => $"{id:X2}（替换未引用的“{report.ReclaimableNames[id]}”）"))
+            .ToList();
 
     private sealed class EffectStageControl : Control
     {

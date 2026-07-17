@@ -49,6 +49,26 @@ function Find-FirstFile {
     $file.FullName
 }
 
+function Find-SmokeTestAssembly {
+    param([Parameter(Mandatory = $true)][string]$OutputRoot)
+
+    if (-not (Test-Path -LiteralPath $OutputRoot -PathType Container)) {
+        throw "Smoke test output directory was not built: $OutputRoot"
+    }
+
+    $assembly = Get-ChildItem -LiteralPath $OutputRoot -Recurse -File -Filter "CCZModStudio.SmokeTests.dll" |
+        Where-Object {
+            $_.FullName -notmatch '\\(ref|refint)\\'
+        } |
+        Sort-Object LastWriteTimeUtc, FullName -Descending |
+        Select-Object -First 1
+    if (-not $assembly) {
+        throw "Smoke test DLL was not built under: $OutputRoot"
+    }
+
+    $assembly.FullName
+}
+
 function Test-IsIgnoredPath {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -337,7 +357,7 @@ function Resolve-VerifyGameRoot {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $PSScriptRoot "CCZModStudio.sln"
 $smokeProject = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\CCZModStudio.SmokeTests.csproj"
-$smokeDll = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\bin\$Configuration\net8.0-windows\CCZModStudio.SmokeTests.dll"
+$smokeOutputRoot = Join-Path $PSScriptRoot "CCZModStudio.SmokeTests\bin\$Configuration"
 $mcpValidation = Find-FirstFile -Root $PSScriptRoot -Filter "validate-all-mcp-config.ps1"
 $resolvedGameRoot = Resolve-VerifyGameRoot -ExplicitGameRoot $GameRoot -RepoRoot $repoRoot -ToolRoot $PSScriptRoot
 $env:CCZMODSTUDIO_GAME_ROOT = $resolvedGameRoot
@@ -356,6 +376,7 @@ Invoke-Step "Stale MCP process scan" {
 Invoke-Step "Build solution" {
     Invoke-External -FilePath dotnet -Arguments @("build", $solution, "-c", $Configuration, "-v:minimal", "-p:UseAppHost=false")
 }
+$smokeDll = Find-SmokeTestAssembly -OutputRoot $smokeOutputRoot
 
 Invoke-Step "Runtime boundary scan" {
     Assert-RuntimeBoundary -ToolRoot $PSScriptRoot

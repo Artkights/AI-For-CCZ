@@ -485,8 +485,11 @@ public sealed class ModularEffectLifecycleService
         };
     }
 
-    private static EffectPackage NewMaintenancePackage(CczProject project, ModularEffectManifestV2 manifest, string operation, string name)
-        => new()
+    private EffectPackage NewMaintenancePackage(CczProject project, ModularEffectManifestV2 manifest, string operation, string name)
+    {
+        var dispatcher = ReadDispatcher(project, manifest.DispatcherManifestId);
+        var contract = dispatcher.ContractSnapshot;
+        var package = new EffectPackage
         {
             SchemaVersion = "2.0", PackageId = "modular-" + operation.ToLowerInvariant() + "-" + manifest.ManifestId + "-" + DateTime.Now.ToString("yyyyMMddHHmmssfff"),
             Domain = "patch", EffectId = manifest.Blueprint.EffectId, Name = name,
@@ -495,9 +498,20 @@ public sealed class ModularEffectLifecycleService
                 ["LogicalPatchKind"] = "modular-semantic-maintenance-v2",
                 ["SourceModularManifest"] = manifest.ManifestId,
                 ["ModularMaintenanceOperation"] = operation,
-                ["EngineProfileSha256"] = new EnginePatchProfileService().Build(project).ExeSha256
+                ["EngineProfileSha256"] = new EnginePatchProfileService().Build(project).ExeSha256,
+                ["EffectWriteRunMode"] = EffectSandboxService.IsSandbox(project)
+                    ? EffectWriteRunMode.SandboxValidation
+                    : EffectWriteRunMode.Formal
             }
         };
+        if (contract != null)
+        {
+            package.Metadata["HookExecutionContractId"] = contract.ContractId;
+            package.Metadata["HookExecutionContractHash"] = contract.ContractHash;
+            package.Metadata["ContractCodeIdentityHash"] = contract.ContractCodeIdentityHash;
+        }
+        return package;
+    }
 
     private static CompositeEffectMaintenancePreview FinalizeMaintenance(CczProject project, CompositeEffectMaintenancePreview result)
     {

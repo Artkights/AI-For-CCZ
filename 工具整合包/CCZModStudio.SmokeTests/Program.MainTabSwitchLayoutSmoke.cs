@@ -38,6 +38,8 @@ internal partial class Program
                     throw new InvalidOperationException($"Effect injection tab should be immediately after item settings. item={itemTabIndex} effectInjection={effectInjectionTabIndex}");
                 }
 
+                AssertImagePageHierarchy(form, tabs);
+                AssertImageAssignmentEditSurvivesMainTabSwitch(form, tabs);
                 AssertCmEditSurvivesMainTabSwitch(form, tabs);
 
                 var initialRequests = GetPrivateStaticIntForMainTabSwitchLayoutSmoke("CompactToolbarLayoutRequestCount");
@@ -83,6 +85,86 @@ internal partial class Program
         if (failure != null)
         {
             throw new InvalidOperationException("Main tab switch layout smoke failed.", failure);
+        }
+    }
+
+    private static void AssertImagePageHierarchy(MainForm form, TabControl tabs)
+    {
+        var imagePage = tabs.TabPages.Cast<TabPage>().SingleOrDefault(page => page.Text == "图片设定")
+            ?? throw new InvalidOperationException("Main tabs do not include image settings.");
+        var imageAssignmentPage = tabs.TabPages.Cast<TabPage>().SingleOrDefault(page => page.Text == "形象设定")
+            ?? throw new InvalidOperationException("Main tabs do not include image assignments.");
+        var imagePageIndex = tabs.TabPages.IndexOf(imagePage);
+        var imageAssignmentPageIndex = tabs.TabPages.IndexOf(imageAssignmentPage);
+        if (imageAssignmentPageIndex != imagePageIndex + 1)
+        {
+            throw new InvalidOperationException($"Image assignments should immediately follow image settings. image={imagePageIndex} assignment={imageAssignmentPageIndex}");
+        }
+
+        var allTabPageNames = EnumerateControlsForMainTabSwitchLayoutSmoke(form)
+            .OfType<TabControl>()
+            .SelectMany(tab => tab.TabPages.Cast<TabPage>())
+            .Select(page => page.Text)
+            .ToList();
+        if (allTabPageNames.Contains("人物形象设定", StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException("Legacy image assignment tab is still present.");
+        }
+
+        var imageResourceGrid = GetPrivateFieldForMainTabSwitchLayoutSmoke<DataGridView>(form, "_imageResourceFileGrid");
+        var imageAssignmentGrid = GetPrivateFieldForMainTabSwitchLayoutSmoke<DataGridView>(form, "_imageAssignmentGrid");
+        var imageAssignmentPreview = GetPrivateFieldForMainTabSwitchLayoutSmoke<PictureBox>(form, "_imageAssignmentFacePreviewBox");
+        var loadImageAssignmentsButton = GetPrivateFieldForMainTabSwitchLayoutSmoke<Button>(form, "_loadImageAssignmentsButton");
+        if (!loadImageAssignmentsButton.Text.Equals("读取形象设定", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Unexpected image assignment load button text: {loadImageAssignmentsButton.Text}");
+        }
+        if (!IsDescendantForMainTabSwitchLayoutSmoke(imageResourceGrid, imagePage))
+        {
+            throw new InvalidOperationException("Image resource controls are not hosted by image settings.");
+        }
+        if (!IsDescendantForMainTabSwitchLayoutSmoke(imageAssignmentGrid, imageAssignmentPage) ||
+            !IsDescendantForMainTabSwitchLayoutSmoke(imageAssignmentPreview, imageAssignmentPage))
+        {
+            throw new InvalidOperationException("Image assignment controls are not hosted by image assignments.");
+        }
+        if (EnumerateControlsForMainTabSwitchLayoutSmoke(imagePage).OfType<TabControl>().Any())
+        {
+            throw new InvalidOperationException("Image settings still contains a redundant nested tab control.");
+        }
+    }
+
+    private static void AssertImageAssignmentEditSurvivesMainTabSwitch(MainForm form, TabControl tabs)
+    {
+        var imageAssignmentPage = tabs.TabPages.Cast<TabPage>().Single(page => page.Text == "形象设定");
+        var otherPage = tabs.TabPages.Cast<TabPage>().First(page => page.Text == "图片设定");
+        var grid = GetPrivateFieldForMainTabSwitchLayoutSmoke<DataGridView>(form, "_imageAssignmentGrid");
+        var table = new DataTable("image-assignment-tab-switch-cache");
+        table.Columns.Add("ID", typeof(int));
+        table.Columns.Add("头像编号", typeof(int));
+        table.Rows.Add(1, 2);
+        table.AcceptChanges();
+
+        tabs.SelectedTab = imageAssignmentPage;
+        grid.ReadOnly = false;
+        grid.DataSource = table;
+        Application.DoEvents();
+        var faceColumn = grid.Columns.Cast<DataGridViewColumn>().Single(column => column.DataPropertyName == "头像编号");
+        grid.CurrentCell = grid.Rows[0].Cells[faceColumn.Index];
+        if (!grid.BeginEdit(true) || grid.EditingControl is not DataGridViewTextBoxEditingControl editor)
+        {
+            throw new InvalidOperationException("Image assignment grid did not enter edit mode.");
+        }
+
+        editor.Text = "7";
+        Application.DoEvents();
+        tabs.SelectedTab = otherPage;
+        Application.DoEvents();
+
+        var actual = Convert.ToInt32(table.Rows[0]["头像编号"]);
+        if (actual != 7 || table.Rows[0].RowState != DataRowState.Modified)
+        {
+            throw new InvalidOperationException($"Image assignment edit was lost after switching main tabs. value={actual} state={table.Rows[0].RowState}");
         }
     }
 
@@ -171,5 +253,27 @@ internal partial class Program
         var field = typeof(MainForm).GetField(name, BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException($"Missing static counter {name}.");
         return (int)field.GetValue(null)!;
+    }
+
+    private static IEnumerable<Control> EnumerateControlsForMainTabSwitchLayoutSmoke(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (var nested in EnumerateControlsForMainTabSwitchLayoutSmoke(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    private static bool IsDescendantForMainTabSwitchLayoutSmoke(Control control, Control ancestor)
+    {
+        for (var current = control.Parent; current != null; current = current.Parent)
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+        }
+
+        return false;
     }
 }

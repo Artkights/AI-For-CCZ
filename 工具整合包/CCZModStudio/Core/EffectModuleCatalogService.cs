@@ -33,7 +33,9 @@ public sealed class EffectModuleCatalogService
             Module("trigger.strategy-after-damage", EffectModuleKind.Trigger, "策略伤害后", "策略伤害应用后触发。", false, null, "strategy-post-damage", "effect-subject", "当前基底尚无自动预览 Hook 契约。"),
             Module("trigger.action-end", EffectModuleKind.Trigger, "行动结束", "单位完成一次行动后触发。", false, null, "action-context", "effect-subject", "尚未建立当前 SHA 的行动结束 Hook 契约。"),
             Module("trigger.turn-start", EffectModuleKind.Trigger, "回合开始", "单位或阵营回合开始时触发。", false, null, "turn-context", "effect-subject", "尚未建立当前 SHA 的回合 Hook 契约。"),
-            Module("subject.effect-owner", EffectModuleKind.Subject, "特效拥有者", "传给核心特效判定函数的单位。", strategy?.AllowPreview == true, strategy, "effect-subject", "unit-pointer"),
+            Module("subject.effect-owner", EffectModuleKind.Subject, "特效拥有者", "传给核心特效判定函数的单位。",
+                strategy?.AllowPreview == true || physical?.AllowPreview == true,
+                physical?.AllowPreview == true ? physical : strategy, "effect-subject", "unit-pointer"),
             Module("subject.attacker", EffectModuleKind.Subject, "攻击者", "本次攻击或策略的发动单位。", false, null, "combat-context", "unit-pointer", "现有通用契约没有证明所有 Hook 的攻击者指针来源。"),
             Module("subject.defender", EffectModuleKind.Subject, "受击者", "本次伤害的承受单位。", false, null, "combat-context", "unit-pointer", "现有通用契约没有证明所有 Hook 的受击者指针来源。"),
             Module("target.single", EffectModuleKind.Target, "当前单体", "只作用于当前契约提供的单个单位。", strategy?.AllowPreview == true, strategy, "unit-pointer", "single-target"),
@@ -83,7 +85,7 @@ public sealed class EffectModuleCatalogService
             {
                 RecipeId = "recipe.physical-after-damage-mp", DisplayNameZh = "物理伤害后恢复策略值",
                 RequiredModuleIds = ["trigger.physical-after-damage", "subject.effect-owner", "condition.personal-or-item", "action.restore-mp", "binding.personal-job"],
-                AllowedActionModuleIds = ["action.restore-mp"], AllowedValueModuleIds = ["value.fixed"], MinimumMembers = 1,
+                AllowedActionModuleIds = ["action.restore-mp"], AllowedValueModuleIds = ["value.fixed"], MinimumMembers = 0,
                 IsAvailable = result.Modules.All(item => !new[] { "trigger.physical-after-damage", "action.restore-mp" }.Contains(item.ModuleId) || item.IsAvailableForAuthoring),
                 ReasonZh = "仅在自动验证副本中使用链式 continuation 契约；正式项目仍需 V3 证据。"
             },

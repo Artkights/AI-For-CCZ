@@ -198,7 +198,7 @@ public sealed partial class MainForm
         var row = GetSelectedImageAssignmentRow();
         if (row == null)
         {
-            MessageBox.Show(this, "请先在人物形象设定页面选择一行。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "请先在形象设定页面选择一行。", "像素编辑", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 

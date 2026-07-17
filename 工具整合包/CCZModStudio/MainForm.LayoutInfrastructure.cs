@@ -304,6 +304,7 @@ public sealed partial class MainForm
             "特效注入",
             "全局设定",
             "图片设定",
+            "形象设定",
             "地图编辑",
             "剧本编辑",
             "场景编辑",

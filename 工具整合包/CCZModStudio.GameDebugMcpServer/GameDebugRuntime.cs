@@ -76,6 +76,10 @@ public sealed partial class GameDebugRuntime
         new() { Address = "00484002", Name = "strategy_id_to_record", Phase = "strategy", ExpectedSemantics = "Strategy id to 61H-byte strategy record; base 4A3E77.", TriggerHint = "Strategy initialization and resolution.", EvidenceLevel = "dynamic-hit-on-title-and-static-strategy-call", HighFrequency = true },
         new() { Address = "004061E4", Name = "data_id_to_runtime_character", Phase = "core", ExpectedSemantics = "16-bit Data id to 48H runtime-character record through pointer slot 4CEA00.", TriggerHint = "Character and battle actor lookups.", EvidenceLevel = "verified-static", HighFrequency = true },
         new() { Address = "0040658F", Name = "tactical_unit_to_runtime_character", Phase = "battle", ExpectedSemantics = "TacticalUnit pointer to runtime-character record through unit+00 Data id.", TriggerHint = "Battle actor attribute and maximum-value lookups.", EvidenceLevel = "verified-static", HighFrequency = true },
+        new() { Address = "004837C2", Name = "item_id_to_record", Phase = "data", ExpectedSemantics = "Item id to 19H-byte runtime item record; base 4A1140.", TriggerHint = "Item setup, equipment, inventory and item effects.", EvidenceLevel = "verified-static", HighFrequency = true },
+        new() { Address = "0041B782", Name = "detailed_job_id_to_record", Phase = "data", ExpectedSemantics = "Detailed job id to 23H-byte growth/equipment record; base 4A2A27.", TriggerHint = "Job growth, range and equipment checks.", EvidenceLevel = "verified-static", HighFrequency = true },
+        new() { Address = "0041B7D4", Name = "job_family_id_to_terrain_record", Phase = "data", ExpectedSemantics = "Job family id to 3CH-byte terrain adaptation and movement-cost record; base 4A3517.", TriggerHint = "Terrain and movement calculations.", EvidenceLevel = "verified-static", HighFrequency = true },
+        new() { Address = "00414F65", Name = "consumable_item_id_to_count", Phase = "item", ExpectedSemantics = "Item id 150..254 to one-byte count at 510C80+(id-150).", TriggerHint = "Consumable inventory reads.", EvidenceLevel = "verified-static", HighFrequency = false },
         new() { Address = "004061F9", Name = "get_unit_ptr", Phase = "battle", ExpectedSemantics = "Battle unit id to tactical-unit pointer; stride 30, base 4A7B20.", TriggerHint = "Battle UI, action dispatch, turn loops.", EvidenceLevel = "dynamic-hit-r-scene-sentinel", HighFrequency = true },
         new() { Address = "0041B500", Name = "get_unit_hp", Phase = "battle", ExpectedSemantics = "Read tactical unit current HP at unit+10.", TriggerHint = "Unit panel, target selection, damage calculations.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
         new() { Address = "00450986", Name = "generic_event_dispatch", Phase = "battle", ExpectedSemantics = "Generic event dispatch; suspected HP/combat event path when ECX=100.", TriggerHint = "Damage application, HP changes, event notifications.", EvidenceLevel = "pending-breakpoint", HighFrequency = false },
@@ -97,6 +101,10 @@ public sealed partial class GameDebugRuntime
         new() { Address = "00484002", Name = "strategy_id_to_record", Stage = "startup", Category = "strategy-record", ExpectedSemantics = "Strategy id to 61H-byte strategy record; base 4A3E77.", TriggerHint = "Startup strategy initialization and battle strategy resolution.", EvidenceLevel = "dynamic-hit-title-and-static-strategy-call", Source = "runtime-semantic-registry", HighFrequency = true },
         new() { Address = "004061E4", Name = "data_id_to_runtime_character", Stage = "battle_entry", Category = "character-data", ExpectedSemantics = "16-bit Data id to 48H runtime-character record through pointer slot 4CEA00.", TriggerHint = "Character and battle actor lookups.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
         new() { Address = "0040658F", Name = "tactical_unit_to_runtime_character", Stage = "battle_entry", Category = "character-data", ExpectedSemantics = "TacticalUnit pointer to runtime-character record through unit+00 Data id.", TriggerHint = "Battle actor attribute and maximum-value lookups.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
+        new() { Address = "004837C2", Name = "item_id_to_record", Stage = "startup", Category = "item-record", ExpectedSemantics = "Item id to 19H-byte runtime item record; base 4A1140.", TriggerHint = "Item setup, equipment, inventory and item effects.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
+        new() { Address = "0041B782", Name = "detailed_job_id_to_record", Stage = "startup", Category = "job-record", ExpectedSemantics = "Detailed job id to 23H-byte growth/equipment record; base 4A2A27.", TriggerHint = "Job growth, range and equipment checks.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
+        new() { Address = "0041B7D4", Name = "job_family_id_to_terrain_record", Stage = "startup", Category = "job-terrain-record", ExpectedSemantics = "Job family id to 3CH-byte terrain adaptation and movement-cost record; base 4A3517.", TriggerHint = "Terrain and movement calculations.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry", HighFrequency = true },
+        new() { Address = "00414F65", Name = "consumable_item_id_to_count", Stage = "item", Category = "consumable-count", ExpectedSemantics = "Item id 150..254 to one-byte count at 510C80+(id-150).", TriggerHint = "Consumable inventory reads.", EvidenceLevel = "verified-static", Source = "runtime-semantic-registry" },
         new() { Address = "0042518F", Name = "ability_check_wrapper", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Wrapper ability check; pre-check then core engine or fallback.", TriggerHint = "Title entry and valid special-effect scenes.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
         new() { Address = "0041301E", Name = "dual_channel_check", Stage = "startup", Category = "ability-check", ExpectedSemantics = "Fallback dual-channel effect check reached from ability_check_wrapper.", TriggerHint = "ability_check_wrapper fallback path.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
         new() { Address = "00413009", Name = "get_effect_value", Stage = "startup", Category = "effect-value", ExpectedSemantics = "Read effect value through the dual-channel chain.", TriggerHint = "dual_channel_check internal effect lookup.", EvidenceLevel = "dynamic-hit-title-entry", Source = "function-index-20260609" },
@@ -335,9 +343,9 @@ public sealed partial class GameDebugRuntime
     {
         var paths = ResolveGamePaths(gameRoot, requireExpectedHash: false);
         var process = RequireTargetProcess();
-        var profile = DetectRuntimeProfile(process, paths).RequireBattleLayout();
+        var profile = DetectRuntimeProfile(process, paths).RequireReadableBattleLayout();
         var clampedMaxUnits = Math.Clamp(maxUnits, 1, 512);
-        var snapshot = ReadBattleStateSnapshot(clampedMaxUnits, profile, process);
+        var snapshot = ReadBattleStateSnapshot(clampedMaxUnits, profile, process, allowExternalReference: true);
         var sessionDir = includeRawRanges ? EnsureSessionDirectory(paths.WorkspaceRoot, outputDir) : string.Empty;
         var rawExports = new List<object>();
         if (includeRawRanges)
@@ -363,6 +371,57 @@ public sealed partial class GameDebugRuntime
             runtime_snapshot = TryReadBattlefieldRuntimeSnapshot(),
             raw_exports = rawExports,
             session_dir = sessionDir
+        };
+    }
+
+    public object GameReadRuntimeTable(string tableId, int recordId, string? gameRoot)
+    {
+        var paths = ResolveGamePaths(gameRoot, requireExpectedHash: false);
+        var process = RequireTargetProcess();
+        var profile = DetectRuntimeProfile(process, paths);
+        if (profile.EngineVersion is not "6.4" and not "6.5")
+            throw new InvalidOperationException($"运行时静态表只登记了 6.4/6.5，当前识别为 {profile.EngineVersion}。");
+        if (!EngineRuntimeSemanticRegistry.Tables.TryGetValue((tableId ?? string.Empty).Trim(), out var table))
+            throw new ArgumentException("未知运行时表：" + tableId, nameof(tableId));
+        var address = table.AddressOf(recordId);
+        var bytes = ReadProcessMemory(process.Id, address, table.RecordStride);
+        var fields = table.Fields.Select(field =>
+        {
+            var value = bytes.AsSpan(field.Offset, field.Width).ToArray();
+            long? unsigned = field.Width switch
+            {
+                1 => value[0],
+                2 => BitConverter.ToUInt16(value, 0),
+                4 => BitConverter.ToUInt32(value, 0),
+                _ => null
+            };
+            return new
+            {
+                field_id = field.FieldId,
+                field_name_zh = field.DisplayNameZh,
+                offset = field.Offset,
+                width = field.Width,
+                value_hex = Convert.ToHexString(value),
+                unsigned_value = unsigned,
+                field.EvidenceLevel,
+                writable = false
+            };
+        }).ToList();
+        return new
+        {
+            engine_version = profile.EngineVersion,
+            profile_source = profile.DetectionSource,
+            table_id = table.TableId,
+            table_name_zh = table.DisplayNameZh,
+            record_id = recordId,
+            address = $"0x{address:X8}",
+            record_stride = table.RecordStride,
+            record_hex = Convert.ToHexString(bytes),
+            fields,
+            read_only = true,
+            evidence_level = profile.EngineVersion == "6.5"
+                ? RuntimeSemanticEvidenceLevels.StaticVerified
+                : RuntimeSemanticEvidenceLevels.ExternalReference
         };
     }
 
@@ -13345,9 +13404,13 @@ public sealed partial class GameDebugRuntime
     private BattleStateSnapshot ReadBattleStateSnapshot(int maxUnits, GameDebugRuntimeProfile profile)
         => ReadBattleStateSnapshot(maxUnits, profile, RequireTargetProcess());
 
-    private BattleStateSnapshot ReadBattleStateSnapshot(int maxUnits, GameDebugRuntimeProfile profile, Process process)
+    private BattleStateSnapshot ReadBattleStateSnapshot(
+        int maxUnits,
+        GameDebugRuntimeProfile profile,
+        Process process,
+        bool allowExternalReference = false)
     {
-        profile = profile.RequireBattleLayout();
+        profile = allowExternalReference ? profile.RequireReadableBattleLayout() : profile.RequireBattleLayout();
         var bytes = ReadProcessMemory(process.Id, profile.UnitArrayAddress, maxUnits * profile.UnitStride);
         var units = DecodeUnits(bytes, maxUnits, profile);
         return new BattleStateSnapshot
@@ -13357,6 +13420,10 @@ public sealed partial class GameDebugRuntime
             EngineVersion = profile.EngineVersion,
             ProfileSource = profile.DetectionSource,
             LayoutSource = profile.LayoutSource,
+            LayoutEvidenceLevel = profile.IsRuntimeBattleLayoutVerified
+                ? RuntimeSemanticEvidenceLevels.DynamicVerified
+                : RuntimeSemanticEvidenceLevels.ExternalReference,
+            ReadOnly = true,
             UnitArrayAddress = profile.UnitArrayAddress.ToString("X8", CultureInfo.InvariantCulture),
             UnitStride = profile.UnitStride.ToString("X", CultureInfo.InvariantCulture),
             ActiveUnitCount = units.Count,
@@ -13413,17 +13480,14 @@ public sealed partial class GameDebugRuntime
         for (var i = 0; i < count; i++)
         {
             var o = i * profile.UnitStride;
-            var dataId = ReadUnsigned(bytes, o + profile.UnitDataIdOffset, profile.UnitDataIdByteWidth);
-            if (dataId == EngineRuntimeSemanticRegistry.EmptyTacticalUnitDataId)
+            var unit = EngineRuntimeSemanticRegistry.DecodeTacticalUnitRecord(
+                bytes.AsSpan(o, EngineRuntimeSemanticRegistry.TacticalUnitStride));
+            if (unit.IsEmpty)
             {
                 continue;
             }
-            var hp = ReadUnsigned(bytes, o + profile.UnitCurrentHpOffset, profile.UnitCurrentHpByteWidth);
-            var mp = ReadUnsigned(bytes, o + profile.UnitCurrentMpOffset, profile.UnitCurrentMpByteWidth);
-            var x = bytes[o + profile.UnitXOffset];
-            var y = bytes[o + profile.UnitYOffset];
-            var side = bytes[o + profile.UnitSideOffset];
-            var hasSignal = hp > 0 && hp < 10_000_000 && x < 80 && y < 80 && side <= 3;
+            var hasSignal = unit.CurrentHp > 0 && unit.CurrentHp < 10_000_000 &&
+                            unit.X < 80 && unit.Y < 80 && unit.Side <= 3;
             if (!hasSignal)
             {
                 continue;
@@ -13432,14 +13496,16 @@ public sealed partial class GameDebugRuntime
             rows.Add(new BattleUnitRow
             {
                 UnitIndex = i,
-                DataId = dataId,
-                DisplayId = ReadUnsigned(bytes, o + profile.UnitDisplayIdOffset, profile.UnitDisplayIdByteWidth),
-                Side = side,
-                X = x,
-                Y = y,
-                Action = bytes[o + profile.UnitActionOffset],
-                HP = hp,
-                MP = mp,
+                DataId = unit.DataId,
+                DataIdContainer = unit.DataIdContainer,
+                BattleSpriteId = unit.BattleSpriteId,
+                PackedDisplayState = unit.PackedDisplayState,
+                Side = unit.Side,
+                X = unit.X,
+                Y = unit.Y,
+                Action = unit.Action,
+                HP = unchecked((int)unit.CurrentHp),
+                MP = unchecked((int)unit.CurrentMp),
                 AttrsHex = string.Join(" ", bytes.Skip(o + profile.UnitAttributesOffset).Take(profile.UnitAttributesLength).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)))
             });
         }

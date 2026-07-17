@@ -17,9 +17,11 @@ Assert(baselineSha.Equals(EffectWritableProfileStatus.Current65BaselineSha256, S
     "测试输入不是唯一允许写入的 F9A35758... 基底。");
 
 RunDispatcherRegistryTests();
+RunRuntimeSemanticRegistryTests(source);
 RunReceiptTests(source, tablePath);
 RunEvidenceAndContractTests(source);
 RunReleaseConsistencyTests();
+RunPhysicalRecoverySandboxTrialTests(source, tablePath);
 RunManifestOwnershipTests(source, tablePath);
 RunDispatcherPackageOwnershipTest();
 RunMaintenanceDefinitionPreviewTest(source, tablePath, baselineSha);
@@ -27,7 +29,52 @@ RunTransactionalReadWriteCountTests(source, tablePath);
 
 var finalSha = Sha256(sourceExe);
 Assert(finalSha.Equals(baselineSha, StringComparison.OrdinalIgnoreCase), "Runtime-only 测试修改了真实基底。");
-Console.WriteLine("EFFECT_RUNTIME_TESTS_OK registry=pass receipts=pass evidence=pass ownership=pass maintenance=pass baseline_readonly=pass");
+Console.WriteLine("EFFECT_RUNTIME_TESTS_OK registry=pass runtime_semantics=pass receipts=pass evidence=pass physical_sandbox_guard=pass ownership=pass maintenance=pass baseline_readonly=pass");
+
+static void RunRuntimeSemanticRegistryTests(CczProject source)
+{
+    var unit = new byte[EngineRuntimeSemanticRegistry.TacticalUnitStride];
+    BitConverter.GetBytes((ushort)0x0123).CopyTo(unit, EngineRuntimeSemanticRegistry.TacticalUnitDataIdOffset);
+    unit[2] = 0xAA;
+    unit[3] = 0xBB;
+    unit[EngineRuntimeSemanticRegistry.TacticalUnitBattleSpriteIdOffset] = 0x34;
+    unit[EngineRuntimeSemanticRegistry.TacticalUnitSideOffset] = 0x02;
+    unit[EngineRuntimeSemanticRegistry.TacticalUnitXOffset] = 0x0A;
+    unit[EngineRuntimeSemanticRegistry.TacticalUnitYOffset] = 0x0B;
+    BitConverter.GetBytes(70_000u).CopyTo(unit, EngineRuntimeSemanticRegistry.TacticalUnitCurrentHpOffset);
+    BitConverter.GetBytes(90_000u).CopyTo(unit, EngineRuntimeSemanticRegistry.TacticalUnitCurrentMpOffset);
+    var decoded = EngineRuntimeSemanticRegistry.DecodeTacticalUnitRecord(unit);
+    Assert(decoded.DataId == 0x0123 && decoded.DataIdContainer == 0xBBAA0123,
+        "战术单位 Data号没有按 WORD 读取，或兼容容器被错误截断。");
+    Assert(decoded.BattleSpriteId == 0x34 && decoded.PackedDisplayState == 0x0B0A0234 &&
+           decoded.Side == 0x02 && decoded.X == 0x0A && decoded.Y == 0x0B,
+        "unit+04 打包显示状态没有拆成形象、阵营和坐标字段。");
+    Assert(decoded.CurrentHp == 70_000 && decoded.CurrentMp == 90_000,
+        "战术单位 HP/MP 没有按 DWORD 读取。");
+    unit[0] = 0xFF;
+    unit[1] = 0xFF;
+    Assert(EngineRuntimeSemanticRegistry.DecodeTacticalUnitRecord(unit).IsEmpty,
+        "空槽没有优先按 DataId=FFFF 排除。");
+
+    var items = EngineRuntimeSemanticRegistry.Tables["items"];
+    var jobs = EngineRuntimeSemanticRegistry.Tables["detailed-jobs"];
+    var terrain = EngineRuntimeSemanticRegistry.Tables["job-family-terrain"];
+    var consumables = EngineRuntimeSemanticRegistry.Tables["consumable-counts"];
+    Assert(items.AddressOf(254) == 0x004A2A0E && items.AddressOf(254) + items.RecordStride - 1 == 0x004A2A26,
+        "道具表 00-FE 的基址/步长/末项边界错误。");
+    Assert(jobs.AddressOf(79) == 0x004A34F4 && jobs.AddressOf(79) + jobs.RecordStride - 1 == 0x004A3516,
+        "详细兵种表 80x23H 的末项边界错误。");
+    Assert(terrain.AddressOf(39) == 0x004A3E3B && terrain.AddressOf(39) + terrain.RecordStride - 1 == 0x004A3E76,
+        "兵种系地形表 40x3CH 的末项边界错误。");
+    Assert(consumables.AddressOf(150) == 0x00510C80 && consumables.AddressOf(254) == 0x00510CE8,
+        "消耗品数量数组没有按 itemId-150 寻址。");
+    Assert(EngineRuntimeSemanticRegistry.Functions[0x00484002].OutputType == "StrategyRecord*" &&
+           EngineRuntimeSemanticRegistry.Functions[0x004061E4].OutputType == "RuntimeCharacter*" &&
+           EngineRuntimeSemanticRegistry.Functions[0x0040658F].OutputType == "RuntimeCharacter*",
+        "策略记录与人物记录访问函数仍存在返回类型混淆。");
+    var schema = new RuntimeTableSchemaAuditService().Audit(source);
+    Assert(schema.Accepted, schema.SummaryZh);
+}
 
 static void RunTransactionalReadWriteCountTests(CczProject source, string tablePath)
 {
@@ -72,7 +119,11 @@ static void RunTransactionalReadWriteCountTests(CczProject source, string tableP
         {
             TargetFile = "Data.e5", AddressKind = "FileOffset", Address = offset,
             ExpectedOldBytesHex = oldValue.ToString("X2"), BytesHex = newValue.ToString("X2"),
-            HookPoint = "transaction-count"
+            HookPoint = "transaction-count",
+            ModificationKind = EffectModificationKind.Binding,
+            SemanticFieldId = "runtime-test-binding",
+            SourceLocationId = $"Data.e5:FileOffset:{offset:X8}",
+            RequiredCapability = EffectWriteCapability.RegisteredData
         };
     });
 }
@@ -144,6 +195,72 @@ static void RunEvidenceAndContractTests(CczProject source)
         "缺少可信动态证据时策略伤害配方被错误开放。");
     var repeated = new HookExecutionContractService().Read(source, strategy.ContractId);
     Assert(repeated.ContractHash == strategy.ContractHash, "静态执行契约 hash 不稳定。");
+
+    var physical = contracts.Single(item => item.ContractId == "physical-after-damage-recovery-v2");
+    Assert(physical.ContractVersion == 3 &&
+           physical.EvidenceDisposition == EffectEvidenceDispositions.ValidationOnly &&
+           physical.ContinuationPolicy == HookContinuationPolicies.ChainExistingJumpTarget &&
+           physical.ContinuationAddress == 0x004528FC,
+        "物理恢复契约没有锁定为 validation-only v3 链式 continuation。");
+    Assert(physical.ValidationRecipe.CapturePoints.Count == 6 &&
+           physical.ValidationRecipe.WritableBoundaryKeys.SequenceEqual(["current-mp"]) &&
+           physical.ValidationRecipe.RelationshipRules.Count == 4 &&
+           physical.ValidationRecipe.Scenarios.Single(item => item.ScenarioRole == EffectValidationScenarioRoles.Combo)
+               .RequiredMinimumHits.Values.All(value => value == 2),
+        "物理恢复 V3 配方没有声明六个采集点、可写 MP、四条关系或连击双段。");
+    var program = new SemanticEffectProgram
+    {
+        ProgramId = "physical-recovery-codegen-test",
+        HookContractId = physical.ContractId,
+        Channel = CompositeEffectChannel.PersonalJob,
+        PersonalEffectId = 0x01,
+        ItemEffectId = 0,
+        EffectValueMode = 0,
+        StackingMode = 1,
+        SubjectSlotId = "physical-effect-subject",
+        TargetSlotId = "current-mp",
+        Action = SemanticEffectAction.RestoreMpFixed,
+        ValueSource = SemanticEffectValueSource.Constant,
+        Value = 5,
+        BoundaryPolicy = "DynamicMaximumMp"
+    };
+    var compiled = new SemanticEffectCompiler().Compile(source, program);
+    Assert(compiled.CanCompile && compiled.AssemblySource.Contains("movzx ecx, word [ecx+0x1F]", StringComparison.Ordinal) &&
+           compiled.AssemblySource.Contains("mov dword [edx+0x14], eax", StringComparison.Ordinal) &&
+           compiled.AssemblySource.Contains("jmp 0x004528FC", StringComparison.Ordinal) &&
+           !compiled.AssemblySource.Contains("add dword [edx+0x14]", StringComparison.Ordinal),
+        "物理恢复代码没有使用动态最大 MP、寄存器内安全加法和 004528FC 尾跳。");
+    var evidenceRoot = EffectEvidenceBundleService.EvidenceRootV3(source, physical.ExeSha256, physical.ContractId);
+    var evidenceFilesBefore = Directory.Exists(evidenceRoot)
+        ? Directory.GetFiles(evidenceRoot, "*", SearchOption.AllDirectories).Length
+        : 0;
+    var storeRejected = EffectEvidenceBundleService.VerifyAndStoreV3(source, new EffectEvidenceBundleV3
+    {
+        BundleId = "validation-only-storage-guard",
+        ContractId = physical.ContractId,
+        ContractVersion = physical.ContractVersion,
+        ContractHash = physical.ContractHash,
+        ContractCodeIdentityHash = physical.ContractCodeIdentityHash,
+        EvidenceDisposition = EffectEvidenceDispositions.ValidationOnly
+    });
+    var evidenceFilesAfter = Directory.Exists(evidenceRoot)
+        ? Directory.GetFiles(evidenceRoot, "*", SearchOption.AllDirectories).Length
+        : 0;
+    Assert(!storeRejected.Accepted && storeRejected.SavedPath.Length == 0 && evidenceFilesAfter == evidenceFilesBefore,
+        "ValidationOnly 物理 V3 包进入了正式证据目录。");
+    var oldVersion = new HookExecutionContractService().ImportEvidenceBundleV3(source, new EffectEvidenceBundleV3
+    {
+        BundleId = "old-physical-contract-evidence",
+        ContractId = physical.ContractId,
+        ContractVersion = 2,
+        ContractHash = physical.ContractHash,
+        ContractCodeIdentityHash = physical.ContractCodeIdentityHash,
+        NormalizedProfileIdentity = physical.NormalizedProfileIdentity,
+        EvidenceDisposition = EffectEvidenceDispositions.ValidationOnly,
+        ProbeRestored = true
+    });
+    Assert(!oldVersion.Accepted && oldVersion.WarningsZh.Any(item => item.Contains("版本", StringComparison.Ordinal)),
+        "旧契约版本证据能够提升或验证物理 v3 契约。");
 
     var extended = new ExtendedPersonalJobBindingService().ReadCapability(source);
     Assert(!extended.HasRequiredDynamicEvidence && !extended.QueryCompilerAvailable && !extended.CanInstallRuntimeQuery,
@@ -228,6 +345,28 @@ static void RunReleaseConsistencyTests()
         Environment.SetEnvironmentVariable("CCZ_EFFECT_RELEASE_MANIFEST", previous);
         try { Directory.Delete(root, recursive: true); } catch { }
     }
+}
+
+static void RunPhysicalRecoverySandboxTrialTests(CczProject source, string tablePath)
+{
+    WithTempProject(source, tablePath, copyDataFiles: true, original =>
+    {
+        var originalSha = Sha256(original.ResolveGameFile("Ekd5.exe"));
+        var sandbox = new EffectSandboxService().Create(original);
+        var formalContract = new HookContractService().BuildContracts(original)
+            .Single(item => item.ConflictGroup == "physical-after-damage");
+        var sandboxContract = new HookContractService().BuildContracts(sandbox)
+            .Single(item => item.ConflictGroup == "physical-after-damage");
+        Assert(!formalContract.AllowPreview && sandboxContract.AllowPreview,
+            "物理恢复预览没有保持正式关闭、签名沙箱开放的权限矩阵。");
+
+        ExpectFailure(() => new PhysicalRecoverySandboxTrialService().PrepareAndApply(original, sandbox.GameRoot),
+            "没有完全空白号");
+        Assert(Sha256(original.ResolveGameFile("Ekd5.exe")) == originalSha,
+            "物理恢复沙箱分配阻断修改了原项目 EXE。");
+        Assert(Sha256(sandbox.ResolveGameFile("Ekd5.exe")) == originalSha,
+            "物理恢复沙箱分配阻断修改了验证副本 EXE。");
+    });
 }
 
 static void RunManifestOwnershipTests(CczProject source, string tablePath)
@@ -318,6 +457,7 @@ static void RunMaintenanceDefinitionPreviewTest(CczProject source, string tableP
 {
     WithTempProject(source, tablePath, copyDataFiles: true, project =>
     {
+        project = new EffectSandboxService().Create(project);
         var dispatcherService = new EffectTriggerDispatcherService();
         var cave = new ExeCodeCaveScanner().Scan(project, minimumLength: 512).Candidates
             .First(item => item.FillKind == "nop" && item.Length >= 512);
