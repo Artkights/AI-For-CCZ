@@ -1,0 +1,6 @@
+PyQt5==5.15.10
+psutil>=5.9,<7
+pywin32>=306
+setuptools>=42,<81
+PyInstaller==5.13.2
+capstone>=4,<6
