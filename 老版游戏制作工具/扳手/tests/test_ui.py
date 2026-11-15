@@ -4,6 +4,7 @@ import struct
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from fixture_support import FIXTURE_SKIP_REASON, HAS_FIXTURES, WORKSPACE
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -25,6 +26,7 @@ except ImportError:
 
 
 @unittest.skipIf(QApplication is None, "PyQt5 is not installed")
+@unittest.skipUnless(HAS_FIXTURES, FIXTURE_SKIP_REASON)
 class UiCompatibilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -101,7 +103,7 @@ class UiCompatibilityTests(unittest.TestCase):
             self.assertEqual(geometry, actual)
 
     def test_effect_name_list_uses_current_profile_and_ui_boundary(self):
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         base65 = workspace / "基底" / "加强版6.5未加密版" / "Ekd5.exe"
         pl65 = (workspace / "基底" /
                 "6.5pl加强版神话三国志2026新春版+攻略【密码shsgz65】" /
@@ -152,8 +154,7 @@ class UiCompatibilityTests(unittest.TestCase):
                          self.window.mouseReleaseEvent.__func__.__qualname__)
 
     def test_attach_pipeline_opens_memory_before_runtime_profile_detection(self):
-        source = inspect.getsource(
-            mywindow_module.Ui_MainWindow.mouseReleaseEvent)
+        source = inspect.getsource(mywindow_module._ProfileScanTask.run)
         open_at = source.index("MemorySession.open_pid")
         runtime_at = source.index("RuntimeModuleImage")
         detect_at = source.index("detect_composite_profile")
@@ -216,7 +217,7 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(
             1, 0x00400000, 0x143000, backend=backend,
             owns_handle=False, reference_image_base=0x00400000)
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -303,7 +304,7 @@ class UiCompatibilityTests(unittest.TestCase):
         self.assertEqual(encode_effect_assignment_row_66(row),
                          backend.read(address, 16))
 
-    def test_effect_assignment_66_partial_write_keeps_written_prefix(self):
+    def test_effect_assignment_66_partial_write_rolls_back_snapshot(self):
         original = EffectAssignmentRow66(
             tuple(EffectAssignmentSlot66(1024, 1) for _ in range(4)),
             (EffectAssignmentSlot66(255, 1),
@@ -317,8 +318,7 @@ class UiCompatibilityTests(unittest.TestCase):
         backend.partial_write_at = address
         with self.assertRaises(MemoryAccessError):
             self.window._write_effect_assignment_66(0, changed)
-        expected = (encode_effect_assignment_row_66(changed)[:-1] +
-                    encode_effect_assignment_row_66(original)[-1:])
+        expected = encode_effect_assignment_row_66(original)
         self.assertEqual(expected, backend.read(address, 16))
 
     def test_hybrid_8_byte_effect_round_trip_preserves_opaque_empty_tokens(self):
@@ -329,7 +329,7 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(
             1, 0x00400000, 0x143000, backend=backend,
             owns_handle=False, reference_image_base=0x00400000)
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "厚黑6.6测（7.9水杯版）" / "Ekd5.exe"),
             version_part=6)
@@ -358,7 +358,7 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(
             1, 0x00400000, 0x143000, backend=backend,
             owns_handle=False, reference_image_base=0x00400000)
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -438,7 +438,7 @@ class UiCompatibilityTests(unittest.TestCase):
         expected[3] = 41
         self.assertEqual(bytes(expected), replacement)
 
-    def test_power_direct_write_keeps_effect_when_exclusive_write_fails(self):
+    def test_power_transaction_rolls_back_both_when_exclusive_write_fails(self):
         memory_base = 0x00500000
         effect_base = 0x00511000
         exclusive_base = 0x0050E000
@@ -464,7 +464,7 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(
             1, 0x00400000, 0x200000, backend=backend,
             owns_handle=False, reference_image_base=0x00400000)
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -504,19 +504,25 @@ class UiCompatibilityTests(unittest.TestCase):
             self.window._commit_power_snapshots(
                 0, encode_effect_assignment_row_66(changed_effect),
                 changed_exclusive)
-        self.assertEqual(encode_effect_assignment_row_66(changed_effect),
+        self.assertEqual(encode_effect_assignment_row_66(original_effect),
                          backend.read(effect_base, 16))
-        self.assertEqual(changed_exclusive[:-1],
-                         backend.read(exclusive_base, 15))
-        self.assertEqual(original_exclusive[-1:],
-                         backend.read(exclusive_base + 15, 1))
+        self.assertEqual(original_exclusive,
+                         backend.read(exclusive_base, 16))
 
     def test_direct_66_profile_enables_write_controls(self):
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
         self.window.engine_profile = profile
+        base = profile.preferred_image_base
+        backend = FakeMemoryBackend(base, bytes(profile.image_size))
+        self.window.memory_session = MemorySession(
+            1, base, profile.image_size, backend=backend, owns_handle=False,
+            reference_image_base=base)
+        for patch in profile.patches.values():
+            for site in patch.sites:
+                backend.write(site.address, site.original)
         self.window.widget_1.setEnabled(True)
         self.window.widget_2.setEnabled(True)
         self.window._apply_capabilities()
@@ -545,7 +551,7 @@ class UiCompatibilityTests(unittest.TestCase):
                                 owns_handle=False,
                                 reference_image_base=base)
         self.window.memory_session = session
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -575,7 +581,7 @@ class UiCompatibilityTests(unittest.TestCase):
                                 owns_handle=False,
                                 reference_image_base=base)
         self.window.memory_session = session
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -613,15 +619,16 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(base, base, len(data), backend=backend,
                                 owns_handle=False,
                                 reference_image_base=base)
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
         self.window.memory_session = session
         self.window._sync_66_patch_controls()
         self.assertFalse(self.window.checkBox_7.isChecked())
-        self.assertIn("部分补丁站点", self.window.checkBox_7.toolTip())
-        self.assertIn("部分补丁站点", self.window.label_window2.toolTip())
+        self.assertFalse(self.window.checkBox_7.isEnabled())
+        self.assertIn("补丁站点状态不一致", self.window.checkBox_7.toolTip())
+        self.assertIn("补丁站点状态不一致", self.window.label_window2.toolTip())
         session.close()
         self.window.memory_session = None
 
@@ -637,7 +644,7 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(base, base, len(data), backend=backend,
                                 owns_handle=False,
                                 reference_image_base=base)
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -655,13 +662,13 @@ class UiCompatibilityTests(unittest.TestCase):
                          self.window._variable_address("variables_bool", 8))
         self.assertEqual(0x00492FCC,
                          self.window._variable_address("variables_bool", 32))
-        self.assertEqual(0x004931C7,
-                         self.window._variable_address("variables_bool", 4095))
+        self.assertEqual(0x00493087,
+                         self.window._variable_address("variables_bool", 1535))
         layout = self.window._variable_layout("variables_bool")
         self.assertEqual(0x80, self.window._variable_bit_mask(layout, 264))
         self.assertEqual(0x20, self.window._variable_bit_mask(layout, 466))
         self.assertEqual(0x10, self.window._variable_bit_mask(layout, 467))
-        self.assertEqual(0x01, self.window._variable_bit_mask(layout, 4095))
+        self.assertEqual(0x01, self.window._variable_bit_mask(layout, 1535))
         values = self.window._variable_values("variables_bool", 0)
         self.assertEqual(1, values[0])
         self.assertEqual(0, values[1])
@@ -674,7 +681,7 @@ class UiCompatibilityTests(unittest.TestCase):
         self.assertEqual(1, values[466 - 400])
         self.assertEqual(1, values[467 - 400])
         self.window.onVar()
-        self.assertEqual("492FC8",
+        self.assertEqual("492FC8.7",
                           self.window.listview_var_1.item(0, 2).text())
         self.assertEqual("True",
                          self.window.listview_var_1.item(0, 1).text())
@@ -690,7 +697,7 @@ class UiCompatibilityTests(unittest.TestCase):
         self.assertEqual(0x80, session.read_u8(0x00492FC9))
 
     def _prepare_66_item_profile(self):
-        workspace = Path(__file__).resolve().parents[3]
+        workspace = WORKSPACE
         self.window.engine_profile = detect_engine(str(
             workspace / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"),
             version_part=6)
@@ -738,30 +745,37 @@ class UiCompatibilityTests(unittest.TestCase):
         session = MemorySession(base, base, len(data), backend=backend,
                                 owns_handle=False,
                                 reference_image_base=base)
-        original_write_transaction = session.write_transaction
+        original_write_transaction = session.guarded_compare_exchange_transaction
 
         def record_transaction(entries):
             entries = tuple(entries)
             transactions.append(entries)
             original_write_transaction(entries)
 
-        session.write_transaction = record_transaction
+        session.guarded_compare_exchange_transaction = record_transaction
         self.window.memory_session = session
+        self.window._inventory_session = session.session_generation
+        self.window._warehouse_full_snapshot = bytes(600)
+        self.window._consumable_snapshots = {
+            address: b"\0" for address in range(0x00493AF0, 0x00493B18)}
         self.window.onItem = lambda: None
         self.window.allItem(2)
         self.assertEqual(40, len(transactions[0]))
         self.assertEqual(list(range(0x00493AF0, 0x00493B18)),
-                         [address for address, _value in transactions[0]])
-        self.assertTrue(all(value == b"\xFF"
-                            for _address, value in transactions[0]))
+                         [entry.address for entry in transactions[0]])
+        self.assertTrue(all(entry.replacement == b"\xFF"
+                            for entry in transactions[0]))
 
+        self.window._consumable_snapshots = {
+            address: b"\xFF" for address in range(0x00493AF0, 0x00493B18)}
         self.window.allItem(3)
-        self.assertEqual(240, len(transactions[1]))
-        consumables = transactions[1][200:]
+        self.assertEqual(41, len(transactions[1]))
+        self.assertEqual(600, len(transactions[1][0].replacement))
+        consumables = transactions[1][1:]
         self.assertEqual(list(range(0x00493AF0, 0x00493B18)),
-                         [address for address, _value in consumables])
-        self.assertTrue(all(value == b"\0"
-                            for _address, value in consumables))
+                         [entry.address for entry in consumables])
+        self.assertTrue(all(entry.replacement == b"\0"
+                            for entry in consumables))
 
     def test_consumable_only_save_does_not_require_warehouse_selection(self):
         self._prepare_66_item_profile()
@@ -870,15 +884,16 @@ class UiCompatibilityTests(unittest.TestCase):
         save_source = inspect.getsource(mywindow_module.Ui_MainWindow.savePower)
         self.assertTrue(save_source.rstrip().endswith("self.onPower()"))
 
-    def test_fatal_save_does_not_add_refresh_helper(self):
+    def test_fatal_save_refreshes_snapshot_without_remote_helper(self):
         source = inspect.getsource(mywindow_module.Ui_MainWindow.saveMk)
-        self.assertNotIn("self.onMk(", source)
+        self.assertIn("self.onMk()", source)
+        self.assertIn("guarded_compare_exchange_transaction", source)
         self.assertNotIn("my_hook(", source)
 
     def test_clear_item_keeps_warehouse_boundary_at_200_slots(self):
         source = inspect.getsource(mywindow_module.Ui_MainWindow.allItem)
         self.assertIn("for slot in range(0, 200)", source)
-        self.assertIn("for i in range(0,200)", source)
+        self.assertIn("len(original) != 600", source)
         self.assertNotIn("range(0,256)", source)
         self.assertNotIn("range(0, 256)", source)
 

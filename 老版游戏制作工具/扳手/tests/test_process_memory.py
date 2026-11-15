@@ -278,13 +278,16 @@ class ProcessMemoryTests(unittest.TestCase):
         self.assertEqual(b"\x03", backend.read(BASE, 1))
 
     def test_prepatched_external_site_is_not_claimed(self):
-        session, _ = make_session(b"\xEB" + b"\0" * 31)
+        session, backend = make_session(b"\xEB" + b"\0" * 31)
         spec = PatchSpec("test", "测试补丁", (
             PatchSite(BASE, b"\x74", b"\xEB"),
         ))
-        session.set_patch(spec, True)
+        with self.assertRaises(PatchError):
+            session.set_patch(spec, True)
         with self.assertRaises(PatchError):
             session.set_patch(spec, False)
+        self.assertEqual({}, session._active_patches)
+        self.assertEqual(b"\xEB", backend.read(BASE, 1))
 
     def test_partially_prepatched_transaction_is_rejected_without_writes(self):
         session, backend = make_session(b"\xEB" + b"\0" * 15 + b"\x74" + b"\0" * 32)
@@ -330,15 +333,55 @@ class ProcessMemoryTests(unittest.TestCase):
         ))
         self.assertEqual(b"\xEB", backend.read(BASE, 1))
 
-    def test_direct_patch_overwrites_external_bytes_and_restores_declared_original(self):
+    def test_guarded_compare_exchange_rejects_stale_bytes_in_direct_mode(self):
+        session, backend = make_session(b"\x90" + b"\0" * 31,
+                                        direct_write=True)
+        with self.assertRaises(MemoryAccessError):
+            session.guarded_compare_exchange_transaction((
+                CompareWriteEntry(BASE, b"\x74", b"\xEB"),
+            ))
+        self.assertEqual(b"\x90", backend.read(BASE, 1))
+
+    def test_guarded_compare_exchange_rolls_back_partial_direct_write(self):
+        session, backend = make_session(
+            b"\x01" + b"\0" * 15 + b"\x02" + b"\0" * 32,
+            direct_write=True)
+        backend.fail_write_at = BASE + 16
+        with self.assertRaises(MemoryAccessError):
+            session.guarded_compare_exchange_transaction((
+                CompareWriteEntry(BASE, b"\x01", b"\x11"),
+                CompareWriteEntry(BASE + 16, b"\x02", b"\x22"),
+            ))
+        self.assertEqual(b"\x01", backend.read(BASE, 1))
+        self.assertEqual(b"\x02", backend.read(BASE + 16, 1))
+
+    def test_guarded_compare_exchange_rejects_overlap_and_unequal_width(self):
+        session, _ = make_session()
+        with self.assertRaises(MemoryAccessError):
+            session.guarded_compare_exchange_transaction((
+                CompareWriteEntry(BASE, b"\0\0", b"\x01\x02"),
+                CompareWriteEntry(BASE + 1, b"\0", b"\x03"),
+            ))
+        with self.assertRaises(ValueError):
+            CompareWriteEntry(BASE, b"\0", b"\x01\x02")
+
+    def test_compat_patch_rejects_external_bytes_and_preserves_ownership(self):
         session, backend = make_session(b"\x90" + b"\0" * 31,
                                         direct_write=True)
         spec = PatchSpec("test", "直接补丁", (
             PatchSite(BASE, b"\x74", b"\xEB"),
         ))
+        with self.assertRaises(PatchError):
+            session.set_patch(spec, True)
+        self.assertEqual(b"\x90", backend.read(BASE, 1))
+        backend.write(BASE, b"\x74")
         session.set_patch(spec, True)
         self.assertEqual(b"\xEB", backend.read(BASE, 1))
         backend.write(BASE, b"\xCC")
+        with self.assertRaises(PatchError):
+            session.set_patch(spec, False)
+        self.assertEqual(b"\xCC", backend.read(BASE, 1))
+        backend.write(BASE, b"\xEB")
         session.set_patch(spec, False)
         self.assertEqual(b"\x74", backend.read(BASE, 1))
 
@@ -412,7 +455,7 @@ class ProcessMemoryTests(unittest.TestCase):
             session.set_dynamic_patch(spec, False)
         self.assertNotIn(lease.allocation, backend.freed)
 
-    def test_direct_dynamic_stub_restores_without_ownership_or_eip_checks(self):
+    def test_compat_dynamic_stub_checks_ownership_and_thread_eip(self):
         data = bytearray(b"\0" * 0x100)
         original = b"\xE8\x01\x02\x03\x04"
         data[0x10:0x15] = original
@@ -425,6 +468,14 @@ class ProcessMemoryTests(unittest.TestCase):
         lease = session._dynamic_leases[spec.key]
         backend.write(BASE + 0x10, b"\xCC" * 5)
         backend.active_eips = [lease.allocation + 1]
+        with self.assertRaises(PatchError):
+            session.set_dynamic_patch(spec, False)
+        self.assertNotIn(lease.allocation, backend.freed)
+        backend.write(BASE + 0x10, lease.branch_bytes[0])
+        with self.assertRaises(PatchError):
+            session.set_dynamic_patch(spec, False)
+        self.assertNotIn(lease.allocation, backend.freed)
+        backend.active_eips = []
         session.set_dynamic_patch(spec, False)
         self.assertEqual(original, backend.read(BASE + 0x10, 5))
         self.assertIn(lease.allocation, backend.freed)
@@ -537,6 +588,9 @@ class ProcessMemoryTests(unittest.TestCase):
 
         session, _backend = make_session()
         captured = {}
+        profile.remote_calls["turn_refresh_direction"] = RemoteCallSpec(
+            "turn_refresh_direction", "转向刷新", 0x004575B8, b"", True,
+            wrapper_kind="turn-66-six-args-v1")
         helper.session = session
         helper._run = lambda current, shellcode, data: captured.update(
             session=current, shellcode=shellcode, data=data)
@@ -551,6 +605,21 @@ class ProcessMemoryTests(unittest.TestCase):
             "turn_refresh_direction", "转向刷新", 0, b"", False)
         with self.assertRaises(HookError):
             helper.changeDir(session, 3, 42)
+
+    def test_remote_entry_mutation_rejects_before_allocating(self):
+        session, backend = make_session(b"\x55\x8b\xec" + b"\0" * 0xFD)
+        profile = SimpleNamespace(
+            capability=lambda key: FeatureCapability(
+                key, CapabilityState.STATIC_VERIFIED, "verified"),
+            can_use=lambda key: True,
+            remote_calls={"recalculate": RemoteCallSpec(
+                "recalculate", "重算", BASE, b"\x55\x8b\xec", True,
+                wrapper_kind="recalculate-person-v1")})
+        helper = my_hook(session, profile)
+        backend.write(BASE, b"\x90")
+        with self.assertRaisesRegex(HookError, "入口运行时字节已变化"):
+            helper.recal(session, BASE + 0x20)
+        self.assertEqual({}, backend.allocations)
 
     def test_revive_wrapper_rejects_invalid_arguments_before_remote_thread(self):
         session, backend = make_session()

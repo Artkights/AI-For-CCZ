@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import os
 import struct
+import uuid
 from contextlib import contextmanager
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -66,6 +67,83 @@ class MemoryAccessError(RuntimeError):
 
 class PatchError(MemoryAccessError):
     pass
+
+
+def windows_api_error(action: str, error: Optional[int] = None,
+                      process_operation: bool = False) -> MemoryAccessError:
+    """Keep the Win32 code while explaining common attachment failures."""
+    error = ctypes.get_last_error() if error is None else int(error)
+    detail = ""
+    if error == 5:
+        detail = "；访问被拒绝，请让扳手与游戏使用相同权限，必要时以管理员身份运行扳手"
+    elif error in (193, 216) or (error == 299 and process_operation):
+        detail = "；目标架构不受支持，请选择 32 位游戏并使用 32 位扳手"
+    elif process_operation and error in (6, 87, 1168):
+        detail = "；目标进程已退出或 PID 不存在，请重新选择游戏窗口"
+    return MemoryAccessError("%s，WinError=%d%s" % (action, error, detail))
+
+
+def _host_bits() -> int:
+    return ctypes.sizeof(ctypes.c_void_p) * 8
+
+
+def query_process_architecture(process_handle: int, kernel32=None) -> str:
+    """Identify x86 without requiring the Windows 10 IsWow64Process2 API."""
+    kernel32 = kernel32 or ctypes.WinDLL("kernel32", use_last_error=True)
+    newer_api = getattr(kernel32, "IsWow64Process2", None)
+    if newer_api is not None:
+        newer_api.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.USHORT),
+                             ctypes.POINTER(wintypes.USHORT)]
+        newer_api.restype = wintypes.BOOL
+        process_machine = wintypes.USHORT()
+        native_machine = wintypes.USHORT()
+        if newer_api(wintypes.HANDLE(process_handle),
+                     ctypes.byref(process_machine), ctypes.byref(native_machine)):
+            machine = process_machine.value or native_machine.value
+            return {0x014C: "x86", 0x8664: "x64", 0xAA64: "arm64"}.get(
+                machine, "machine-0x%04X" % machine)
+        error = ctypes.get_last_error()
+        if error not in (87, 120, 127):
+            raise windows_api_error("查询目标架构失败", error,
+                                    process_operation=True)
+    api = kernel32.IsWow64Process
+    api.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+    api.restype = wintypes.BOOL
+    target_wow64 = wintypes.BOOL()
+    if not api(wintypes.HANDLE(process_handle), ctypes.byref(target_wow64)):
+        raise windows_api_error("查询目标架构失败", process_operation=True)
+    if target_wow64.value:
+        return "x86"
+    if _host_bits() == 64:
+        return "x64"
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    current_wow64 = wintypes.BOOL()
+    if not api(kernel32.GetCurrentProcess(), ctypes.byref(current_wow64)):
+        raise windows_api_error("查询扳手架构失败")
+    return "x64" if current_wow64.value else "x86"
+
+
+def validate_live_process(process_handle: int, read_only: bool,
+                          kernel32=None) -> str:
+    """Enforce the x86 live-write contract; offline backends never call this."""
+    if not read_only and _host_bits() != 32:
+        raise MemoryAccessError(
+            "64 位宿主不支持真实进程写入；请使用 32 位扳手，或使用只读诊断")
+    kernel32 = kernel32 or ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE,
+                                          ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    exit_code = wintypes.DWORD()
+    if not kernel32.GetExitCodeProcess(wintypes.HANDLE(process_handle),
+                                      ctypes.byref(exit_code)):
+        raise windows_api_error("检查目标进程状态失败", process_operation=True)
+    if exit_code.value != 259:  # STILL_ACTIVE
+        raise MemoryAccessError("目标进程已退出，请重新选择游戏窗口")
+    architecture = query_process_architecture(process_handle, kernel32)
+    if architecture != "x86":
+        raise MemoryAccessError("目标架构 %s 不受支持；扳手仅支持 32 位 x86 游戏" %
+                                architecture)
+    return architecture
 
 
 @dataclass(frozen=True)
@@ -243,10 +321,26 @@ def query_process_security(process_handle: int) -> Dict[str, object]:
         if get_policy(wintypes.HANDLE(process_handle),
                       PROCESS_DYNAMIC_CODE_POLICY, ctypes.byref(policy),
                       ctypes.sizeof(policy)):
+            result["dynamicCodePolicySupported"] = True
             result["dynamicCodeFlags"] = int(policy.Flags)
             result["prohibitDynamicCode"] = bool(policy.Flags & 0x1)
         else:
-            result["dynamicCodePolicyError"] = ctypes.get_last_error()
+            error = ctypes.get_last_error()
+            result["dynamicCodePolicyError"] = error
+            # On Windows 7 this API may be exported by a compatibility layer
+            # but reject the policy class with ERROR_INVALID_PARAMETER (87) or
+            # ERROR_CALL_NOT_IMPLEMENTED (120).  It is diagnostics only.
+            if error in (87, 120, 127):
+                result["dynamicCodePolicySupported"] = False
+                result["dynamicCodePolicy"] = "unknown"
+    else:
+        # GetProcessMitigationPolicy was introduced after Windows 7.  Its
+        # absence only removes a diagnostic; memory access remains usable.
+        result["dynamicCodePolicySupported"] = False
+        # Keep the public state uniform with Win7 compatibility-layer stubs:
+        # the policy cannot be determined, rather than being treated as a
+        # positive or negative security result.
+        result["dynamicCodePolicy"] = "unknown"
     return result
 
 
@@ -327,11 +421,13 @@ def get_process_module(pid: int,
     kernel32.CloseHandle.restype = wintypes.BOOL
     snapshot = kernel32.CreateToolhelp32Snapshot(0x00000008 | 0x00000010, int(pid))
     if snapshot in (0, -1, ctypes.c_void_p(-1).value):
-        raise MemoryAccessError("枚举游戏模块失败，WinError=%d" % ctypes.get_last_error())
+        raise windows_api_error("枚举游戏模块失败", process_operation=True)
     try:
         entry = _MODULEENTRY32W()
         entry.dwSize = ctypes.sizeof(entry)
         ok = kernel32.Module32FirstW(snapshot, ctypes.byref(entry))
+        if not ok and ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+            raise windows_api_error("读取游戏模块列表失败", process_operation=True)
         while ok:
             if module_name is None or entry.szModule.lower() == module_name.lower():
                 return (ctypes.cast(entry.modBaseAddr, ctypes.c_void_p).value or 0,
@@ -340,7 +436,7 @@ def get_process_module(pid: int,
     finally:
         kernel32.CloseHandle(snapshot)
     if module_name is None:
-        raise MemoryAccessError("目标进程没有可枚举的主模块")
+        raise MemoryAccessError("目标进程已退出或没有可枚举的主模块，请重新选择游戏窗口")
     raise MemoryAccessError("目标进程中没有找到 %s 模块" % module_name)
 
 
@@ -387,6 +483,9 @@ class Win32Backend:
         k32.CreateRemoteThread.restype = wintypes.HANDLE
         k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
         k32.WaitForSingleObject.restype = wintypes.DWORD
+        k32.GetExitCodeThread.argtypes = [wintypes.HANDLE,
+                                        ctypes.POINTER(wintypes.DWORD)]
+        k32.GetExitCodeThread.restype = wintypes.BOOL
         k32.CloseHandle.argtypes = [wintypes.HANDLE]
         k32.CloseHandle.restype = wintypes.BOOL
 
@@ -397,9 +496,9 @@ class Win32Backend:
             self.handle, ctypes.c_void_p(address), buffer, size,
             ctypes.byref(transferred))
         if not ok or transferred.value != size:
-            raise MemoryAccessError(
-                "读取 0x%08X 失败，实际 %d/%d 字节，WinError=%d" %
-                (address, transferred.value, size, ctypes.get_last_error()))
+            raise windows_api_error(
+                "读取 0x%08X 失败，实际 %d/%d 字节" %
+                (address, transferred.value, size))
         return buffer.raw
 
     def write(self, address: int, data: bytes) -> int:
@@ -409,16 +508,15 @@ class Win32Backend:
             self.handle, ctypes.c_void_p(address), buffer, len(data),
             ctypes.byref(transferred))
         if not ok:
-            raise MemoryAccessError(
-                "写入 0x%08X 失败，实际 %d/%d 字节，WinError=%d" %
-                (address, transferred.value, len(data), ctypes.get_last_error()))
+            raise windows_api_error(
+                "写入 0x%08X 失败，实际 %d/%d 字节" %
+                (address, transferred.value, len(data)))
         return int(transferred.value)
 
     def flush(self, address: int, size: int) -> None:
         if not self.kernel32.FlushInstructionCache(
                 self.handle, ctypes.c_void_p(address), size):
-            raise MemoryAccessError("刷新指令缓存失败，WinError=%d" %
-                                    ctypes.get_last_error())
+            raise windows_api_error("刷新指令缓存失败")
 
     def query_page(self, address: int) -> MemoryPageInfo:
         info = _MEMORY_BASIC_INFORMATION()
@@ -426,7 +524,7 @@ class Win32Backend:
             self.handle, ctypes.c_void_p(address), ctypes.byref(info),
             ctypes.sizeof(info))
         if not result:
-            raise MemoryAccessError("查询内存页 0x%08X 失败" % address)
+            raise windows_api_error("查询内存页 0x%08X 失败" % address)
         return MemoryPageInfo(
             int(info.BaseAddress or 0), int(info.AllocationBase or 0),
             int(info.AllocationProtect), int(info.RegionSize),
@@ -442,20 +540,20 @@ class Win32Backend:
         if not self.kernel32.VirtualProtectEx(
                 self.handle, ctypes.c_void_p(address), size, protection,
                 ctypes.byref(old)):
-            raise MemoryAccessError("修改内存页保护失败，WinError=%d" % ctypes.get_last_error())
+            raise windows_api_error("修改内存页保护失败")
         return int(old.value)
 
     def allocate(self, size: int, protection: int = PAGE_READWRITE) -> int:
         address = self.kernel32.VirtualAllocEx(
             self.handle, None, size, 0x1000 | 0x2000, protection)
         if not address:
-            raise MemoryAccessError("分配远程内存失败，WinError=%d" % ctypes.get_last_error())
+            raise windows_api_error("分配远程内存失败")
         return int(address)
 
     def free(self, address: int) -> None:
         if address and not self.kernel32.VirtualFreeEx(
                 self.handle, ctypes.c_void_p(address), 0, MEM_RELEASE):
-            raise MemoryAccessError("释放远程内存失败，WinError=%d" % ctypes.get_last_error())
+            raise windows_api_error("释放远程内存失败")
 
     def create_thread(self, start: int, parameter: int) -> int:
         thread_id = wintypes.DWORD(0)
@@ -463,7 +561,7 @@ class Win32Backend:
             self.handle, None, 0, ctypes.c_void_p(start),
             ctypes.c_void_p(parameter), 0, ctypes.byref(thread_id))
         if not handle:
-            raise MemoryAccessError("创建远程线程失败，WinError=%d" % ctypes.get_last_error())
+            raise windows_api_error("创建远程线程失败")
         return int(handle)
 
     def wait_thread(self, thread: int, timeout_ms: int) -> None:
@@ -472,6 +570,11 @@ class Win32Backend:
             raise MemoryAccessError("远程线程执行超时")
         if result != 0:
             raise MemoryAccessError("等待远程线程失败，返回值=0x%08X" % result)
+        exit_code = wintypes.DWORD(0)
+        if not self.kernel32.GetExitCodeThread(thread, ctypes.byref(exit_code)):
+            raise MemoryAccessError("读取远程线程退出状态失败")
+        if exit_code.value >= 0xC0000000:
+            raise MemoryAccessError("远程线程异常退出，状态=0x%08X" % exit_code.value)
 
     def close_thread(self, thread: int) -> None:
         if thread:
@@ -501,10 +604,23 @@ class MemorySession:
                  read_only: bool = False):
         self.handle = int(handle)
         self.pid = pid
+        # A PID can be reused; even two attachments to the same live process
+        # must not share table descriptors or stale read/modify/write snapshots.
+        self.process_created_at = None
+        if pid is not None:
+            try:
+                import psutil
+                self.process_created_at = psutil.Process(int(pid)).create_time()
+            except Exception:
+                pass
+        self.session_generation = "%s:%s:%s" % (
+            pid, self.process_created_at, uuid.uuid4().hex)
         self.module_base = int(module_base)
         self.module_size = int(module_size)
         self.reference_image_base = int(reference_image_base)
         self.backend = backend if backend is not None else Win32Backend(handle)
+        if isinstance(self.backend, Win32Backend):
+            validate_live_process(self.handle, read_only, self.backend.kernel32)
         self.owns_handle = owns_handle
         self.direct_write = bool(direct_write)
         self.read_only = bool(read_only)
@@ -512,6 +628,7 @@ class MemorySession:
         self.last_error = ""
         self.error_handler = None
         self._active_patches: Dict[str, PatchSpec] = {}
+        self.patch_runtime_errors: Dict[str, str] = {}
         self._dynamic_leases: Dict[str, DynamicPatchLease] = {}
         self._orphaned_allocations = []
         self._write_guards: Dict[str, Tuple[int, bytearray]] = {}
@@ -534,6 +651,15 @@ class MemorySession:
                  read_only: bool = False) -> "MemorySession":
         if os.name != "nt":
             raise MemoryAccessError("进程内存调试只支持 Windows")
+        try:
+            pid = int(pid)
+        except (TypeError, ValueError, OverflowError):
+            raise MemoryAccessError("PID 无效，请重新选择游戏窗口") from None
+        if not 0 < pid <= 0xFFFFFFFF:
+            raise MemoryAccessError("PID 不存在或无效，请重新选择游戏窗口")
+        if not read_only and _host_bits() != 32:
+            raise MemoryAccessError(
+                "64 位宿主不支持真实进程写入；请使用 32 位扳手，或使用只读诊断")
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
         kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -542,10 +668,16 @@ class MemorySession:
             access |= PROCESS_VM_OPERATION | PROCESS_VM_WRITE
         handle = kernel32.OpenProcess(access, False, int(pid))
         if not handle:
-            raise MemoryAccessError("打开游戏进程失败，WinError=%d" % ctypes.get_last_error())
-        return cls(int(handle), module_base, module_size, owns_handle=True, pid=pid,
-                   reference_image_base=reference_image_base,
-                   read_only=read_only)
+            raise windows_api_error("打开游戏进程失败", process_operation=True)
+        try:
+            return cls(int(handle), module_base, module_size, owns_handle=True, pid=pid,
+                       reference_image_base=reference_image_base,
+                       read_only=read_only)
+        except Exception:
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            kernel32.CloseHandle(handle)
+            raise
 
     def resolve_reference(self, address: int) -> int:
         upper = self.reference_image_base + self.module_size
@@ -658,34 +790,8 @@ class MemorySession:
         """Compare, temporarily unprotect and atomically replace code bytes."""
         self._check_open()
         self._ensure_writable("代码补丁")
-        if self.direct_write:
-            for raw_entry in entries:
-                entry = self._coerce_compare_entry(raw_entry)
-                actual = (entry.address if entry.actual_address else
-                          self.resolve_reference(entry.address))
-                previous = None
-                try:
-                    previous = self.backend.protect(
-                        actual, len(entry.replacement),
-                        PAGE_EXECUTE_READWRITE)
-                except Exception:
-                    previous = None
-                try:
-                    transferred = self.backend.write(
-                        actual, entry.replacement)
-                    if transferred != len(entry.replacement):
-                        raise MemoryAccessError(
-                            "代码页只直写了部分字节 0x%08X" % actual)
-                    if hasattr(self.backend, "flush"):
-                        self.backend.flush(actual, len(entry.replacement))
-                finally:
-                    if previous is not None:
-                        try:
-                            self.backend.protect(
-                                actual, len(entry.replacement), previous)
-                        except Exception:
-                            pass
-            return
+        # Compatibility controls feature availability; a code transaction
+        # always compares bytes, verifies writes and restores every page.
         if self.code_patch_poisoned and not allow_poisoned_restore:
             raise PatchError("代码页保护曾恢复失败；请重新启动游戏后再操作代码补丁")
 
@@ -817,6 +923,11 @@ class MemorySession:
                 diagnostic["security"] = security
             diagnostic["operationError"] = (str(operation_error)
                                             if operation_error is not None else "")
+            if feature_key and (rollback_errors or restore_errors or
+                    (operation_error is not None and
+                     ("复读" in str(operation_error) or "部分写入" in str(operation_error)))):
+                self.patch_runtime_errors[feature_key] = (
+                    "%s写入或复读失败，请重新附加：%s" % (label, operation_error))
             if operation_error is not None and "WinError=5" in str(operation_error):
                 parts = ["%s：地址已定位，代码页写入被拒绝；%s" %
                          (label, operation_error)]
@@ -1107,6 +1218,74 @@ class MemorySession:
                     (exc, "；".join(rollback_errors))) from exc
             raise
 
+    def guarded_compare_exchange_transaction(self, entries) -> None:
+        """Strictly compare, replace, verify and roll back data ranges.
+
+        Unlike the legacy compare/exchange helper, this operation never
+        relaxes its checks in ``direct_write`` compatibility mode.  It is
+        intended for editors which retain a read snapshot and must not
+        overwrite memory changed by the game in the meantime.
+        """
+        self._check_open()
+        self._ensure_writable("严格事务写入")
+        prepared = []
+        seen = []
+        for raw_entry in entries:
+            try:
+                entry = self._coerce_compare_entry(raw_entry)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise MemoryAccessError("严格事务条目无效: %s" % exc) from exc
+            expected = bytes(entry.expected)
+            replacement = bytes(entry.replacement)
+            if not expected or len(expected) != len(replacement):
+                raise MemoryAccessError("严格事务的原值和新值必须非空且等长")
+            actual = (int(entry.address) if entry.actual_address else
+                      self.resolve_reference(int(entry.address)))
+            current_range = (actual, actual + len(expected))
+            if any(current_range[0] < end and start < current_range[1]
+                   for start, end in seen):
+                raise MemoryAccessError("严格事务写入范围不能重叠")
+            if not self.validate_actual_range(actual, len(expected), write=True):
+                raise MemoryAccessError(
+                    "严格事务写入范围无效或不可写: 0x%08X" % actual)
+            current = self.backend.read(actual, len(expected))
+            if current != expected:
+                raise MemoryAccessError(
+                    "内存已在读取后变化，请刷新后重试: 0x%08X" % actual)
+            prepared.append((actual, expected, replacement))
+            seen.append(current_range)
+
+        changed = []
+        try:
+            for actual, expected, replacement in prepared:
+                # Claim before writing because a backend may modify a prefix
+                # and then report a short transfer or raise an exception.
+                changed.append((actual, expected))
+                transferred = self.backend.write(actual, replacement)
+                if transferred != len(replacement):
+                    raise MemoryAccessError(
+                        "严格事务部分写入 0x%08X，实际 %d/%d 字节" %
+                        (actual, transferred, len(replacement)))
+                if self.backend.read(actual, len(replacement)) != replacement:
+                    raise MemoryAccessError(
+                        "严格事务写后复读不一致: 0x%08X" % actual)
+        except Exception as exc:
+            rollback_errors = []
+            for actual, expected in reversed(changed):
+                try:
+                    if self.backend.read(actual, len(expected)) != expected:
+                        self.backend.write(actual, expected)
+                        if self.backend.read(actual, len(expected)) != expected:
+                            raise MemoryAccessError("回滚复读不一致")
+                except Exception as rollback_exc:
+                    rollback_errors.append("0x%08X: %s" %
+                                           (actual, rollback_exc))
+            if rollback_errors:
+                raise MemoryAccessError(
+                    "%s；严格事务回滚失败：%s" %
+                    (exc, "；".join(rollback_errors))) from exc
+            raise
+
     def set_write_guard(self, key: str, address: int, raw: bytes,
                         actual_address: bool = False) -> None:
         if self.direct_write:
@@ -1156,24 +1335,84 @@ class MemorySession:
             raise ValueError("数值超出 UInt%d 范围" % width)
 
     def set_patch(self, spec: PatchSpec, enabled: bool) -> None:
-        if self.direct_write:
-            entries = tuple(
-                CompareWriteEntry(
-                    site.address,
-                    site.original if enabled else site.patched,
-                    site.patched if enabled else site.original)
-                for site in spec.sites)
-            self.write_code_transaction(
-                entries, feature_key=spec.key, label=spec.label)
-            if enabled:
-                self._active_patches[spec.key] = spec
-            else:
-                self._active_patches.pop(spec.key, None)
-            return
+        self._ensure_writable("代码补丁")
         if enabled:
             self._enable_patch(spec)
         else:
             self._disable_patch(spec)
+
+    def probe_patch(self, spec: PatchSpec) -> Dict[str, object]:
+        """Observe a stable recipe; release ownership on a confirmed restore."""
+        if spec.key in self.patch_runtime_errors:
+            return {"state": "WRITE_FAILED", "reason": self.patch_runtime_errors[spec.key]}
+        owned = self._active_patches.get(spec.key)
+        if owned is not None and owned.sites != spec.sites:
+            return {"state": "EXTERNAL_CHANGED", "reason":
+                    "%s配方与当前会话拥有的补丁不一致" % spec.label}
+        states = []
+        try:
+            for site in spec.sites:
+                current = self.read_bytes(site.address, len(site.original))
+                states.append("original" if current == site.original else
+                              "patched" if current == site.patched else "foreign")
+                if states[-1] == "foreign":
+                    return {"state": "EXTERNAL_CHANGED", "reason":
+                            "%s站点 0x%08X 被外部改写" % (spec.label, site.address)}
+        except MemoryAccessError as exc:
+            return {"state": "UNREADABLE", "reason": str(exc)}
+        if all(value == "original" for value in states):
+            # A confirmed complete external restore ends this lease.  Merely
+            # observing unreadable or foreign bytes never discards it.
+            self._active_patches.pop(spec.key, None)
+            return {"state": "ORIGINAL", "reason": ""}
+        if all(value == "patched" for value in states):
+            ours = owned is not None and owned.sites == spec.sites
+            return {"state": "OWNED_PATCHED" if ours else "EXTERNAL_PATCHED",
+                    "reason": "" if ours else "%s已被外部启用，拒绝接管或恢复" % spec.label}
+        return {"state": "PARTIAL", "reason":
+                "%s补丁站点状态不一致：%s" % (spec.label, ", ".join(
+                    "0x%08X=%s" % (site.address, value)
+                    for site, value in zip(spec.sites, states)))}
+
+    def probe_dynamic_patch(self, spec: DynamicPatchSpec) -> Dict[str, object]:
+        """Validate owned branches AND the allocated stub, read-only."""
+        if spec.key in self.patch_runtime_errors:
+            return {"state": "WRITE_FAILED", "reason": self.patch_runtime_errors[spec.key]}
+        lease = self._dynamic_leases.get(spec.key)
+        if lease is not None and lease.spec != spec:
+            return {"state": "EXTERNAL_CHANGED", "reason":
+                    "%s配方与当前会话拥有的动态补丁不一致" % spec.label}
+        try:
+            current = tuple(self.read_bytes(site.address, len(site.original))
+                            for site in spec.call_sites)
+            if lease is not None:
+                for site, raw, expected in zip(spec.call_sites, current,
+                                                lease.branch_bytes):
+                    if raw != expected:
+                        return {"state": "EXTERNAL_CHANGED", "reason":
+                                "%s调用点 0x%08X 被外部改写；保留 stub" %
+                                (spec.label, site.address)}
+                expected_stub = self._build_dynamic_stub(lease.spec, lease.allocation)
+                if not self.validate_actual_range(lease.allocation, lease.allocation_size,
+                                                  write=False):
+                    return {"state": "EXTERNAL_CHANGED", "reason":
+                            "%s stub 0x%08X 页面已释放或不可读" %
+                            (spec.label, lease.allocation)}
+                if self.backend.read(lease.allocation, lease.allocation_size) != expected_stub:
+                    return {"state": "EXTERNAL_CHANGED", "reason":
+                            "%s stub 0x%08X 缺失或字节变化" %
+                            (spec.label, lease.allocation)}
+                return {"state": "OWNED_PATCHED", "reason": ""}
+            if all(raw == site.original for site, raw in zip(spec.call_sites, current)):
+                return {"state": "ORIGINAL", "reason": ""}
+            original_count = sum(raw == site.original
+                                 for site, raw in zip(spec.call_sites, current))
+            return {"state": "PARTIAL" if original_count else "EXTERNAL_CHANGED",
+                    "reason": "%s调用点无当前会话所有权，拒绝覆盖：%s" %
+                    (spec.label, ", ".join("0x%08X" % site.address
+                                           for site in spec.call_sites))}
+        except MemoryAccessError as exc:
+            return {"state": "UNREADABLE", "reason": str(exc)}
 
     @staticmethod
     def _rel32(source_after: int, target: int) -> bytes:
@@ -1236,12 +1475,6 @@ class MemorySession:
 
     def set_dynamic_patch(self, spec: DynamicPatchSpec, enabled: bool) -> None:
         self._ensure_writable("动态补丁")
-        if self.direct_write:
-            if enabled:
-                self._enable_dynamic_patch_direct(spec)
-            else:
-                self._disable_dynamic_patch_direct(spec)
-            return
         if enabled:
             self._enable_dynamic_patch(spec)
         else:
@@ -1250,16 +1483,26 @@ class MemorySession:
     def is_dynamic_patch_enabled(self, key: str) -> bool:
         """Return whether this session still owns every byte of a live stub."""
         lease = self._dynamic_leases.get(str(key))
-        if self.direct_write:
-            return lease is not None
         if lease is None:
             return False
-        try:
-            return all(self.read_bytes(site.address, len(branch)) == branch
-                       for site, branch in zip(lease.spec.call_sites,
-                                               lease.branch_bytes))
-        except MemoryAccessError:
-            return False
+        return self.probe_dynamic_patch(lease.spec)["state"] == "OWNED_PATCHED"
+
+    def dynamic_patch_ownership(self) -> Dict[str, Tuple[Tuple[int, bytes], ...]]:
+        """Return an immutable ownership snapshot for background probes.
+
+        A profile scan uses a separate read-only handle.  That handle cannot
+        see this session's private ``_dynamic_leases`` allocation map, so a
+        patched call site would otherwise look like an unknown external edit.
+        The snapshot contains only reference addresses and the branch bytes;
+        it does not expose the allocated stub address or any writable handle.
+        """
+        result: Dict[str, Tuple[Tuple[int, bytes], ...]] = {}
+        for key, lease in tuple(self._dynamic_leases.items()):
+            result[str(key)] = tuple(
+                (int(site.address), bytes(branch))
+                for site, branch in zip(lease.spec.call_sites,
+                                        lease.branch_bytes))
+        return result
 
     def _enable_dynamic_patch_direct(self, spec: DynamicPatchSpec) -> None:
         if spec.key in self._dynamic_leases:
@@ -1301,6 +1544,9 @@ class MemorySession:
             self.backend.free(lease.allocation)
 
     def _enable_dynamic_patch(self, spec: DynamicPatchSpec) -> None:
+        observation = self.probe_dynamic_patch(spec)
+        if observation["state"] not in ("ORIGINAL", "OWNED_PATCHED"):
+            raise PatchError(str(observation["reason"]))
         current_lease = self._dynamic_leases.get(spec.key)
         if current_lease is not None:
             for site, expected in zip(spec.call_sites, current_lease.branch_bytes):
@@ -1351,6 +1597,9 @@ class MemorySession:
                    for site in spec.call_sites):
                 return
             raise PatchError("%s并非由本工具启用，拒绝恢复" % spec.label)
+        observation = self.probe_dynamic_patch(lease.spec)
+        if observation["state"] != "OWNED_PATCHED":
+            raise PatchError(str(observation["reason"]))
         for site, expected in zip(spec.call_sites, lease.branch_bytes):
             if self.read_bytes(site.address, len(expected)) != expected:
                 raise PatchError("%s调用点已被外部修改；保留 stub 到进程退出" %
@@ -1370,6 +1619,9 @@ class MemorySession:
             self._dynamic_leases.pop(spec.key, None)
 
     def _enable_patch(self, spec: PatchSpec) -> None:
+        observation = self.probe_patch(spec)
+        if observation["state"] not in ("ORIGINAL", "OWNED_PATCHED"):
+            raise PatchError(str(observation["reason"]))
         states = []
         for site in spec.sites:
             current = self.read_bytes(site.address, len(site.original))
@@ -1397,6 +1649,8 @@ class MemorySession:
                    for site in spec.sites):
                 return
             raise PatchError("%s并非由本工具启用，拒绝恢复" % spec.label)
+        if self._active_patches[spec.key].sites != spec.sites:
+            raise PatchError("%s配方与当前会话拥有的补丁不一致，拒绝恢复" % spec.label)
         states = []
         for site in spec.sites:
             current = self.read_bytes(site.address, len(site.patched))
@@ -1431,7 +1685,7 @@ class MemorySession:
                   SYNCHRONIZE)
         handle = kernel32.OpenProcess(access, False, int(self.pid))
         if not handle:
-            raise MemoryAccessError("申请远程调用权限失败，WinError=%d" % ctypes.get_last_error())
+            raise windows_api_error("申请远程调用权限失败", process_operation=True)
         backend = Win32Backend(int(handle))
         try:
             yield backend
@@ -1509,18 +1763,12 @@ class MemorySession:
         if restore_patches:
             for lease in list(self._dynamic_leases.values())[::-1]:
                 try:
-                    if self.direct_write:
-                        self._disable_dynamic_patch_direct(lease.spec)
-                    else:
-                        self._disable_dynamic_patch(lease.spec)
+                    self._disable_dynamic_patch(lease.spec)
                 except Exception:
                     pass
             for spec in list(self._active_patches.values())[::-1]:
                 try:
-                    if self.direct_write:
-                        self.set_patch(spec, False)
-                    else:
-                        self._disable_patch(spec)
+                    self._disable_patch(spec)
                 except Exception:
                     pass
         self.closed = True

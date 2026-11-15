@@ -1,0 +1,5 @@
+* whitespace=cr-at-eol
+*.cur binary
+*.ico binary
+*.png binary
+*.zip binary

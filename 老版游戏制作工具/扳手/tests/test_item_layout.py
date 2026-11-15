@@ -6,11 +6,10 @@ from engine_profile import (ITEM_CODEC_65, ITEM_CODEC_66, ProfileError,
                             load_item_table_66, parse_item_row_65,
                             parse_item_row_66, treasure_ids_66,
                             validate_item_table_66)
+from fixture_support import FIXTURE_SKIP_REASON, HAS_FIXTURES, WORKSPACE
 
 
-WORKSPACE = Path(__file__).resolve().parents[3]
-
-
+@unittest.skipUnless(HAS_FIXTURES, FIXTURE_SKIP_REASON)
 class ItemLayout66Tests(unittest.TestCase):
     @staticmethod
     def row(name, icon, effect11, effect12, catalog):

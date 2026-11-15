@@ -9,9 +9,10 @@ from typing import Dict, Optional, Sequence, Tuple
 
 from engine_layout import (FieldSpec, ResolvedTableDescriptor,
                            SemanticAnchorEvidence, SemanticAnchorRole)
+from runtime_regions import scan_image_regions, scan_identity
 
 
-_DESCRIPTOR_CACHE: Dict[Tuple[str, str, str], ResolvedTableDescriptor] = {}
+_DESCRIPTOR_CACHE: Dict[Tuple, ResolvedTableDescriptor] = {}
 
 
 @dataclass(frozen=True)
@@ -124,17 +125,9 @@ class SemanticTableResolver:
     def _find(self, pattern: str):
         signature = _MaskedPattern(pattern)
         result = []
-        for section in self.image.sections:
-            if not section.executable:
-                continue
-            if hasattr(self.image, "section_data"):
-                raw = self.image.section_data(section)
-            else:
-                raw = self.image.data[
-                    section.raw_offset:section.raw_offset + section.raw_size]
-            for local in signature.find_all(raw):
-                result.append(self.image.image_base +
-                              section.virtual_address + local)
+        for region in self._regions:
+            for local in signature.find_all(region.data):
+                result.append(region.start + local)
         return result
 
     def resolve(self, key: str, record_count: int, stride: int,
@@ -154,9 +147,10 @@ class SemanticTableResolver:
              for anchor in anchors])
         recipe_fingerprint = hashlib.sha256(
             recipe_material.encode("ascii")).hexdigest().upper()
-        image_identity = "%s:%s" % (
-            self.image.sha256, getattr(self.image, "source", "disk"))
-        cache_key = (image_identity, key, recipe_fingerprint)
+        self._regions = tuple(scan_image_regions(self.image))
+        image_identity = scan_identity(self.image, self._regions)
+        cache_key = (image_identity, key, recipe_fingerprint, int(runtime_base),
+                     generation, person_domain, job_domain, empty_predicate)
         cached = _DESCRIPTOR_CACHE.get(cache_key)
         if cached is not None:
             return cached, {
@@ -208,6 +202,8 @@ class SemanticTableResolver:
             fields, person_domain, job_domain, empty_predicate,
             hashlib.sha256(material.encode("ascii")).hexdigest().upper(),
             generation, (), tuple(evidence))
+        if len(_DESCRIPTOR_CACHE) >= 128:
+            _DESCRIPTOR_CACHE.pop(next(iter(_DESCRIPTOR_CACHE)))
         _DESCRIPTOR_CACHE[cache_key] = descriptor
         return descriptor, hits_by_role, ""
 

@@ -7,6 +7,7 @@ Addresses in this module are reference virtual addresses (VA) for the original
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import struct
 from dataclasses import dataclass, field, replace
@@ -21,9 +22,36 @@ from engine_layout import (AddressResolverKind, FeatureAccess, FieldSpec,
                            SemanticAnchorRole, TableLayoutSpec)
 from semantic_resolver import (SemanticAnchorPattern, SemanticTableResolver,
                                verify_runtime_descriptor)
+from runtime_regions import (iter_mapped_regions, iter_runtime_regions,
+                             scan_image_regions)
 
 
 REFERENCE_IMAGE_BASE = 0x00400000
+# The script documentation defines 0..255 as local flags and 256..1535 as
+# global flags.  The native accessors do not validate an index; bytes from
+# index 2048 onward overlap a character DWORD table in the inspected 6.6s.
+BOOL_LOCAL_COUNT_66 = 256
+BOOL_USER_COUNT_66 = 1536
+BOOL_BROWSE_COUNT_66 = 2048
+BOOL_USER_BYTES_66 = (BOOL_USER_COUNT_66 + 7) // 8
+BOOL_BROWSE_BYTES_66 = (BOOL_BROWSE_COUNT_66 + 7) // 8
+BOOL_DOMAIN_BASIS_66 = "剧本资料域：0..255局部、256..1535全局；1536..2047保留只读（非原生总数证明）"
+BOOL_DOCUMENTED_COUNT_LEGACY = 1536
+BOOL_DWORD_READER_PATTERN = (
+    "55 8B EC 8B 45 08 33 D2 83 7C 81 38 00 0F 95 C2 "
+    "8B C2 5D C2 04 00")
+BOOL_DWORD_WRITER_PATTERN = (
+    "55 8B EC 8B 45 08 8B 55 0C 89 54 81 38 5D C2 08 00")
+BOOL_DWORD_SAVE_LOOP_PATTERN = (
+    "8B 45 FC 66 3D ?? ?? 73 1B 6A 04 8B 4D F0 8D 4C 81 38 "
+    "51 FF 75 F8 E8 ?? ?? ?? ?? 83 C4 0C 83 45 F8 04 EB D9 "
+    "8B 4D F0 81 C1 ?? ?? ?? ?? 6A 08")
+BOOL_DWORD_LOAD_LOOP_PATTERN = (
+    "8B 45 FC 66 3D ?? ?? 73 1B 6A 04 FF 75 F4 8B 4D F0 "
+    "8D 4C 81 38 51 E8 ?? ?? ?? ?? 83 C4 0C 83 45 F4 04 EB D9 "
+    "8B 4D F0 81 C1 ?? ?? ?? ?? 6A 08")
+BOOL_SERIALIZER_HEADER_PATTERN = (
+    "55 8B EC 6A 00 51 51 68 ?? ?? ?? ?? 83 EC 14")
 IMAGE_FILE_MACHINE_I386 = 0x014C
 PE32_MAGIC = 0x010B
 ITEM_ROW_SIZE_66 = 0x19
@@ -39,6 +67,8 @@ CONSUMABLE_STORAGE_COUNT_66 = 352
 CONSUMABLE_ID_MIN_LEGACY_EXPANDED = 150
 CONSUMABLE_ID_MAX_LEGACY_EXPANDED = 254
 CONSUMABLE_STORAGE_COUNT_LEGACY_EXPANDED = 105
+CONSUMABLE_ID_MIN_SINGLE_EXE_66 = 0x100
+CONSUMABLE_STORAGE_COUNT_SINGLE_EXE_66 = 0x100
 EFFECT_ROW_SIZE_66 = 0x10
 EFFECT_CHARACTER_SLOTS_66 = 4
 EFFECT_JOB_SLOTS_66 = 2
@@ -47,6 +77,7 @@ EFFECT_EMPTY_CHARACTER_66 = EFFECT_CHARACTER_COUNT_66
 EFFECT_JOB_COUNT_66 = 80
 ITEM_CODEC_65 = "item-65-17-v1"
 ITEM_CODEC_66 = "item-66-15-v1"
+ITEM_CODEC_LEGACY = "item-legacy-12-v1"
 EFFECT_NAME_POOL_OFFSET_65_66 = 0x9E800
 EFFECT_NAME_RUNTIME_ADDRESS_65_66 = 0x004CC600
 EFFECT_NAME_RECORD_COUNT_65_66 = 255
@@ -93,6 +124,7 @@ class ConsumableMappingSpec:
     anchors: Dict[str, int] = field(default_factory=dict)
     patterns: Dict[str, str] = field(default_factory=dict)
     structure_fingerprint: str = ""
+    addresses: Tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.base <= 0 or self.storage_count <= 0:
@@ -105,6 +137,11 @@ class ConsumableMappingSpec:
         if any(item < self.id_min or item > storage_max
                for item in self.ui_item_ids):
             raise ValueError("消耗品 UI ID 超出物理存储范围")
+        if self.addresses and (
+                len(self.addresses) != len(self.ui_item_ids) or
+                any(address <= 0 for address in self.addresses) or
+                len(set(self.addresses)) != len(self.addresses)):
+            raise ValueError("消耗品显式地址必须与 UI 项目逐项对应且不能重复")
 
     @property
     def id_max(self) -> int:
@@ -129,6 +166,7 @@ class ConsumableMappingSpec:
             "locations": dict(self.anchors),
             "patterns": dict(self.patterns),
             "structureFingerprint": self.structure_fingerprint,
+            "addresses": list(self.addresses),
         }
 
 
@@ -152,6 +190,12 @@ class PatchSpec:
     normalized_fingerprint: str = ""
     instruction_lengths: Tuple[int, ...] = ()
     rollback_rule: str = "owned-bytes-only"
+    # Runtime scans may observe a patch that this session already enabled.
+    # These fields describe the observation only; the recipe remains the
+    # static original->patched contract so evidence IDs and cross-build
+    # fingerprints do not change when a live process is patched.
+    observed_state: str = "original"
+    observed_site_states: Tuple[str, ...] = ()
 
     def recipe(self) -> Dict[str, object]:
         return {
@@ -242,20 +286,101 @@ def _relative_call_target(image: "PEImage", address: int) -> int:
     return address + 5 + struct.unpack("<i", instruction[1:5])[0]
 
 
+def _is_runtime_image(image: "PEImage") -> bool:
+    """Return whether *image* contains live/mapped runtime bytes.
+
+    Disk PE images intentionally keep strict original-byte recognition.  Both
+    ``RuntimeModuleImage`` and ``MappedRuntimeImage`` advertise ``source`` as
+    ``runtime`` without making the locator depend on a concrete adapter class.
+    """
+    return str(getattr(image, "source", "disk")).startswith("runtime")
+
+
+def _wildcard_patch_signature(pattern: str, ranges: Sequence[Tuple[int, int]]) -> MaskedSignature:
+    """Mask bytes occupied by a patch so an already-patched runtime can scan.
+
+    The surrounding instruction bytes remain exact anchors.  A caller still
+    validates every candidate's actual bytes against original/patched states,
+    so wildcarding cannot turn an unrelated instruction into an accepted
+    patch site.
+    """
+    parsed = MaskedSignature.parse(pattern)
+    values = list(parsed.pattern)
+    for start, length in ranges:
+        start = int(start)
+        end = start + int(length)
+        if start < 0 or end > len(values):
+            return parsed
+        for index in range(start, end):
+            values[index] = None
+    return MaskedSignature(tuple(values))
+
+
+def _patch_state(current: bytes, original: bytes, patched: bytes) -> str:
+    if current == original:
+        return "original"
+    if current == patched:
+        return "patched"
+    return "foreign"
+
+
+def _aggregate_patch_state(states: Sequence[str]) -> str:
+    values = tuple(states)
+    if values and all(item == "original" for item in values):
+        return "original"
+    if values and all(item == "patched" for item in values):
+        return "patched"
+    if any(item == "foreign" for item in values):
+        return "foreign"
+    return "partial"
+
+
 def locate_auto_return_patch_66(image: "PEImage") -> Tuple[
         Optional[PatchSpec], Dict[str, object], str]:
     """Locate the native second-action gates used by 6.6 auto return."""
+    runtime = _is_runtime_image(image)
     patterns = {
         "gate": AUTO_RETURN_GATE_PATTERN_66,
         "state": AUTO_RETURN_STATE_PATTERN_66,
         "effect": AUTO_RETURN_EFFECT_PATTERN_66,
     }
+    # The normal signatures include the two-byte conditional branches that
+    # this feature replaces.  A live process may already contain NOPs, so the
+    # runtime fallback masks only those branch bytes and keeps all surrounding
+    # instruction bytes exact.
+    patch_ranges = {
+        "gate": ((0x0B, 2),),
+        "state": ((0x07, 2), (0x1E, 2)),
+        "effect": (),
+    }
+    site_offsets = {
+        "gate": ((0x0B, b"\x74\x13", b"\x90\x90"),),
+        "state": ((0x07, b"\x74\x02", b"\x90\x90"),
+                  (0x1E, b"\x74\x02", b"\x90\x90")),
+    }
+
+    def valid_hit(name: str, address: int) -> bool:
+        for offset, original, patched in site_offsets.get(name, ()):
+            try:
+                current = image.read_va(address + offset, len(original))
+            except ProfileError:
+                return False
+            state = _patch_state(current, original, patched)
+            if state == "foreign" or (not runtime and state != "original"):
+                return False
+        return True
+
     hits: Dict[str, int] = {}
     for name, pattern in patterns.items():
-        matches = image.find_signature(MaskedSignature.parse(pattern))
-        if len(matches) != 1:
-            return None, {}, "自动回归%s签名匹配数为%d" % (name, len(matches))
-        hits[name] = matches[0]
+        # Search both byte states together so an original candidate cannot
+        # hide another already-patched candidate and bypass uniqueness.
+        signature = (_wildcard_patch_signature(pattern, patch_ranges[name])
+                     if runtime else MaskedSignature.parse(pattern))
+        matches = image.find_signature(signature)
+        valid = [address for address in matches if valid_hit(name, address)]
+        if len(valid) != 1:
+            return None, {}, "自动回归%s签名匹配数为%d" % (name, len(valid))
+        hits[name] = valid[0]
 
     gate_call = hits["gate"] + 4
     state_call = hits["state"]
@@ -272,12 +397,19 @@ def locate_auto_return_patch_66(image: "PEImage") -> Tuple[
         (hits["state"] + 0x07, b"\x74\x02"),
         (hits["state"] + 0x1E, b"\x74\x02"),
     )
+    site_states = []
     try:
         for address, original in site_data:
-            if image.read_va(address, len(original)) != original:
+            current = image.read_va(address, len(original))
+            state = _patch_state(current, original, b"\x90\x90")
+            if state == "foreign":
                 return None, {}, "自动回归站点0x%08X原字节不匹配" % address
+            site_states.append(state)
     except ProfileError as exc:
         return None, {}, "自动回归补丁点读取失败: %s" % exc
+    observed_state = _aggregate_patch_state(site_states)
+    if observed_state not in ("original", "patched"):
+        return None, {}, "自动回归补丁站点状态不一致，拒绝接管"
 
     fingerprint = hashlib.sha256(
         b"native-second-action-unrestricted-v1\0" +
@@ -288,7 +420,9 @@ def locate_auto_return_patch_66(image: "PEImage") -> Tuple[
         "control_auto_return", "自动回归",
         tuple(PatchSite(address, original, b"\x90\x90")
               for address, original in site_data),
-        tuple(patterns.values()), fingerprint, (2, 2, 2))
+        tuple(patterns.values()), fingerprint, (2, 2, 2),
+        observed_state=observed_state,
+        observed_site_states=tuple(site_states))
     contract = {
         "mode": "native-second-action-unrestricted",
         "callSites": [gate_call, state_call],
@@ -296,6 +430,8 @@ def locate_auto_return_patch_66(image: "PEImage") -> Tuple[
         "patchSites": [address for address, _original in site_data],
         "originalBytes": [original for _address, original in site_data],
         "patchedBytes": [b"\x90\x90"] * 3,
+        "observedState": observed_state,
+        "observedSiteStates": list(site_states),
         "signatureHits": hits,
         "fingerprint": fingerprint,
     }
@@ -403,18 +539,88 @@ def locate_consumable_mapping_legacy_expanded(
     return spec, ""
 
 
+def locate_consumable_mapping_single_exe_66(
+        image: "PEImage") -> Tuple[Optional[ConsumableMappingSpec], str]:
+    """Locate the 256..511 count array used by the standalone 6.6 derivative.
+
+    All three accessors must subtract 0x100 and the initializer must clear
+    exactly 0x100 bytes at the same base.  This proves the extended ID domain
+    independently of the byte-sized equipment and 255-row metadata tables.
+    """
+    patterns = {
+        "update": (
+            "55 8B EC 2D 00 01 00 00 05 ?? ?? ?? ?? 84 C9 74 08 "
+            "38 08 72 0B FE 08 EB 07 80 38 FF 74 02 FE 00 5D C3", 9),
+        "read": (
+            "55 8B EC 0F B7 C0 2D 00 01 00 00 0F B6 80 ?? ?? ?? ?? "
+            "5D C3", 14),
+        "write": (
+            "55 8B EC 2D 00 01 00 00 8A 4D 08 88 88 ?? ?? ?? ?? 5D "
+            "C2 04 00", 13),
+        "clear": (
+            "33 C0 99 66 3D 00 01 73 09 88 90 ?? ?? ?? ?? 40 EB F1", 11),
+    }
+    locations: Dict[str, int] = {}
+    bases: Dict[str, int] = {}
+    text_patterns: Dict[str, str] = {}
+    for name, (pattern, operand_offset) in patterns.items():
+        hits = image.find_signature(MaskedSignature.parse(pattern))
+        if len(hits) != 1:
+            return None, "单EXE 256项消耗品%s签名匹配数为%d" % (name, len(hits))
+        locations[name] = hits[0]
+        text_patterns[name] = pattern
+        bases[name] = struct.unpack(
+            "<I", image.read_va(hits[0] + operand_offset, 4))[0]
+    if len(set(bases.values())) != 1:
+        return None, "单EXE 256项消耗品读写与清零函数未指向同一基址"
+    base = next(iter(bases.values()))
+    if not 0x00010000 <= base <= 0x7FFFFFFF - 0xFF:
+        return None, "单EXE 256项消耗品基址超出32位用户地址域"
+    return ConsumableMappingSpec(
+        "single-exe-66-256-v1", base,
+        CONSUMABLE_ID_MIN_SINGLE_EXE_66,
+        CONSUMABLE_STORAGE_COUNT_SINGLE_EXE_66,
+        tuple(range(CONSUMABLE_ID_MIN_SINGLE_EXE_66,
+                    CONSUMABLE_ID_MIN_SINGLE_EXE_66 +
+                    CONSUMABLE_STORAGE_COUNT_SINGLE_EXE_66)),
+        EQUIPMENT_COUNT_66, anchors=locations, patterns=text_patterns,
+        structure_fingerprint=_consumable_fingerprint(
+            text_patterns, base, CONSUMABLE_ID_MIN_SINGLE_EXE_66,
+            CONSUMABLE_STORAGE_COUNT_SINGLE_EXE_66)), ""
+
+
+def legacy_split_consumable_mapping() -> ConsumableMappingSpec:
+    """The original tool's 6.1..6.3 MP+ contract, not a live ABI claim.
+
+    Static CPython 3.5 evidence proves 43 names at item row 87, UInt8 reads
+    and writes in two ranges, and bulk operations over exactly 43 counters.
+    Runtime probing must validate every explicit address before enabling it.
+    """
+    addresses = tuple(range(0x004B09DB, 0x004B09DB + 17)) + tuple(
+        range(0x00510C80, 0x00510C80 + 26))
+    fingerprint = hashlib.sha256(
+        ("legacy-split43|87:129|" + ",".join("%08X" % address
+                                            for address in addresses)).encode("ascii")).hexdigest().upper()
+    return ConsumableMappingSpec(
+        "legacy-split-43-v1", addresses[0], 87, 43, tuple(range(87, 130)),
+        154, addresses=addresses, structure_fingerprint=fingerprint)
+
+
 def locate_consumable_mapping_composite(
         image: "PEImage", engine_version: int) -> Tuple[
             Optional[ConsumableMappingSpec], str]:
     version_value = EngineVersion(int(engine_version))
     if version_value in (EngineVersion.V64, EngineVersion.V65):
         return locate_consumable_mapping_legacy_expanded(image)
-    if version_value is not EngineVersion.V66:
-        return None, "当前旧版画像不使用扩展消耗品语义解析器"
+    if version_value in (EngineVersion.V61, EngineVersion.V62,
+                         EngineVersion.V63, EngineVersion.V63_MP):
+        return legacy_split_consumable_mapping(), ""
 
     standard_base, standard_mapping, standard_reason = (
         locate_consumable_mapping_66(image))
     legacy_spec, legacy_reason = locate_consumable_mapping_legacy_expanded(image)
+    single_exe_spec, single_exe_reason = (
+        locate_consumable_mapping_single_exe_66(image))
     candidates: List[ConsumableMappingSpec] = []
     if standard_base is not None:
         patterns = dict(standard_mapping.get("patterns", {}))
@@ -430,12 +636,14 @@ def locate_consumable_mapping_composite(
                 CONSUMABLE_STORAGE_COUNT_66)))
     if legacy_spec is not None:
         candidates.append(legacy_spec)
+    if single_exe_spec is not None:
+        candidates.append(single_exe_spec)
     if len(candidates) == 1:
         return candidates[0], ""
     if len(candidates) > 1:
-        return None, "标准40项与旧式105项消耗品配方同时匹配，拒绝猜测"
-    return None, "标准40项: %s；旧式105项: %s" % (
-        standard_reason, legacy_reason)
+        return None, "多个消耗品配方同时匹配，拒绝猜测"
+    return None, "标准40项: %s；旧式105项: %s；单EXE 256项: %s" % (
+        standard_reason, legacy_reason, single_exe_reason)
 
 
 ITEM_RUNTIME_TABLE_PATTERN = (
@@ -450,11 +658,35 @@ def locate_item_row_codec(
     if len(hits) != 1:
         return None, None, {}, "物品25字节索引函数签名匹配数为%d" % len(hits)
     base = struct.unpack("<I", image.read_va(hits[0] + 8, 4))[0]
+    # Follow callers which actually consume the icon byte.  This retains the
+    # field contract when a MOD relocates the whole table to another address.
+    icon_offsets = set()
+    for region in scan_image_regions(image, True):
+        raw = region.data
+        cursor = 0
+        while True:
+            cursor = raw.find(b"\xE8", cursor)
+            if cursor < 0:
+                break
+            if cursor + 5 <= len(raw):
+                target = region.start + cursor + 5 + struct.unpack_from(
+                    "<i", raw, cursor + 1)[0]
+                if target == hits[0]:
+                    following = raw[cursor + 5:cursor + 17]
+                    # The lookup returns ECX.  MOVZX reg,BYTE[ECX+disp8]
+                    # immediately following that call proves the icon field.
+                    if (len(following) >= 4 and following[:2] == b"\x0F\xB6"
+                            and following[2] & 0xC7 == 0x41
+                            and following[3] in (0x0F, 0x14)):
+                        icon_offsets.add(following[3])
+            cursor += 1
     codec_by_base = {
         0x004A1140: ITEM_CODEC_65,
         0x0049F820: ITEM_CODEC_66,
     }
-    codec = codec_by_base.get(base)
+    codec = ({0x0F: ITEM_CODEC_66, 0x14: ITEM_CODEC_65}.get(
+        next(iter(icon_offsets))) if len(icon_offsets) == 1
+        else codec_by_base.get(base) if not icon_offsets else None)
     if codec is None:
         return None, base, {"lookup": hits[0]}, (
             "物品索引函数提取到未知表基址0x%08X，字段顺序尚未证明" % base)
@@ -638,6 +870,12 @@ EFFECT_LAYOUT_16_ABSOLUTE_COUNTER_QUERY_PATTERN = (
     "8B 55 F0 8B 4D 0C E8 ?? ?? ?? ?? 89 45 F0 "
     "8B 4D 10 E8 ?? ?? ?? ?? 50 8B 45 F4 3C 02 73 25 "
     "D1 E0 83 C0 0C 03 45 FC")
+EFFECT_LAYOUT_16_IMPORTED_HELPER_QUERY_PATTERN = (
+    "55 8B EC 8B 4D 08 C1 E1 04 03 D1 52 6A 00 6A 00 "
+    "50 FF 75 08 50 FF 15 ?? ?? ?? ?? 83 C4 08 59 0F B6 C0 50 "
+    + "90 " * 34 +
+    "89 45 F0 8B 4D 10 E8 ?? ?? ?? ?? 50 8B 45 F4 3C 02 73 25 "
+    "D1 E0 83 C0 0C 03 45 FC")
 EFFECT_LAYOUT_16_INITIALIZER_PATTERN = (
     "50 83 EC 08 54 68 ?? ?? ?? ?? 6A 04 6A 00 FF 75 E8 6A FE "
     "E8 ?? ?? ?? ?? 54 68 ?? ?? ?? ?? 6A 02 6A 01 FF 75 E8 6A FE")
@@ -733,6 +971,37 @@ def locate_pointer_effect_layout_8(
 def locate_fixed_effect_layout_64(
         image: "PEImage") -> Tuple[Optional[TableLayoutSpec], Dict[str, int], str]:
     """Confirm the fixed 6.4 8-byte table without treating it as 6.5."""
+    writer_pattern = (
+        "0F B6 45 F8 3C B3 77 ?? 6B C8 08 03 0D ?? ?? ?? ?? "
+        "8A 45 F9 3C 03 77 ?? 6B D0 02 03 CA 66 8B 55 FA "
+        "3C 03 74 ?? 66 89 11 EB ?? 88 11")
+    writers = image.find_signature(MaskedSignature.parse(writer_pattern))
+    if len(writers) == 1:
+        pointer = struct.unpack("<I", image.read_va(writers[0] + 13, 4))[0]
+        fixed = struct.unpack("<I", image.read_va(pointer, 4))[0]
+        detours = image.find_signature(MaskedSignature.parse(
+            "2D 00 01 00 00 6B C8 08 03 0D ?? ?? ?? ?? E9 ?? ?? ?? ??"))
+        queries = [address for address in detours
+                   if struct.unpack("<I", image.read_va(address + 10, 4))[0]
+                   == pointer]
+        standard_queries = image.find_signature(
+            MaskedSignature.parse(EFFECT_LAYOUT_8_QUERY_PATTERN))
+        if len(queries) == 1 or len(standard_queries) == 1:
+            query = (queries or standard_queries)[0]
+            fingerprint = hashlib.sha256(
+                b"static-pointer-effect-64-b3-v1\0" +
+                image.read_va(writers[0], 45) + image.read_va(query, 19)
+            ).hexdigest().upper()
+            layout = effect_layout_8(pointer, 180, fingerprint)
+            layout = replace(layout, metadata=dict(
+                layout.metadata, staticPointer=True, initialBase=fixed,
+                queryDetour=bool(queries)))
+            if not queries:
+                layout = replace(layout, resolver=AddressResolverKind.FIXED_RVA,
+                                 reference=fixed)
+            return layout, {"write": writers[0], "query": query,
+                            "pointer": pointer, "fixed": fixed}, ""
+        return None, {}, "6.4 B3写入锚点缺少相同指针的查询锚点"
     query_hits = image.find_signature(
         MaskedSignature.parse(EFFECT_LAYOUT_8_QUERY_PATTERN))
     pointer_write_hits = image.find_signature(
@@ -780,15 +1049,38 @@ def data_layouts_66(addresses: Dict[str, int],
             "person", AddressResolverKind.POINTER_RVA,
             addresses["person_pointer"], limits["person_count"],
             limits["person_stride"], (
-                FieldSpec("job", 6, 2), FieldSpec("ability_a", 0x11, 2),
-                FieldSpec("ability_b", 0x13, 2),
-                FieldSpec("ability_c", 0x15, 2),
-                FieldSpec("ability_d", 0x17, 2),
-                FieldSpec("ability_e", 0x19, 2),
-                FieldSpec("level", 0x2A, 1),
-                FieldSpec("experience", 0x2C, 1),
+                FieldSpec("unknown_06", 0x06, 2),
+                FieldSpec("name", 0x08, 8),
+                FieldSpec("derived_attack", 0x11, 2),
+                FieldSpec("derived_defense", 0x13, 2),
+                FieldSpec("derived_spirit", 0x15, 2),
+                FieldSpec("derived_agility", 0x17, 2),
+                FieldSpec("derived_morale", 0x19, 2),
+                FieldSpec("hp_max", 0x1B, 4),
+                FieldSpec("mp_max", 0x1F, 2),
+                FieldSpec("base_strength", 0x21, 1),
+                FieldSpec("base_command", 0x22, 1),
+                FieldSpec("base_intelligence", 0x23, 1),
+                FieldSpec("base_agility", 0x24, 1),
+                FieldSpec("base_luck", 0x25, 1),
+                FieldSpec("appearance", 0x27, 1),
+                FieldSpec("unknown_28", 0x28, 1),
+                FieldSpec("retreat", 0x29, 1),
+                FieldSpec("friendly_flag", 0x2A, 1),
+                FieldSpec("job", 0x2B, 1),
+                FieldSpec("level", 0x2C, 1),
+                FieldSpec("experience", 0x2D, 1),
+                FieldSpec("weapon", 0x2E, 1),
+                FieldSpec("weapon_level", 0x2F, 1),
+                FieldSpec("weapon_experience", 0x30, 1),
+                FieldSpec("armor", 0x31, 1),
+                FieldSpec("armor_level", 0x32, 1),
+                FieldSpec("armor_experience", 0x33, 1),
+                FieldSpec("accessory", 0x34, 1),
                 FieldSpec("kills", 0x35, 2),
-            ), codec="person-48-v1", semantics_proven=True),
+                FieldSpec("unknown_44", 0x44, 2),
+                FieldSpec("unknown_46", 0x46, 2),
+            ), codec="person-48-v2", semantics_proven=True),
         "warehouse": TableLayoutSpec(
             "warehouse", AddressResolverKind.FIXED_RVA,
             addresses["warehouse"], limits["warehouse_count"], 3, (
@@ -811,20 +1103,23 @@ def data_layouts_66(addresses: Dict[str, int],
             codec="fatal-5-v1", semantics_proven=True),
         "variables_bool": TableLayoutSpec(
             "variables_bool", AddressResolverKind.FIXED_RVA,
-            addresses["bool_vars"], 512, 1,
+            addresses["bool_vars"], BOOL_BROWSE_BYTES_66, 1,
             (FieldSpec("packed_bits", 0, 1),), codec="bitset-msb0-v1",
-            semantics_proven=True, metadata={"bitCount": 4096,
-                                              "bitOrder": "msb0"}),
+            semantics_proven=True, metadata={
+                "bitCount": BOOL_BROWSE_COUNT_66, "bitOrder": "msb0",
+                "writableBitCount": BOOL_USER_COUNT_66,
+                "writableBytes": BOOL_USER_BYTES_66,
+                "domainBasis": BOOL_DOMAIN_BASIS_66}),
         "variables_int": TableLayoutSpec(
             "variables_int", AddressResolverKind.FIXED_RVA,
-            addresses["int_vars"], limits["variable_count"], 4,
+            addresses["int_vars"], limits["variable_int_count"], 4,
             (FieldSpec("value", 0, 4, signed=True),),
             codec="int32-array-v1", semantics_proven=True),
         "variables_ptr": TableLayoutSpec(
             "variables_ptr", AddressResolverKind.FIXED_RVA,
-            addresses["ptr_vars"], limits["variable_count"], 4,
-            (FieldSpec("value", 0, 4, signed=True),),
-            codec="int32-array-v1", semantics_proven=True),
+            addresses["ptr_vars"], limits["variable_ptr_count"], 4,
+            (FieldSpec("value", 0, 4, signed=False),),
+            codec="pointer-u32-v1", semantics_proven=True),
     }
     if addresses.get("consumable_counts"):
         storage_count = limits.get(
@@ -870,6 +1165,14 @@ def parse_item_row(row: bytes, codec: str) -> ItemRow66:
         return parse_item_row_66(row)
     if codec == ITEM_CODEC_65:
         return parse_item_row_65(row)
+    if codec == ITEM_CODEC_LEGACY:
+        if len(row) != ITEM_ROW_SIZE_66:
+            raise ValueError("旧版物品行必须正好是0x19字节")
+        name = row[:12].split(b"\0", 1)[0].decode("gb18030", errors="replace")
+        # The legacy bulk action selects row+0x14 != FF.  Other legacy
+        # metadata is deliberately not reinterpreted as the 6.5 field order.
+        return ItemRow66(name, 0, 0, 0, 0, 0, 0, 0,
+                         int(row[0x14] != 0xFF))
     raise ValueError("未知物品行编解码器: %s" % codec)
 
 
@@ -884,19 +1187,21 @@ def treasure_ids_66(table: bytes,
                 table[index*0x19:(index+1)*0x19], codec).is_treasure]
 
 
-def validate_item_table_66(table: bytes, codec: str = ITEM_CODEC_66) -> bytes:
-    if codec not in (ITEM_CODEC_65, ITEM_CODEC_66):
+def validate_item_table_66(table: bytes, codec: str = ITEM_CODEC_66,
+                           record_count: int = ITEM_RECORD_COUNT_66) -> bytes:
+    if codec not in (ITEM_CODEC_65, ITEM_CODEC_66, ITEM_CODEC_LEGACY):
         raise ProfileError("未知物品行编解码器: %s" % codec)
-    expected = (ITEM_LOW_COUNT_66 + ITEM_HIGH_COUNT_66) * ITEM_ROW_SIZE_66
+    expected = int(record_count) * ITEM_ROW_SIZE_66
     if len(table) != expected:
         raise ProfileError("物品表应为 255×0x19 字节，实际为 %d 字节" % len(table))
     if not any(table):
         raise ProfileError("物品表为全零数据")
     named = 0
     decodable = 0
-    for index in range(ITEM_LOW_COUNT_66 + ITEM_HIGH_COUNT_66):
+    for index in range(record_count):
         row = table[index*ITEM_ROW_SIZE_66:(index+1)*ITEM_ROW_SIZE_66]
-        name_size = 0x0F if codec == ITEM_CODEC_66 else 0x11
+        name_size = (12 if codec == ITEM_CODEC_LEGACY else
+                     0x0F if codec == ITEM_CODEC_66 else 0x11)
         raw_name = row[:name_size].split(b"\0", 1)[0]
         if not raw_name:
             continue
@@ -906,7 +1211,8 @@ def validate_item_table_66(table: bytes, codec: str = ITEM_CODEC_66) -> bytes:
             decodable += 1
         except UnicodeDecodeError:
             pass
-    if named < 128 or decodable < 128:
+    minimum_names = min(128, max(1, record_count // 2))
+    if named < minimum_names or decodable < minimum_names:
         raise ProfileError(
             "物品表名称语义探针失败: 非空 %d，GBK可解码 %d" %
             (named, decodable))
@@ -1129,9 +1435,17 @@ class RuntimeModuleImage(PEImage):
         super().__init__(path)
         self.session = session
         self._section_cache: Dict[int, bytes] = {}
+        self.session_generation = str(getattr(session, "session_generation", ""))
+        self.code_generation = ""
 
     def refresh(self) -> None:
         self._section_cache.clear()
+        self._runtime_regions_cache = None
+        self.code_generation = ""
+
+    def iter_scan_regions(self, executable_only: bool = True):
+        return iter_runtime_regions(self, self.session,
+                                    executable_only=executable_only)
 
     def read_va(self, va: int, size: int) -> bytes:
         if size <= 0:
@@ -1177,32 +1491,401 @@ class RuntimeModuleImage(PEImage):
     def find_signature(self, signature: MaskedSignature,
                        executable_only: bool = True) -> List[int]:
         hits: List[int] = []
-        sections = [item for item in self.sections
-                    if item.executable or not executable_only]
-        for section in sections:
-            mapped = self._mapped_section(section)
-            for local_offset in signature.find_all(mapped):
-                hits.append(
-                    self.image_base + section.virtual_address + local_offset)
+        for region in scan_image_regions(self, executable_only):
+            for local_offset in signature.find_all(region.data):
+                hits.append(region.start + local_offset)
         return hits
 
     def find_literal_references(self, value: int,
                                 executable_only: bool = True) -> List[int]:
         needle = struct.pack("<I", value)
         result: List[int] = []
-        sections = [item for item in self.sections
-                    if item.executable or not executable_only]
-        for section in sections:
-            mapped = self._mapped_section(section)
+        for region in scan_image_regions(self, executable_only):
+            mapped = region.data
             start = 0
             while True:
                 index = mapped.find(needle, start)
                 if index < 0:
                     break
-                result.append(
-                    self.image_base + section.virtual_address + index)
+                result.append(region.start + index)
                 start = index + 1
         return result
+
+
+class MappedRuntimeImage(PEImage):
+    """Read a captured RVA image using the identity PE's section geometry.
+
+    VProtect 2.2.0 stores only a tiny encrypted file-backed prefix on disk.
+    The process capture is a ``SizeOfImage`` byte buffer, so ordinary
+    ``PEImage`` raw-offset reads would inspect the wrong bytes.  This adapter
+    keeps the disk PE for identity/section metadata and resolves every RVA
+    directly into the captured mapped buffer.  It is intentionally read-only
+    and never writes the fixture or the target process.
+    """
+
+    source = "runtime"
+
+    def __init__(self, identity_path: str, mapped_path: str):
+        super().__init__(identity_path)
+        with open(os.path.abspath(mapped_path), "rb") as stream:
+            mapped = stream.read()
+        if len(mapped) < self.size_of_image:
+            raise ProfileError("运行时 RVA 映像短于 PE SizeOfImage")
+        self.data = mapped[:self.size_of_image]
+        self.session_generation = "capture:" + hashlib.sha256(mapped).hexdigest()
+        self.code_generation = ""
+
+    def iter_scan_regions(self, executable_only: bool = True):
+        return iter_mapped_regions(self, executable_only=executable_only)
+
+    def read_va(self, va: int, size: int) -> bytes:
+        if size <= 0:
+            raise ProfileError("运行时映像读取长度必须大于零")
+        rva = int(va) - self.image_base
+        if rva < 0 or rva + size > len(self.data):
+            raise ProfileError(
+                "运行时 RVA 0x%08X+0x%X 越过映像范围" % (va, size))
+        return self.data[rva:rva + size]
+
+    def section_data(self, section: PESection) -> bytes:
+        start = int(section.virtual_address)
+        size = int(max(section.virtual_size, section.raw_size))
+        if start < 0 or start + size > len(self.data):
+            raise ProfileError("运行时节范围越过映像边界")
+        return self.data[start:start + size]
+
+    def find_signature(self, signature: MaskedSignature,
+                       executable_only: bool = True) -> List[int]:
+        hits: List[int] = []
+        for region in scan_image_regions(self, executable_only):
+            for local_offset in signature.find_all(region.data):
+                hits.append(region.start + local_offset)
+        return hits
+
+    def find_literal_references(self, value: int,
+                                executable_only: bool = True) -> List[int]:
+        needle = struct.pack("<I", value)
+        result: List[int] = []
+        for region in scan_image_regions(self, executable_only):
+            mapped = region.data
+            start = 0
+            while True:
+                index = mapped.find(needle, start)
+                if index < 0:
+                    break
+                result.append(region.start + index)
+                start = index + 1
+        return result
+
+BOOL_READER_PATTERN_66 = (
+    "55 8B EC 8B 45 08 6A 08 E8 ?? ?? ?? ?? 0F B6 44 08 38 "
+    "83 EA 07 F7 DA 8A CA D3 E8 24 01 34 00 5D C2 04 00")
+BOOL_WRITER_PATTERN_66 = (
+    "55 8B EC 8B 45 08 6A 08 E8 ?? ?? ?? ?? 8D 44 08 38 "
+    "8A 8A ?? ?? ?? ?? 20 08 8B 4D 0C 87 CA 83 E9 07 F7 D9 "
+    "D3 E2 08 10 5D C2 08 00")
+BOOL_DISPATCH_PATTERN_66 = (
+    "55 8B EC 51 E8 ?? ?? ?? ?? 50 8B 55 FC 88 42 2E 83 F8 7B "
+    "77 34 3C 01 77 14 83 C0 03 3C 04 75 24 8B 52 0C 4A 4A "
+    "89 15 ?? ?? ?? ?? EB 17 52 83 E8 02 FF 14 85 ?? ?? ?? ?? "
+    "83 C4 04")
+BOOL_OBJECT_CONSTRUCTOR_PATTERN_66 = (
+    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 FF 35 00 00 00 00 "
+    "64 89 25 00 00 00 00 51 E8 ?? ?? ?? ?? FF 45 FC "
+    "68 ?? ?? ?? ?? 6A 73 6A 40 8B 45 F0 05 44 20 00 00 50 "
+    "E8 ?? ?? ?? ?? 8B 4D F0 C7 01 ?? ?? ?? ?? FF 4D FC")
+BOOL_CONDITION_CALL_PATTERN_66 = (
+    "6A 01 8B 4D 08 E8 ?? ?? ?? ?? 66 3D 00 80 75 07 B8 05 00 00 00 "
+    "EB 30 0F B7 C0 50 8B 4D 08 E8 ?? ?? ?? ?? F7 D8 1B C0")
+BOOL_ASSIGN_PATTERN_66 = (
+    "55 8B EC 6A 04 8B 4D 08 E8 ?? ?? ?? ?? 50 3D 00 00 00 80 "
+    "74 15 6A 27 8B 4D 08 E8 ?? ?? ?? ?? 0F B7 C8 81 F9 00 80 00 00 "
+    "75 07 B8 05 00 00 00 EB 15 F7 D9 1B C9 F7 D9 51 FF 75 FC "
+    "8B 4D 08 E8 ?? ?? ?? ?? 6A 01 58 8B E5 5D C3")
+
+
+def _boolean_reference_operand(image, value: int) -> int:
+    """Normalize a relocated absolute operand to the profile's reference VA."""
+    session = getattr(image, "session", None)
+    actual_base = int(getattr(session, "module_base", image.image_base))
+    if (actual_base != image.image_base and
+            actual_base <= value < actual_base + image.size_of_image):
+        return image.image_base + value - actual_base
+    return int(value)
+
+
+def _locate_boolean_layout(image, storage: str) -> Tuple[Optional[Dict[str, object]], str]:
+    """Prove the accessors and script object independently of a version hint.
+
+    A text renderer and a ceil(width/8) helper formerly certified this layout.
+    Here both bit accessors must share a division helper, the writer must use
+    the MSB clear-mask table, script opcodes 05/0B must call those accessors,
+    and the global object's vtable must point to that script dispatcher.
+    The conservative user domain is separately documented policy.
+    """
+    packed = storage == "bitset"
+    reader_pattern = BOOL_READER_PATTERN_66 if packed else BOOL_DWORD_READER_PATTERN
+    writer_pattern = BOOL_WRITER_PATTERN_66 if packed else BOOL_DWORD_WRITER_PATTERN
+    patterns = {
+        "reader": reader_pattern,
+        "writer": writer_pattern,
+        "constructor": BOOL_OBJECT_CONSTRUCTOR_PATTERN_66,
+    }
+    anchors = {}
+    spans = []
+
+    def u32(address):
+        return struct.unpack("<I", image.read_va(address, 4))[0]
+
+    def absolute(address):
+        return _boolean_reference_operand(image, u32(address))
+
+    def call_target(address):
+        if image.read_va(address, 1) != b"\xE8":
+            raise ProfileError("BOOL evidence does not contain a CALL rel32")
+        return address + 5 + struct.unpack("<i", image.read_va(address + 1, 4))[0]
+
+    def snapshot(address, size, absolute_offsets=()):
+        raw = bytearray(image.read_va(address, size))
+        for offset in absolute_offsets:
+            struct.pack_into("<I", raw, offset,
+                             _boolean_reference_operand(
+                                 image, struct.unpack_from("<I", raw, offset)[0]))
+        spans.append({"address": address, "expectedHex": bytes(raw).hex(),
+                      "absoluteOffsets": list(absolute_offsets)})
+
+    try:
+        for name, pattern in patterns.items():
+            hits = image.find_signature(MaskedSignature.parse(pattern))
+            if len(hits) != 1:
+                return None, "BOOL %s semantic candidates: %d" % (name, len(hits))
+            anchors[name] = hits[0]
+        reader, writer = anchors["reader"], anchors["writer"]
+        if packed:
+            divide = call_target(reader + 8)
+            if (call_target(writer + 8) != divide or
+                    image.read_va(divide, 9) != bytes.fromhex("33D2F77C2404C20400")):
+                return None, "BOOL reader/writer do not share the division-by-eight helper"
+            masks = absolute(writer + 19)
+            if image.read_va(masks, 8) != bytes.fromhex("7FBFDFEFF7FBFDFE"):
+                return None, "BOOL writer MSB clear masks do not match"
+            anchors.update({"divide": divide, "masks": masks})
+
+        dispatch_patterns = (BOOL_DISPATCH_PATTERN_66,) if packed else (
+            BOOL_DISPATCH_PATTERN_66.replace("83 F8 7B", "83 F8 79"),
+            BOOL_DISPATCH_PATTERN_66.replace("83 F8 7B", "83 F8 79").replace(
+                "50 8B 55 FC 88 42 2E", "0F B7 C0 50 8B 55 FC"),
+        )
+        dispatch_matches = {}
+        for pattern in dispatch_patterns:
+            signature = MaskedSignature.parse(pattern)
+            for hit in image.find_signature(signature):
+                dispatch_matches[hit] = image.read_va(hit, len(signature.pattern))
+        if len(dispatch_matches) != 1:
+            return None, "BOOL dispatcher semantic candidates: %d" % len(dispatch_matches)
+        dispatcher, dispatch_raw = next(iter(dispatch_matches.items()))
+        anchors["dispatcher"] = dispatcher
+        table_offset = dispatch_raw.index(b"\xFF\x14\x85") + 3
+        table = absolute(dispatcher + table_offset)
+        condition = absolute(table + (0x05 - 2) * 4)
+        assignment = absolute(table + (0x0B - 2) * 4)
+        condition_raw = image.read_va(condition, 0x88)
+        condition_hits = MaskedSignature.parse(
+            BOOL_CONDITION_CALL_PATTERN_66).find_all(condition_raw)
+        if len(condition_hits) != 1:
+            return None, "BOOL script opcode 05 condition is not recognized"
+        condition_call = condition + condition_hits[0] + 30
+        if call_target(condition_call) != reader:
+            return None, "BOOL script opcode 05 does not call the bit reader"
+        assignment_patterns = (
+            BOOL_ASSIGN_PATTERN_66,
+            BOOL_ASSIGN_PATTERN_66.replace("EB 15", "EB 17").replace(
+                "6A 01 58 8B E5 5D C3", "B8 01 00 00 00 8B E5 5D C3"),
+        )
+        if not packed:
+            # Legacy assignment wrappers differ in their return epilogue.  The
+            # dispatch table is the stronger evidence: locate a CALL rel32 to
+            # the proven DWORD writer inside the opcode-0B target.
+            raw_assignment = image.read_va(assignment, 0x100)
+            writer_calls = []
+            for offset in range(max(0, len(raw_assignment) - 5)):
+                if raw_assignment[offset] == 0xE8:
+                    try:
+                        if call_target(assignment + offset) == writer:
+                            writer_calls.append(assignment + offset)
+                    except (ProfileError, struct.error):
+                        pass
+            if len(writer_calls) != 1:
+                return None, "BOOL opcode 0B writer calls: %d" % len(writer_calls)
+            assignment_raw = raw_assignment[:max(16, writer_calls[0] - assignment + 5)]
+            assignment_call = writer_calls[0]
+        else:
+            assignment_matches = []
+            for pattern in assignment_patterns:
+                signature = MaskedSignature.parse(pattern)
+                raw = image.read_va(assignment, len(signature.pattern))
+                if signature.find_all(raw) == [0]:
+                    assignment_matches.append(raw)
+            if len(assignment_matches) != 1:
+                return None, "BOOL script opcode 0B assignment is not recognized"
+            assignment_raw = assignment_matches[0]
+            assignment_call = assignment + assignment_raw.index(
+                b"\x51\xFF\x75\xFC\x8B\x4D\x08\xE8") + 7
+        if call_target(assignment_call) != writer:
+            return None, "BOOL script opcode 0B does not call the bit writer"
+
+        constructor = anchors["constructor"]
+        constructor_raw = image.read_va(constructor, len(MaskedSignature.parse(
+            BOOL_OBJECT_CONSTRUCTOR_PATTERN_66).pattern))
+        vtable_offset = constructor_raw.index(b"\x8B\x4D\xF0\xC7\x01") + 5
+        vtable = absolute(constructor + vtable_offset)
+        if absolute(vtable + 8) != dispatcher:
+            return None, "BOOL script object vtable does not point to the dispatcher"
+        # MOV ECX, object; CALL constructor proves the global this pointer.
+        contexts = set()
+        context_sites = []
+        for region in scan_image_regions(image, True):
+            raw = region.data
+            for offset in MaskedSignature.parse(
+                    "B9 ?? ?? ?? ?? E8 ?? ?? ?? ??").find_all(raw):
+                site = region.start + offset
+                if call_target(site + 5) == constructor:
+                    contexts.add(absolute(site + 1))
+                    context_sites.append(site)
+        if len(contexts) != 1:
+            return None, "BOOL global script object candidates: %d" % len(contexts)
+        context = next(iter(contexts))
+        base = context + 0x38
+        if not (image.image_base <= base and
+                base + BOOL_BROWSE_BYTES_66 <= image.image_base + image.size_of_image):
+            return None, "BOOL object storage lies outside the main module"
+        anchors.update({"dispatchTable": table,
+                        "condition": condition, "assignment": assignment,
+                        "vtable": vtable, "scriptObject": context,
+                        "contextInitializer": context_sites[0]})
+        snapshot(reader, len(MaskedSignature.parse(reader_pattern).pattern))
+        snapshot(writer, len(MaskedSignature.parse(writer_pattern).pattern),
+                 (19,) if packed else ())
+        if packed:
+            snapshot(divide, 9)
+            snapshot(masks, 8)
+        snapshot(dispatcher, len(dispatch_raw), (39, table_offset))
+        snapshot(table, (0x0B - 2 + 1) * 4,
+                 tuple(range(0, (0x0B - 2 + 1) * 4, 4)))
+        snapshot(condition + condition_hits[0], len(MaskedSignature.parse(
+            BOOL_CONDITION_CALL_PATTERN_66).pattern))
+        snapshot(assignment, len(assignment_raw))
+        snapshot(constructor, len(constructor_raw), (6, 34, vtable_offset))
+        snapshot(vtable + 8, 4, (0,))
+        snapshot(context_sites[0], 10, (1,))
+        result = {"base": base, "formatVerified": True, "anchors": anchors,
+                  "verificationSpans": spans, "storage": storage,
+                  "nativeIndexBoundsVerified": False}
+        if packed:
+            result.update({
+                "domainBasis": BOOL_DOMAIN_BASIS_66,
+                "capacityBasis": "剧本资料域与相邻人物表重叠证据；未证明原生总数",
+                "nativeCapacityVerified": False, "nativeRecordCount": None,
+                "recordCount": BOOL_USER_COUNT_66,
+                "writableRecordCount": BOOL_USER_COUNT_66,
+                "browseRecordCount": BOOL_BROWSE_COUNT_66,
+                "storageBytes": BOOL_USER_BYTES_66,
+                "browseStorageBytes": BOOL_BROWSE_BYTES_66,
+                "stride": 1, "width": 1, "signed": False, "bitOrder": "msb0",
+            })
+        else:
+            counts = []
+            copier = None
+            for name, pattern in (("saveLoop", BOOL_DWORD_SAVE_LOOP_PATTERN),
+                                  ("loadLoop", BOOL_DWORD_LOAD_LOOP_PATTERN)):
+                signature = MaskedSignature.parse(pattern)
+                hits = image.find_signature(signature)
+                if len(hits) != 1:
+                    return None, "BOOL %s capacity candidates: %d" % (name, len(hits))
+                site = hits[0]
+                raw = image.read_va(site, len(signature.pattern))
+                count = struct.unpack_from("<H", raw, 5)[0]
+                following_field = struct.unpack_from("<I", raw, 41)[0]
+                if not 1 <= count <= 0x7FFF or following_field != 0x38 + count * 4:
+                    return None, "BOOL serializer count overlaps its following field"
+                current_copier = call_target(site + 22)
+                if copier is not None and current_copier != copier:
+                    return None, "BOOL save/load loops use different copy helpers"
+                copier = current_copier
+                headers = []
+                header_signature = MaskedSignature.parse(BOOL_SERIALIZER_HEADER_PATTERN)
+                for offset in header_signature.find_all(image.read_va(site - 0x120, 0x120)):
+                    header = site - 0x120 + offset
+                    if absolute(header + 8) == context:
+                        headers.append(header)
+                if len(headers) != 1:
+                    return None, "BOOL serializer does not uniquely use the global script object"
+                anchors[name] = site
+                anchors[name + "Header"] = headers[0]
+                snapshot(site, len(raw))
+                snapshot(headers[0], len(header_signature.pattern), (8,))
+                counts.append(count)
+            if counts[0] != counts[1]:
+                return None, "BOOL save/load capacity differs"
+            count = counts[0]
+            if base + count * 4 > image.image_base + image.size_of_image:
+                return None, "BOOL DWORD storage lies outside the main module"
+            result.update({
+                "domainBasis": "native-dword-save-load-loop-count",
+                "capacityBasis": "getter+setter+script-05-0B+save-load-count+following-field",
+                "nativeCapacityVerified": True, "nativeRecordCount": count,
+                "nativeIndexBoundsVerified": True,
+                "recordCount": count, "writableRecordCount": count,
+                "browseRecordCount": count,
+                "storageBytes": count * 4, "browseStorageBytes": count * 4,
+                "stride": 4, "width": 4, "signed": False,
+                "truthEncoding": "nonzero-dword",
+            })
+        return result, ""
+    except (ProfileError, ValueError, struct.error, IndexError) as exc:
+        return None, "BOOL semantic verification failed: %s" % exc
+
+
+def locate_boolean_layout_66(image) -> Tuple[Optional[Dict[str, object]], str]:
+    return _locate_boolean_layout(image, "bitset")
+
+
+def locate_boolean_layout_legacy(image) -> Tuple[Optional[Dict[str, object]], str]:
+    return _locate_boolean_layout(image, "dword")
+
+
+def locate_boolean_layout(image) -> Tuple[Optional[Dict[str, object]], str]:
+    """Select the native representation from code, including mixed variants."""
+    packed, packed_reason = locate_boolean_layout_66(image)
+    dword, dword_reason = locate_boolean_layout_legacy(image)
+    if packed is not None and dword is not None:
+        return None, "BOOL native representation is ambiguous"
+    if packed is not None or dword is not None:
+        return packed if packed is not None else dword, ""
+    return None, "%s; %s" % (packed_reason, dword_reason)
+
+
+def _verify_boolean_runtime_spans(memory, layout: Dict[str, object]) -> None:
+    spans = layout.get("verificationSpans", ())
+    if layout.get("formatVerified") is not True or not spans:
+        raise ProfileError("BOOL native access format has not been verified")
+    reference_base = int(getattr(memory, "reference_image_base", REFERENCE_IMAGE_BASE))
+    actual_base = int(getattr(memory, "module_base", reference_base))
+    module_size = int(getattr(memory, "module_size", 0))
+    for span in spans:
+        expected = bytes.fromhex(span["expectedHex"])
+        raw = bytearray(memory.read_bytes(int(span["address"]), len(expected)))
+        if len(raw) != len(expected):
+            raise ProfileError("BOOL runtime evidence read was incomplete")
+        for offset in span.get("absoluteOffsets", ()):
+            value = struct.unpack_from("<I", raw, offset)[0]
+            if (actual_base != reference_base and
+                    actual_base <= value < actual_base + module_size):
+                struct.pack_into("<I", raw, offset,
+                                 reference_base + value - actual_base)
+        if bytes(raw) != expected:
+            raise ProfileError("BOOL native code/object evidence changed at 0x%08X" %
+                               int(span["address"]))
 
 
 def _decode_effect_name_catalog_65_66(
@@ -1259,7 +1942,11 @@ def load_effect_name_catalog_65_66(exe_path: str) -> Tuple[str, ...]:
 def _register_effect_name_catalog_65_66(
         image: PEImage, addresses: Dict[str, int],
         metadata: Dict[str, object]) -> None:
-    if isinstance(image, RuntimeModuleImage):
+    # Runtime captures may be represented by RuntimeModuleImage (a live
+    # process session), MappedRuntimeImage (an offline RVA capture), or a
+    # project-specific adapter.  Use the explicit source marker so all of
+    # these paths read the runtime table instead of the protected disk file.
+    if str(getattr(image, "source", "disk")).startswith("runtime"):
         runtime_address = EFFECT_NAME_RUNTIME_ADDRESS_65_66
         expected_size = (EFFECT_NAME_RECORD_COUNT_65_66 *
                          EFFECT_NAME_SLOT_SIZE_65_66)
@@ -1308,6 +1995,11 @@ class EngineProfile:
     # keeps the historical direct-write behavior while still requiring every
     # operation to resolve a concrete address/layout before it can run.
     access_policy: str = "direct_compat"
+    # Runtime byte observations and ownership belong to the main memory
+    # session, independently of static capability evidence.  A successful
+    # signature match alone cannot authorize taking over someone else's patch.
+    patch_runtime_states: Dict[str, str] = field(default_factory=dict)
+    patch_runtime_reasons: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Build the access map and normalize compatibility aliases.
@@ -1375,10 +2067,10 @@ class EngineProfile:
             explicit = self.metadata.get("consumable_item_ids")
             if isinstance(explicit, (list, tuple)):
                 return tuple(sorted({int(item) for item in explicit
-                                     if 0 <= int(item) < 0xFF}))
+                                     if 0 <= int(item) <= 0xFFFF}))
             start = int(self.limits.get("consumable_id_min", 0))
             end = int(self.limits.get("consumable_ui_id_max", -1))
-            return tuple(range(max(0, start), min(0xFE, end) + 1))
+            return tuple(range(max(0, start), min(0xFFFF, end) + 1))
         raise ValueError("未知物品 ID 域: %s" % domain)
 
     def is_item_id(self, item_id: int, domain: str = "record") -> bool:
@@ -1449,13 +2141,40 @@ class EngineProfile:
             reason=capability.reason or "当前引擎画像未解析此功能",
             reason_code=capability.reason_code or "PROFILE_UNRESOLVED")
 
+    def _requires_runtime_access(self, key: str) -> bool:
+        # A split counter map spans independently protected memory ranges.
+        # Its page probe must remain authoritative in direct compatibility
+        # mode so an unavailable second range cannot be presented as writable.
+        mapping = self.metadata.get("consumable_mapping")
+        return ((self.is_66 and key == "variables_bool") or
+                (key == "item_consumables" and isinstance(mapping, dict) and
+                 mapping.get("recipeKey") == "legacy-split-43-v1"))
+
     def can_read(self, key: str) -> bool:
-        if self.direct_compatibility and self.direct_write:
+        if (self.direct_compatibility and self.direct_write and
+                not self._requires_runtime_access(key)):
             return self._compat_recipe_available(key)
         return self.resolved_feature(key).readable
 
     def can_write(self, key: str) -> bool:
-        if self.direct_compatibility and self.direct_write:
+        if key.startswith("control_") and key in self.patch_runtime_states:
+            # UNREADABLE is a bounded transient state: the main-session probe
+            # retains the last known UI state for two failed reads, then emits
+            # UNREADABLE_CONFIRMED.  Actual writes still validate live bytes.
+            if self.patch_runtime_states[key] not in (
+                    "ORIGINAL", "OWNED_PATCHED", "UNREADABLE"):
+                return False
+        if self.is_66 and key == "variables_bool":
+            layout = self.metadata.get("variable_layouts", {}).get(key, {})
+            if (layout.get("formatVerified") is not True or
+                    int(layout.get("writableRecordCount", 0)) <= 0):
+                return False
+        if (not self.is_66 and key == "variables_bool"):
+            layout = self.metadata.get("variable_layouts", {}).get(key, {})
+            if layout.get("nativeCapacityVerified") is not True:
+                return False
+        if (self.direct_compatibility and self.direct_write and
+                not self._requires_runtime_access(key)):
             return self._compat_recipe_available(key)
         return self.resolved_feature(key).writable
 
@@ -1520,6 +2239,19 @@ class EngineProfile:
             reason=reason, reason_code=reason_code,
             probe_passed=runtime_probe_passed)
 
+    def set_patch_runtime_state(self, key: str, state: str,
+                                reason: str = "") -> None:
+        """Record a main-session observation without changing static evidence.
+
+        Accept enum values as well as strings so the memory layer can expose
+        its own typed state without creating an import cycle.  Unknown future
+        states remain non-writable until explicitly supported by ``can_write``.
+        """
+        key = str(key)
+        value = str(getattr(state, "value", state)).upper()
+        self.patch_runtime_states[key] = value
+        self.patch_runtime_reasons[key] = str(reason or "")
+
     def refresh_table_descriptor_runtime(
             self, key: str, memory,
             runtime_base: Optional[int] = None) -> Optional[ResolvedTableDescriptor]:
@@ -1560,8 +2292,7 @@ class EngineProfile:
 
     def public_capabilities(self) -> List[FeatureCapability]:
         internal = {"person_r", "person_s", "person_face", "variables",
-                    "variables_bool_anchor", "item_metadata",
-                    "variables_bool_storage", "effect_query_layout"}
+                    "item_metadata", "effect_query_layout"}
         return [item for key, item in self.capabilities.items()
                 if key not in internal]
 
@@ -1650,7 +2381,9 @@ class EngineProfile:
             raise ProfileError(self.capability("item_metadata").reason or
                                "物品元数据当前不可用")
         codec = str(self.metadata.get("item_row_codec", ITEM_CODEC_66))
-        return validate_item_table_66(table, codec)
+        return validate_item_table_66(table, codec, min(
+            ITEM_RECORD_COUNT_66, int(self.limits.get(
+                "item_record_count", ITEM_RECORD_COUNT_66))))
 
     def item_row(self, item_id: int) -> ItemRow66:
         table = self.item_table_66()
@@ -1662,6 +2395,43 @@ class EngineProfile:
 
     def _probe_legacy_composite_runtime(self, memory) -> None:
         failures: Dict[str, str] = {}
+        # Legacy BOOLs are DWORD records.  Probe the complete evidence-backed
+        # native span before presenting a live page as writable; this keeps a
+        # fixed-address profile readable while refusing an unmapped or
+        # unproven 4096-row fallback.
+        bool_layout = self.metadata.get("variable_layouts", {}).get(
+            "variables_bool")
+        if isinstance(bool_layout, dict):
+            try:
+                base = int(self.addresses["bool_vars"])
+                count = int(bool_layout.get(
+                    "nativeRecordCount", bool_layout.get("recordCount", 0)))
+                stride = int(bool_layout.get("stride", 4))
+                width = int(bool_layout.get("width", 4))
+                if count <= 0 or stride < width:
+                    raise ProfileError("旧版 BOOL 原生跨度描述无效")
+                size = (count - 1) * stride + width
+                readable = memory.validate_range(base, size, write=False)
+                writable = memory.validate_range(base, size, write=True)
+                if not readable:
+                    raise ProfileError("旧版 BOOL 原生页不可读")
+                proven = bool_layout.get("nativeCapacityVerified") is True
+                access = (FeatureAccess.READ_WRITE if proven and writable else
+                          FeatureAccess.READ_ONLY)
+                reason = ("" if access.writable else
+                          ("旧版 BOOL 原生页只读" if writable is False else
+                           "旧版 BOOL 容量未通过原生证据核验"))
+                self.set_feature_access(
+                    "variables_bool", access, reason=reason,
+                    reason_code=("" if access.writable else
+                                 ("RUNTIME_READ_ONLY" if writable is False else
+                                  "NATIVE_CAPACITY_NOT_VERIFIED")),
+                    resolved_address=base, runtime_probe_passed=True)
+            except Exception as exc:
+                failures["variables_bool"] = "旧版 BOOL 运行时探针失败: %s" % exc
+                self.set_feature_access(
+                    "variables_bool", FeatureAccess.UNAVAILABLE,
+                    failures["variables_bool"], "RUNTIME_PROBE_FAILED")
         effect = self.resolved_feature("effect")
         layout = effect.layout
         if isinstance(layout, TableLayoutSpec) and layout.pointer_backed:
@@ -1694,7 +2464,16 @@ class EngineProfile:
             try:
                 count_base = self.addresses["consumable_counts"]
                 size = int(mapping["storageCount"]) * int(mapping["stride"])
-                if mapping.get("baseDereference"):
+                explicit_addresses = tuple(int(value) for value in mapping.get("addresses", ()))
+                if explicit_addresses:
+                    if len(explicit_addresses) != len(mapping["itemIds"]):
+                        raise ProfileError("消耗品显式地址与ID数量不一致")
+                    width = int(mapping["width"])
+                    readable = all(memory.validate_range(address, width, write=False)
+                                   for address in explicit_addresses)
+                    writable = all(memory.validate_range(address, width, write=True)
+                                   for address in explicit_addresses)
+                elif mapping.get("baseDereference"):
                     count_base = memory.read_u32(count_base)
                     readable = memory.validate_actual_range(
                         count_base, size, write=False)
@@ -1814,7 +2593,16 @@ class EngineProfile:
                 count_base = self.addresses["consumable_counts"]
                 mapping_size = (int(mapping["storageCount"]) *
                                 int(mapping["stride"]))
-                if mapping.get("baseDereference"):
+                explicit_addresses = tuple(int(value) for value in mapping.get("addresses", ()))
+                if explicit_addresses:
+                    if len(explicit_addresses) != len(mapping["itemIds"]):
+                        raise ProfileError("消耗品显式地址与ID数量不一致")
+                    width = int(mapping["width"])
+                    readable = all(memory.validate_range(address, width, write=False)
+                                   for address in explicit_addresses)
+                    valid = all(memory.validate_range(address, width, write=True)
+                                for address in explicit_addresses)
+                elif mapping.get("baseDereference"):
                     count_base = memory.read_u32(count_base)
                     readable = memory.validate_actual_range(
                         count_base, mapping_size, write=False)
@@ -1884,19 +2672,31 @@ class EngineProfile:
             try:
                 layout = self.metadata["variable_layouts"][capability_key]
                 base = self.addresses[address_key]
+                if capability_key == "variables_bool":
+                    _verify_boolean_runtime_spans(memory, layout)
+                    if not memory.validate_range(
+                            base, BOOL_BROWSE_BYTES_66, write=False):
+                        failures[capability_key] = "BOOL browse storage is unreadable"
+                    elif not memory.validate_range(
+                            base, BOOL_USER_BYTES_66, write=True):
+                        failures[capability_key] = "BOOL 用户变量页只读"
+                    elif getattr(memory, "read_only", False):
+                        failures[capability_key] = "BOOL 当前进程会话只读"
+                    continue
                 count_offset = layout.get("countOffset")
+                record_count = int(layout["recordCount"])
                 if count_offset is not None:
                     actual_count = memory.read_u32(base + int(count_offset))
-                    if actual_count != self.limits["variable_count"]:
+                    if actual_count != record_count:
                         failures[capability_key] = (
                             "%s数量头为 %d，预期 %d" %
                             (address_key, actual_count,
-                             self.limits["variable_count"]))
+                             record_count))
                         continue
                 size = (int(layout["dataOffset"]) +
-                        ((self.limits["variable_count"] + 7) // 8
+                        ((record_count + 7) // 8
                          if layout.get("storage") == "bitset" else
-                         (self.limits["variable_count"] - 1) *
+                         (record_count - 1) *
                          int(layout["stride"]) + int(layout["width"])))
                 if not memory.validate_range(base, size, write=False):
                     failures[capability_key] = "%s运行时页不可读" % address_key
@@ -1978,12 +2778,85 @@ KNOWN_66 = {
     "4A4FD8DDBF83E5F0B769D1B97BF8F6E6431C3AB42892024A354228212D3D06A4":
         ("新改曹操傳6.6修正版", 1130496),
 }
+# Local adaptation baselines.  These identities are kept separate from the
+# 6.6 evidence quorum because they are used by the legacy/composite profile
+# path.  The 6.4 sample is a statically readable PE; the 2.2.0 sample is a
+# VProtect-wrapped disk image whose executable code is only available after
+# the game has unpacked it in memory.
+KNOWN_LEGACY_TARGETS = {
+    "1F6E07BC5C6B1ECB1DFF254BADCDEA6B922F15D7CC1B1C5D5DE4A8BCE7DE95A0": {
+        "version": EngineVersion.V64,
+        "variant": "三国之召唤猛将6.4（60关版）",
+        "fileSize": 1128960,
+        "imageSize": 0x142200,
+        "adaptation": "static-64-zhaohuan-60",
+        "diskProtection": "none",
+        "runtimeRequired": False,
+        "targetEvidence": {
+            "effectAnchor": 0x00422032,
+            "effectAnchorExpected": 100,
+            "battleUnitFieldOffset": 0x08,
+        },
+    },
+    "1D8E83F73E7780C60B0B5DE5277D54490F72472270F727C97753F8E72AE4B381": {
+        "version": EngineVersion.V65,
+        "variant": "加强版2.2.0（VProtect，运行时解包）",
+        "fileSize": 43263298,
+        "imageSize": 0x246000,
+        "adaptation": "runtime-65-220",
+        "diskProtection": "VProtect",
+        "runtimeRequired": True,
+        # Captured from the unmodified 2.2.0 process image.  These are
+        # diagnostic/runtime anchors; they never authorize writes to the
+        # protected disk image by themselves.
+        "runtimeLayout": {
+            "native_super": 0x004250B3,
+            "native_state": 0x004CE7BF,
+            "native_busy": 0x00500E0C,
+            "wait_wrapper": 0x0042C4E0,
+            "timer_context": 0x004B1B18,
+            "stage": 0x004750E0,
+            "phase": 0x004B3D18,
+            "speed": 0x004CE7BC,
+            "phase_table": 0x004750DC,
+            "counter": 0x004750DF,
+            "condition_descriptor": 0x004E7600,
+            "condition_executor": 0x004E7500,
+        },
+    },
+}
+
+
+def legacy_recipe_id(feature_key: str, recipe: Dict[str, object]) -> str:
+    """Return a namespaced recipe id for 6.4/6.5 composite profiles.
+
+    ``capability_evidence.recipe_id`` predates the composite profiles and
+    labels every recipe ``ccz66``.  That made a 6.4 or 6.5 profile look like
+    a 6.6 layout in diagnostics even when the layout itself was correct.
+    Keep the digest format stable while making the engine family explicit.
+    """
+    digest = hashlib.sha256(
+        json.dumps(recipe, ensure_ascii=True, sort_keys=True,
+                   separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:20].upper()
+    return "legacy.%s.%s" % (feature_key, digest)
+
 # Display-only identities must not expand the dual-baseline evidence quorum.
 KNOWN_66_VARIANTS = {
+    # Local Xinnai derivative: semantic person/variable/call contracts match,
+    # but the different file identity grants no additional runtime evidence.
+    "59CAB212E786F0771AE0FE8368BD4B8DAB7FF4B9AA3A25085FED36E45A88F081":
+        ("信奈的野望12关版", 1139200),
+    "9E3EE0ADE22EA855FF64ACAB864D8C14B7E9E800FD5CA08C8B27D1E5CF6889BE":
+        ("信奈的野望12关版", 1132544),
+    "719F710687CAE4BAEC2B3A4B028B473EA8AEB334A7ACFA6A692B46F207B5CDF8":
+        ("单EXE扩展6.6（基底Ekd5）", 6200832),
     "4A5221B4842A261647D0DE23CDE3867974A5493A9C98C21015A6116AA5F2E063":
         ("8.14绝对反击6.6", 1132032),
     "402F1675DC863577AD356B16B20FCE058A94C66E13B0BDD5EFAC1CE8E752F26B":
         ("以和为贵1-demo 6.6", 7789311),
+    "F13022762138E2DB3E5E263079D5A36F6407D0CFA533622F84B2550E80636727":
+        ("信奈的野望12关版", 1132544),
 }
 _KNOWN_66_IDENTITIES = dict(KNOWN_66)
 _KNOWN_66_IDENTITIES.update(KNOWN_66_VARIANTS)
@@ -2017,7 +2890,8 @@ _PATCH_LOCATORS = {
         ("DC E8 ?? ?? ?? ?? 85 C0 74 04 C6 45 FC 06", 8, b"\x74", b"\xEB", 2),
     ),
     "control_move_255": (
-        ("51 14 8B E5 5D C2 04 00 55 8B EC 83 EC 08 89 4D F8", 8,
+        ("55 8B EC 83 EC 08 89 4D F8 FF 31 E8 ?? ?? ?? ?? E8 ?? ?? ?? ?? "
+         "89 45 FC 6A 02 8B 4D F8 E8 ?? ?? ?? ?? 85 C0 74 04", 0,
          b"\x55\x8B\xEC\x83\xEC\x08", b"\x33\xC0\x48\xC3\x90\x90", 6),
     ),
     "control_pass_through": (
@@ -2029,23 +2903,43 @@ _PATCH_LOCATORS = {
 
 
 def _locate_patch(image: PEImage, key: str, label: str) -> Tuple[Optional[PatchSpec], str]:
+    runtime = _is_runtime_image(image)
     sites: List[PatchSite] = []
     patterns: List[str] = []
     instruction_lengths: List[int] = []
+    states: List[str] = []
     for pattern, target_offset, original, patched, instruction_length in _PATCH_LOCATORS[key]:
-        hits = image.find_signature(MaskedSignature.parse(pattern))
-        if len(hits) != 1:
-            return None, "%s签名匹配数为 %d" % (label, len(hits))
-        address = hits[0] + target_offset
-        current = image.read_va(address, len(original))
-        if current != original:
-            return None, "%s原字节不匹配" % label
+        # Search original/patched candidates in the same pass.  Falling back
+        # only after a failed original scan would miss a second patched copy.
+        signature = (_wildcard_patch_signature(
+            pattern, ((target_offset, len(original)),))
+                     if runtime else MaskedSignature.parse(pattern))
+        hits = image.find_signature(signature)
+        valid = []
+        for hit in hits:
+            address = hit + target_offset
+            try:
+                current = image.read_va(address, len(original))
+            except ProfileError:
+                continue
+            state = _patch_state(current, original, patched)
+            if state == "original" or (runtime and state == "patched"):
+                valid.append((address, current))
+        if len(valid) != 1:
+            return None, "%s签名匹配数为 %d" % (label, len(valid))
+        address, current = valid[0]
         sites.append(PatchSite(address, original, patched))
         patterns.append(pattern)
         instruction_lengths.append(instruction_length)
+        states.append(_patch_state(current, original, patched))
     fingerprint = hashlib.sha256("|".join(patterns).encode("ascii")).hexdigest().upper()
+    observed_state = _aggregate_patch_state(states)
+    if observed_state not in ("original", "patched"):
+        return None, "%s补丁站点状态不一致，拒绝接管" % label
     return PatchSpec(key, label, tuple(sites), tuple(patterns), fingerprint,
-                     tuple(instruction_lengths)), ""
+                     tuple(instruction_lengths),
+                     observed_state=observed_state,
+                     observed_site_states=tuple(states)), ""
 
 
 def _capability(key: str, static_verified: bool, reason: str = "",
@@ -2123,6 +3017,14 @@ def _materialize_verified_recipes(
         "item_consumables": "消耗品计数",
     }
     for key, label in labels.items():
+        # The semantic locator above already materialized a complete
+        # original/patched PatchSpec for a live image.  Evidence recipes are
+        # disk contracts and historically require original bytes; reapplying
+        # them here would turn a valid live patched state into an unavailable
+        # capability on every refresh.
+        if (_is_runtime_image(image) and key in patches and
+                patches[key].observed_state in ("original", "patched")):
+            continue
         try:
             verified = _EVIDENCE_REPOSITORY.verified_recipe(key, _BASELINE_SHA256)
         except EvidenceError as exc:
@@ -2270,6 +3172,33 @@ CORE_FATAL_PATTERN = (
     "55 8B EC 83 EC 0C 54 6A 02 6A 04 FF 75 08 E8 ?? ?? ?? ?? "
     "0F B6 45 F4 3C 50 73 25 6B C8 10 03 0D ?? ?? ?? ?? "
     "8A 45 F6 6B D0 03 03 CA 8B 55 FA 3C 05")
+RECALCULATE_ABI_PATTERN_66 = (
+    "55 8B EC FF 71 1B FF 71 1F FF 35 ?? ?? ?? ?? 33 D2 3B 4D 08 "
+    "75 ?? 8A 51 2C C6 05 ?? ?? ?? ?? 01 C6 41 2C 00 51 6A 00 52 "
+    "E8 ?? ?? ?? ?? 8A 45 F4 A2 ?? ?? ?? ?? 8B 4D 08 8B 45 FC "
+    "89 41 1B 8B 45 F8 66 89 41 1F 99 EB 02 B2 11 8B E5 5D C2 04 00")
+RECALCULATE_NOP_ABI_PATTERN_66 = (
+    "55 8B EC FF 71 1B FF 71 1F 90 90 90 90 90 90 33 D2 3B 4D 08 "
+    "75 32 8A 51 2C 90 90 90 90 90 90 90 C6 41 2C 00 51 6A 00 52 "
+    "E8 ?? ?? ?? ?? 90 90 90 90 90 90 90 90 8B 4D 08 8B 45 FC "
+    "89 41 1B 8B 45 F8 66 89 41 1F 99 EB 02 B2 11 8B E5 5D C2 04 00")
+FATAL_INDEX_PATTERN_66 = (
+    "55 8B EC 0F B6 C8 6B C9 10 03 0D ?? ?? ?? ?? 5D C3")
+FATAL_CONSUMER_PATTERN_66 = (
+    "55 8B EC 51 6A 00 8B 4D 0C E8 ?? ?? ?? ?? 8B 4D FC "
+    "3A 41 0F 74 25 8B 45 F8 3C 05 73 22 6B C0 03 03 45 FC "
+    "8B 55 08 66 3B 10 75 0B 8B 4D 0C 8A 51 2C 3A 50 02 "
+    "73 05 FF 45 F8 EB DB B0 01 EB 02 B0 FF 8B E5 5D C2 08 00")
+FATAL_BOUND_PATTERNS_66 = (
+    "8B 45 FC 3C 50 73 1E E8 ?? ?? ?? ?? FF 75 F8 FF 75 F4 "
+    "E8 ?? ?? ?? ?? 3C 01",
+    "8B 45 FC 3C 50 73 31 E8 ?? ?? ?? ?? FF 75 F4 FF 75 F8 "
+    "E8 ?? ?? ?? ?? 3C 01",
+)
+VARIABLE_INT_BOUNDS_PATTERN_66 = (
+    "66 81 F9 00 10 73 ?? 8D 0C 8D 00 20 50 00")
+VARIABLE_PTR_BOUNDS_PATTERN_66 = (
+    "66 81 F9 E0 01 77 ?? 8D 0C 8D 00 60 50 00")
 
 
 def verify_engine_identity(
@@ -2378,6 +3307,9 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
         "fatal_count": 80,
         "fatal_stride": 16,
         "variable_count": 4096,
+        "variable_bool_count": BOOL_USER_COUNT_66,
+        "variable_int_count": 4096,
+        "variable_ptr_count": 481,
     }
 
     capabilities: Dict[str, FeatureCapability] = {}
@@ -2405,17 +3337,25 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
                 "addressKey": "bool_vars", "countOffset": None,
                 "dataOffset": 0, "stride": 1, "width": 1,
                 "signed": False, "storage": "bitset",
-                "bitOrder": "msb0", "storageBytes": 512,
+                "bitOrder": "msb0", "storageBytes": BOOL_USER_BYTES_66,
+                "browseStorageBytes": BOOL_BROWSE_BYTES_66,
+                "browseRecordCount": BOOL_BROWSE_COUNT_66,
+                "writableRecordCount": 0, "formatVerified": False,
+                "domainBasis": BOOL_DOMAIN_BASIS_66,
+                "nativeIndexBoundsVerified": False,
+                "recordCount": limits["variable_bool_count"],
             },
             "variables_int": {
                 "addressKey": "int_vars", "countOffset": None,
                 "dataOffset": 0, "stride": 4, "width": 4,
                 "signed": True,
+                "recordCount": limits["variable_int_count"],
             },
             "variables_ptr": {
                 "addressKey": "ptr_vars", "countOffset": None,
                 "dataOffset": 0, "stride": 4, "width": 4,
-                "signed": True,
+                "signed": False, "codec": "pointer-u32-v1",
+                "recordCount": limits["variable_ptr_count"],
             },
         },
     }
@@ -2443,6 +3383,11 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
             "consumable_ui_id_max": consumable_spec.id_max,
             "consumable_storage_count": consumable_spec.storage_count,
         })
+        if consumable_spec.key == "single-exe-66-256-v1":
+            # The single-exe initializer reads 512 metadata rows, while
+            # equipment/warehouse slots remain byte-sized and keep 255 as
+            # their empty sentinel.  Only the physical metadata count grows.
+            limits["item_record_count"] = 512
     item_row_codec, item_runtime_base, item_codec_hits, item_codec_reason = (
         locate_item_row_codec(image))
     item_metadata_ok = False
@@ -2483,6 +3428,20 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
     # These structure/function signatures are deliberately independent of SHA.
     # The third tuple member is the operand offset. -4 means the final four
     # bytes of the signature; None means the signature identifies a function.
+    recalculate_candidates = (
+        ("standard", RECALCULATE_ABI_PATTERN_66),
+        ("global-state-nops", RECALCULATE_NOP_ABI_PATTERN_66),
+    )
+    recalculate_matches = [
+        (name, pattern, address)
+        for name, pattern in recalculate_candidates
+        for address in image.find_signature(MaskedSignature.parse(pattern))
+    ]
+    recalculate_pattern = (recalculate_matches[0][1]
+                           if len(recalculate_matches) == 1
+                           else RECALCULATE_ABI_PATTERN_66)
+    if len(recalculate_matches) == 1:
+        metadata["recalculate_variant"] = recalculate_matches[0][0]
     structural = {
         "battle": (
             "55 8B EC 0F B6 C9 6B C9 30 81 C1 ?? ?? ?? ?? 5D C3", 11),
@@ -2497,18 +3456,13 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
         "fatal": (
             CORE_FATAL_PATTERN, 32),
         "recalculate": (
-            "55 8B EC FF 71 1B FF 71 1F FF 35 F8 5F 50 00 33 D2 3B 4D 08", None),
+            recalculate_pattern, None),
         "revive": (
             "55 8B EC 6A 00 83 EC 34 8B 4D 08 E8 ?? ?? ?? ?? 85 C0 75 11 81 F9 00 04 00 00", None),
         "weather": (
             "55 8B EC 51 0F B6 51 11 6B C2 06 8A 55 08 8A 94 10 00 E1 48 00", None),
         "effect": (
             "55 8B EC 51 E8 ?? ?? ?? ?? 50 81 65 08 FF 00 00 00 FF 75 FC FF 75 10 FF 75 08 8B 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? 50 FF 75 10", 28),
-        "variables_bool_anchor": (
-            "5D C2 0C 00 55 8B EC 68 ?? ?? ?? ?? FF 75 0C FF 45 08 FF 75 08 8B 4D FC", 8),
-        "variables_bool_storage": (
-            "55 8B EC 0F B7 45 08 C1 F8 03 50 0F B7 45 08 99 33 C2 "
-            "83 E0 07 33 C2 85 C0 74 03 FF 45 FC 58 5D C2 04 00", None),
         "turn_refresh_direction": (
             "55 8B EC 6A 00 6A 00 83 EC 10 8B 4D 08 E8 ?? ?? ?? ?? 85 C0 74 04 8B C8", None),
     }
@@ -2538,10 +3492,90 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
             capabilities[key] = _capability(
                 key, False, "%s结构签名匹配数为 %d" % (key, len(hits)))
 
+    if len(recalculate_matches) != 1:
+        located.pop("recalculate", None)
+        capabilities["recalculate"] = _capability(
+            "recalculate", False,
+            "人物重算入口候选总命中数为 %d" % len(recalculate_matches))
+
+    if not capabilities["fatal"].statically_verified:
+        fatal_patterns = {
+            "index": FATAL_INDEX_PATTERN_66,
+            "consumer": FATAL_CONSUMER_PATTERN_66,
+            "bound_1": FATAL_BOUND_PATTERNS_66[0],
+            "bound_2": FATAL_BOUND_PATTERNS_66[1],
+        }
+        fatal_hits = {key: image.find_signature(MaskedSignature.parse(pattern))
+                      for key, pattern in fatal_patterns.items()}
+        if all(len(hits) == 1 for hits in fatal_hits.values()):
+            fatal_index = fatal_hits["index"][0]
+            fatal_consumer = fatal_hits["consumer"][0]
+            bounds_ok = True
+            for key in ("bound_1", "bound_2"):
+                for call_offset, target in ((7, fatal_index),
+                                            (18, fatal_consumer)):
+                    call_site = fatal_hits[key][0] + call_offset
+                    call_bytes = image.read_va(call_site, 5)
+                    call_target = call_site + 5 + struct.unpack(
+                        "<i", call_bytes[1:])[0]
+                    if call_bytes[0] != 0xE8 or call_target != target:
+                        bounds_ok = False
+                        break
+                if not bounds_ok:
+                    break
+            if bounds_ok:
+                fatal_pointer = struct.unpack(
+                    "<I", image.read_va(fatal_index + 11, 4))[0]
+                extracted["fatal"] = fatal_pointer
+                located["fatal"] = fatal_index
+                capabilities["fatal"] = _capability(
+                    "fatal", True,
+                    recipe={
+                        "kind": "fatal-table-index-consumer-bounds",
+                        "pointerAddress": fatal_pointer,
+                        "recordCount": 80, "rowSize": 16,
+                        "characterSlots": 5, "slotSize": 3,
+                        "patterns": fatal_patterns,
+                        "anchorHits": {key: hits[0]
+                                       for key, hits in fatal_hits.items()},
+                    }, index=fatal_index, consumer=fatal_consumer,
+                    pointer=fatal_pointer)
+                metadata["fatal_layout_source"] = "index-consumer-bounds"
+
+    if capabilities["recalculate"].statically_verified:
+        entry = located["recalculate"]
+        call_offset = 0x28
+        call_bytes = image.read_va(entry + call_offset, 5)
+        internal_target = (entry + call_offset + 5 +
+                           struct.unpack("<i", call_bytes[1:])[0])
+        expected_target = entry - 0x1EC
+        if call_bytes[0] != 0xE8 or internal_target != expected_target:
+            capabilities["recalculate"] = _capability(
+                "recalculate", False,
+                "人物重算内部调用目标为 0x%08X，预期 0x%08X" %
+                (internal_target, expected_target))
+            located.pop("recalculate", None)
+        else:
+            capabilities["recalculate"] = _capability(
+                "recalculate", True,
+                recipe={
+                    "kind": "remote-call",
+                    "address": entry,
+                    "callingConvention": "thiscall",
+                    "ecxSource": "person_record_ptr",
+                    "arguments": ["person_record_ptr:u32"],
+                    "calleeCleanup": 4,
+                    "wrapperKind": "recalculate-person-v1",
+                    "abiPattern": recalculate_pattern,
+                    "internalCall": internal_target,
+                })
+
     effect_query_candidates = (
         ("standard-4+2", EFFECT_LAYOUT_16_QUERY_PATTERN),
         ("absolute-counter-4+2",
          EFFECT_LAYOUT_16_ABSOLUTE_COUNTER_QUERY_PATTERN),
+        ("imported-helper-4+2",
+         EFFECT_LAYOUT_16_IMPORTED_HELPER_QUERY_PATTERN),
     )
     effect_query_matches = []
     effect_query_counts = {}
@@ -2677,10 +3711,13 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
         metadata.setdefault("table_layouts", {})["effect"] = effect_table_layout
         metadata["effect_layout_codec"] = effect_table_layout.codec
         metadata.setdefault("table_descriptors", {})["effect"] = effect_descriptor
-    bool_layout_ok = all(capabilities[key].statically_verified for key in
-                         ("variables_bool_anchor", "variables_bool_storage"))
+    bool_semantics, bool_reason = locate_boolean_layout_66(image)
+    bool_layout_ok = bool_semantics is not None
     if bool_layout_ok:
-        addresses["bool_vars"] = extracted["variables_bool_anchor"] + 0x90
+        addresses["bool_vars"] = int(bool_semantics["base"])
+        metadata["variable_layouts"]["variables_bool"].update(bool_semantics)
+        metadata["variable_layouts"]["variables_bool"][
+            "writableRecordCount"] = BOOL_USER_COUNT_66
 
     person_tables_ok = all(capabilities[key].statically_verified for key in
                            ("person", "person_r", "person_s", "person_face"))
@@ -2730,21 +3767,34 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
             "lookupAddress": item_codec_hits.get("lookup", 0),
         })
     variable_results = {}
+    variable_bounds = {
+        "variables_int": VARIABLE_INT_BOUNDS_PATTERN_66,
+        "variables_ptr": VARIABLE_PTR_BOUNDS_PATTERN_66,
+    }
     for address_key, capability_key in (
             ("bool_vars", "variables_bool"),
             ("int_vars", "variables_int"),
             ("ptr_vars", "variables_ptr")):
         if address_key == "bool_vars":
             available = bool_layout_ok
+            boundary_hits = ()
         else:
-            available = bool(image.find_literal_references(addresses[address_key]))
+            boundary_hits = tuple(image.find_signature(MaskedSignature.parse(
+                variable_bounds[capability_key])))
+            available = len(boundary_hits) == 1
+            metadata["variable_layouts"][capability_key][
+                "boundaryAnchor"] = boundary_hits[0] if available else 0
         variable_results[capability_key] = available
         capabilities[capability_key] = _capability(
             capability_key, available,
-            "%s基址引用尚未通过" % address_key if not available else "",
+            ("%s基址与边界联合签名匹配数为 %d" %
+             (address_key, len(boundary_hits)))
+            if not available and address_key != "bool_vars" else
+            (bool_reason if address_key == "bool_vars" and not available else ""),
             recipe={
                 "kind": "variable-table", "addressKey": address_key,
-                "count": limits["variable_count"],
+                "count": metadata["variable_layouts"][capability_key][
+                    "recordCount"],
                 **metadata["variable_layouts"][capability_key],
             })
     variable_refs_ok = all(variable_results.values())
@@ -2752,7 +3802,10 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
         "variables", variable_refs_ok,
         "变量基址引用尚未通过" if not variable_refs_ok else "",
         recipe={"kind": "variable-groups", "groups": 3,
-                "count": limits["variable_count"]})
+                "counts": {
+                    key: metadata["variable_layouts"][key]["recordCount"]
+                    for key in ("variables_bool", "variables_int",
+                                "variables_ptr")}})
     capabilities["diy"] = _capability(
         "diy", True,
         recipe={"kind": "validated-custom-write", "widths": [1, 2, 4],
@@ -2811,13 +3864,21 @@ def detect_engine(exe_path: str, version_part: Optional[int] = None,
         "turn_refresh_position", False, "6.6坐标刷新ABI尚未动态验证",
         reason_code="POSITION_ABI_NOT_VERIFIED")
 
+    recalculate_signature = (
+        image.read_va(
+            located["recalculate"],
+            len(MaskedSignature.parse(recalculate_pattern).pattern))
+        if capabilities["recalculate"].statically_verified else b"")
     remote_calls = {
         "recalculate": RemoteCallSpec(
-            "recalculate", "人物能力重算", located.get("recalculate", 0x004075DF),
-            b"\x55\x8B\xEC\xFF\x71\x1B", capabilities["recalculate"].runtime_verified,
+            "recalculate", "人物能力重算", located.get("recalculate", 0),
+            recalculate_signature,
+            capabilities["recalculate"].statically_verified,
             structural["recalculate"][0], capabilities["recalculate"].recipe_id,
-            "thiscall", "ECX=人物记录", ("data_id:u16",), 0,
-            ("人物指针有效",), ("人物派生能力已重算",)),
+            "thiscall", "ECX=person_record_ptr",
+            ("person_record_ptr:u32",), 4,
+            ("人物指针有效",), ("人物派生能力已重算",), 0,
+            "recalculate-person-v1"),
         "revive": RemoteCallSpec(
             "revive", "战场复活", located.get("revive", 0x004092C0),
             b"\x55\x8B\xEC\x6A\x00\x83\xEC\x34", capabilities["revive"].runtime_verified,
@@ -2923,6 +3984,9 @@ def legacy_profile(version: int) -> EngineProfile:
         raise ProfileError("不支持的旧引擎版本")
     expanded = version in (EngineVersion.V64, EngineVersion.V65)
     pointer_effect = version == EngineVersion.V65
+    legacy_effect_count = {EngineVersion.V64: 180, EngineVersion.V65: 180,
+                           EngineVersion.V63_MP: 144, EngineVersion.V63: 144,
+                           EngineVersion.V62: 91, EngineVersion.V61: 88}[version]
     addresses = {
         "battle_units": 0x004A7B20 if expanded else 0x004B2C50,
         "person_pointer": 0x004CEA00,
@@ -2966,13 +4030,13 @@ def legacy_profile(version: int) -> EngineProfile:
         "item_record_count": 255 if expanded else 154,
         "equipment_count": 150 if expanded else 154,
         "item_stride": 0x19,
-        "item_name_size": 12,
-        "effect_count": 180 if expanded else 144,
+        "item_name_size": 17 if expanded else 12,
+        "effect_count": legacy_effect_count,
         "effect_name_count": (EFFECT_NAME_RECORD_COUNT_65_66
                               if pointer_effect else
-                              180 if expanded else 144),
+                              legacy_effect_count),
         "effect_record_count": 255 if pointer_effect else
-                               180 if expanded else 144,
+                               legacy_effect_count,
         "effect_stride": 8,
         "effect_character_slots": 3,
         "effect_job_slots": 1,
@@ -2981,6 +4045,9 @@ def legacy_profile(version: int) -> EngineProfile:
         "fatal_count": 80 if expanded else 36,
         "fatal_stride": 16,
         "variable_count": 4096,
+        "variable_bool_count": 4096,
+        "variable_int_count": 4096,
+        "variable_ptr_count": 481,
     }
     if expanded:
         limits.update({
@@ -3007,36 +4074,77 @@ def legacy_profile(version: int) -> EngineProfile:
         revive_address = 0x0040930F
     remote_calls = {
         "recalculate": RemoteCallSpec("recalculate", "人物能力重算",
-                                      0x004075DF, b"", True),
+                                      0x004075DF, b"", True,
+                                      calling_convention="thiscall",
+                                      ecx_source="ECX=person_record_ptr",
+                                      arguments=("person_record_ptr:u32",),
+                                      callee_cleanup=4,
+                                      wrapper_kind="recalculate-person-v1"),
         "revive": RemoteCallSpec("revive", "战场复活",
-                                 revive_address, b"", True),
+                                 revive_address, b"", False,
+                                 calling_convention="stdcall",
+                                 arguments=("direction:u32", "x:u32", "y:u32",
+                                            "data_id:u32"),
+                                 callee_cleanup=16,
+                                 preconditions=("目标槽为空且坐标有效",),
+                                 postconditions=("单位结构和地图占用已建立",),
+                                 wrapper_kind="legacy-life-v1"),
         "weather": RemoteCallSpec("weather", "天气刷新",
-                                   0x0041D9D1, b"", True),
+                                   0x0041D9D1, b"", False,
+                                   calling_convention="thiscall",
+                                   ecx_source="ECX=&battle_state",
+                                   arguments=("weather:u8",),
+                                   callee_cleanup=4,
+                                   context_reference=0x004B3D08,
+                                   wrapper_kind="weather-v1"),
         "turn_refresh_direction": RemoteCallSpec(
             "turn_refresh_direction", "转向刷新", 0x00457428, b"", True,
-            calling_convention="thiscall", ecx_source="DWORD[0x004B5DF0]",
-            arguments=("direction:u32", "data_id:u32", "flags:u32"),
+            calling_convention="thiscall", ecx_source="ECX=&unit_lookup_context",
+            arguments=("data_id:u32", "sentinel:u32", "direction:u32",
+                       "flags:u32"), callee_cleanup=16,
             context_reference=0x004B5DF0, wrapper_kind="legacy-turn-v1"),
         "turn_refresh_position": RemoteCallSpec(
             "turn_refresh_position", "坐标刷新", 0x004594DD, b"", True,
-            calling_convention="thiscall", ecx_source="DWORD[0x004B5DF0]",
-            arguments=("direction:u32", "y:u32", "x:u32", "data_id:u32"),
+            calling_convention="thiscall", ecx_source="ECX=&unit_lookup_context",
+            arguments=("data_id:u32", "x:u32", "y:u32", "direction:u32"),
+            callee_cleanup=16,
             context_reference=0x004B5DF0, wrapper_kind="legacy-position-v1"),
     }
     metadata = {
         "item_record_ids": list(range(limits["item_count"])),
-        "equipment_item_ids": list(range(limits["equipment_count"])),
+        "equipment_item_ids": [item_id for item_id in range(limits["equipment_count"])
+                               if expanded or not 87 <= item_id < 130],
+        "item_row_codec": ITEM_CODEC_65 if expanded else ITEM_CODEC_LEGACY,
+        "item_layout": {
+            "runtimeTableBase": addresses["item_table"],
+            "rowSize": ITEM_ROW_SIZE_66,
+            "nameSize": 17 if expanded else 12,
+            "legacyRuntimeContract": True,
+        },
         "variable_layouts": {
-            key: {
-                "addressKey": address_key, "countOffset": None,
+            "variables_bool": {
+                "addressKey": "bool_vars", "countOffset": None,
                 "dataOffset": 0, "stride": 4, "width": 4,
                 "signed": True,
-            }
-            for key, address_key in (
-                ("variables_bool", "bool_vars"),
-                ("variables_int", "int_vars"),
-                ("variables_ptr", "ptr_vars"),
-            )
+                "recordCount": limits["variable_bool_count"],
+                "nativeCapacityVerified": False,
+                "nativeRecordCount": None,
+                "capacityBasis": "等待运行时/磁盘 getter、setter 与保存循环证据",
+                "domainBasis": "旧版默认候选域0..%d，未完成原生容量核验" %
+                               (BOOL_DOCUMENTED_COUNT_LEGACY - 1),
+            },
+            "variables_int": {
+                "addressKey": "int_vars", "countOffset": None,
+                "dataOffset": 0, "stride": 4, "width": 4,
+                "signed": True,
+                "recordCount": limits["variable_int_count"],
+            },
+            "variables_ptr": {
+                "addressKey": "ptr_vars", "countOffset": None,
+                "dataOffset": 0, "stride": 4, "width": 4,
+                "signed": False, "codec": "pointer-u32-v1",
+                "recordCount": limits["variable_ptr_count"],
+            },
         },
     }
     effect_reference = (addresses["effect_assign_pointer"] if pointer_effect
@@ -3057,6 +4165,24 @@ def legacy_profile(version: int) -> EngineProfile:
                       "jobDomain": (0, 79), "canonicalCharacterEmpty": 1024,
                       "canonicalJobEmpty": 255})
     table_layouts = {"effect": legacy_effect_layout}
+    for key, address, count, stride in (
+            ("effect_exclusive", addresses["exclusive_set"], limits["effect_count"], 16),
+            ("fatal", addresses["fatal_table"], limits["fatal_count"], 16),
+            ("person", addresses["person_pointer"], limits["person_count"], 0x48)):
+        table_layouts[key] = TableLayoutSpec(
+            key, (AddressResolverKind.POINTER_RVA if key == "person" else
+                  AddressResolverKind.FIXED_RVA), address, count, stride,
+            codec={"effect_exclusive": "exclusive-set-16-v1",
+                   "fatal": "fatal-16-v1", "person": "person-48-v2"}[key],
+            semantics_proven=True, metadata={"legacyRuntimeContract": True})
+    addresses["fatal_names"] = (0x004A7510 if expanded else
+                                 0x004FF551 if version in
+                                 (EngineVersion.V63_MP, EngineVersion.V63) else
+                                 0x004FF710)
+    addresses["effect_names"] = {
+        EngineVersion.V64: 0x004FF560, EngineVersion.V65: 0x004CC600,
+        EngineVersion.V63_MP: 0x004FF7A0, EngineVersion.V63: 0x004FF7A0,
+        EngineVersion.V62: 0x004FF960, EngineVersion.V61: 0x004FFA80}[version]
     if expanded:
         consumable_spec = ConsumableMappingSpec(
             "legacy-expanded-105-base-profile", 0x00510C80,
@@ -3065,16 +4191,25 @@ def legacy_profile(version: int) -> EngineProfile:
             tuple(range(CONSUMABLE_ID_MIN_LEGACY_EXPANDED,
                         CONSUMABLE_ID_MAX_LEGACY_EXPANDED + 1)),
             CONSUMABLE_ID_MIN_LEGACY_EXPANDED)
-        metadata["consumable_mapping_spec"] = consumable_spec
-        metadata["consumable_mapping"] = consumable_spec.as_mapping()
-        metadata["consumable_item_ids"] = list(consumable_spec.ui_item_ids)
-        table_layouts["item_consumables"] = TableLayoutSpec(
+    else:
+        consumable_spec = legacy_split_consumable_mapping()
+        addresses["consumable_counts"] = consumable_spec.base
+    limits.update(consumable_id_min=consumable_spec.id_min,
+                  consumable_ui_id_max=consumable_spec.id_max,
+                  consumable_storage_count=consumable_spec.storage_count)
+    metadata["consumable_mapping_spec"] = consumable_spec
+    metadata["consumable_mapping"] = consumable_spec.as_mapping()
+    metadata["consumable_item_ids"] = list(consumable_spec.ui_item_ids)
+    table_layouts["item_consumables"] = TableLayoutSpec(
             "item_consumables", AddressResolverKind.FIXED_RVA,
             consumable_spec.base, consumable_spec.storage_count, 1,
-            (FieldSpec("count", 0, 1),), codec="uint8-count-array-v1",
+            (FieldSpec("count", 0, 1),), codec=("explicit-uint8-count-map-v1"
+                if consumable_spec.addresses else "uint8-count-array-v1"),
             semantics_proven=True,
             metadata={"idMin": consumable_spec.id_min,
-                      "uiIdMax": consumable_spec.id_max})
+                      "uiIdMax": consumable_spec.id_max,
+                      "addresses": consumable_spec.addresses,
+                      "legacyRuntimeContract": True})
     metadata["table_layouts"] = table_layouts
     resolved_features = {
         "effect": ResolvedFeature(
@@ -3085,8 +4220,13 @@ def legacy_profile(version: int) -> EngineProfile:
             reason=("等待附加后解引用6.5特效表" if pointer_effect else ""),
             runtime_probe_passed=not pointer_effect)
     }
-    if expanded:
-        resolved_features["item_consumables"] = ResolvedFeature(
+    for key in ("effect_exclusive", "fatal", "person"):
+        layout = table_layouts[key]
+        resolved_features[key] = ResolvedFeature(
+            key, FeatureAccess.READ_WRITE, capabilities[key].recipe_id, layout,
+            resolved_address=0 if layout.pointer_backed else layout.reference,
+            details={"legacyRuntimeContract": True})
+    resolved_features["item_consumables"] = ResolvedFeature(
             "item_consumables", FeatureAccess.READ_WRITE,
             capabilities["item_consumables"].recipe_id,
             table_layouts["item_consumables"],
@@ -3102,7 +4242,7 @@ def legacy_profile(version: int) -> EngineProfile:
 
 def _verified_legacy_capability(key: str, recipe: Dict[str, object]) -> FeatureCapability:
     return FeatureCapability(
-        key, CapabilityState.ENABLED, recipe_id=recipe_id(key, recipe),
+        key, CapabilityState.ENABLED, recipe_id=legacy_recipe_id(key, recipe),
         recipe=recipe)
 
 
@@ -3114,6 +4254,154 @@ def _disable_legacy_feature(profile: EngineProfile, key: str,
     profile.resolved_features[key] = ResolvedFeature(
         key, FeatureAccess.UNAVAILABLE, current.recipe_id, current.layout,
         reason=reason, reason_code=reason_code)
+
+
+def _legacy_target_spec(profile: EngineProfile, sha256: str) -> Optional[Dict[str, object]]:
+    spec = KNOWN_LEGACY_TARGETS.get(str(sha256).upper())
+    if not spec or spec.get("version") is not profile.engine_version:
+        return None
+    return spec
+
+
+def _lock_protected_disk_profile(profile: EngineProfile) -> None:
+    """Keep a protected disk image diagnostic-only until a live image exists."""
+    profile.direct_write = False
+    profile.access_policy = "evidence_gated"
+    reason = "磁盘 Ekd5.exe 为 VProtect 加壳态，必须附加运行中的解包映像后才能写入"
+    for key in tuple(profile.capabilities):
+        current = profile.resolved_feature(key)
+        profile.resolved_features[key] = current.with_runtime(
+            FeatureAccess.UNAVAILABLE, reason=reason,
+            reason_code="PROTECTED_DISK_RUNTIME_REQUIRED",
+            probe_passed=False)
+
+
+def _probe_220_runtime_anchors(
+        image: PEImage, spec: Dict[str, object]) -> Dict[str, object]:
+    """Check the audited 2.2.0 anchors in a mapped/live image.
+
+    The VProtect image does not contain the ordinary legacy core signatures,
+    so ``verify_engine_identity`` cannot be used as its only runtime gate.
+    Probe a small set of stable function prologues captured from the unpacked
+    process instead.  A candidate must contain at least three distinct code
+    anchors; data-only addresses in the layout are deliberately ignored.
+    """
+    layout = spec.get("runtimeLayout")
+    if not isinstance(layout, dict):
+        return {"passed": False, "hits": {}, "required": 3}
+    patterns = {
+        "native_super": b"\x55\x8B\xEC",
+        "wait_wrapper": b"\x55\x8B\xEC",
+        "stage": b"\x55\x8B\xEC",
+        "condition_descriptor": b"\xB8\x05\x00\x00\x00\xC3",
+        "condition_executor": b"\x55\x89\xE5",
+    }
+    hits: Dict[str, str] = {}
+    for key, expected in patterns.items():
+        address = layout.get(key)
+        if address is None:
+            continue
+        try:
+            actual = image.read_va(int(address), len(expected))
+        except (ProfileError, OSError, ValueError):
+            continue
+        if actual == expected:
+            hits[key] = "0x%08X" % int(address)
+    required = 3
+    return {"passed": len(hits) >= required, "hits": hits,
+            "required": required, "checked": len(patterns)}
+
+
+def _apply_220_runtime_layout(profile: EngineProfile,
+                              spec: Dict[str, object]) -> None:
+    """Attach the audited 2.2.0 runtime anchors to a live 6.5 profile."""
+    runtime_layout = spec.get("runtimeLayout")
+    if not isinstance(runtime_layout, dict):
+        return
+    profile.metadata["runtime_layout"] = dict(runtime_layout)
+    profile.metadata["runtime_layout_source"] = "2.2.0-unpacked-process-evidence"
+    profile.metadata["runtime_layout_verified"] = True
+    profile.metadata["runtime_required"] = True
+    # Keep the runtime profile evidence-gated.  The fixed addresses come from
+    # a read-only capture; effect and consumable writes remain blocked until a
+    # live page-permission/semantic probe promotes those two features.
+    profile.direct_write = False
+    profile.access_policy = "evidence_gated"
+    # The 2.2.0 process keeps the legacy 6.5 pointer-backed effect table and
+    # the 150..254 consumable domain.  Disk signatures are unavailable under
+    # VProtect, so these recipes are enabled only for image.source=runtime.
+    pointer = 0x00500C3B
+    layout = effect_layout_8(pointer, 255,
+                             fingerprint="runtime-220-effect-65-v1")
+    recipe = {
+        "kind": "effect-assignment-pointer-8-runtime-220",
+        "pointerAddress": pointer,
+        "recordCount": layout.record_count,
+        "rowSize": layout.stride,
+        "runtimeAnchors": dict(runtime_layout),
+    }
+    profile.addresses["effect_assign_pointer"] = pointer
+    profile.addresses["effect_assign"] = 0
+    profile.limits["effect_record_count"] = layout.record_count
+    profile.metadata.setdefault("table_layouts", {})["effect"] = layout
+    profile.metadata["effect_layout_codec"] = layout.codec
+    profile.capabilities["effect"] = _verified_legacy_capability("effect", recipe)
+    profile.resolved_features["effect"] = ResolvedFeature(
+        "effect", FeatureAccess.READ_ONLY, profile.capabilities["effect"].recipe_id,
+        layout, reason="2.2.0 运行时特效表等待指针探针",
+        reason_code="SESSION_PROBE_REQUIRED", details={"runtimeAnchors": dict(runtime_layout)})
+    consumable = ConsumableMappingSpec(
+        "runtime-220-consumables-105-v1", 0x00510C80,
+        CONSUMABLE_ID_MIN_LEGACY_EXPANDED,
+        CONSUMABLE_STORAGE_COUNT_LEGACY_EXPANDED,
+        tuple(range(CONSUMABLE_ID_MIN_LEGACY_EXPANDED,
+                    CONSUMABLE_ID_MAX_LEGACY_EXPANDED + 1)),
+        # The captured layout exposes the 150..254 item domain; no separate
+        # equipment range is inferred from the protected disk image.
+        CONSUMABLE_ID_MIN_LEGACY_EXPANDED,
+        structure_fingerprint="runtime-220-consumables-v1")
+    consumable_layout = TableLayoutSpec(
+        "item_consumables", AddressResolverKind.FIXED_RVA,
+        consumable.base, consumable.storage_count, consumable.stride,
+        (FieldSpec("count", 0, consumable.width),),
+        codec="uint8-count-array-v1", semantics_proven=True, writable=False,
+        structure_fingerprint=consumable.structure_fingerprint,
+        metadata={"idMin": consumable.id_min, "uiIdMax": consumable.id_max})
+    mapping = consumable.as_mapping()
+    profile.addresses["consumable_counts"] = consumable.base
+    profile.limits.update({
+        "equipment_count": consumable.equipment_count,
+        "consumable_id_min": consumable.id_min,
+        "consumable_ui_id_max": consumable.id_max,
+        "consumable_storage_count": consumable.storage_count,
+    })
+    profile.metadata.setdefault("table_layouts", {})[
+        "item_consumables"] = consumable_layout
+    profile.metadata["consumable_mapping_spec"] = consumable
+    profile.metadata["consumable_mapping"] = mapping
+    profile.metadata["consumable_item_ids"] = list(consumable.ui_item_ids)
+    profile.metadata["consumable_runtime_recipe"] = {
+        "base": consumable.base,
+        "idMin": consumable.id_min,
+        "idMax": consumable.id_max,
+        "storageCount": consumable.storage_count,
+        "structureFingerprint": consumable.structure_fingerprint,
+    }
+    consumable_recipe = {
+        "kind": "consumable-count-array-runtime-220",
+        "countBase": consumable.base,
+        **mapping,
+    }
+    profile.capabilities["item_consumables"] = (
+        _verified_legacy_capability("item_consumables", consumable_recipe))
+    profile.resolved_features["item_consumables"] = ResolvedFeature(
+        "item_consumables", FeatureAccess.READ_ONLY,
+        profile.capabilities["item_consumables"].recipe_id,
+        consumable_layout, resolved_address=consumable.base,
+        structure_fingerprint=consumable.structure_fingerprint,
+        reason="2.2.0 运行时消耗品表等待页面权限探针",
+        reason_code="SESSION_PROBE_REQUIRED",
+        details={"runtimeAnchors": dict(runtime_layout)})
 
 
 def _apply_legacy_composite_detection(
@@ -3129,11 +4417,43 @@ def _apply_legacy_composite_detection(
     profile.metadata["image_source"] = getattr(image, "source", "disk")
     profile.metadata["identity_diagnostics"] = verify_engine_identity(
         exe_path, image)
+    target_spec = _legacy_target_spec(profile, profile.sha256)
+    is_220_runtime = False
+    if target_spec is not None:
+        profile.variant_name = str(target_spec["variant"])
+        profile.metadata["adapted_target"] = str(target_spec["adaptation"])
+        profile.metadata["target_identity"] = {
+            "sha256": profile.sha256,
+            "fileSize": profile.file_size,
+            "imageSize": profile.image_size,
+            "diskProtection": target_spec["diskProtection"],
+            "runtimeRequired": bool(target_spec["runtimeRequired"]),
+        }
+        if target_spec.get("targetEvidence"):
+            profile.metadata["target_evidence"] = dict(
+                target_spec["targetEvidence"])
+        if bool(target_spec["runtimeRequired"]):
+            # A live module and an offline mapped capture are both runtime
+            # evidence.  Keep accepting adapters that use a more specific
+            # marker such as ``runtime-capture``.
+            if not str(profile.metadata["image_source"]).startswith("runtime"):
+                _lock_protected_disk_profile(profile)
+                return profile
+            runtime_probe = _probe_220_runtime_anchors(image, target_spec)
+            profile.metadata["runtime_anchor_probe"] = runtime_probe
+            if not runtime_probe.get("passed", False):
+                profile.metadata["runtime_layout_error"] = (
+                    "运行时映像未通过2.2.0专用锚点验证，拒绝启用布局")
+                _lock_protected_disk_profile(profile)
+                return profile
+            _apply_220_runtime_layout(profile, target_spec)
+            is_220_runtime = True
 
-    if profile.version == EngineVersion.V65:
+    if profile.version in (EngineVersion.V64, EngineVersion.V65):
         try:
-            _register_effect_name_catalog_65_66(
-                image, profile.addresses, profile.metadata)
+            if profile.version == EngineVersion.V65:
+                _register_effect_name_catalog_65_66(
+                    image, profile.addresses, profile.metadata)
         except ProfileError as exc:
             profile.addresses.pop("effect_names", None)
             profile.metadata["effect_name_error"] = str(exc)
@@ -3156,9 +4476,21 @@ def _apply_legacy_composite_detection(
         else:
             item_reason = item_reason or (
                 "6.5物品索引函数未证明17字节名称布局")
-            profile.addresses["item_table"] = 0
+            # The legacy runtime contract remains usable even if a derivative
+            # replaces the lookup helper.  Hydration validates its live rows.
+            item_base = (profile.addresses.get("item_table", 0x004A1140)
+                         if str(getattr(image, "source", "disk")).startswith("runtime")
+                         else 0)
+            profile.addresses["item_table"] = item_base
+            item_codec = ITEM_CODEC_65
+            profile.metadata["item_layout"].update({
+                "runtimeTableBase": item_base, "lookupAddress": 0,
+                "lookupDiagnostic": item_reason,
+                "legacyRuntimeContract": bool(item_base)})
         try:
-            if item_codec != ITEM_CODEC_65 or item_base is None:
+            if str(getattr(image, "source", "disk")).startswith("runtime"):
+                raise ProfileError("当前进程目录等待运行时读取")
+            if item_codec != ITEM_CODEC_65 or not item_base:
                 raise ProfileError(item_reason)
             profile.metadata["item_table_66"] = load_item_table_66(
                 exe_path, item_codec)
@@ -3181,6 +4513,8 @@ def _apply_legacy_composite_detection(
                 runtime_probe_passed=True)
         except ProfileError as exc:
             profile.metadata.pop("item_table_66", None)
+            if not item_base:
+                profile.metadata.pop("item_row_codec", None)
             profile.capabilities["item_metadata"] = FeatureCapability(
                 "item_metadata", CapabilityState.UNAVAILABLE, str(exc),
                 "ITEM_METADATA_INVALID")
@@ -3192,7 +4526,7 @@ def _apply_legacy_composite_detection(
                 "6.5物品元数据不可用，禁止一键全宝: %s" % exc,
                 "ITEM_METADATA_INVALID")
 
-    if profile.version == EngineVersion.V65:
+    if profile.version == EngineVersion.V65 and not is_220_runtime:
         layout, hits, effect_reason = locate_pointer_effect_layout_8(image)
         if layout is not None:
             recipe = {
@@ -3232,8 +4566,13 @@ def _apply_legacy_composite_detection(
                 "anchorHits": hits,
                 "structureFingerprint": layout.structure_fingerprint,
             }
-            profile.addresses.pop("effect_assign_pointer", None)
-            profile.addresses["effect_assign"] = layout.reference
+            if layout.pointer_backed:
+                profile.addresses["effect_assign_pointer"] = layout.reference
+                profile.addresses["effect_assign"] = int(
+                    layout.metadata.get("initialBase", 0))
+            else:
+                profile.addresses.pop("effect_assign_pointer", None)
+                profile.addresses["effect_assign"] = layout.reference
             profile.limits["effect_record_count"] = layout.record_count
             profile.metadata["table_layouts"]["effect"] = layout
             profile.metadata["effect_layout_codec"] = layout.codec
@@ -3242,13 +4581,19 @@ def _apply_legacy_composite_detection(
             profile.resolved_features["effect"] = ResolvedFeature(
                 "effect", FeatureAccess.READ_WRITE,
                 profile.capabilities["effect"].recipe_id, layout,
-                resolved_address=layout.reference,
+                resolved_address=profile.addresses["effect_assign"],
                 structure_fingerprint=layout.structure_fingerprint,
                 runtime_probe_passed=True, details={"anchorHits": hits})
         else:
             _disable_legacy_feature(
                 profile, "effect", effect_reason,
                 "EFFECT_64_SEMANTIC_ANCHOR_MISMATCH")
+
+    if is_220_runtime:
+        # The captured 2.2.0 image has a known table anchor, but its protected
+        # disk signatures are intentionally absent.  Keep the runtime recipe
+        # installed above and wait for a live page-permission probe.
+        return profile
 
     consumable_spec, consumable_reason = locate_consumable_mapping_composite(
         image, profile.version)
@@ -3270,10 +4615,13 @@ def _apply_legacy_composite_detection(
             consumable_spec.base, consumable_spec.storage_count,
             consumable_spec.stride,
             (FieldSpec("count", 0, consumable_spec.width),),
-            codec="uint8-count-array-v1", semantics_proven=True,
+            codec=("explicit-uint8-count-map-v1" if consumable_spec.addresses
+                   else "uint8-count-array-v1"), semantics_proven=True,
             structure_fingerprint=consumable_spec.structure_fingerprint,
             metadata={"idMin": consumable_spec.id_min,
-                      "uiIdMax": consumable_spec.id_max})
+                      "uiIdMax": consumable_spec.id_max,
+                      "addresses": consumable_spec.addresses,
+                      "legacyRuntimeContract": bool(consumable_spec.addresses)})
         profile.metadata["table_layouts"]["item_consumables"] = layout
         recipe = {"kind": "consumable-count-array", **mapping,
                   "countBase": consumable_spec.base}
@@ -3297,6 +4645,317 @@ def _apply_legacy_composite_detection(
     return profile
 
 
+def _infer_engine_family(image, version_part: Optional[int]):
+    """Prefer code contracts to an often stale version resource."""
+    fallback = (engine_version_from_resource(version_part)
+                if version_part is not None else None)
+    # A modified 6.6 can deliberately retain an 8-byte effect table; do not
+    # confuse that table's codec with the executable's version family.
+    patterns_66 = (EFFECT_LAYOUT_16_QUERY_PATTERN,
+                   EFFECT_LAYOUT_16_ABSOLUTE_COUNTER_QUERY_PATTERN,
+                   EFFECT_LAYOUT_16_IMPORTED_HELPER_QUERY_PATTERN)
+    hits66 = [hit for pattern in patterns_66
+              for hit in image.find_signature(MaskedSignature.parse(pattern))]
+    if hits66:
+        return EngineVersion.V66, {"source": "code", "contract": "effect-16",
+                                   "anchors": hits66}
+    initializer = image.find_signature(MaskedSignature.parse(
+        EFFECT_LAYOUT_8_INITIALIZER_PATTERN))
+    if initializer and fallback != EngineVersion.V66:
+        return EngineVersion.V65, {"source": "code", "contract": "effect-8-fe",
+                                   "anchors": initializer}
+    writers64 = image.find_signature(MaskedSignature.parse(
+        "0F B6 45 F8 3C B3 77 ?? 6B C8 08 03 0D ?? ?? ?? ??"))
+    if writers64:
+        return EngineVersion.V64, {"source": "code", "contract": "effect-8-b3",
+                                   "anchors": writers64}
+    identity = KNOWN_LEGACY_TARGETS.get(PEImage(image.path).sha256)
+    if identity is not None:
+        return identity["version"], {"source": "known-identity",
+                                     "contract": identity["adaptation"]}
+    if fallback is None:
+        raise ProfileError("运行时代码尚未识别引擎版本，等待游戏初始化或手动选择")
+    return fallback, {"source": "version-resource", "contract": "candidate-only"}
+
+
+def _legacy_control_patches(profile, image) -> None:
+    """Materialize the historic control operations as owned code recipes."""
+    # Prefer movable semantic signatures.  Fixed legacy sites are retained
+    # only when their complete native/modified instruction bytes agree.
+    for key, label in (
+            ("control_friendly", "友军控制"),
+            ("control_all_factions", "全阵营控制"),
+            ("control_no_ai", "禁用AI"),
+            ("control_move_after_wait", "待机后移动"),
+            ("control_move_255", "移动255"),
+            ("control_pass_through", "穿越单位")):
+        spec, _reason = _locate_patch(image, key, label)
+        if spec is not None:
+            profile.patches[key] = spec
+
+    expanded = profile.version in (EngineVersion.V64, EngineVersion.V65)
+    sites_by_key = {
+        "control_friendly": ((0x43D574, b"\x74", b"\xEB"),
+            (0x43D5A5, b"\x74", b"\xEB"), (0x43E359, b"\x74", b"\xEB"),
+            (0x44E748, b"\x75\xC8", b"\x90\x90"),
+            (0x44E754, b"\x75\xBC", b"\x90\x90"),
+            (0x455379, b"\x74", b"\xEB")),
+        "control_all_factions": (
+            (0x4242AF if expanded else 0x4242B0,
+             b"\x74\xDD" if expanded else b"\x32", b"\x90\x90" if expanded else b"\x90"),
+            (0x437BC0, b"\x74\x34", b"\x90\x90"),
+            (0x454405, b"\x75\x27", b"\x90\x90"),
+            (0x455646, b"\x75", b"\xEB")),
+        "control_no_ai": ((0x44E9D3, b"\x74", b"\xEB"),),
+        "control_move_after_wait": ((0x43D5DC, b"\x74", b"\xEB"),),
+        "control_move_255": ((0x43F74F, b"\x55\x8B\xEC\x83", b"\x33\xC0\x48\xC3"),),
+        "control_pass_through": ((0x4387B7, b"\x74", b"\xEB"),
+            (0x437D59, b"\x55\x8B\xEC", b"\x33\xC0\xC3")),
+    }
+    for key, contracts in sites_by_key.items():
+        if key in profile.patches:
+            continue
+        sites = []
+        for address, original, replacement in contracts:
+            try:
+                current = image.read_va(address, len(original))
+                if current not in (original, replacement):
+                    break
+                sites.append(PatchSite(address, original, replacement))
+            except ProfileError:
+                break
+        else:
+            spec = PatchSpec(key, key, tuple(sites),
+                normalized_fingerprint=hashlib.sha256(
+                    b"legacy-control-v1" + b"".join(
+                        struct.pack("<I", site.address) + site.original
+                        for site in sites)).hexdigest().upper())
+            profile.patches[key] = spec
+    native_auto, contract, _reason = locate_auto_return_patch_66(image)
+    if native_auto is not None:
+        profile.patches["control_auto_return"] = native_auto
+        profile.metadata["auto_return_layout"] = contract
+    else:
+        dynamic_auto, reason = _legacy_auto_return_recipe(profile, image)
+        if dynamic_auto is not None:
+            profile.dynamic_patches["control_auto_return"] = dynamic_auto
+            profile.capabilities["control_auto_return"] = _verified_legacy_capability(
+                "control_auto_return", dynamic_auto.recipe())
+            profile.resolved_features["control_auto_return"] = ResolvedFeature(
+                "control_auto_return", FeatureAccess.READ_WRITE,
+                profile.capabilities["control_auto_return"].recipe_id,
+                resolved_address=dynamic_auto.call_sites[0].address)
+        else:
+            profile.metadata["auto_return_recipe_error"] = reason
+    for key, spec in profile.patches.items():
+        profile.capabilities[key] = _verified_legacy_capability(key, spec.recipe())
+        profile.resolved_features[key] = ResolvedFeature(
+            key, FeatureAccess.READ_WRITE, profile.capabilities[key].recipe_id,
+            resolved_address=spec.sites[0].address)
+
+
+def _legacy_auto_return_recipe(profile, image):
+    """Relocate the old wrench's 73-byte behavior into an owned allocation.
+
+    The final DEC intentionally uses the caller's EBP, exactly as the legacy
+    wrapper does after LEAVE.  Its two call sites expect that caller-local
+    action counter update; replacing it with a normal callee RET changes play.
+    """
+    try:
+        first = next((address for address in (0x44E570, 0x44E575)
+                      if image.read_va(address, 1) == b"\xE8"), None)
+        second = 0x44EA73
+        if first is None or image.read_va(second, 1) != b"\xE8":
+            return None, "旧自动回归两个CALL站点未识别"
+        target = _relative_call_target(image, first)
+        if _relative_call_target(image, second) != target:
+            return None, "旧自动回归两个站点未调用同一原函数"
+        if image.read_va(target, 3) != b"\x55\x8B\xEC":
+            return None, "旧自动回归原函数入口未就绪"
+        if image.read_va(0x43E6AA, 3) != b"\x55\x8B\xEC":
+            return None, "旧自动回归动作刷新函数未就绪"
+        expanded = profile.version in (EngineVersion.V64, EngineVersion.V65)
+        stub = bytearray(bytes.fromhex(
+            "558BEC83EC04FF7508E8000000008B4D0881E1FF000000"
+            "6BC90081C100000000894DFCB806000000F7D020410D"
+            "68880000006A068B4DFCFF71049090E8000000008BE55DFE4DFCC300"))
+        stub[0x19] = profile.limits["battle_stride"]
+        relocations = [StubRelocation(0x0A, "relative_reference", target),
+                       StubRelocation(0x1C, "absolute_reference",
+                                      profile.addresses["battle_units"]),
+                       StubRelocation(0x3D, "relative_reference", 0x43E6AA)]
+        if not expanded:
+            if image.read_va(0x43E4D6, 3) != b"\x55\x8B\xEC":
+                return None, "旧自动回归人物转换函数未就绪"
+            stub[0x2D:0x3C] = bytes.fromhex("FF31E80000000068880000006A0650")
+            relocations.append(StubRelocation(0x30, "relative_reference", 0x43E4D6))
+        sites = tuple(DynamicCallSite(address, image.read_va(address, 5), 5, 0xE8)
+                      for address in (first, second))
+        spec = DynamicPatchSpec(
+            "control_auto_return", "自动回归", sites, bytes(stub), tuple(relocations),
+            normalized_fingerprint=hashlib.sha256(
+                b"legacy-auto-return-relocated-v1" + bytes(stub)).hexdigest().upper())
+        return spec, ""
+    except (ProfileError, struct.error, ValueError) as exc:
+        return None, str(exc)
+
+
+def _read_legacy_name_catalog(image, address, count):
+    if address <= 0 or count <= 0:
+        return None
+    try:
+        raw = image.read_va(address, count * 16)
+        names = tuple(raw[index*16:index*16+15].split(b"\0", 1)[0]
+                      .decode("gbk") for index in range(count))
+        if sum(bool(name) and name.isprintable() for name in names) >= max(1, count // 2):
+            return names
+    except (ProfileError, UnicodeDecodeError):
+        pass
+    return None
+
+
+_SHUHAN64_REMOTE_ABI_SHA256 = (
+    "DEF7DB403D541F18B08B2399F69FEDCF567046923A042E3B79594B9D0581BF10")
+_SHUHAN64_VERIFIED_REMOTE_CALLS = {
+    "recalculate": (0x004075DF, "558BECFF711BFF71", "recalculate-person-v1",
+                    "remote-recalculate"),
+    "revive": (0x004092C7, "558BEC68FF000000", "legacy-life-v1", "remote-revive"),
+    "turn_refresh_direction": (0x00457428, "558BEC83EC1C894D", "legacy-turn-v1",
+                               "remote-direction"),
+    "turn_refresh_position": (0x004594EA, "558BEC83EC18518B", "legacy-position-v1",
+                              "remote-position"),
+}
+
+
+def _register_legacy_remote_abi_evidence(profile, image):
+    """Apply the four observed Shuhan calls only to that exact live image.
+
+    The three-cycle UI readback/restore evidence is local to this SHA, entry
+    signature and wrapper contract; other 6.4 engines inherit no ABI claim.
+    Weather remains unverified until an independent actual-call record exists.
+    """
+    if (profile.version != EngineVersion.V64 or
+            profile.sha256.upper() != _SHUHAN64_REMOTE_ABI_SHA256 or
+            not str(getattr(image, "source", "disk")).startswith("runtime")):
+        return
+    for key, (address, signature_hex, wrapper, check) in _SHUHAN64_VERIFIED_REMOTE_CALLS.items():
+        call = profile.remote_calls.get(key)
+        signature = bytes.fromhex(signature_hex)
+        if (call is None or call.address != address or call.signature != signature or
+                call.wrapper_kind != wrapper):
+            continue
+        evidence = {
+            "kind": "sha-scoped-legacy-remote-abi",
+            "sha256": profile.sha256.upper(), "address": address,
+            "entrySignature": signature_hex, "wrapper": wrapper,
+            "artifact": "shuhan64-ui-remote-roundtrip.json", "check": check,
+            "cycles": 3, "readbackPassed": True, "restored": True,
+            "gameplayObserved": False,
+        }
+        evidence_id = "local.shuhan64.20261105." + check
+        profile.remote_calls[key] = replace(call, abi_verified=True)
+        profile.metadata.setdefault("legacy_remote_abi_evidence", {})[key] = evidence
+        profile.capabilities[key] = FeatureCapability(
+            key, CapabilityState.ENABLED,
+            reason="当前模块SHA、入口签名及调用包装匹配已通过三次实机复读恢复的证据",
+            recipe_id=legacy_recipe_id(key, evidence),
+            evidence_ids=(evidence_id,), addresses={"entry": address}, recipe=evidence)
+
+
+def _finish_profile(profile, image, detection) -> EngineProfile:
+    if not profile.sha256 and getattr(image, "path", None):
+        disk_image = PEImage(image.path)
+        profile.sha256 = disk_image.sha256
+        profile.file_size = os.path.getsize(image.path)
+        profile.preferred_image_base = disk_image.image_base
+        profile.image_size = disk_image.size_of_image
+    profile.metadata.update({
+        "detection_evidence": detection,
+        "session_generation": str(getattr(image, "session_generation", "")),
+        "code_generation": str(getattr(image, "code_generation", "")),
+        "image_source": str(getattr(image, "source", "disk")),
+    })
+    if not profile.is_66:
+        # Legacy BOOLs use four-byte records.  Keep the profile read-only
+        # until the actual getter/setter, script dispatch, and matching
+        # save/load loops prove a count for this executable.
+        bool_layout = profile.metadata.get("variable_layouts", {}).get(
+            "variables_bool")
+        if isinstance(bool_layout, dict):
+            native_bool, native_reason = locate_boolean_layout_legacy(image)
+            if native_bool is not None:
+                profile.limits["variable_bool_count"] = int(
+                    native_bool["nativeRecordCount"])
+                bool_layout.update(native_bool)
+                bool_layout["recordCount"] = int(
+                    native_bool["nativeRecordCount"])
+                profile.capabilities["variables_bool"] = _capability(
+                    "variables_bool", True, recipe={
+                        "kind": "variable-table",
+                        "addressKey": "bool_vars", **native_bool})
+            else:
+                bool_layout["nativeCapacityVerified"] = False
+                bool_layout["capacityReason"] = native_reason
+                profile.capabilities["variables_bool"] = _capability(
+                    "variables_bool", False,
+                    "旧版 BOOL 容量未通过原生 getter/setter 与保存循环核验")
+    if not profile.is_66:
+        # The original 6.2 tool supports a separately expanded 126-name
+        # table.  Its content, rather than just a nonzero pointer, must prove
+        # that this runtime uses the expanded domain.
+        if profile.version == EngineVersion.V62:
+            alternate_names = _read_legacy_name_catalog(image, 0x004F0000, 126)
+            if alternate_names is not None:
+                profile.addresses["effect_names"] = 0x004F0000
+                for key in ("effect_count", "effect_name_count", "effect_record_count"):
+                    profile.limits[key] = 126
+                profile.metadata["effect_names"] = alternate_names
+                for key in ("effect", "effect_exclusive"):
+                    layout = replace(profile.metadata["table_layouts"][key],
+                                     record_count=126)
+                    profile.metadata["table_layouts"][key] = layout
+                    profile.resolved_features[key] = replace(
+                        profile.resolved_features[key], layout=layout)
+                profile.metadata["legacy_effect_name_variant"] = "6.2-expanded-126"
+        _legacy_control_patches(profile, image)
+        # Preserve the known calling convention while recording what was
+        # actually observed in this module rather than asserting ABI proof.
+        for key, call in tuple(profile.remote_calls.items()):
+            entry_address = call.address
+            try:
+                signature = image.read_va(call.address, 8)
+                code_present = signature[:3] in (b"\x55\x8B\xEC", b"\x55\x89\xE5")
+                if not code_present and signature.startswith(b"\x90"):
+                    entry_bytes = image.read_va(call.address, 40)
+                    padding = len(entry_bytes) - len(entry_bytes.lstrip(b"\x90"))
+                    if (0 < padding <= 32 and
+                            entry_bytes[padding:padding+3] in
+                            (b"\x55\x8B\xEC", b"\x55\x89\xE5")):
+                        entry_address += padding
+                        signature = entry_bytes[padding:padding+8]
+                        code_present = True
+                        profile.metadata.setdefault("remote_call_entry_aliases", {})[key] = {
+                            "requested": call.address, "entry": entry_address,
+                            "padding": padding}
+            except ProfileError:
+                signature, code_present = b"", False
+            profile.remote_calls[key] = replace(
+                call, address=entry_address,
+                signature=signature if code_present else b"", abi_verified=False)
+        _register_legacy_remote_abi_evidence(profile, image)
+        for key, count, address in (
+                ("effect_names", profile.limits["effect_name_count"],
+                 profile.addresses.get("effect_names", 0)),
+                ("runtime_fatal_names", profile.limits["fatal_count"],
+                 profile.addresses.get("fatal_names", 0))):
+            if address <= 0 or key in profile.metadata:
+                continue
+            names = _read_legacy_name_catalog(image, address, count)
+            if names is not None:
+                profile.metadata[key] = names
+    return profile
+
+
 def detect_composite_profile(
         exe_path: str, version_part: Optional[int] = None,
         manual_hint: Optional[int] = None,
@@ -3307,17 +4966,18 @@ def detect_composite_profile(
     hint selects a candidate family, while each migrated feature still has to
     pass its own semantic anchors before it becomes writable.
     """
+    image = image if image is not None else PEImage(exe_path)
     if manual_hint is None:
-        if version_part is None:
-            raise ProfileError("自动画像缺少版本资源")
-        selected = engine_version_from_resource(int(version_part))
+        selected, detection = _infer_engine_family(image, version_part)
     else:
         selected = EngineVersion(int(manual_hint))
+        detection = {"source": "manual", "selected": selected.name}
     if selected is EngineVersion.V66:
-        return detect_engine(
+        profile = detect_engine(
             exe_path, version_part=EngineVersion.V66, image=image)
+        return _finish_profile(profile, image, detection)
     profile = legacy_profile(int(selected))
     if selected in (EngineVersion.V64, EngineVersion.V65):
-        return _apply_legacy_composite_detection(
+        profile = _apply_legacy_composite_detection(
             profile, exe_path, image=image)
-    return profile
+    return _finish_profile(profile, image, detection)

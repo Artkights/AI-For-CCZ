@@ -8,9 +8,9 @@ from capability_evidence import (COLLECTOR_ID, CapabilityState, EvidenceError,
                                  EvidenceRepository, FeatureCapability,
                                  make_bundle, recipe_id, validate_bundle)
 from engine_profile import detect_engine
+from fixture_support import FIXTURE_SKIP_REASON, HAS_FIXTURES, WORKSPACE
 
 
-WORKSPACE = Path(__file__).resolve().parents[3]
 QINGER = WORKSPACE / "基底" / "清儿吕布传" / "Ekd5.exe"
 CAOCAO = WORKSPACE / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"
 
@@ -24,6 +24,7 @@ def verified_bundle(feature, sha, size, recipe, checks=None):
          "automated": True, "checks": checks})
 
 
+@unittest.skipUnless(HAS_FIXTURES, FIXTURE_SKIP_REASON)
 class CapabilityEvidenceTests(unittest.TestCase):
     def test_available_is_only_true_for_enabled_state(self):
         capability = FeatureCapability(

@@ -1,0 +1,19 @@
+# Complete offline Windows 7 x86 lock; Python 3.8.10 32-bit.
+# Regenerate with: python build_release.py --prepare-wheelhouse
+# Hashes identify the reviewed cp38/win32 (or universal) wheels.
+PyQt5==5.15.10 --hash=sha256:ff99b4f91aa8eb60510d5889faad07116d3340041916e46c07d519f7cad344e1
+PyQt5-Qt5==5.15.2 --hash=sha256:9cc7a768b1921f4b982ebc00a318ccb38578e44e45316c7a4a850e953e1dd327
+PyQt5-sip==12.13.0 --hash=sha256:108a15f603e1886988c4b0d9d41cb74c9f9815bf05cefc843d559e8c298a10ce
+psutil==5.9.8 --hash=sha256:bc56c2a1b0d15aa3eaa5a60c9f3f8e3e565303b465dbf57a1b730e7a2b9844e0
+pywin32==306 --hash=sha256:e4c092e2589b5cf0d365849e73e02c391c1349958c5ac3e9d5ccb9a28e017b3a
+setuptools==65.7.0 --hash=sha256:8ab4f1dbf2b4a65f7eec5ad0c620e84c34111a68d3349833494b9088212214dd
+PyInstaller==5.13.2 --hash=sha256:421cd24f26144f19b66d3868b49ed673176765f92fa9f7914cd2158d25b6d17e
+capstone==4.0.2 --hash=sha256:c3d9b443d1adb40ee2d9a4e7341169b76476ddcf3a54c03793b16cdc7cd35c5a
+altgraph==0.17.4 --hash=sha256:642743b4750de17e655e6711601b077bc6598dbfa3ba5fa2b2a35ce12b508dff
+pyinstaller-hooks-contrib==2023.8 --hash=sha256:d091a52fbeed71cde0359aa9ad66288521a8441cfba163d9446606c5136c72a8
+importlib-metadata==6.8.0 --hash=sha256:3ebb78df84a805d7698245025b975d9d67053cd94c79245ba4b3eb694abe68bb
+zipp==3.17.0 --hash=sha256:0e923e726174922dce09c53c59ad483ff7bbb8e572e00c7f7c46b88556409f31
+packaging==23.2 --hash=sha256:8c491190033a9af7e1d931d0b5dacc2ef47509b34dd0de67ed209b5203fc88c7
+pefile==2023.2.7 --hash=sha256:da185cd2af68c08a6cd4481f7325ed600a88f6a813bad9dea07ab3ef73d8d8d6
+pywin32-ctypes==0.2.2 --hash=sha256:bf490a1a709baf35d688fe0ecf980ed4de11d2b3e37b51e5442587a75d9957e7
+pip==23.3.2 --hash=sha256:5052d7889c1f9d05224cd41741acb7c5d6fa735ab34e339624a614eaaa7e7d76

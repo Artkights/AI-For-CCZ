@@ -62,6 +62,10 @@ class my_hook:
             abi_verified = bool(getattr(spec, "abi_verified", True))
         if not 0x00010000 <= address <= 0x7FFFFFFF:
             raise HookError("%s 入口地址无效: 0x%08X" % (key, address))
+        signature = getattr(spec, "signature", b"") if spec is not None else b""
+        if signature and self.session is not None:
+            if self.session.read_bytes(address, len(signature)) != signature:
+                raise HookError("%s 入口运行时字节已变化，请重新附加" % key)
         if not abi_verified:
             warning = ("direct_compat 允许执行未完成 ABI 验证的远程调用 "
                        "%s @ 0x%08X" % (key, address))
@@ -74,7 +78,7 @@ class my_hook:
 
     @staticmethod
     def _run(session: MemorySession, shellcode: bytes, datacode: bytes,
-             timeout_ms: int = 0xFFFFFFFF) -> None:
+             timeout_ms: int = 10000) -> None:
         code_address = 0
         data_address = 0
         thread = 0
@@ -182,12 +186,24 @@ class my_hook:
 
     def recal(self, h_process, code):
         session = self._get_session(h_process)
+        spec = (self.profile.remote_calls.get("recalculate")
+                if self.profile is not None else None)
+        if spec is not None and spec.wrapper_kind not in (
+                "", "recalculate-person-v1"):
+            raise HookError("人物能力重算使用了当前扳手不支持的调用包装")
+        code = int(code)
+        if not session.validate_actual_range(code, 0x48, write=True):
+            raise HookError("人物能力重算记录范围无效: 0x%08X" % code)
         function = session.resolve_reference(self._call_address("recalculate", 0x004075DF))
         shellcode = (
             b"\x55\x8B\xEC\x8B\x45\x08\x8B\x08\xFF\x30\xFF\x50\x04"
-            b"\x8B\xE5\x5D\xC2\x04\x00"
+            b"\x33\xC0\x8B\xE5\x5D\xC2\x04\x00"
         )
-        self._run(session, shellcode, struct.pack("<II", int(code), function))
+        if self.profile is not None and hasattr(
+                self.profile, "note_compatibility_call"):
+            self.profile.note_compatibility_call(
+                "recalculate", function, (code,))
+        self._run(session, shellcode, struct.pack("<II", code, function))
 
     def changeDir(self, h_process, direction, code):
         session = self._get_session(h_process)
@@ -215,7 +231,7 @@ class my_hook:
         unit_lookup = session.resolve_reference(context_reference)
         shellcode = (
             b"\x55\x8B\xEC\x8B\x45\x08\x6A\x00\xFF\x30\x68\xFF\xFF\x00\x00"
-            b"\xFF\x70\x04\x8B\x48\x08\xFF\x50\x0C\x8B\xE5\x5D\xC2\x04\x00"
+            b"\xFF\x70\x04\x8B\x48\x08\xFF\x50\x0C\x33\xC0\x8B\xE5\x5D\xC2\x04\x00"
         )
         data = struct.pack("<IIII", int(direction), int(code), unit_lookup, refresh)
         self._run(session, shellcode, data)
@@ -233,7 +249,7 @@ class my_hook:
         refresh = session.resolve_reference(refresh_reference)
         shellcode = (
             b"\x55\x8B\xEC\x8B\x45\x08\xFF\x30\xFF\x70\x04\xFF\x70\x08"
-            b"\xFF\x70\x0C\x8B\x48\x10\xFF\x50\x14\x8B\xE5\x5D\xC2\x04\x00"
+            b"\xFF\x70\x0C\x8B\x48\x10\xFF\x50\x14\x33\xC0\x8B\xE5\x5D\xC2\x04\x00"
         )
         data = struct.pack("<IIIIII", int(direction), int(y), int(x), int(code),
                            unit_lookup, refresh)
@@ -246,7 +262,7 @@ class my_hook:
         shellcode = (
             b"\x55\x8B\xEC\x8B\x45\x08\xFF\x30\xB9" +
             struct.pack("<I", weather_context) +
-            b"\xFF\x50\x04\x8B\xE5\x5D\xC2\x04\x00"
+            b"\xFF\x50\x04\x33\xC0\x8B\xE5\x5D\xC2\x04\x00"
         )
         self._run(session, shellcode, struct.pack("<II", int(weather), function))
 

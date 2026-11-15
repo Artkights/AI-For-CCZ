@@ -11,13 +11,14 @@ from evidence_collector import (CollectorError, WindowsBreakpointCollector,
                                 build_parser, collect_static,
                                 verify_captured_bundle)
 from process_memory import FakeMemoryBackend, MemorySession
+from fixture_support import FIXTURE_SKIP_REASON, HAS_FIXTURES, WORKSPACE
 
 
-WORKSPACE = Path(__file__).resolve().parents[3]
 CAOCAO = WORKSPACE / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"
 HAS_CAPSTONE = importlib.util.find_spec("capstone") is not None
 
 
+@unittest.skipUnless(HAS_FIXTURES, FIXTURE_SKIP_REASON)
 class EvidenceCollectorTests(unittest.TestCase):
     @unittest.skipUnless(HAS_CAPSTONE, "Capstone development dependency is absent")
     def test_static_collector_writes_manifest_and_normalized_code(self):

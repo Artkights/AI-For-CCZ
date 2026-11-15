@@ -15,7 +15,8 @@ from engine_profile import (EFFECT_LAYOUT_16_ABSOLUTE_COUNTER_QUERY_PATTERN,
                              KNOWN_66, KNOWN_66_VARIANTS, ConsumableMappingSpec,
                              EngineVersion,
                              EffectAssignmentRow66, EffectAssignmentSlot66,
-                             EffectAssignmentRow8, MaskedSignature, PEImage,
+                             EffectAssignmentRow8, MappedRuntimeImage,
+                             MaskedSignature, PEImage,
                              RuntimeModuleImage,
                              ProfileError,
                              detect_composite_profile, detect_engine,
@@ -26,13 +27,16 @@ from engine_profile import (EFFECT_LAYOUT_16_ABSOLUTE_COUNTER_QUERY_PATTERN,
                              locate_item_row_codec,
                              parse_effect_assignment_row_8,
                              parse_effect_assignment_row_66,
+                             _locate_patch,
                              verify_engine_identity)
 from process_memory import FakeMemoryBackend, MemoryAccessError, MemorySession
+from fixture_support import FIXTURE_SKIP_REASON, HAS_FIXTURES, WORKSPACE
 
 
-WORKSPACE = Path(__file__).resolve().parents[3]
 QINGER = WORKSPACE / "基底" / "清儿吕布传" / "Ekd5.exe"
 CAOCAO = WORKSPACE / "基底" / "新改曹操傳6.6修正版" / "Ekd5.exe"
+XINNAI = (WORKSPACE / "基底" /
+          "信奈的野望12关版（密码nobuna）" / "Ekd5.exe")
 BASE65 = WORKSPACE / "基底" / "加强版6.5未加密版" / "Ekd5.exe"
 HOUHEI = WORKSPACE / "基底" / "厚黑6.6测（7.9水杯版）" / "Ekd5.exe"
 V716 = WORKSPACE / "基底" / "曹操传6.6-V7.16 解压密码：66" / "Ekd5.exe"
@@ -42,9 +46,52 @@ LIEYAN = (WORKSPACE / "基底" /
           "烈焰同盟6.6x(新修版)黄线完结+红线5关" / "Ekd5.exe")
 BASE64 = (WORKSPACE / "基底" /
           "三国之召唤猛将6.4（60关版）基底" / "Ekd5.exe")
+BASE220 = WORKSPACE / "基底" / "加强版2.2.0" / "Ekd5.exe"
+BASE220_RUNTIME = (WORKSPACE / "验证" / "加速功能修复-20261024" /
+                   "2.2.0-runtime" / "pid6152-mainimage.rva.bin")
 PL65 = (WORKSPACE / "基底" /
         "6.5pl加强版神话三国志2026新春版+攻略【密码shsgz65】" / "Ekd5.exe")
 DONGWU65 = WORKSPACE / "基底" / "东吴霸王传6.5" / "Ekd5.exe"
+
+
+class RuntimeDiskImage(PEImage):
+    """Use a mutated disk copy as a deterministic runtime-image fixture."""
+
+    source = "runtime"
+
+
+class PatchRuntimeAccessTests(unittest.TestCase):
+    def test_runtime_ownership_gate_applies_to_both_access_policies(self):
+        for policy in ("direct_compat", "evidence_gated"):
+            profile = legacy_profile(EngineVersion.V65)
+            profile.access_policy = policy
+            key = "control_friendly"
+            self.assertTrue(profile.can_write(key))
+            for state in ("EXTERNAL_PATCHED", "PARTIAL", "EXTERNAL_CHANGED",
+                          "UNREADABLE_CONFIRMED", "UNKNOWN_FUTURE_STATE"):
+                with self.subTest(policy=policy, state=state):
+                    profile.set_patch_runtime_state(key, state, "runtime reason")
+                    self.assertFalse(profile.can_write(key))
+                    self.assertEqual(state, profile.patch_runtime_states[key])
+                    self.assertEqual("runtime reason",
+                                     profile.patch_runtime_reasons[key])
+                    self.assertTrue(profile.can_write("control_no_ai"))
+                    self.assertTrue(profile.can_write("recalculate"))
+            for state in ("ORIGINAL", "OWNED_PATCHED", "UNREADABLE"):
+                with self.subTest(policy=policy, state=state):
+                    profile.set_patch_runtime_state(key, state.lower())
+                    self.assertTrue(profile.can_write(key))
+                    self.assertEqual(state, profile.patch_runtime_states[key])
+                    self.assertEqual("", profile.patch_runtime_reasons[key])
+
+    def test_runtime_patch_state_is_not_shared_between_profiles(self):
+        first = legacy_profile(EngineVersion.V65)
+        second = legacy_profile(EngineVersion.V65)
+        first.set_patch_runtime_state("control_friendly", "EXTERNAL_PATCHED")
+        self.assertFalse(first.can_write("control_friendly"))
+        self.assertTrue(second.can_write("control_friendly"))
+        self.assertEqual({}, second.patch_runtime_states)
+        self.assertEqual({}, second.patch_runtime_reasons)
 
 
 def mapped_runtime_image(identity_path, content_path, actual_base=0x00700000):
@@ -64,6 +111,7 @@ def mapped_runtime_image(identity_path, content_path, actual_base=0x00700000):
     return RuntimeModuleImage(str(identity_path), session), session, backend
 
 
+@unittest.skipUnless(HAS_FIXTURES, FIXTURE_SKIP_REASON)
 class EngineProfileTests(unittest.TestCase):
     def test_packed_yihe_identity_is_diagnostic_instead_of_attach_gate(self):
         image = PEImage(str(YIHE))
@@ -566,7 +614,11 @@ class EngineProfileTests(unittest.TestCase):
                 self.assertEqual(1, layout["width"])
                 self.assertEqual("bitset", layout["storage"])
                 self.assertEqual("msb0", layout["bitOrder"])
-                self.assertEqual(512, layout["storageBytes"])
+                self.assertEqual(192, layout["storageBytes"])
+                self.assertEqual(256, layout["browseStorageBytes"])
+                self.assertEqual(1536, layout["writableRecordCount"])
+                self.assertEqual(2048, layout["browseRecordCount"])
+                self.assertTrue(layout["formatVerified"])
                 auto_return = profile.metadata["auto_return_layout"]
                 self.assertEqual("native-second-action-unrestricted",
                                  auto_return["mode"])
@@ -609,6 +661,131 @@ class EngineProfileTests(unittest.TestCase):
             recipes.append(spec.recipe())
         self.assertEqual(recipes[0], recipes[1])
 
+    def test_runtime_patch_locator_accepts_complete_patched_state_only(self):
+        source = PEImage(str(CAOCAO))
+        original = detect_engine(str(CAOCAO), version_part=6).patches[
+            "control_friendly"]
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "Ekd5.exe"
+            shutil.copyfile(CAOCAO, target)
+            data = bytearray(target.read_bytes())
+            for site in original.sites:
+                offset = source.va_to_offset(site.address)
+                data[offset:offset + len(site.patched)] = site.patched
+            target.write_bytes(data)
+
+            # Disk/static recognition remains strict: a modified file is not
+            # silently accepted as a clean baseline.
+            static_spec, static_reason = _locate_patch(
+                PEImage(str(target)), "control_friendly", "友军控制")
+            self.assertIsNone(static_spec)
+            self.assertTrue(static_reason)
+
+            runtime_spec, runtime_reason = _locate_patch(
+                RuntimeDiskImage(str(target)), "control_friendly", "友军控制")
+            self.assertEqual("", runtime_reason)
+            self.assertIsNotNone(runtime_spec)
+            self.assertEqual("patched", runtime_spec.observed_state)
+            self.assertEqual(
+                ("patched",) * len(original.sites),
+                runtime_spec.observed_site_states)
+            self.assertEqual(original.recipe(), runtime_spec.recipe())
+
+    def test_runtime_patch_locator_rejects_partial_or_foreign_sites(self):
+        source = PEImage(str(CAOCAO))
+        original = detect_engine(str(CAOCAO), version_part=6).patches[
+            "control_friendly"]
+        for mode in ("partial", "foreign"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "Ekd5.exe"
+                shutil.copyfile(CAOCAO, target)
+                data = bytearray(target.read_bytes())
+                site = original.sites[0]
+                offset = source.va_to_offset(site.address)
+                replacement = (site.patched if mode == "partial" else
+                               b"\xCC" * len(site.original))
+                data[offset:offset + len(replacement)] = replacement
+                target.write_bytes(data)
+                spec, reason = _locate_patch(
+                    RuntimeDiskImage(str(target)), "control_friendly", "友军控制")
+                self.assertIsNone(spec)
+                self.assertTrue(reason)
+
+    def test_runtime_auto_return_locator_accepts_complete_patched_state(self):
+        source = PEImage(str(CAOCAO))
+        clean, _contract, reason = locate_auto_return_patch_66(source)
+        self.assertEqual("", reason)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "Ekd5.exe"
+            shutil.copyfile(CAOCAO, target)
+            data = bytearray(target.read_bytes())
+            for site in clean.sites:
+                offset = source.va_to_offset(site.address)
+                data[offset:offset + len(site.patched)] = site.patched
+            target.write_bytes(data)
+
+            runtime_spec, contract, runtime_reason = locate_auto_return_patch_66(
+                RuntimeDiskImage(str(target)))
+            self.assertEqual("", runtime_reason)
+            self.assertIsNotNone(runtime_spec)
+            self.assertEqual("patched", runtime_spec.observed_state)
+            self.assertEqual(("patched",) * 3,
+                             runtime_spec.observed_site_states)
+            self.assertEqual("patched", contract["observedState"])
+            self.assertEqual(["patched"] * 3,
+                             contract["observedSiteStates"])
+            self.assertEqual(clean.recipe(), runtime_spec.recipe())
+
+    def test_runtime_auto_return_locator_rejects_partial_or_foreign_sites(self):
+        source = PEImage(str(CAOCAO))
+        clean, _contract, reason = locate_auto_return_patch_66(source)
+        self.assertEqual("", reason)
+        for mode in ("partial", "foreign"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "Ekd5.exe"
+                shutil.copyfile(CAOCAO, target)
+                data = bytearray(target.read_bytes())
+                site = clean.sites[0]
+                offset = source.va_to_offset(site.address)
+                replacement = (site.patched if mode == "partial" else
+                               b"\xCC" * len(site.original))
+                data[offset:offset + len(replacement)] = replacement
+                target.write_bytes(data)
+                spec, _contract, reason = locate_auto_return_patch_66(
+                    RuntimeDiskImage(str(target)))
+                self.assertIsNone(spec)
+                self.assertTrue(reason)
+
+    def test_runtime_locators_reject_original_and_patched_duplicate_candidates(self):
+        source = PEImage(str(CAOCAO))
+        auto_spec, contract, reason = locate_auto_return_patch_66(source)
+        self.assertEqual("", reason)
+        control_spec, reason = _locate_patch(
+            source, "control_no_ai", "禁用AI")
+        self.assertEqual("", reason)
+        cases = (
+            ("control", control_spec.sites[0].address - 8, 15, 8,
+             control_spec.sites[0].patched),
+            ("auto", contract["signatureHits"]["gate"], 26, 0x0B,
+             auto_spec.sites[0].patched),
+        )
+        for mode, start, length, target_offset, patched in cases:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / "Ekd5.exe"
+                data = bytearray(source.data)
+                duplicate = bytearray(source.read_va(start, length))
+                duplicate[target_offset:target_offset + len(patched)] = patched
+                offset = source.va_to_offset(0x00401000)
+                data[offset:offset + len(duplicate)] = duplicate
+                target.write_bytes(data)
+                image = RuntimeDiskImage(str(target))
+                if mode == "control":
+                    spec, reason = _locate_patch(image, "control_no_ai", "禁用AI")
+                else:
+                    spec, _contract, reason = locate_auto_return_patch_66(image)
+                self.assertIsNone(spec)
+                self.assertIn("2", reason)
+
     def test_modified_auto_return_signature_disables_only_that_feature(self):
         source = PEImage(str(CAOCAO))
         with tempfile.TemporaryDirectory() as directory:
@@ -641,6 +818,7 @@ class EngineProfileTests(unittest.TestCase):
 
     def test_runtime_probe_uses_compact_bool_and_ui_consumable_ranges(self):
         profile = detect_engine(str(CAOCAO), version_part=6)
+        image = PEImage(str(CAOCAO))
 
         class ProbeMemory:
             def __init__(self):
@@ -658,7 +836,10 @@ class EngineProfileTests(unittest.TestCase):
                 for call in profile.remote_calls.values():
                     if call.address == address and len(call.signature) == size:
                         return call.signature
-                return b"\0" * size
+                try:
+                    return image.read_va(address, size)
+                except ProfileError:
+                    return b"\0" * size
 
             def read_u16(self, _address):
                 return 0xFFFF
@@ -689,8 +870,12 @@ class EngineProfileTests(unittest.TestCase):
 
         memory = ProbeMemory()
         profile.probe_runtime(memory)
-        self.assertIn((profile.addresses["bool_vars"], 512, True),
+        self.assertIn((profile.addresses["bool_vars"], 192, True),
                       memory.ranges)
+        self.assertIn((profile.addresses["bool_vars"], 256, False),
+                      memory.ranges)
+        self.assertNotIn((profile.addresses["bool_vars"], 512, True),
+                         memory.ranges)
         self.assertIn((profile.addresses["consumable_counts"], 352, True),
                       memory.ranges)
 
@@ -718,7 +903,7 @@ class EngineProfileTests(unittest.TestCase):
             self.assertEqual(site.original,
                              backend.read(actual_site, len(site.original)))
 
-    def test_auto_return_third_site_failure_keeps_first_two_direct_writes(self):
+    def test_auto_return_third_site_failure_rolls_back_all_sites(self):
         profile = detect_engine(str(CAOCAO), version_part=6)
         spec = profile.patches["control_auto_return"]
         base = profile.preferred_image_base
@@ -733,14 +918,48 @@ class EngineProfileTests(unittest.TestCase):
         backend.fail_write_at = spec.sites[2].address
         with self.assertRaises(MemoryAccessError):
             session.set_patch(spec, True)
-        for index, site in enumerate(spec.sites):
-            expected = site.patched if index < 2 else site.original
-            self.assertEqual(expected,
-                             backend.read(site.address, len(expected)))
+        for site in spec.sites:
+            self.assertEqual(site.original,
+                             backend.read(site.address, len(site.original)))
 
     def test_known_sha_table_is_complete(self):
         self.assertEqual(2, len(KNOWN_66))
-        self.assertEqual(2, len(KNOWN_66_VARIANTS))
+        self.assertEqual(6, len(KNOWN_66_VARIANTS))
+        # Display-only Xinnai derivatives keep their exact size/hash pairs;
+        # none of them changes the two runtime-evidence baselines.
+        for sha, size in (
+                ("F13022762138E2DB3E5E263079D5A36F6407D0CFA533622F84B2550E80636727", 1132544),
+                ("9E3EE0ADE22EA855FF64ACAB864D8C14B7E9E800FD5CA08C8B27D1E5CF6889BE", 1132544),
+                ("59CAB212E786F0771AE0FE8368BD4B8DAB7FF4B9AA3A25085FED36E45A88F081", 1139200)):
+            self.assertEqual(("信奈的野望12关版", size),
+                             KNOWN_66_VARIANTS[sha])
+            self.assertNotIn(sha, KNOWN_66)
+
+    def test_xinnai_identity_person_abi_and_variable_boundaries(self):
+        profile = detect_engine(str(XINNAI), version_part=6)
+        self.assertEqual("信奈的野望12关版", profile.variant_name)
+        accepted_identities = {
+            "F13022762138E2DB3E5E263079D5A36F6407D0CFA533622F84B2550E80636727": 1132544,
+            "9E3EE0ADE22EA855FF64ACAB864D8C14B7E9E800FD5CA08C8B27D1E5CF6889BE": 1132544,
+            "59CAB212E786F0771AE0FE8368BD4B8DAB7FF4B9AA3A25085FED36E45A88F081": 1139200,
+        }
+        self.assertIn(profile.sha256, accepted_identities)
+        self.assertEqual(accepted_identities[profile.sha256], profile.file_size)
+        person = profile.resolved_feature("person").layout
+        self.assertIsNotNone(person)
+        self.assertEqual(0x004CEA00, person.reference)
+        self.assertEqual(0x48, person.stride)
+        self.assertEqual(1024, person.record_count)
+        self.assertEqual("person-48-v2", person.codec)
+        self.assertEqual(1536, profile.limits["variable_bool_count"])
+        self.assertEqual(4096, profile.limits["variable_int_count"])
+        self.assertEqual(481, profile.limits["variable_ptr_count"])
+        call = profile.remote_calls["recalculate"]
+        self.assertEqual(0x004075DF, call.address)
+        self.assertEqual("thiscall", call.calling_convention)
+        self.assertIn("person_record_ptr", call.ecx_source)
+        self.assertEqual(4, call.callee_cleanup)
+        self.assertEqual("recalculate-person-v1", call.wrapper_kind)
 
     def test_legacy_profiles_keep_normal_enabled_semantics(self):
         profile = legacy_profile(0)
@@ -783,6 +1002,100 @@ class EngineProfileTests(unittest.TestCase):
         self.assertTrue(layout65.pointer_backed)
         self.assertEqual(255, layout65.record_count)
         self.assertEqual(180, profile65.limits["effect_count"])
+
+    def test_local_64_adaptation_identity_keeps_static_layout_writable(self):
+        profile = detect_composite_profile(str(BASE64), version_part=4)
+        self.assertEqual(
+            "1F6E07BC5C6B1ECB1DFF254BADCDEA6B922F15D7CC1B1C5D5DE4A8BCE7DE95A0",
+            profile.sha256)
+        self.assertEqual("static-64-zhaohuan-60",
+                         profile.metadata["adapted_target"])
+        identity = profile.metadata["target_identity"]
+        self.assertEqual("none", identity["diskProtection"])
+        self.assertFalse(identity["runtimeRequired"])
+        self.assertTrue(profile.direct_write)
+        self.assertEqual(0x00508998,
+                         profile.resolved_feature("effect").layout.reference)
+        self.assertEqual(FeatureAccess.READ_WRITE,
+                         profile.resolved_feature("effect").access)
+        self.assertEqual(0x00422032,
+                         profile.metadata["target_evidence"]["effectAnchor"])
+
+    def test_local_220_disk_image_requires_runtime_unpack_before_writes(self):
+        profile = detect_composite_profile(str(BASE220), version_part=5)
+        self.assertEqual(
+            "1D8E83F73E7780C60B0B5DE5277D54490F72472270F727C97753F8E72AE4B381",
+            profile.sha256)
+        self.assertEqual("runtime-65-220",
+                         profile.metadata["adapted_target"])
+        identity = profile.metadata["target_identity"]
+        self.assertEqual("VProtect", identity["diskProtection"])
+        self.assertTrue(identity["runtimeRequired"])
+        self.assertFalse(profile.direct_write)
+        self.assertEqual("evidence_gated", profile.access_policy)
+        # The capability recipe remains useful as an audit record, while the
+        # unresolved disk image cannot be read or written as a live table.
+        self.assertFalse(profile.can_read("effect"))
+        self.assertFalse(profile.can_write("effect"))
+        self.assertEqual(FeatureAccess.UNAVAILABLE,
+                         profile.resolved_feature("effect").access)
+        self.assertEqual("PROTECTED_DISK_RUNTIME_REQUIRED",
+                         profile.resolved_feature("effect").reason_code)
+
+    def test_local_220_mapped_runtime_capture_enables_audited_layout(self):
+        image = MappedRuntimeImage(str(BASE220), str(BASE220_RUNTIME))
+        profile = detect_composite_profile(
+            str(BASE220), version_part=5, image=image)
+        self.assertEqual("runtime-65-220",
+                         profile.metadata["adapted_target"])
+        self.assertEqual("runtime", profile.metadata["image_source"])
+        self.assertTrue(profile.metadata["runtime_layout_verified"])
+        self.assertFalse(profile.direct_write)
+        self.assertEqual("evidence_gated", profile.access_policy)
+        effect = profile.resolved_feature("effect")
+        self.assertEqual(FeatureAccess.READ_ONLY, effect.access)
+        self.assertEqual("SESSION_PROBE_REQUIRED", effect.reason_code)
+        self.assertEqual(0x00500C3B, effect.layout.reference)
+        self.assertEqual(255, effect.layout.record_count)
+        consumables = profile.resolved_feature("item_consumables")
+        self.assertEqual(FeatureAccess.READ_ONLY, consumables.access)
+        self.assertEqual("SESSION_PROBE_REQUIRED", consumables.reason_code)
+        self.assertEqual(0x00510C80, consumables.layout.reference)
+        self.assertFalse(profile.can_write("effect"))
+        self.assertFalse(profile.can_write("item_consumables"))
+        # 2.2.0 has no root Data.e5 sidecar, so item names stay unavailable
+        # instead of being fabricated from an unrelated Star.e5 file.
+        self.assertEqual(FeatureAccess.UNAVAILABLE,
+                         profile.resolved_feature("item_metadata").access)
+
+    def test_local_220_runtime_adapter_marker_is_accepted(self):
+        image = MappedRuntimeImage(str(BASE220), str(BASE220_RUNTIME))
+        image.source = "runtime-capture"
+        profile = detect_composite_profile(
+            str(BASE220), version_part=5, image=image)
+        self.assertEqual("runtime-capture", profile.metadata["image_source"])
+        self.assertTrue(profile.metadata["runtime_layout_verified"])
+        self.assertFalse(profile.direct_write)
+        self.assertEqual("evidence_gated", profile.access_policy)
+
+    def test_local_220_runtime_capture_with_bad_anchor_stays_locked(self):
+        raw = bytearray(BASE220_RUNTIME.read_bytes())
+        # Three of the five audited prologues are changed, leaving fewer than
+        # the required three independent runtime anchors.
+        for address in (0x4250B3, 0x42C4E0, 0x4750E0):
+            raw[address - 0x400000] ^= 0xFF
+        with tempfile.TemporaryDirectory() as directory:
+            capture = Path(directory) / "runtime.rva.bin"
+            capture.write_bytes(raw)
+            image = MappedRuntimeImage(str(BASE220), str(capture))
+            profile = detect_composite_profile(
+                str(BASE220), version_part=5, image=image)
+        self.assertFalse(profile.metadata["runtime_anchor_probe"]["passed"])
+        self.assertFalse(profile.metadata.get("runtime_layout_verified", False))
+        self.assertFalse(profile.direct_write)
+        self.assertEqual("evidence_gated", profile.access_policy)
+        self.assertEqual("PROTECTED_DISK_RUNTIME_REQUIRED",
+                         profile.resolved_feature("effect").reason_code)
 
     def test_65_runtime_probe_dereferences_255_by_8_effect_table(self):
         profile = detect_composite_profile(str(BASE65), version_part=5)
